@@ -1,16 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { buildProviderDraft, PROVIDER_TEMPLATES } from "@/lib/shared/providers";
 import type {
   ConversationRecord,
   ConversationSummary,
   DesktopBackgroundId,
-  DirectoryListing,
+  DesktopBackgroundPresetId,
   FileEntry,
   ProviderDraft,
-  ProviderRecord,
   SettingsSnapshot,
   ThemeMode,
 } from "@/lib/shared/types";
@@ -24,374 +23,22 @@ import {
   TextInput,
 } from "@/components/ui/primitives";
 import {
+  ArrowUpIcon,
   FileIcon,
   FolderIcon,
+  ImageIcon,
+  MicrophoneIcon,
+  PaperclipIcon,
   PlusIcon,
-  RefreshIcon,
   SettingsIcon,
+  SidebarIcon,
   SparkIcon,
   TerminalIcon,
   UploadIcon,
 } from "@/components/ui/icons";
-
-export function FileExplorerPanel({
-  listing,
-  onNavigate,
-  onOpenEntry,
-  onRefresh,
-  onCreateDirectory,
-  onUpload,
-  onRename,
-  onMove,
-  onDelete,
-}: {
-  listing: DirectoryListing | null;
-  onNavigate: (path: string) => void;
-  onOpenEntry: (entry: FileEntry) => void;
-  onRefresh: () => void;
-  onCreateDirectory: (name: string) => Promise<void>;
-  onUpload: (files: FileList) => Promise<void>;
-  onRename: (entry: FileEntry, name: string) => Promise<void>;
-  onMove: (entry: FileEntry, destination: string) => Promise<void>;
-  onDelete: (entry: FileEntry) => Promise<void>;
-}) {
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const uploadInputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    if (!listing?.entries.some((entry) => entry.path === selectedPath)) {
-      setSelectedPath(null);
-    }
-  }, [listing, selectedPath]);
-
-  const selectedEntry =
-    listing?.entries.find((entry) => entry.path === selectedPath) ?? null;
-
-  const breadcrumbs = useMemo(() => {
-    const path = listing?.path ?? "";
-    if (!path) {
-      return [{ label: "workspace", value: "" }];
-    }
-    const segments = path.split("/");
-    return [{ label: "workspace", value: "" }].concat(
-      segments.map((segment, index) => ({
-        label: segment,
-        value: segments.slice(0, index + 1).join("/"),
-      }))
-    );
-  }, [listing?.path]);
-
-  return (
-    <div className="nl-panel">
-      <div className="nl-panel__toolbar">
-        <div className="nl-breadcrumbs">
-          {breadcrumbs.map((crumb) => (
-            <button
-              key={crumb.value || "root"}
-              type="button"
-              className="nl-breadcrumb"
-              onClick={() => onNavigate(crumb.value)}
-            >
-              {crumb.label}
-            </button>
-          ))}
-        </div>
-        <div className="nl-toolbar-actions">
-          <Button
-            variant="ghost"
-            onClick={async () => {
-              const name = window.prompt("New folder name");
-              if (name) {
-                await onCreateDirectory(name);
-              }
-            }}
-          >
-            <PlusIcon className="nl-inline-icon" />
-            Folder
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={() => uploadInputRef.current?.click()}
-          >
-            <UploadIcon className="nl-inline-icon" />
-            Upload
-          </Button>
-          <Button variant="ghost" onClick={onRefresh}>
-            <RefreshIcon className="nl-inline-icon" />
-            Refresh
-          </Button>
-        </div>
-      </div>
-
-      <input
-        ref={uploadInputRef}
-        className="nl-hidden-input"
-        type="file"
-        multiple
-        onChange={async (event) => {
-          const files = event.target.files;
-          event.target.value = "";
-          if (files?.length) {
-            await onUpload(files);
-          }
-        }}
-      />
-
-      <div className="nl-split">
-        <div className="nl-list">
-          {listing?.entries.map((entry) => (
-            <button
-              key={entry.path}
-              type="button"
-              className={cn(
-                "nl-list-item",
-                selectedPath === entry.path && "nl-list-item--selected"
-              )}
-              onClick={() => setSelectedPath(entry.path)}
-              onDoubleClick={() => onOpenEntry(entry)}
-            >
-              {entry.isDirectory ? (
-                <FolderIcon className="nl-list-item__icon nl-list-item__icon--folder" />
-              ) : (
-                <FileIcon className="nl-list-item__icon" />
-              )}
-              <span className="nl-list-item__meta">
-                <strong>{entry.name}</strong>
-                <span>{entry.isDirectory ? "Folder" : entry.mimeType}</span>
-              </span>
-            </button>
-          ))}
-          {!listing?.entries.length ? (
-            <div className="nl-empty-state">This folder is empty.</div>
-          ) : null}
-        </div>
-
-        <aside className="nl-sidebar-card">
-          <h3>Selection</h3>
-          {selectedEntry ? (
-            <>
-              <dl className="nl-meta-grid">
-                <div>
-                  <dt>Name</dt>
-                  <dd>{selectedEntry.name}</dd>
-                </div>
-                <div>
-                  <dt>Path</dt>
-                  <dd>{selectedEntry.path || "/"}</dd>
-                </div>
-                <div>
-                  <dt>Type</dt>
-                  <dd>{selectedEntry.isDirectory ? "Directory" : selectedEntry.mimeType}</dd>
-                </div>
-                <div>
-                  <dt>Size</dt>
-                  <dd>{selectedEntry.isDirectory ? "-" : `${selectedEntry.size} bytes`}</dd>
-                </div>
-              </dl>
-              <div className="nl-stack-sm">
-                <Button onClick={() => onOpenEntry(selectedEntry)}>
-                  Open
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={async () => {
-                    const name = window.prompt("Rename to", selectedEntry.name);
-                    if (name && name !== selectedEntry.name) {
-                      await onRename(selectedEntry, name);
-                    }
-                  }}
-                >
-                  Rename
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={async () => {
-                    const destination = window.prompt(
-                      "Move to folder",
-                      listing?.path ?? ""
-                    );
-                    if (destination !== null) {
-                      await onMove(selectedEntry, destination);
-                    }
-                  }}
-                >
-                  Move
-                </Button>
-                <Button
-                  variant="danger"
-                  onClick={async () => {
-                    if (
-                      window.confirm(
-                        `Delete ${selectedEntry.name}? This cannot be undone.`
-                      )
-                    ) {
-                      await onDelete(selectedEntry);
-                    }
-                  }}
-                >
-                  Delete
-                </Button>
-              </div>
-            </>
-          ) : (
-            <p className="nl-muted-copy">
-              Pick a file or folder to inspect it here.
-            </p>
-          )}
-        </aside>
-      </div>
-    </div>
-  );
-}
-
-export function TextEditorPanel({
-  path,
-  content,
-  dirty,
-  loading,
-  error,
-  onChange,
-  onSave,
-  onSaveAs,
-}: {
-  path: string | null;
-  content: string;
-  dirty: boolean;
-  loading: boolean;
-  error: string | null;
-  onChange: (content: string) => void;
-  onSave: () => Promise<void>;
-  onSaveAs: (path: string) => Promise<void>;
-}) {
-  return (
-    <div className="nl-panel nl-panel--editor">
-      <div className="nl-panel__toolbar">
-        <div>
-          <strong>{path ?? "Scratch Pad"}</strong>
-          <div className="nl-toolbar-subcopy">
-            {dirty ? "Unsaved changes" : "Saved"}
-          </div>
-        </div>
-        <div className="nl-toolbar-actions">
-          <Button
-            variant="ghost"
-            onClick={async () => {
-              const nextPath = window.prompt(
-                "Save as",
-                path || `notes/${new Date().toISOString().slice(0, 10)}.md`
-              );
-              if (nextPath) {
-                await onSaveAs(nextPath);
-              }
-            }}
-          >
-            Save As
-          </Button>
-          <Button onClick={onSave} disabled={loading}>
-            {loading ? "Saving..." : "Save"}
-          </Button>
-        </div>
-      </div>
-      {error ? <div className="nl-error-banner">{error}</div> : null}
-      <TextArea
-        className="nl-editor"
-        spellCheck={false}
-        value={content}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </div>
-  );
-}
-
-export function TerminalPanel({
-  sessionId,
-  onCloseSession,
-}: {
-  sessionId: string;
-  onCloseSession: () => Promise<void>;
-}) {
-  const [lines, setLines] = useState<string[]>([]);
-  const [draft, setDraft] = useState("");
-  const [alive, setAlive] = useState(true);
-  const outputRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const eventSource = new EventSource(
-      `/api/neural-labs/terminal/sessions/${sessionId}/stream`
-    );
-
-    eventSource.onmessage = (event) => {
-      const payload = JSON.parse(event.data) as {
-        type: "output" | "exit";
-        text: string;
-      };
-      setLines((current) => [...current, payload.text]);
-      if (payload.type === "exit") {
-        setAlive(false);
-      }
-    };
-
-    eventSource.onerror = () => {
-      setAlive(false);
-      eventSource.close();
-    };
-
-    return () => {
-      eventSource.close();
-    };
-  }, [sessionId]);
-
-  useEffect(() => {
-    outputRef.current?.scrollTo({
-      top: outputRef.current.scrollHeight,
-      behavior: "smooth",
-    });
-  }, [lines]);
-
-  return (
-    <div className="nl-panel nl-panel--terminal">
-      <div className="nl-panel__toolbar">
-        <div>
-          <strong>Session {sessionId.slice(0, 8)}</strong>
-          <div className="nl-toolbar-subcopy">
-            {alive ? "Interactive shell ready" : "Process exited"}
-          </div>
-        </div>
-        <Button variant="ghost" onClick={onCloseSession}>
-          End Session
-        </Button>
-      </div>
-      <div ref={outputRef} className="nl-terminal-output">
-        {lines.length ? lines.join("") : "Starting shell...\n"}
-      </div>
-      <form
-        className="nl-terminal-input-row"
-        onSubmit={async (event) => {
-          event.preventDefault();
-          if (!draft.trim()) {
-            return;
-          }
-          const command = draft;
-          setDraft("");
-          await fetch(`/api/neural-labs/terminal/sessions/${sessionId}/input`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ data: `${command}\n` }),
-          });
-        }}
-      >
-        <TextInput
-          value={draft}
-          placeholder="Enter a shell command"
-          onChange={(event) => setDraft(event.target.value)}
-        />
-        <Button type="submit" disabled={!alive}>
-          Run
-        </Button>
-      </form>
-    </div>
-  );
-}
+export { FileExplorerPanel } from "@/components/desktop/file-explorer-panel";
+export { TextEditorPanel } from "@/components/desktop/text-editor-panel";
+export { TerminalPanel } from "@/components/desktop/terminal-panel";
 
 export function PreviewPanel({
   entry,
@@ -444,10 +91,27 @@ export function NeuraPanel({
 }) {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const hasBootstrappedConversation = useRef(false);
+
+  useEffect(() => {
+    if (
+      hasBootstrappedConversation.current ||
+      conversations.length > 0 ||
+      activeConversation
+    ) {
+      return;
+    }
+    hasBootstrappedConversation.current = true;
+    if (!conversations.length && !activeConversation) {
+      void onCreateConversation();
+    }
+  }, [activeConversation, conversations.length, onCreateConversation]);
 
   return (
     <div className="nl-panel">
-      <div className="nl-split">
+      <div className="nl-neura-layout">
+        {sidebarOpen ? (
         <aside className="nl-sidebar-card nl-neura-sidebar">
           <div className="nl-panel__toolbar nl-panel__toolbar--stacked">
             <div>
@@ -491,15 +155,42 @@ export function NeuraPanel({
             </Button>
           ) : null}
         </aside>
-        <section className="nl-chat">
-          <div className="nl-chat__messages">
+        ) : null}
+        <section className="nl-chat nl-chat--neura">
+          <header className="nl-neura-header">
+            <div className="nl-neura-header__title">
+              <button
+                type="button"
+                className="nl-nav-button"
+                aria-label="Toggle conversation sidebar"
+                onClick={() => setSidebarOpen((current) => !current)}
+              >
+                <SidebarIcon className="nl-inline-icon" />
+              </button>
+              <div className="nl-neura-header__meta">
+                <strong>{activeConversation?.summary.title ?? assistantName}</strong>
+                <span>
+                  {defaultModel}
+                  {defaultProviderName ? ` via ${defaultProviderName}` : ""}
+                </span>
+              </div>
+            </div>
+            <Button onClick={onCreateConversation}>
+              <PlusIcon className="nl-inline-icon" />
+              New Chat
+            </Button>
+          </header>
+          <div className="nl-chat__messages nl-chat__messages--neura">
             {activeConversation?.messages.length ? (
               activeConversation.messages.map((message) => (
                 <article
                   key={message.id}
                   className={cn(
                     "nl-message",
-                    message.role === "assistant" && "nl-message--assistant"
+                    message.role === "assistant" && "nl-message--assistant",
+                    message.role === "assistant"
+                      ? "nl-message--assistant-rich"
+                      : "nl-message--user-rich"
                   )}
                 >
                   <header>
@@ -516,7 +207,7 @@ export function NeuraPanel({
             )}
           </div>
           <form
-            className="nl-chat__composer"
+            className="nl-chat__composer nl-chat__composer--pill"
             onSubmit={async (event) => {
               event.preventDefault();
               if (!draft.trim() || sending) {
@@ -531,15 +222,42 @@ export function NeuraPanel({
               }
             }}
           >
+            <div className="nl-neura-composer__actions">
+              <button
+                type="button"
+                className="nl-nav-button"
+                aria-label="Voice input unavailable"
+                disabled
+              >
+                <MicrophoneIcon className="nl-inline-icon" />
+              </button>
+              <button
+                type="button"
+                className="nl-nav-button"
+                aria-label="Attachments unavailable"
+                disabled
+              >
+                <PaperclipIcon className="nl-inline-icon" />
+              </button>
+              <button
+                type="button"
+                className="nl-nav-button"
+                aria-label="Image upload unavailable"
+                disabled
+              >
+                <ImageIcon className="nl-inline-icon" />
+              </button>
+            </div>
             <TextArea
-              rows={5}
+              rows={3}
               value={draft}
               placeholder="Ask Neura for help with your workspace or project."
               onChange={(event) => setDraft(event.target.value)}
             />
-            <div className="nl-toolbar-actions">
+            <div className="nl-neura-composer__footer">
               <Badge accent="neutral">{defaultModel}</Badge>
               <Button type="submit" disabled={!activeConversation || sending}>
+                <ArrowUpIcon className="nl-inline-icon" />
                 {sending ? "Sending..." : "Send"}
               </Button>
             </div>
@@ -553,6 +271,10 @@ export function NeuraPanel({
 export function SettingsPanel({
   snapshot,
   onSaveDesktopSettings,
+  customBackgroundUrl,
+  onUploadCustomBackground,
+  onSelectCustomBackground,
+  onDeleteCustomBackground,
   onCreateProvider,
   onUpdateProvider,
   onDeleteProvider,
@@ -563,7 +285,12 @@ export function SettingsPanel({
   onSaveDesktopSettings: (payload: {
     theme?: ThemeMode;
     backgroundId?: DesktopBackgroundId;
+    customBackgroundPath?: string | null;
   }) => Promise<void>;
+  customBackgroundUrl: string | null;
+  onUploadCustomBackground: (file: File) => Promise<void>;
+  onSelectCustomBackground: () => Promise<void>;
+  onDeleteCustomBackground: () => Promise<void>;
   onCreateProvider: (draft: ProviderDraft) => Promise<void>;
   onUpdateProvider: (providerId: string, draft: ProviderDraft) => Promise<void>;
   onDeleteProvider: (providerId: string) => Promise<void>;
@@ -574,6 +301,7 @@ export function SettingsPanel({
   const [draft, setDraft] = useState<ProviderDraft>(buildProviderDraft("openai"));
   const [templateId, setTemplateId] = useState("openai");
   const [status, setStatus] = useState<string>("");
+  const backgroundUploadRef = useRef<HTMLInputElement | null>(null);
 
   const providers = snapshot?.providers ?? [];
 
@@ -651,7 +379,7 @@ export function SettingsPanel({
                   )}
                   onClick={() =>
                     void onSaveDesktopSettings({
-                      backgroundId: id,
+                      backgroundId: id as DesktopBackgroundPresetId,
                     })
                   }
                 >
@@ -659,6 +387,56 @@ export function SettingsPanel({
                 </button>
               ))}
             </div>
+          </div>
+
+          <div className="nl-settings-card">
+            <div className="nl-settings-card__header">
+              <div>
+                <strong>Custom Background</strong>
+                <p className="nl-muted-copy">
+                  Upload one image and reuse it across the desktop.
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                onClick={() => backgroundUploadRef.current?.click()}
+              >
+                <UploadIcon className="nl-inline-icon" />
+                Upload
+              </Button>
+            </div>
+            <input
+              ref={backgroundUploadRef}
+              className="nl-hidden-input"
+              type="file"
+              accept="image/*"
+              onChange={async (event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) {
+                  await onUploadCustomBackground(file);
+                }
+              }}
+            />
+            {customBackgroundUrl ? (
+              <>
+                <div className="nl-custom-background-preview">
+                  <img src={customBackgroundUrl} alt="Custom desktop background" />
+                </div>
+                <div className="nl-toolbar-actions">
+                  <Button variant="ghost" onClick={onSelectCustomBackground}>
+                    Use Custom
+                  </Button>
+                  <Button variant="danger" onClick={onDeleteCustomBackground}>
+                    Delete
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <div className="nl-empty-state">
+                No custom background uploaded yet.
+              </div>
+            )}
           </div>
 
           <div className="nl-field">

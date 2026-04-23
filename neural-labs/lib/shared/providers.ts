@@ -1,5 +1,6 @@
 import type {
   DesktopBackgroundId,
+  DesktopBackgroundPresetId,
   ProviderDraft,
   ProviderKind,
   ThemeMode,
@@ -15,7 +16,7 @@ export interface ProviderTemplate {
 }
 
 export const BACKGROUND_PRESETS: Array<{
-  id: DesktopBackgroundId;
+  id: DesktopBackgroundPresetId;
   label: string;
   className: string;
 }> = [

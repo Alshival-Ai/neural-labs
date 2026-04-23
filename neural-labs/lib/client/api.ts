@@ -33,7 +33,8 @@ export async function fetchSettings(): Promise<SettingsSnapshot> {
 
 export async function saveDesktopSettings(payload: {
   theme?: "dark" | "light" | "system";
-  backgroundId?: "aurora" | "graphite" | "sunrise-grid" | "ocean-night";
+  backgroundId?: string;
+  customBackgroundPath?: string | null;
 }) {
   return parseResponse(
     await fetch("/api/neural-labs/settings", {
@@ -129,6 +130,16 @@ export async function uploadFile(parentPath: string, file: File): Promise<{ path
     await fetch("/api/neural-labs/files/upload", {
       method: "POST",
       body: formData,
+    })
+  );
+}
+
+export async function setDesktopBackgroundFromFile(path: string): Promise<{ path: string }> {
+  return parseResponse(
+    await fetch("/api/neural-labs/files/background/from-file", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path }),
     })
   );
 }

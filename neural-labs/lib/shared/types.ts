@@ -1,16 +1,25 @@
 export type ThemeMode = "dark" | "light" | "system";
 
-export type DesktopBackgroundId =
+export type DesktopBackgroundPresetId =
   | "aurora"
   | "graphite"
   | "sunrise-grid"
   | "ocean-night";
+
+export type DesktopBackgroundId =
+  | DesktopBackgroundPresetId
+  | `custom:${string}`;
 
 export type ProviderKind =
   | "openai"
   | "anthropic"
   | "openai-compatible"
   | "azure-openai";
+
+export type ProviderManagedKey =
+  | "openai-default"
+  | "anthropic-default"
+  | "legacy-default";
 
 export interface ProviderRecord {
   id: string;
@@ -22,6 +31,8 @@ export interface ProviderRecord {
   apiVersion?: string;
   deployment?: string;
   isDefault: boolean;
+  managedBy?: "env";
+  managedKey?: ProviderManagedKey;
   createdAt: string;
   updatedAt: string;
 }
@@ -40,6 +51,7 @@ export interface ProviderDraft {
 export interface DesktopSettings {
   theme: ThemeMode;
   backgroundId: DesktopBackgroundId;
+  customBackgroundPath: string | null;
 }
 
 export interface SettingsSnapshot {
