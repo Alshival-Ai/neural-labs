@@ -109,3 +109,100 @@ export function PlusIcon(props: IconProps) {
     </BaseIcon>
   );
 }
+
+export function ChevronLeftIcon(props: IconProps) {
+  return (
+    <BaseIcon {...props}>
+      <path d="m15 18-6-6 6-6" />
+    </BaseIcon>
+  );
+}
+
+export function ChevronRightIcon(props: IconProps) {
+  return (
+    <BaseIcon {...props}>
+      <path d="m9 18 6-6-6-6" />
+    </BaseIcon>
+  );
+}
+
+export function ChevronUpIcon(props: IconProps) {
+  return (
+    <BaseIcon {...props}>
+      <path d="m18 15-6-6-6 6" />
+    </BaseIcon>
+  );
+}
+
+export function ImageIcon(props: IconProps) {
+  return (
+    <BaseIcon {...props}>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <circle cx="9" cy="10" r="1.5" />
+      <path d="m21 16-5.5-5.5L7 19" />
+    </BaseIcon>
+  );
+}
+
+export function TrashIcon(props: IconProps) {
+  return (
+    <BaseIcon {...props}>
+      <path d="M4 7h16" />
+      <path d="M10 3h4" />
+      <path d="M7 7l1 13h8l1-13" />
+    </BaseIcon>
+  );
+}
+
+export function SidebarIcon(props: IconProps) {
+  return (
+    <BaseIcon {...props}>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M9 5v14" />
+    </BaseIcon>
+  );
+}
+
+export function ArrowUpIcon(props: IconProps) {
+  return (
+    <BaseIcon {...props}>
+      <path d="M12 19V5" />
+      <path d="m7 10 5-5 5 5" />
+    </BaseIcon>
+  );
+}
+
+export function MicrophoneIcon(props: IconProps) {
+  return (
+    <BaseIcon {...props}>
+      <rect x="9" y="4" width="6" height="10" rx="3" />
+      <path d="M6.5 11a5.5 5.5 0 1 0 11 0" />
+      <path d="M12 16v4" />
+    </BaseIcon>
+  );
+}
+
+export function PaperclipIcon(props: IconProps) {
+  return (
+    <BaseIcon {...props}>
+      <path d="m9.5 12.5 5.4-5.4a3 3 0 1 1 4.2 4.2l-7.4 7.4a5 5 0 1 1-7.1-7.1l7-7" />
+    </BaseIcon>
+  );
+}
+
+export function MaximizeIcon(props: IconProps) {
+  return (
+    <BaseIcon {...props}>
+      <rect x="6.5" y="6.5" width="11" height="11" rx="1.5" />
+    </BaseIcon>
+  );
+}
+
+export function FoldIcon(props: IconProps) {
+  return (
+    <BaseIcon {...props}>
+      <path d="M8 6.5h9.5V16" />
+      <path d="M16 8H6.5v9.5" />
+    </BaseIcon>
+  );
+}

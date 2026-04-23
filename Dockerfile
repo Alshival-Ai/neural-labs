@@ -14,7 +14,7 @@ RUN npm run build
 FROM node:24-alpine AS runner
 ENV NODE_ENV=production
 WORKDIR /app
-COPY .env ./.env
+RUN apk add --no-cache bash
 COPY --from=builder /app/neural-labs ./neural-labs
 WORKDIR /app/neural-labs
 EXPOSE 3000

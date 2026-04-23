@@ -1,0 +1,14 @@
+services:
+  neural-labs:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./.env:/app/.env:ro
+      - ./.neural-labs-data:/app/neural-labs/.neural-labs-data
+    init: true
+    restart: unless-stopped

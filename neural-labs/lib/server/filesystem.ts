@@ -22,6 +22,31 @@ function sanitizeName(name: string): string {
   return nextName;
 }
 
+const CUSTOM_BACKGROUND_DIRECTORY = ".neural-labs/backgrounds";
+const CUSTOM_BACKGROUND_BASENAME = "custom-background";
+
+function getBackgroundExtension(filename: string, mimeType: string): string {
+  const normalized = mimeType.toLowerCase();
+  if (normalized === "image/png") {
+    return ".png";
+  }
+  if (normalized === "image/jpeg") {
+    return ".jpg";
+  }
+  if (normalized === "image/webp") {
+    return ".webp";
+  }
+  if (normalized === "image/gif") {
+    return ".gif";
+  }
+  if (normalized === "image/svg+xml") {
+    return ".svg";
+  }
+
+  const fallback = path.extname(filename).toLowerCase();
+  return fallback || ".png";
+}
+
 async function toFileEntry(absolutePath: string): Promise<FileEntry> {
   const fileStat = await stat(absolutePath);
   const relativePath = toRelativeWorkspacePath(absolutePath);
@@ -145,4 +170,20 @@ export async function uploadWorkspaceFile(
   await mkdir(path.dirname(targetPath), { recursive: true });
   await writeFile(targetPath, content);
   return toRelativeWorkspacePath(targetPath);
+}
+
+export async function setWorkspaceBackgroundFromFile(
+  relativePath: string
+): Promise<string> {
+  const { content, filename, mimeType } = await readWorkspaceFile(relativePath);
+  if (!mimeType.toLowerCase().startsWith("image/")) {
+    throw new Error("Only image files can be set as desktop backgrounds");
+  }
+
+  const targetFilename = `${CUSTOM_BACKGROUND_BASENAME}${getBackgroundExtension(
+    filename,
+    mimeType
+  )}`;
+
+  return uploadWorkspaceFile(CUSTOM_BACKGROUND_DIRECTORY, targetFilename, content);
 }
