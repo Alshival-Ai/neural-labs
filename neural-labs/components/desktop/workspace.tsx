@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "next-themes";
 
 import {
+  closeTerminalSession,
   createConversation as createConversationRequest,
   createDirectory,
   createProvider,
@@ -16,6 +17,7 @@ import {
   getFileUrl,
   listConversations,
   listFiles,
+  logout as logoutRequest,
   readTextFile,
   removeProvider,
   renamePath,
@@ -27,10 +29,10 @@ import {
   updateProvider,
   uploadFile,
   movePath,
-  closeTerminalSession,
 } from "@/lib/client/api";
 import { BACKGROUND_PRESETS } from "@/lib/shared/providers";
 import type {
+  AuthViewer,
   ConversationRecord,
   ConversationSummary,
   DesktopBackgroundId,
@@ -87,7 +89,7 @@ const MIN_WINDOW_WIDTH = 420;
 const MIN_WINDOW_HEIGHT = 280;
 
 function createLocalId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
   }
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -307,7 +309,7 @@ function createWindowBase(
   };
   const size = sizeByKind[kind];
   return {
-    id: crypto.randomUUID(),
+    id: createLocalId(),
     kind,
     title,
     accent,
@@ -323,7 +325,7 @@ function createWindowBase(
   };
 }
 
-export function NeuralLabsWorkspace() {
+export function NeuralLabsWorkspace({ viewer }: { viewer: AuthViewer }) {
   const { setTheme } = useTheme();
   const [settings, setSettings] = useState<SettingsSnapshot | null>(null);
   const [listing, setListing] = useState<DirectoryListing | null>(null);
@@ -1346,6 +1348,27 @@ export function NeuralLabsWorkspace() {
               className="nl-topbar__brand-logo"
             />
             <h1>Neural Labs</h1>
+          </div>
+
+          <div className="nl-topbar__actions">
+            {viewer.role === "admin" ? (
+              <a className="nl-topbar__link" href="/admin">
+                Admin
+              </a>
+            ) : null}
+            <span className="nl-topbar__chip">{viewer.email}</span>
+            <button
+              type="button"
+              className="nl-topbar__button"
+              onClick={() => {
+                void (async () => {
+                  await logoutRequest();
+                  window.location.href = "/login";
+                })();
+              }}
+            >
+              Sign out
+            </button>
           </div>
         </header>
 

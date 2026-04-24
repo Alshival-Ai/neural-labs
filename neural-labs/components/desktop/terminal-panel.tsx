@@ -15,6 +15,7 @@ import type {
   TerminalPaneState,
   TerminalTabState,
 } from "@/components/desktop/app-types";
+import { createTerminalWsToken } from "@/lib/client/api";
 import {
   CloseIcon,
   PlusIcon,
@@ -207,10 +208,18 @@ function TerminalPaneSurface({
         return true;
       });
 
+      const tokenPayload = await createTerminalWsToken(sessionId);
+      if (isDisposed) {
+        return;
+      }
+
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      socket = new WebSocket(
-        `${protocol}//${window.location.host}/api/neural-labs/terminal/sessions/${sessionId}/socket`
-      );
+      const wsPath =
+        tokenPayload.ws_path ||
+        `/api/neural-labs/terminal/ws?terminal_token=${encodeURIComponent(
+          tokenPayload.token
+        )}`;
+      socket = new WebSocket(`${protocol}//${window.location.host}${wsPath}`);
       socketRef.current = socket;
       disconnectNoticeRef.current = false;
 

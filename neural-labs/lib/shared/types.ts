@@ -127,3 +127,23 @@ export interface TerminalStatus {
 export interface ApiErrorPayload {
   error: string;
 }
+
+export type AuthRole = "admin" | "user";
+
+export interface AuthViewer {
+  id: string;
+  email: string;
+  role: AuthRole;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AuthInviteRecord {
+  id: string;
+  email: string;
+  role: AuthRole;
+  createdAt: string;
+  expiresAt: string;
+  acceptedAt: string | null;
+  revokedAt: string | null;
+}

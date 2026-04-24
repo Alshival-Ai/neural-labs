@@ -17,11 +17,7 @@ import type {
   ProviderKind,
   SettingsSnapshot,
 } from "@/lib/shared/types";
-import {
-  getDataRoot,
-  getStateFilePath,
-  getWorkspaceRoot,
-} from "@/lib/server/paths";
+import { getWorkspaceSession } from "@/lib/server/workspace-session";
 
 interface PersistedState {
   settings: DesktopSettings;
@@ -40,7 +36,7 @@ interface EnvProviderConfig {
   deployment?: string;
 }
 
-let hasReconciledEnvProviders = false;
+const reconciledUsers = new Set<string>();
 
 const DEFAULT_SETTINGS: DesktopSettings = {
   theme:
@@ -360,8 +356,8 @@ function buildDefaultState(): PersistedState {
   };
 }
 
-async function ensureWorkspaceScaffold(): Promise<void> {
-  const workspaceRoot = getWorkspaceRoot();
+async function ensureWorkspaceScaffold(userId: string): Promise<void> {
+  const { workspaceRoot } = await getWorkspaceSession(userId);
   await mkdir(workspaceRoot, { recursive: true });
 
   const readmePath = path.join(workspaceRoot, "README.md");
@@ -374,11 +370,12 @@ async function ensureWorkspaceScaffold(): Promise<void> {
   }
 }
 
-export async function ensureDataScaffold(): Promise<void> {
-  await mkdir(getDataRoot(), { recursive: true });
-  await ensureWorkspaceScaffold();
+export async function ensureDataScaffold(userId: string): Promise<void> {
+  const session = await getWorkspaceSession(userId);
+  await mkdir(session.dataRoot, { recursive: true });
+  await ensureWorkspaceScaffold(userId);
 
-  const stateFile = getStateFilePath();
+  const stateFile = session.stateFilePath;
   if (!existsSync(stateFile)) {
     await writeFile(
       stateFile,
@@ -388,9 +385,10 @@ export async function ensureDataScaffold(): Promise<void> {
   }
 }
 
-export async function readState(): Promise<PersistedState> {
-  await ensureDataScaffold();
-  const raw = await readFile(getStateFilePath(), "utf-8");
+export async function readState(userId: string): Promise<PersistedState> {
+  await ensureDataScaffold(userId);
+  const { stateFilePath } = await getWorkspaceSession(userId);
+  const raw = await readFile(stateFilePath, "utf-8");
   const parsed = JSON.parse(raw) as PersistedState;
   const normalizedState: PersistedState = {
     ...parsed,
@@ -399,28 +397,32 @@ export async function readState(): Promise<PersistedState> {
       ...parsed.settings,
     }),
   };
-  if (hasReconciledEnvProviders) {
+  if (reconciledUsers.has(userId)) {
     return normalizedState;
   }
 
   const reconciledState = reconcileStateWithEnvProviders(normalizedState);
-  hasReconciledEnvProviders = true;
+  reconciledUsers.add(userId);
   if (
     JSON.stringify(reconciledState.providers) !==
     JSON.stringify(normalizedState.providers)
   ) {
-    await writeState(reconciledState);
+    await writeState(userId, reconciledState);
   }
   return reconciledState;
 }
 
-export async function writeState(state: PersistedState): Promise<void> {
-  await ensureDataScaffold();
-  await writeFile(getStateFilePath(), JSON.stringify(state, null, 2), "utf-8");
+export async function writeState(
+  userId: string,
+  state: PersistedState
+): Promise<void> {
+  await ensureDataScaffold(userId);
+  const { stateFilePath } = await getWorkspaceSession(userId);
+  await writeFile(stateFilePath, JSON.stringify(state, null, 2), "utf-8");
 }
 
-export async function readSettingsSnapshot(): Promise<SettingsSnapshot> {
-  const state = await readState();
+export async function readSettingsSnapshot(userId: string): Promise<SettingsSnapshot> {
+  const state = await readState(userId);
   return {
     desktop: state.settings,
     providers: state.providers,
@@ -428,19 +430,21 @@ export async function readSettingsSnapshot(): Promise<SettingsSnapshot> {
 }
 
 export async function updateDesktopSettings(
+  userId: string,
   nextSettings: Partial<DesktopSettings>
 ): Promise<DesktopSettings> {
-  const state = await readState();
+  const state = await readState(userId);
   state.settings = normalizeSettings({ ...state.settings, ...nextSettings });
-  await writeState(state);
+  await writeState(userId, state);
   return state.settings;
 }
 
 export async function saveProvider(
+  userId: string,
   draft: ProviderDraft,
   providerId?: string
 ): Promise<ProviderRecord> {
-  const state = await readState();
+  const state = await readState(userId);
   const now = new Date().toISOString();
   let savedProvider: ProviderRecord | null = null;
 
@@ -490,12 +494,12 @@ export async function saveProvider(
     }
   }
 
-  await writeState(state);
+  await writeState(userId, state);
   return savedProvider;
 }
 
-export async function deleteProvider(providerId: string): Promise<void> {
-  const state = await readState();
+export async function deleteProvider(userId: string, providerId: string): Promise<void> {
+  const state = await readState(userId);
   const before = state.providers.length;
   state.providers = state.providers.filter((provider) => provider.id !== providerId);
   if (state.providers.length === before) {
@@ -507,11 +511,14 @@ export async function deleteProvider(providerId: string): Promise<void> {
   if (!state.providers.some((provider) => provider.isDefault)) {
     state.providers[0] = { ...state.providers[0]!, isDefault: true };
   }
-  await writeState(state);
+  await writeState(userId, state);
 }
 
-export async function setDefaultProvider(providerId: string): Promise<ProviderRecord> {
-  const state = await readState();
+export async function setDefaultProvider(
+  userId: string,
+  providerId: string
+): Promise<ProviderRecord> {
+  const state = await readState(userId);
   let found: ProviderRecord | null = null;
   state.providers = state.providers.map((provider) => {
     const isDefault = provider.id === providerId;
@@ -524,21 +531,22 @@ export async function setDefaultProvider(providerId: string): Promise<ProviderRe
   if (!found) {
     throw new Error("Provider not found");
   }
-  await writeState(state);
+  await writeState(userId, state);
   return found;
 }
 
-export async function listConversations(): Promise<ConversationRecord[]> {
-  const state = await readState();
+export async function listConversations(userId: string): Promise<ConversationRecord[]> {
+  const state = await readState(userId);
   return state.conversations.sort((left, right) =>
     right.summary.updatedAt.localeCompare(left.summary.updatedAt)
   );
 }
 
 export async function saveConversation(
+  userId: string,
   nextConversation: ConversationRecord
 ): Promise<ConversationRecord> {
-  const state = await readState();
+  const state = await readState(userId);
   const index = state.conversations.findIndex(
     (conversation) => conversation.summary.id === nextConversation.summary.id
   );
@@ -547,14 +555,15 @@ export async function saveConversation(
   } else {
     state.conversations[index] = nextConversation;
   }
-  await writeState(state);
+  await writeState(userId, state);
   return nextConversation;
 }
 
 export async function getConversation(
+  userId: string,
   conversationId: string
 ): Promise<ConversationRecord | null> {
-  const state = await readState();
+  const state = await readState(userId);
   return (
     state.conversations.find(
       (conversation) => conversation.summary.id === conversationId
@@ -562,10 +571,13 @@ export async function getConversation(
   );
 }
 
-export async function removeConversation(conversationId: string): Promise<void> {
-  const state = await readState();
+export async function removeConversation(
+  userId: string,
+  conversationId: string
+): Promise<void> {
+  const state = await readState(userId);
   state.conversations = state.conversations.filter(
     (conversation) => conversation.summary.id !== conversationId
   );
-  await writeState(state);
+  await writeState(userId, state);
 }

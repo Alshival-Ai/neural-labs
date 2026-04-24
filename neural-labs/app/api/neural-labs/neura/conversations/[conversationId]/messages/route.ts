@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
-import { jsonError } from "@/lib/server/http";
+import { jsonError, jsonErrorFromUnknown } from "@/lib/server/http";
 import { appendConversationMessage } from "@/lib/server/neura";
+import { applyUserSessionCookie, getUserSessionFromRequest } from "@/lib/server/user-session";
 
 export const runtime = "nodejs";
 
@@ -10,15 +11,17 @@ export async function POST(
   context: { params: Promise<{ conversationId: string }> }
 ) {
   try {
+    const session = getUserSessionFromRequest(request);
     const { conversationId } = await context.params;
     const payload = (await request.json()) as { content?: string };
     if (!payload.content?.trim()) {
       return jsonError("A message is required");
     }
-    return NextResponse.json(
-      await appendConversationMessage(conversationId, payload.content)
+    const response = NextResponse.json(
+      await appendConversationMessage(session.userId, conversationId, payload.content)
     );
+    return applyUserSessionCookie(response, session);
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Unable to send message");
+    return jsonErrorFromUnknown(error, "Unable to send message");
   }
 }

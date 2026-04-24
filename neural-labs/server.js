@@ -1,8 +1,13 @@
 const { createServer } = require("node:http");
-const { parse } = require("node:url");
 
 const next = require("next");
 const { WebSocketServer } = require("next/dist/compiled/ws");
+const { getViewerFromHeaders } = require("./lib/server/auth-runtime.js");
+const { getTerminalManager: getRuntimeTerminalManager } = require("./lib/server/terminal-manager-runtime.js");
+
+const TERMINAL_WS_PATH = "/api/neural-labs/terminal/ws";
+
+let terminalManagerPromise = null;
 
 function readArg(name) {
   const index = process.argv.indexOf(name);
@@ -13,22 +18,6 @@ function readArg(name) {
   return process.argv[index + 1];
 }
 
-function getTerminalSocketSessionId(url) {
-  const { pathname } = parse(url || "/", true);
-  if (!pathname) {
-    return null;
-  }
-
-  const match = pathname.match(
-    /^\/api\/neural-labs\/terminal\/sessions\/([^/]+)\/socket$/
-  );
-  return match ? decodeURIComponent(match[1]) : null;
-}
-
-function createInternalUrl(port, pathname) {
-  return `http://127.0.0.1:${port}${pathname}`;
-}
-
 function sendJson(ws, payload) {
   if (ws.readyState !== ws.OPEN) {
     return;
@@ -37,92 +26,34 @@ function sendJson(ws, payload) {
   ws.send(JSON.stringify(payload));
 }
 
-async function postTerminalAction(port, sessionId, pathname, payload) {
-  const response = await fetch(
-    createInternalUrl(port, `/api/neural-labs/terminal/sessions/${sessionId}/${pathname}`),
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
+function parseTerminalWsRequest(url) {
+  try {
+    const parsed = new URL(url || "/", "http://localhost");
+    if (parsed.pathname !== TERMINAL_WS_PATH) {
+      return null;
     }
-  );
 
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `Terminal ${pathname} request failed`);
+    const terminalToken = (parsed.searchParams.get("terminal_token") || "").trim();
+    if (!terminalToken) {
+      return null;
+    }
+
+    return { terminalToken };
+  } catch {
+    return null;
   }
 }
 
-async function pipeTerminalStream(port, sessionId, ws, abortSignal) {
-  const response = await fetch(
-    createInternalUrl(
-      port,
-      `/api/neural-labs/terminal/sessions/${sessionId}/stream`
-    ),
-    {
-      headers: {
-        Accept: "text/event-stream",
-      },
-      signal: abortSignal,
-    }
-  );
-
-  if (!response.ok || !response.body) {
-    const message = await response.text();
-    throw new Error(message || "Unable to connect terminal stream");
+async function getTerminalManager() {
+  if (!terminalManagerPromise) {
+    terminalManagerPromise = Promise.resolve(getRuntimeTerminalManager());
   }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  const forwardEvent = (rawEvent) => {
-    const lines = rawEvent
-      .split("\n")
-      .map((line) => line.trimEnd())
-      .filter(Boolean);
-
-    const dataLines = lines
-      .filter((line) => line.startsWith("data:"))
-      .map((line) => line.slice(5).trimStart());
-
-    if (dataLines.length === 0) {
-      return;
-    }
-
-    if (ws.readyState === ws.OPEN) {
-      ws.send(dataLines.join("\n"));
-    }
-  };
-
-  while (!abortSignal.aborted) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
-    }
-
-    buffer += decoder.decode(value, { stream: true });
-
-    let delimiterIndex = buffer.indexOf("\n\n");
-    while (delimiterIndex !== -1) {
-      const rawEvent = buffer.slice(0, delimiterIndex);
-      buffer = buffer.slice(delimiterIndex + 2);
-      forwardEvent(rawEvent);
-      delimiterIndex = buffer.indexOf("\n\n");
-    }
-  }
-
-  buffer += decoder.decode();
-  if (buffer.trim()) {
-    forwardEvent(buffer);
-  }
+  return terminalManagerPromise;
 }
 
 async function main() {
   const dev = process.argv.includes("--dev") || process.env.NODE_ENV !== "production";
-  const hostname = readArg("--hostname") || process.env.HOSTNAME || "0.0.0.0";
+  const hostname = readArg("--hostname") || process.env.HOST || "0.0.0.0";
   const port = Number.parseInt(readArg("--port") || process.env.PORT || "3000", 10);
 
   let handleRequest = null;
@@ -135,8 +66,7 @@ async function main() {
       return;
     }
 
-    const parsedUrl = parse(req.url || "/", true);
-    Promise.resolve(handleRequest(req, res, parsedUrl)).catch((error) => {
+    Promise.resolve(handleRequest(req, res)).catch((error) => {
       console.error("Request handler error", error);
       if (!res.headersSent) {
         res.statusCode = 500;
@@ -159,30 +89,49 @@ async function main() {
   const terminalWss = new WebSocketServer({ noServer: true });
 
   terminalWss.on("connection", (ws, req) => {
-    const sessionId = getTerminalSocketSessionId(req.url);
-    if (!sessionId) {
-      sendJson(ws, { type: "error", text: "Invalid terminal session." });
+    const wsRequest = parseTerminalWsRequest(req.url);
+    if (!wsRequest) {
+      sendJson(ws, { type: "error", text: "Invalid terminal websocket path." });
       ws.close();
       return;
     }
 
-    const controller = new AbortController();
-    let closed = false;
+    const viewer = getViewerFromHeaders(req.headers);
+    if (!viewer) {
+      sendJson(ws, { type: "error", text: "Missing or invalid user session." });
+      ws.close();
+      return;
+    }
+    const userId = viewer.id;
 
-    const closeSocket = () => {
+    let closed = false;
+    let manager = null;
+    let terminalId = null;
+    let unsubscribe = () => {};
+
+    const cleanup = () => {
       if (closed) {
         return;
       }
       closed = true;
-      controller.abort();
+      unsubscribe();
+      unsubscribe = () => {};
+    };
+
+    const closeWithError = (text) => {
+      sendJson(ws, { type: "error", text });
+      cleanup();
       if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {
         ws.close();
       }
     };
 
     ws.on("message", (rawMessage) => {
-      let payload;
+      if (!manager || !terminalId) {
+        return;
+      }
 
+      let payload = null;
       try {
         payload = JSON.parse(rawMessage.toString());
       } catch {
@@ -191,14 +140,13 @@ async function main() {
       }
 
       if (payload?.type === "input" && typeof payload.data === "string") {
-        void postTerminalAction(port, sessionId, "input", { data: payload.data }).catch(
-          (error) => {
-            sendJson(ws, {
-              type: "error",
-              text: error instanceof Error ? error.message : "Unable to write to terminal.",
-            });
-          }
-        );
+        try {
+          manager.writeInput(userId, terminalId, payload.data);
+        } catch (error) {
+          closeWithError(
+            error instanceof Error ? error.message : "Unable to write to terminal."
+          );
+        }
         return;
       }
 
@@ -207,36 +155,50 @@ async function main() {
         Number.isFinite(payload.cols) &&
         Number.isFinite(payload.rows)
       ) {
-        void postTerminalAction(port, sessionId, "resize", {
-          cols: payload.cols,
-          rows: payload.rows,
-        }).catch((error) => {
-          sendJson(ws, {
-            type: "error",
-            text: error instanceof Error ? error.message : "Unable to resize terminal.",
-          });
-        });
+        // Resize messages are accepted for protocol compatibility. Current
+        // shell sessions run without a PTY resize API in this runtime.
+        return;
       }
     });
 
-    ws.on("close", closeSocket);
-    ws.on("error", closeSocket);
+    ws.on("close", cleanup);
+    ws.on("error", cleanup);
 
-    void pipeTerminalStream(port, sessionId, ws, controller.signal).catch((error) => {
-      if (controller.signal.aborted) {
+    void (async () => {
+      manager = await getTerminalManager();
+      terminalId = manager.consumeWsTicket(userId, wsRequest.terminalToken);
+      if (!terminalId) {
+        closeWithError("Invalid terminal stream token.");
         return;
       }
 
-      sendJson(ws, {
-        type: "error",
-        text: error instanceof Error ? error.message : "Terminal stream disconnected.",
+      const session = manager.get(userId, terminalId);
+      if (!session) {
+        closeWithError("Terminal session not found.");
+        return;
+      }
+
+      unsubscribe = manager.subscribe(userId, terminalId, (chunk) => {
+        sendJson(ws, chunk);
       });
-      closeSocket();
+
+      if (!session.backlog.length) {
+        try {
+          manager.writeInput(userId, terminalId, "\n");
+        } catch {
+          // Ignore warm-up failures.
+        }
+      }
+    })().catch((error) => {
+      console.error("Terminal websocket setup failed", error);
+      closeWithError(
+        error instanceof Error ? error.message : "Terminal stream disconnected."
+      );
     });
   });
 
   server.on("upgrade", (req, socket, head) => {
-    if (getTerminalSocketSessionId(req.url)) {
+    if (parseTerminalWsRequest(req.url)) {
       terminalWss.handleUpgrade(req, socket, head, (ws) => {
         terminalWss.emit("connection", ws, req);
       });

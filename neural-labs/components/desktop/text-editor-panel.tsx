@@ -105,6 +105,43 @@ interface EditorAction {
   run: () => void | Promise<void>;
 }
 
+function createMonacoWorker(label: string): Worker {
+  const options: WorkerOptions = { type: "module" };
+
+  if (label === "json") {
+    return new Worker(
+      new URL("monaco-editor/esm/vs/language/json/json.worker.js", import.meta.url),
+      options
+    );
+  }
+
+  if (label === "css" || label === "scss" || label === "less") {
+    return new Worker(
+      new URL("monaco-editor/esm/vs/language/css/css.worker.js", import.meta.url),
+      options
+    );
+  }
+
+  if (label === "html" || label === "handlebars" || label === "razor") {
+    return new Worker(
+      new URL("monaco-editor/esm/vs/language/html/html.worker.js", import.meta.url),
+      options
+    );
+  }
+
+  if (label === "typescript" || label === "javascript") {
+    return new Worker(
+      new URL("monaco-editor/esm/vs/language/typescript/ts.worker.js", import.meta.url),
+      options
+    );
+  }
+
+  return new Worker(
+    new URL("monaco-editor/esm/vs/editor/editor.worker.js", import.meta.url),
+    options
+  );
+}
+
 export function TextEditorPanel({
   windowState,
   currentDirectory,
@@ -149,6 +186,10 @@ export function TextEditorPanel({
     if (typeof window === "undefined") {
       return;
     }
+
+    (globalThis as unknown as { MonacoEnvironment?: unknown }).MonacoEnvironment = {
+      getWorker: (_workerId: string, label: string) => createMonacoWorker(label),
+    };
 
     void (async () => {
       const [{ loader }, monaco] = await Promise.all([

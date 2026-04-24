@@ -1,4 +1,7 @@
 import type {
+  AuthInviteRecord,
+  AuthRole,
+  AuthViewer,
   ConversationRecord,
   DirectoryListing,
   ProviderDraft,
@@ -10,6 +13,10 @@ import type {
 
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
+    if (response.status === 401 && typeof window !== "undefined") {
+      window.location.href = "/login";
+    }
+
     let message = "Request failed";
     try {
       const payload = (await response.json()) as { error?: string };
@@ -242,6 +249,91 @@ export async function listTerminalSessions(): Promise<{ sessions: TerminalSessio
 export async function createTerminalSession(): Promise<TerminalSessionSummary> {
   return parseResponse(
     await fetch("/api/neural-labs/terminal/sessions", { method: "POST" })
+  );
+}
+
+export async function createTerminalWsToken(sessionId: string): Promise<{
+  token: string;
+  ws_path: string;
+}> {
+  return parseResponse(
+    await fetch("/api/neural-labs/terminal/ws-token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ terminal_id: sessionId }),
+    })
+  );
+}
+
+export async function login(payload: {
+  email: string;
+  password: string;
+}): Promise<{ viewer: AuthViewer }> {
+  return parseResponse(
+    await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+  );
+}
+
+export async function bootstrapAdmin(payload: {
+  email: string;
+  password: string;
+}): Promise<{ viewer: AuthViewer }> {
+  return parseResponse(
+    await fetch("/api/auth/bootstrap", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+  );
+}
+
+export async function logout(): Promise<void> {
+  await parseResponse(
+    await fetch("/api/auth/logout", {
+      method: "POST",
+    })
+  );
+}
+
+export async function listInvitesRequest(): Promise<{ invites: AuthInviteRecord[] }> {
+  return parseResponse(await fetch("/api/auth/invites"));
+}
+
+export async function createInviteRequest(payload: {
+  email: string;
+  role?: AuthRole;
+}): Promise<AuthInviteRecord & { invitationUrl: string }> {
+  return parseResponse(
+    await fetch("/api/auth/invites", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+  );
+}
+
+export async function revokeInviteRequest(inviteId: string): Promise<void> {
+  await parseResponse(
+    await fetch(`/api/auth/invites/${inviteId}`, {
+      method: "DELETE",
+    })
+  );
+}
+
+export async function acceptInviteRequest(
+  token: string,
+  payload: { password: string }
+): Promise<{ viewer: AuthViewer }> {
+  return parseResponse(
+    await fetch(`/api/auth/invite/${encodeURIComponent(token)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
   );
 }
 

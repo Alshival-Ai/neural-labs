@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
-import { jsonError } from "@/lib/server/http";
+import { jsonErrorFromUnknown } from "@/lib/server/http";
 import { getTerminalManager } from "@/lib/server/terminal-manager";
+import { applyUserSessionCookie, getUserSessionFromRequest } from "@/lib/server/user-session";
 
 export const runtime = "nodejs";
 
@@ -10,11 +11,12 @@ export async function POST(
   context: { params: Promise<{ sessionId: string }> }
 ) {
   try {
+    const session = getUserSessionFromRequest(request);
     const { sessionId } = await context.params;
     const payload = (await request.json()) as { data?: string };
-    getTerminalManager().writeInput(sessionId, payload.data ?? "");
-    return new NextResponse(null, { status: 204 });
+    getTerminalManager().writeInput(session.userId, sessionId, payload.data ?? "");
+    return applyUserSessionCookie(new NextResponse(null, { status: 204 }), session);
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Unable to write to terminal");
+    return jsonErrorFromUnknown(error, "Unable to write to terminal");
   }
 }
