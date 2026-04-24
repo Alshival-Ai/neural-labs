@@ -98,15 +98,15 @@ export async function testProvider(providerId: string): Promise<{ ok: true; mess
 }
 
 export async function listFiles(path = ""): Promise<DirectoryListing> {
-  const url = new URL("/api/neural-labs/files", window.location.origin);
-  url.searchParams.set("path", path);
-  return parseResponse(await fetch(url));
+  const params = new URLSearchParams();
+  params.set("path", path);
+  return parseResponse(await fetch(`/api/neural-labs/files?${params.toString()}`));
 }
 
 export async function readTextFile(path: string): Promise<string> {
-  const url = new URL("/api/neural-labs/files/content", window.location.origin);
-  url.searchParams.set("path", path);
-  const response = await fetch(url);
+  const params = new URLSearchParams();
+  params.set("path", path);
+  const response = await fetch(`/api/neural-labs/files/content?${params.toString()}`);
   if (!response.ok) {
     throw new Error(await response.text());
   }
@@ -114,9 +114,9 @@ export async function readTextFile(path: string): Promise<string> {
 }
 
 export function getFileUrl(path: string): string {
-  const url = new URL("/api/neural-labs/files/content", window.location.origin);
-  url.searchParams.set("path", path);
-  return url.toString();
+  const params = new URLSearchParams();
+  params.set("path", path);
+  return `/api/neural-labs/files/content?${params.toString()}`;
 }
 
 export async function saveTextFile(path: string, content: string): Promise<{ path: string }> {
@@ -278,23 +278,26 @@ export async function login(payload: {
   );
 }
 
-export async function bootstrapAdmin(payload: {
-  email: string;
-  password: string;
-}): Promise<{ viewer: AuthViewer }> {
-  return parseResponse(
-    await fetch("/api/auth/bootstrap", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    })
-  );
-}
-
 export async function logout(): Promise<void> {
   await parseResponse(
     await fetch("/api/auth/logout", {
       method: "POST",
+    })
+  );
+}
+
+export async function fetchProfile(): Promise<{ viewer: AuthViewer }> {
+  return parseResponse(await fetch("/api/auth/profile"));
+}
+
+export async function updateProfile(payload: {
+  avatarPath?: string | null;
+}): Promise<{ viewer: AuthViewer }> {
+  return parseResponse(
+    await fetch("/api/auth/profile", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     })
   );
 }

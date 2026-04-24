@@ -9,8 +9,13 @@ services:
       - "${PORT:-3000}:${PORT:-3000}"
     volumes:
       - ./.env:/app/.env:ro
+      - auth-data:/app/data/auth
       - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/docker/volumes:/var/lib/docker/volumes
     environment:
       - NEURAL_LABS_WORKSPACE_BACKEND=docker
     init: true
     restart: unless-stopped
+
+volumes:
+  auth-data:

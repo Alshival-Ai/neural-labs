@@ -134,6 +134,7 @@ export interface AuthViewer {
   id: string;
   email: string;
   role: AuthRole;
+  avatarPath: string | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -2,11 +2,8 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { LoginScreen } from "@/components/auth/login-screen";
-import {
-  canBootstrapAdmin,
-  getBootstrapAdminEmail,
-  getViewerFromCookieHeader,
-} from "@/lib/server/auth";
+import { getViewerFromCookieHeader } from "@/lib/server/auth";
+import { getBackgroundPresetClassName } from "@/lib/shared/providers";
 
 function cookieHeaderFromStore(store: Awaited<ReturnType<typeof cookies>>) {
   return store
@@ -24,8 +21,9 @@ export default async function LoginPage() {
 
   return (
     <LoginScreen
-      canBootstrapAdmin={canBootstrapAdmin()}
-      bootstrapAdminEmail={getBootstrapAdminEmail()}
+      backgroundStyle={getBackgroundPresetClassName(
+        process.env.NEURAL_LABS_BACKGROUND_ID
+      )}
     />
   );
 }

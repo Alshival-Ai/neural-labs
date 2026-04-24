@@ -24,6 +24,7 @@ type UserRow = {
   email: string;
   password_hash: string;
   role: AuthRole;
+  avatar_path: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -59,6 +60,7 @@ interface SessionLookupRow {
   email: string;
   passwordHash: string;
   role: AuthRole;
+  avatarPath: string | null;
   userCreatedAt: string;
   userUpdatedAt: string;
 }
@@ -112,6 +114,7 @@ function getDb(): DatabaseSync {
       email TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
       role TEXT NOT NULL CHECK(role IN ('admin', 'user')),
+      avatar_path TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -123,6 +126,11 @@ function getDb(): DatabaseSync {
       created_at TEXT NOT NULL,
       expires_at TEXT NOT NULL,
       last_seen_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS workspace_activity (
+      user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      last_activity_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS invites (
@@ -140,6 +148,13 @@ function getDb(): DatabaseSync {
     CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions(user_id);
     CREATE INDEX IF NOT EXISTS invites_email_idx ON invites(email);
   `);
+  const userColumns = db
+    .prepare("PRAGMA table_info(users)")
+    .all() as Array<{ name: string }>;
+  if (!userColumns.some((column) => column.name === "avatar_path")) {
+    db.exec("ALTER TABLE users ADD COLUMN avatar_path TEXT");
+  }
+  ensureInitialAdminSeeded(db);
   dbInstance = db;
   return db;
 }
@@ -239,6 +254,7 @@ function toViewer(row: UserRow): AuthViewer {
     id: row.id,
     email: row.email,
     role: row.role,
+    avatarPath: row.avatar_path,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -262,11 +278,87 @@ function countUsersInternal(): number {
   return row.count;
 }
 
+function getInitialAdminEmail(): string | null {
+  const email = process.env.NEURAL_LABS_INITIAL_ADMIN_EMAIL?.trim();
+  return email ? normalizeEmail(email) : null;
+}
+
+function getInitialAdminPassword(): string | null {
+  const password = process.env.NEURAL_LABS_INITIAL_ADMIN_PASSWORD?.trim();
+  return password ? password : null;
+}
+
+function createUserInDb(
+  db: DatabaseSync,
+  email: string,
+  password: string,
+  role: AuthRole
+): UserRow {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) {
+    throw new AuthError("Email is required", 400);
+  }
+  if (password.length < 8) {
+    throw new AuthError("Password must be at least 8 characters", 400);
+  }
+
+  const existing = db
+    .prepare(
+      `SELECT id FROM users WHERE email = ?`
+    )
+    .get(normalizedEmail) as { id: string } | undefined;
+  if (existing) {
+    throw new AuthError("An account with that email already exists", 409);
+  }
+
+  const now = new Date().toISOString();
+  const user: UserRow = {
+    id: randomUUID(),
+    email: normalizedEmail,
+    password_hash: encodePassword(password),
+    role,
+    avatar_path: null,
+    created_at: now,
+    updated_at: now,
+  };
+
+  db.prepare(
+    `INSERT INTO users (id, email, password_hash, role, avatar_path, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    user.id,
+    user.email,
+    user.password_hash,
+    user.role,
+    user.avatar_path,
+    user.created_at,
+    user.updated_at
+  );
+
+  return user;
+}
+
+function ensureInitialAdminSeeded(db: DatabaseSync): void {
+  const email = getInitialAdminEmail();
+  const password = getInitialAdminPassword();
+  if (!email || !password) {
+    return;
+  }
+
+  const row = db.prepare("SELECT COUNT(*) as count FROM users").get() as { count: number };
+  if (row.count > 0) {
+    return;
+  }
+
+  createUserInDb(db, email, password, "admin");
+}
+
 function findUserByEmail(email: string): UserRow | null {
   const db = getDb();
   const row = db
     .prepare(
       `SELECT id, email, password_hash, role, created_at, updated_at
+       , avatar_path
        FROM users
        WHERE email = ?`
     )
@@ -279,6 +371,7 @@ function findUserById(userId: string): UserRow | null {
   const row = db
     .prepare(
       `SELECT id, email, password_hash, role, created_at, updated_at
+       , avatar_path
        FROM users
        WHERE id = ?`
     )
@@ -317,46 +410,29 @@ function issueSession(userId: string): string {
     now.toISOString()
   );
 
+  touchUserActivity(userId, sessionId, now.toISOString());
+
   return token;
 }
 
+function touchUserActivity(
+  userId: string,
+  sessionId: string | null,
+  nowIso = new Date().toISOString()
+): void {
+  const db = getDb();
+  if (sessionId) {
+    db.prepare("UPDATE sessions SET last_seen_at = ? WHERE id = ?").run(nowIso, sessionId);
+  }
+  db.prepare(
+    `INSERT INTO workspace_activity (user_id, last_activity_at)
+     VALUES (?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET last_activity_at = excluded.last_activity_at`
+  ).run(userId, nowIso);
+}
+
 function createUser(email: string, password: string, role: AuthRole): UserRow {
-  const normalizedEmail = normalizeEmail(email);
-  if (!normalizedEmail) {
-    throw new AuthError("Email is required", 400);
-  }
-  if (password.length < 8) {
-    throw new AuthError("Password must be at least 8 characters", 400);
-  }
-  if (findUserByEmail(normalizedEmail)) {
-    throw new AuthError("An account with that email already exists", 409);
-  }
-
-  const now = new Date().toISOString();
-  const user: UserRow = {
-    id: randomUUID(),
-    email: normalizedEmail,
-    password_hash: encodePassword(password),
-    role,
-    created_at: now,
-    updated_at: now,
-  };
-
-  getDb()
-    .prepare(
-      `INSERT INTO users (id, email, password_hash, role, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      user.id,
-      user.email,
-      user.password_hash,
-      user.role,
-      user.created_at,
-      user.updated_at
-    );
-
-  return user;
+  return createUserInDb(getDb(), email, password, role);
 }
 
 function requireActiveInvite(token: string): InviteRow {
@@ -390,6 +466,7 @@ function readSessionFromToken(token: string): SessionLookupRow | null {
          u.email,
          u.password_hash,
          u.role,
+         u.avatar_path,
          u.created_at AS user_created_at,
          u.updated_at AS user_updated_at
        FROM sessions s
@@ -407,6 +484,7 @@ function readSessionFromToken(token: string): SessionLookupRow | null {
         email: string;
         password_hash: string;
         role: AuthRole;
+        avatar_path: string | null;
         user_created_at: string;
         user_updated_at: string;
       }
@@ -431,6 +509,7 @@ function readSessionFromToken(token: string): SessionLookupRow | null {
     email: row.email,
     passwordHash: row.password_hash,
     role: row.role,
+    avatarPath: row.avatar_path,
     userCreatedAt: row.user_created_at,
     userUpdatedAt: row.user_updated_at,
   };
@@ -441,12 +520,11 @@ export function hasAnyUsers(): boolean {
 }
 
 export function canBootstrapAdmin(): boolean {
-  return !hasAnyUsers() && Boolean(process.env.NEURAL_LABS_BOOTSTRAP_ADMIN_EMAIL?.trim());
+  return !hasAnyUsers() && Boolean(getInitialAdminEmail() && getInitialAdminPassword());
 }
 
 export function getBootstrapAdminEmail(): string | null {
-  const email = process.env.NEURAL_LABS_BOOTSTRAP_ADMIN_EMAIL?.trim();
-  return email ? normalizeEmail(email) : null;
+  return getInitialAdminEmail();
 }
 
 export function getInviteUrl(token: string): string {
@@ -469,6 +547,7 @@ export function getSessionContextFromRequest(request: Request): SessionCookieCon
   if (!session) {
     return { sessionToken, viewer: null };
   }
+  touchUserActivity(session.userId, session.sessionId);
 
   return {
     sessionToken,
@@ -477,6 +556,7 @@ export function getSessionContextFromRequest(request: Request): SessionCookieCon
       email: session.email,
       password_hash: session.passwordHash,
       role: session.role,
+      avatar_path: session.avatarPath,
       created_at: session.userCreatedAt,
       updated_at: session.userUpdatedAt,
     }),
@@ -494,12 +574,14 @@ export function getViewerFromCookieHeader(cookieHeader: string | null): AuthView
   if (!session) {
     return null;
   }
+  touchUserActivity(session.userId, session.sessionId);
 
   return toViewer({
     id: session.userId,
     email: session.email,
     password_hash: session.passwordHash,
     role: session.role,
+    avatar_path: session.avatarPath,
     created_at: session.userCreatedAt,
     updated_at: session.userUpdatedAt,
   });
@@ -526,14 +608,24 @@ export function getViewerBySessionToken(sessionToken: string): AuthViewer | null
   if (!session) {
     return null;
   }
+  touchUserActivity(session.userId, session.sessionId);
   return toViewer({
     id: session.userId,
     email: session.email,
     password_hash: session.passwordHash,
     role: session.role,
+    avatar_path: session.avatarPath,
     created_at: session.userCreatedAt,
     updated_at: session.userUpdatedAt,
   });
+}
+
+function normalizeAvatarPath(avatarPath: string | null | undefined): string | null {
+  if (typeof avatarPath !== "string") {
+    return null;
+  }
+  const value = avatarPath.trim().replace(/^\/+/, "");
+  return value || null;
 }
 
 export function applySessionCookie(response: Response, sessionToken: string): Response {
@@ -576,15 +668,19 @@ export function bootstrapAdminAccount(email: string, password: string): {
   viewer: AuthViewer;
   sessionToken: string;
 } {
-  const bootstrapEmail = getBootstrapAdminEmail();
-  if (!bootstrapEmail) {
-    throw new AuthError("Bootstrap admin is not configured", 400);
+  const initialAdminEmail = getInitialAdminEmail();
+  const initialAdminPassword = getInitialAdminPassword();
+  if (!initialAdminEmail || !initialAdminPassword) {
+    throw new AuthError("Initial admin credentials are not configured", 400);
   }
   if (hasAnyUsers()) {
-    throw new AuthError("Bootstrap admin is no longer available", 409);
+    throw new AuthError("Initial admin has already been provisioned", 409);
   }
-  if (normalizeEmail(email) !== bootstrapEmail) {
-    throw new AuthError("Email does not match the configured bootstrap admin", 403);
+  if (normalizeEmail(email) !== initialAdminEmail) {
+    throw new AuthError("Email does not match the configured initial admin", 403);
+  }
+  if (password !== initialAdminPassword) {
+    throw new AuthError("Password does not match the configured initial admin", 403);
   }
 
   const user = createUser(email, password, "admin");
@@ -718,4 +814,34 @@ export function requireViewerById(userId: string): AuthViewer {
     throw new AuthError("User not found", 404);
   }
   return toViewer(user);
+}
+
+export function updateViewerProfile(
+  actor: AuthViewer,
+  payload: { avatarPath?: string | null }
+): AuthViewer {
+  const user = findUserById(actor.id);
+  if (!user) {
+    throw new AuthError("User not found", 404);
+  }
+
+  const nextAvatarPath =
+    payload.avatarPath === undefined
+      ? user.avatar_path
+      : normalizeAvatarPath(payload.avatarPath);
+  const updatedAt = new Date().toISOString();
+
+  getDb()
+    .prepare(
+      `UPDATE users
+       SET avatar_path = ?, updated_at = ?
+       WHERE id = ?`
+    )
+    .run(nextAvatarPath, updatedAt, actor.id);
+
+  return toViewer({
+    ...user,
+    avatar_path: nextAvatarPath,
+    updated_at: updatedAt,
+  });
 }

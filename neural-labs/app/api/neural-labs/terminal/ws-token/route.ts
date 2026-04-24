@@ -28,13 +28,22 @@ export async function POST(request: Request) {
       );
     }
 
-    const ticket = getTerminalManager().issueWsTicket(session.userId, terminalId);
+    const manager = getTerminalManager();
+    const ticket = manager.issueWsTicket(session.userId, terminalId);
+    const authToken = manager.issueWsAuthTicket(session.userId);
     const response = NextResponse.json({
       token: ticket,
-      ws_path: `/api/neural-labs/terminal/ws?terminal_token=${encodeURIComponent(ticket)}`,
+      ws_path:
+        `/api/neural-labs/terminal/ws?token=${encodeURIComponent(authToken)}` +
+        `&terminal_token=${encodeURIComponent(ticket)}`,
     });
     return applyUserSessionCookie(response, session);
   } catch (error) {
+    if (error instanceof Error) {
+      console.warn("[terminal/ws-token] failed:", error.message);
+    } else {
+      console.warn("[terminal/ws-token] failed with unknown error");
+    }
     return jsonErrorFromUnknown(error, "Unable to issue websocket token", 400);
   }
 }

@@ -2,7 +2,6 @@ const { createServer } = require("node:http");
 
 const next = require("next");
 const { WebSocketServer } = require("next/dist/compiled/ws");
-const { getViewerFromHeaders } = require("./lib/server/auth-runtime.js");
 const { getTerminalManager: getRuntimeTerminalManager } = require("./lib/server/terminal-manager-runtime.js");
 
 const TERMINAL_WS_PATH = "/api/neural-labs/terminal/ws";
@@ -34,11 +33,12 @@ function parseTerminalWsRequest(url) {
     }
 
     const terminalToken = (parsed.searchParams.get("terminal_token") || "").trim();
-    if (!terminalToken) {
+    const authToken = (parsed.searchParams.get("token") || "").trim();
+    if (!terminalToken || !authToken) {
       return null;
     }
 
-    return { terminalToken };
+    return { terminalToken, authToken };
   } catch {
     return null;
   }
@@ -85,6 +85,7 @@ async function main() {
   await app.prepare();
   handleRequest = app.getRequestHandler();
   handleUpgrade = app.getUpgradeHandler();
+  await getTerminalManager();
 
   const terminalWss = new WebSocketServer({ noServer: true });
 
@@ -96,16 +97,9 @@ async function main() {
       return;
     }
 
-    const viewer = getViewerFromHeaders(req.headers);
-    if (!viewer) {
-      sendJson(ws, { type: "error", text: "Missing or invalid user session." });
-      ws.close();
-      return;
-    }
-    const userId = viewer.id;
-
     let closed = false;
     let manager = null;
+    let userId = null;
     let terminalId = null;
     let unsubscribe = () => {};
 
@@ -119,6 +113,7 @@ async function main() {
     };
 
     const closeWithError = (text) => {
+      console.warn("[terminal/ws] closeWithError:", text);
       sendJson(ws, { type: "error", text });
       cleanup();
       if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {
@@ -166,6 +161,12 @@ async function main() {
 
     void (async () => {
       manager = await getTerminalManager();
+      userId = manager.consumeWsAuthTicket(wsRequest.authToken);
+      if (!userId) {
+        closeWithError("Invalid websocket authentication token.");
+        return;
+      }
+
       terminalId = manager.consumeWsTicket(userId, wsRequest.terminalToken);
       if (!terminalId) {
         closeWithError("Invalid terminal stream token.");
@@ -182,13 +183,6 @@ async function main() {
         sendJson(ws, chunk);
       });
 
-      if (!session.backlog.length) {
-        try {
-          manager.writeInput(userId, terminalId, "\n");
-        } catch {
-          // Ignore warm-up failures.
-        }
-      }
     })().catch((error) => {
       console.error("Terminal websocket setup failed", error);
       closeWithError(

@@ -2,25 +2,14 @@
 
 import { useState } from "react";
 
-import { bootstrapAdmin, login } from "@/lib/client/api";
+import { EnvironmentLoader } from "@/components/auth/environment-loader";
+import { login } from "@/lib/client/api";
 
-interface LoginScreenProps {
-  canBootstrapAdmin: boolean;
-  bootstrapAdminEmail: string | null;
-}
-
-export function LoginScreen({
-  canBootstrapAdmin,
-  bootstrapAdminEmail,
-}: LoginScreenProps) {
+export function LoginScreen({ backgroundStyle }: { backgroundStyle: string }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [bootstrapPassword, setBootstrapPassword] = useState("");
-  const [bootstrapConfirm, setBootstrapConfirm] = useState("");
-  const [bootstrapError, setBootstrapError] = useState("");
-  const [isBootstrapping, setIsBootstrapping] = useState(false);
 
   async function handleLogin(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -37,138 +26,67 @@ export function LoginScreen({
     }
   }
 
-  async function handleBootstrap(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (bootstrapPassword !== bootstrapConfirm) {
-      setBootstrapError("Passwords do not match");
-      return;
-    }
-
-    setIsBootstrapping(true);
-    setBootstrapError("");
-
-    try {
-      await bootstrapAdmin({
-        email: bootstrapAdminEmail ?? "",
-        password: bootstrapPassword,
-      });
-      window.location.href = "/desktop";
-    } catch (nextError) {
-      setBootstrapError(
-        nextError instanceof Error ? nextError.message : "Unable to create admin account"
-      );
-    } finally {
-      setIsBootstrapping(false);
-    }
-  }
-
   return (
-    <main className="nl-auth-shell">
-      <section className="nl-auth-card">
-        <div className="nl-auth-card__hero">
-          <img src="/brand/alshival-brain-256.png" alt="Neural Labs" />
-          <div>
-            <span>Neural Labs</span>
-            <h1>Sign in to your workspace</h1>
-            <p>
-              Workspace files, editor changes, terminal sessions, and conversations are
-              stored against your account.
-            </p>
+    <main className="nl-auth-shell" style={{ backgroundImage: backgroundStyle }}>
+      {isSubmitting ? <EnvironmentLoader /> : null}
+      <section className="nl-auth-split">
+        <div className="nl-auth-split__hero">
+          <div className="nl-auth-split__hero-copy">
+            <img src="/brand/alshival-brain-wide.png" alt="Neural Labs" />
+            <div className="nl-auth-split__hero-text">
+              <h1>Neural Labs</h1>
+              <p>Your AI desktop.</p>
+            </div>
+            <span>Browser OS</span>
           </div>
         </div>
 
-        <form className="nl-auth-form" onSubmit={handleLogin}>
-          <label>
-            <span>Email</span>
-            <input
-              type="email"
-              autoComplete="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="you@example.com"
-              required
-            />
-          </label>
-
-          <label>
-            <span>Password</span>
-            <input
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="••••••••"
-              required
-            />
-          </label>
-
-          {error ? <p className="nl-auth-error">{error}</p> : null}
-
-          <button type="submit" className="nl-auth-button" disabled={isSubmitting}>
-            {isSubmitting ? "Signing in..." : "Sign in"}
-          </button>
-        </form>
-
-        <div className="nl-auth-card__footer">
-          <p>Access is invite-only. Ask an administrator for an invite link.</p>
-        </div>
-      </section>
-
-      {canBootstrapAdmin && bootstrapAdminEmail ? (
-        <section className="nl-auth-card nl-auth-card--secondary">
+        <div className="nl-auth-card nl-auth-card--login">
           <div className="nl-auth-card__hero">
             <div>
-              <span>Bootstrap Admin</span>
-              <h2>Create the first admin account</h2>
-              <p>
-                No users exist yet. The first admin must use{" "}
-                <strong>{bootstrapAdminEmail}</strong>.
-              </p>
+              <span>Sign in</span>
+              <h2>Access your workspace</h2>
+              <p>Use the account attached to your invite.</p>
             </div>
           </div>
 
-          <form className="nl-auth-form" onSubmit={handleBootstrap}>
+          <form className="nl-auth-form" onSubmit={handleLogin}>
             <label>
-              <span>Admin email</span>
-              <input type="email" value={bootstrapAdminEmail} disabled readOnly />
+              <span>Email</span>
+              <input
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="you@example.com"
+                required
+              />
             </label>
 
             <label>
               <span>Password</span>
               <input
                 type="password"
-                autoComplete="new-password"
-                value={bootstrapPassword}
-                onChange={(event) => setBootstrapPassword(event.target.value)}
-                placeholder="At least 8 characters"
+                autoComplete="current-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="••••••••"
                 required
               />
             </label>
 
-            <label>
-              <span>Confirm password</span>
-              <input
-                type="password"
-                autoComplete="new-password"
-                value={bootstrapConfirm}
-                onChange={(event) => setBootstrapConfirm(event.target.value)}
-                placeholder="Repeat password"
-                required
-              />
-            </label>
+            {error ? <p className="nl-auth-error">{error}</p> : null}
 
-            {bootstrapError ? <p className="nl-auth-error">{bootstrapError}</p> : null}
-
-            <button
-              type="submit"
-              className="nl-auth-button"
-              disabled={isBootstrapping}
-            >
-              {isBootstrapping ? "Creating admin..." : "Create admin account"}
+            <button type="submit" className="nl-auth-button" disabled={isSubmitting}>
+              Sign in
             </button>
           </form>
-        </section>
-      ) : null}
+
+          <div className="nl-auth-card__footer">
+            <p>Access is invite-only. Ask an administrator for an invite link.</p>
+          </div>
+        </div>
+      </section>
     </main>
   );
 }

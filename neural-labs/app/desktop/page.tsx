@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { NeuralLabsWorkspace } from "@/components/desktop/workspace";
 import { getViewerFromCookieHeader } from "@/lib/server/auth";
+import { readSettingsSnapshot } from "@/lib/server/store";
 
 function cookieHeaderFromStore(store: Awaited<ReturnType<typeof cookies>>) {
   return store
@@ -18,5 +19,12 @@ export default async function DesktopPage() {
     redirect("/login");
   }
 
-  return <NeuralLabsWorkspace viewer={viewer} />;
+  let initialSettings = null;
+  try {
+    initialSettings = await readSettingsSnapshot(viewer.id);
+  } catch {
+    // Fall back to client bootstrap fetch if settings preload fails.
+  }
+
+  return <NeuralLabsWorkspace viewer={viewer} initialSettings={initialSettings} />;
 }

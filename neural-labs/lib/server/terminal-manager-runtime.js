@@ -1,6 +1,6 @@
 const { randomUUID } = require("node:crypto");
 const { spawn, execFile: nodeExecFile } = require("node:child_process");
-const { existsSync } = require("node:fs");
+const { existsSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
 const { mkdir, writeFile } = require("node:fs/promises");
 const path = require("node:path");
 const { promisify } = require("node:util");
@@ -12,6 +12,31 @@ const WS_TICKET_TTL_MS = Number.isFinite(
 )
   ? Math.max(10_000, Number.parseInt(process.env.NEURAL_LABS_WS_TICKET_TTL_MS || "", 10))
   : 90_000;
+const WS_AUTH_TICKET_TTL_MS = Number.isFinite(
+  Number.parseInt(process.env.NEURAL_LABS_WS_AUTH_TICKET_TTL_MS || "", 10)
+)
+  ? Math.max(10_000, Number.parseInt(process.env.NEURAL_LABS_WS_AUTH_TICKET_TTL_MS || "", 10))
+  : 60_000;
+const CONTAINER_IDLE_TIMEOUT_MS = Number.isFinite(
+  Number.parseInt(process.env.NEURAL_LABS_CONTAINER_IDLE_TIMEOUT_MS || "", 10)
+)
+  ? Math.max(60_000, Number.parseInt(process.env.NEURAL_LABS_CONTAINER_IDLE_TIMEOUT_MS || "", 10))
+  : 60 * 60 * 1000;
+const CONTAINER_IDLE_SWEEP_INTERVAL_MS = Number.isFinite(
+  Number.parseInt(process.env.NEURAL_LABS_CONTAINER_IDLE_SWEEP_INTERVAL_MS || "", 10)
+)
+  ? Math.max(
+      30_000,
+      Number.parseInt(process.env.NEURAL_LABS_CONTAINER_IDLE_SWEEP_INTERVAL_MS || "", 10)
+    )
+  : 5 * 60 * 1000;
+const DEFAULT_ACTIVITY_DIR = path.join(
+  process.env.HOME || process.cwd(),
+  ".local",
+  "share",
+  "neural-labs",
+  "activity"
+);
 
 const DEFAULT_LOCAL_DATA_ROOT = path.join(
   process.env.HOME || process.cwd(),
@@ -19,8 +44,7 @@ const DEFAULT_LOCAL_DATA_ROOT = path.join(
   "share",
   "neural-labs"
 );
-const WORKSPACE_BACKEND =
-  process.env.NEURAL_LABS_WORKSPACE_BACKEND === "local" ? "local" : "docker";
+const WORKSPACE_BACKEND = "docker";
 const DATA_ROOT_BASE =
   process.env.NEURAL_LABS_DATA_DIR?.trim() || DEFAULT_LOCAL_DATA_ROOT;
 const DOCKER_IMAGE = process.env.NEURAL_LABS_WORKSPACE_IMAGE?.trim() || "ubuntu:24.04";
@@ -29,8 +53,19 @@ const DOCKER_CONTAINER_PREFIX =
 const DOCKER_VOLUME_PREFIX =
   process.env.NEURAL_LABS_VOLUME_PREFIX?.trim() || "neural-labs-user";
 const DOCKER_WORKSPACE_PATH =
-  process.env.NEURAL_LABS_WORKSPACE_PATH?.trim() || "/workspace";
+  process.env.NEURAL_LABS_WORKSPACE_PATH?.trim() || "/home/neural-labs";
 const USER_ID_SAFE_PATTERN = /[^a-z0-9_.-]/g;
+const NEURAL_LABS_BANNER_TEXT =
+  "\r\n" +
+  " ███╗   ██╗███████╗██╗   ██╗██████╗  █████╗ ██╗         ██╗      █████╗ ██████╗ ███████╗\r\n" +
+  " ████╗  ██║██╔════╝██║   ██║██╔══██╗██╔══██╗██║         ██║     ██╔══██╗██╔══██╗██╔════╝\r\n" +
+  " ██╔██╗ ██║█████╗  ██║   ██║██████╔╝███████║██║         ██║     ███████║██████╔╝███████╗\r\n" +
+  " ██║╚██╗██║██╔══╝  ██║   ██║██╔══██╗██╔══██║██║         ██║     ██╔══██║██╔══██╗╚════██║\r\n" +
+  " ██║ ╚████║███████╗╚██████╔╝██║  ██║██║  ██║███████╗    ███████╗██║  ██║██████╔╝███████║\r\n" +
+  " ╚═╝  ╚═══╝╚══════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝    ╚══════╝╚═╝  ╚═╝╚═════╝ ╚══════╝\r\n" +
+  "\r\n" +
+  "             >> environment initialized <<\r\n" +
+  "\r\n";
 
 function toSafeId(userId) {
   const safe = userId.toLowerCase().replace(USER_ID_SAFE_PATTERN, "-");
@@ -44,6 +79,59 @@ async function runDocker(args) {
   return stdout.trim();
 }
 
+function getActivityDirectory() {
+  return process.env.NEURAL_LABS_ACTIVITY_DIR?.trim() || DEFAULT_ACTIVITY_DIR;
+}
+
+function getActivityFilePath(userId) {
+  const safeUserId = toSafeId(userId);
+  return path.join(getActivityDirectory(), `${safeUserId}.json`);
+}
+
+function markWorkspaceActivity(userId, at = new Date()) {
+  const timestamp = at.toISOString();
+  const activityDirectory = getActivityDirectory();
+  if (!existsSync(activityDirectory)) {
+    mkdirSync(activityDirectory, { recursive: true });
+  }
+  const activityFilePath = getActivityFilePath(userId);
+  writeFileSync(
+    activityFilePath,
+    JSON.stringify({ userId, lastActivityAt: timestamp }, null, 2),
+    "utf-8"
+  );
+}
+
+function markWorkspaceActivitySafe(userId, at = new Date()) {
+  try {
+    markWorkspaceActivity(userId, at);
+  } catch (error) {
+    console.warn(`[terminal/activity] Unable to persist activity for user ${userId}`, error);
+  }
+}
+
+function parseTimestampMs(timestamp) {
+  if (typeof timestamp !== "string" || !timestamp) {
+    return null;
+  }
+  const parsed = Date.parse(timestamp);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getLastWorkspaceActivityMs(userId) {
+  try {
+    const activityFilePath = getActivityFilePath(userId);
+    if (!existsSync(activityFilePath)) {
+      return null;
+    }
+    const raw = readFileSync(activityFilePath, "utf-8");
+    const parsed = JSON.parse(raw);
+    return parseTimestampMs(parsed?.lastActivityAt);
+  } catch {
+    return null;
+  }
+}
+
 async function ensureDockerVolume(volumeName) {
   try {
     await runDocker(["volume", "inspect", volumeName]);
@@ -52,7 +140,43 @@ async function ensureDockerVolume(volumeName) {
   }
 }
 
-async function ensureDockerContainer(containerName, volumeName) {
+async function ensureDockerContainer(containerName, volumeName, userId) {
+  const createContainer = async () => {
+    await runDocker([
+      "run",
+      "-d",
+      "--name",
+      containerName,
+      "--hostname",
+      containerName,
+      "--label",
+      "neural-labs.managed=true",
+      "--label",
+      `neural-labs.volume=${volumeName}`,
+      "--label",
+      `neural-labs.user-id=${userId}`,
+      "-v",
+      `${volumeName}:${DOCKER_WORKSPACE_PATH}`,
+      "-w",
+      DOCKER_WORKSPACE_PATH,
+      "-e",
+      `HOME=${DOCKER_WORKSPACE_PATH}`,
+      DOCKER_IMAGE,
+      "tail",
+      "-f",
+      "/dev/null",
+    ]);
+  };
+
+  const recreateContainer = async () => {
+    try {
+      await runDocker(["rm", "-f", containerName]);
+    } catch {
+      // Ignore cleanup errors and attempt to create a fresh container.
+    }
+    await createContainer();
+  };
+
   try {
     const running = await runDocker([
       "inspect",
@@ -60,6 +184,35 @@ async function ensureDockerContainer(containerName, volumeName) {
       "{{ .State.Running }}",
       containerName,
     ]);
+
+    const workingDir = await runDocker([
+      "inspect",
+      "--format",
+      "{{ .Config.WorkingDir }}",
+      containerName,
+    ]);
+    const mountedVolume = await runDocker([
+      "inspect",
+      "--format",
+      `{{range .Mounts}}{{if eq .Destination "${DOCKER_WORKSPACE_PATH}"}}{{.Name}}{{end}}{{end}}`,
+      containerName,
+    ]);
+    const labeledUserId = await runDocker([
+      "inspect",
+      "--format",
+      '{{ index .Config.Labels "neural-labs.user-id" }}',
+      containerName,
+    ]);
+    const shouldRecreate =
+      workingDir !== DOCKER_WORKSPACE_PATH ||
+      mountedVolume !== volumeName ||
+      labeledUserId !== userId;
+
+    if (shouldRecreate) {
+      await recreateContainer();
+      return;
+    }
+
     if (running !== "true") {
       await runDocker(["start", containerName]);
     }
@@ -68,43 +221,12 @@ async function ensureDockerContainer(containerName, volumeName) {
     // If inspect fails, create the container.
   }
 
-  await runDocker([
-    "run",
-    "-d",
-    "--name",
-    containerName,
-    "--hostname",
-    containerName,
-    "--label",
-    "neural-labs.managed=true",
-    "--label",
-    `neural-labs.volume=${volumeName}`,
-    "-v",
-    `${volumeName}:${DOCKER_WORKSPACE_PATH}`,
-    "-w",
-    DOCKER_WORKSPACE_PATH,
-    DOCKER_IMAGE,
-    "tail",
-    "-f",
-    "/dev/null",
-  ]);
+  await createContainer();
 }
 
 async function getWorkspaceSession(userId) {
-  if (WORKSPACE_BACKEND === "local") {
-    const userRoot = path.join(DATA_ROOT_BASE, "users", toSafeId(userId));
-    const workspaceRoot = path.join(userRoot, "workspace");
-    const dataRoot = path.join(userRoot, ".neural-labs");
-    return {
-      userId,
-      backend: "local",
-      workspaceRoot,
-      dataRoot,
-      stateFilePath: path.join(dataRoot, "state.json"),
-      containerName: null,
-      volumeName: null,
-      workspacePathInContainer: null,
-    };
+  if (WORKSPACE_BACKEND !== "docker") {
+    throw new Error("Neural Labs terminal is configured for docker backend only.");
   }
 
   const safeId = toSafeId(userId);
@@ -112,7 +234,7 @@ async function getWorkspaceSession(userId) {
   const containerName = `${DOCKER_CONTAINER_PREFIX}-${safeId}`;
 
   await ensureDockerVolume(volumeName);
-  await ensureDockerContainer(containerName, volumeName);
+  await ensureDockerContainer(containerName, volumeName, userId);
 
   const mountpoint = await runDocker([
     "volume",
@@ -180,12 +302,25 @@ class TerminalManager {
   constructor() {
     this.sessionsByUser = new Map();
     this.wsTickets = new Map();
+    this.wsAuthTickets = new Map();
     this.deadSessionTtlMs = Number.isFinite(
       Number.parseInt(process.env.NEURAL_LABS_DEAD_SESSION_TTL_MS || "", 10)
     )
       ? Math.max(15_000, Number.parseInt(process.env.NEURAL_LABS_DEAD_SESSION_TTL_MS || "", 10))
       : 5 * 60 * 1000;
     this.cleanupTimers = new Map();
+    this.containerIdleTimeoutMs = CONTAINER_IDLE_TIMEOUT_MS;
+    this.containerIdleSweepIntervalMs = CONTAINER_IDLE_SWEEP_INTERVAL_MS;
+    this.idleSweepInFlight = false;
+    if (this.containerIdleTimeoutMs > 0 && this.containerIdleSweepIntervalMs > 0) {
+      this.idleSweepTimer = setInterval(() => {
+        void this.sweepIdleContainers();
+      }, this.containerIdleSweepIntervalMs);
+      if (typeof this.idleSweepTimer.unref === "function") {
+        this.idleSweepTimer.unref();
+      }
+      void this.sweepIdleContainers();
+    }
   }
 
   getCleanupTimerKey(userId, sessionId) {
@@ -196,6 +331,14 @@ class TerminalManager {
     for (const [token, ticket] of this.wsTickets.entries()) {
       if (ticket.expiresAt <= now) {
         this.wsTickets.delete(token);
+      }
+    }
+  }
+
+  purgeExpiredWsAuthTickets(now = Date.now()) {
+    for (const [token, ticket] of this.wsAuthTickets.entries()) {
+      if (ticket.expiresAt <= now) {
+        this.wsAuthTickets.delete(token);
       }
     }
   }
@@ -219,42 +362,40 @@ class TerminalManager {
   }
 
   buildProcess(workspace) {
-    const shell = process.env.NEURAL_LABS_WORKSPACE_SHELL || "bash";
-    if (
-      workspace.backend === "docker" &&
-      workspace.containerName &&
-      workspace.workspacePathInContainer
-    ) {
-      return spawn(
-        "docker",
-        [
-          "exec",
-          "-i",
-          "-w",
-          workspace.workspacePathInContainer,
-          "-e",
-          "PS1=neural-labs$ ",
-          workspace.containerName,
-          shell,
-          "--noprofile",
-          "--norc",
-          "-i",
-        ],
-        {
-          stdio: "pipe",
-          env: process.env,
-        }
-      );
+    if (workspace.backend !== "docker") {
+      throw new Error("Neural Labs terminal is configured for docker backend only.");
     }
 
-    return spawn(shell, ["--noprofile", "--norc", "-i"], {
-      cwd: workspace.workspaceRoot,
-      env: {
-        ...process.env,
-        PS1: "neural-labs$ ",
-      },
-      stdio: "pipe",
-    });
+    const shell = process.env.NEURAL_LABS_WORKSPACE_SHELL || "bash";
+    const interactiveShellCommand = `${shell} --noprofile --norc -i`;
+    if (!workspace.containerName || !workspace.workspacePathInContainer) {
+      throw new Error("Workspace container is not available for this user.");
+    }
+
+    return spawn(
+      "docker",
+      [
+        "exec",
+        "-i",
+        "-w",
+        workspace.workspacePathInContainer,
+        "-e",
+        `HOME=${workspace.workspacePathInContainer}`,
+        "-e",
+        "PS1=neural-labs$ ",
+        "-e",
+        "TERM=xterm-256color",
+        workspace.containerName,
+        "script",
+        "-qec",
+        interactiveShellCommand,
+        "/dev/null",
+      ],
+      {
+        stdio: "pipe",
+        env: process.env,
+      }
+    );
   }
 
   getUserSessions(userId) {
@@ -289,25 +430,136 @@ class TerminalManager {
     if (direct) {
       return { ownerUserId: userId, session: direct };
     }
-
-    for (const [ownerUserId, sessions] of this.sessionsByUser.entries()) {
-      if (ownerUserId === userId) {
-        continue;
-      }
-      const session = sessions.get(sessionId);
-      if (session) {
-        return { ownerUserId, session };
-      }
-    }
-
     return null;
   }
 
+  getInMemoryLastActivityMs(userId) {
+    const sessions = this.sessionsByUser.get(userId);
+    if (!sessions || sessions.size === 0) {
+      return null;
+    }
+
+    let latest = null;
+    for (const session of sessions.values()) {
+      const sessionLastActivityMs = parseTimestampMs(session.lastActivityAt);
+      if (sessionLastActivityMs === null) {
+        continue;
+      }
+      if (latest === null || sessionLastActivityMs > latest) {
+        latest = sessionLastActivityMs;
+      }
+    }
+    return latest;
+  }
+
+  async getContainerUserId(containerName) {
+    try {
+      const labeledUserId = await runDocker([
+        "inspect",
+        "--format",
+        '{{ index .Config.Labels "neural-labs.user-id" }}',
+        containerName,
+      ]);
+      if (labeledUserId) {
+        return labeledUserId;
+      }
+    } catch {
+      // Ignore inspect errors so one bad container doesn't break the sweep.
+    }
+
+    const prefix = `${DOCKER_CONTAINER_PREFIX}-`;
+    if (containerName.startsWith(prefix)) {
+      const fallbackUserId = containerName.slice(prefix.length);
+      return fallbackUserId || null;
+    }
+    return null;
+  }
+
+  async sweepIdleContainers() {
+    if (this.idleSweepInFlight || this.containerIdleTimeoutMs <= 0) {
+      return;
+    }
+    this.idleSweepInFlight = true;
+    const now = Date.now();
+
+    try {
+      let output = "";
+      try {
+        output = await runDocker([
+          "ps",
+          "--filter",
+          "label=neural-labs.managed=true",
+          "--format",
+          "{{.Names}}",
+        ]);
+      } catch (error) {
+        console.warn("[terminal/idle] Unable to list running containers", error);
+        return;
+      }
+
+      if (!output) {
+        return;
+      }
+
+      const managedContainers = output
+        .split("\n")
+        .map((entry) => entry.trim())
+        .filter((entry) => Boolean(entry))
+        .filter((entry) => entry.startsWith(`${DOCKER_CONTAINER_PREFIX}-`));
+
+      for (const containerName of managedContainers) {
+        const userId = await this.getContainerUserId(containerName);
+        if (!userId) {
+          continue;
+        }
+
+        let persistedActivityMs = null;
+        try {
+          persistedActivityMs = getLastWorkspaceActivityMs(userId);
+        } catch (error) {
+          console.warn(
+            `[terminal/idle] Unable to load persisted activity for user ${userId}`,
+            error
+          );
+        }
+        const inMemoryActivityMs = this.getInMemoryLastActivityMs(userId);
+        const latestActivityMs = Math.max(persistedActivityMs ?? 0, inMemoryActivityMs ?? 0);
+        if (!latestActivityMs || now - latestActivityMs < this.containerIdleTimeoutMs) {
+          continue;
+        }
+
+        try {
+          await runDocker(["stop", "-t", "10", containerName]);
+          console.log(
+            `[terminal/idle] Stopped idle container ${containerName} after ${Math.round(
+              (now - latestActivityMs) / 1000
+            )}s of inactivity.`
+          );
+        } catch (error) {
+          console.warn(
+            `[terminal/idle] Failed to stop idle container ${containerName}`,
+            error
+          );
+        }
+      }
+    } catch (error) {
+      console.warn("[terminal/idle] Idle sweep failed", error);
+    } finally {
+      this.idleSweepInFlight = false;
+    }
+  }
+
   async createSession(userId) {
+    markWorkspaceActivitySafe(userId);
     const workspace = await ensureWorkspaceScaffold(userId);
     const child = this.buildProcess(workspace);
 
     const session = new TerminalSession(child);
+    session.pushChunk({
+      type: "output",
+      text: NEURAL_LABS_BANNER_TEXT,
+      terminalId: session.id,
+    });
     const handleOutput = (buffer, type = "output") => {
       session.pushChunk({
         type,
@@ -324,7 +576,6 @@ class TerminalManager {
       this.scheduleCleanup(userId, session.id);
     });
 
-    session.process.stdin.write("pwd\n");
     this.getUserSessions(userId).set(session.id, session);
     return session;
   }
@@ -362,6 +613,7 @@ class TerminalManager {
     }
     const { session } = resolved;
     session.lastActivityAt = new Date().toISOString();
+    markWorkspaceActivitySafe(userId);
     session.process.stdin.write(data);
   }
 
@@ -394,7 +646,30 @@ class TerminalManager {
       sessionId,
       expiresAt: Date.now() + WS_TICKET_TTL_MS,
     });
+    markWorkspaceActivitySafe(userId);
     return token;
+  }
+
+  issueWsAuthTicket(userId) {
+    this.purgeExpiredWsAuthTickets();
+    const token = randomUUID();
+    this.wsAuthTickets.set(token, {
+      userId,
+      expiresAt: Date.now() + WS_AUTH_TICKET_TTL_MS,
+    });
+    markWorkspaceActivitySafe(userId);
+    return token;
+  }
+
+  consumeWsAuthTicket(token) {
+    this.purgeExpiredWsAuthTickets();
+    const ticket = this.wsAuthTickets.get(token);
+    if (!ticket) {
+      return null;
+    }
+    this.wsAuthTickets.delete(token);
+    markWorkspaceActivitySafe(ticket.userId);
+    return ticket.userId;
   }
 
   consumeWsTicket(userId, token) {
@@ -413,6 +688,7 @@ class TerminalManager {
     if (!session || !session.alive) {
       return null;
     }
+    markWorkspaceActivitySafe(userId);
     return ticket.sessionId;
   }
 
