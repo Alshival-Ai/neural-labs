@@ -1,27 +1,38 @@
 import { NextResponse } from "next/server";
 
-import { jsonError } from "@/lib/server/http";
+import { jsonError, jsonErrorFromUnknown } from "@/lib/server/http";
 import { getConversation, removeConversation } from "@/lib/server/store";
+import { applyUserSessionCookie, getUserSessionFromRequest } from "@/lib/server/user-session";
 
 export const runtime = "nodejs";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ conversationId: string }> }
 ) {
-  const { conversationId } = await context.params;
-  const conversation = await getConversation(conversationId);
-  if (!conversation) {
-    return jsonError("Conversation not found", 404);
+  try {
+    const session = getUserSessionFromRequest(request);
+    const { conversationId } = await context.params;
+    const conversation = await getConversation(session.userId, conversationId);
+    if (!conversation) {
+      return jsonError("Conversation not found", 404);
+    }
+    return applyUserSessionCookie(NextResponse.json(conversation), session);
+  } catch (error) {
+    return jsonErrorFromUnknown(error, "Unable to load conversation", 401);
   }
-  return NextResponse.json(conversation);
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ conversationId: string }> }
 ) {
-  const { conversationId } = await context.params;
-  await removeConversation(conversationId);
-  return new NextResponse(null, { status: 204 });
+  try {
+    const session = getUserSessionFromRequest(request);
+    const { conversationId } = await context.params;
+    await removeConversation(session.userId, conversationId);
+    return applyUserSessionCookie(new NextResponse(null, { status: 204 }), session);
+  } catch (error) {
+    return jsonErrorFromUnknown(error, "Unable to delete conversation", 401);
+  }
 }

@@ -11,8 +11,8 @@ import path from "node:path";
 
 import type { DirectoryListing, FileEntry } from "@/lib/shared/types";
 import { getMimeType } from "@/lib/server/mime";
-import { resolveWorkspacePath, toRelativeWorkspacePath } from "@/lib/server/paths";
 import { ensureDataScaffold } from "@/lib/server/store";
+import { getWorkspaceSession } from "@/lib/server/workspace-session";
 
 function sanitizeName(name: string): string {
   const nextName = name.trim().replace(/[\\/]/g, "-");
@@ -24,6 +24,22 @@ function sanitizeName(name: string): string {
 
 const CUSTOM_BACKGROUND_DIRECTORY = ".neural-labs/backgrounds";
 const CUSTOM_BACKGROUND_BASENAME = "custom-background";
+
+function resolveWorkspacePath(workspaceRoot: string, relativePath = ""): string {
+  const safeRelativePath = relativePath.replace(/^\/+/, "");
+  const resolved = path.resolve(workspaceRoot, safeRelativePath);
+
+  if (resolved !== workspaceRoot && !resolved.startsWith(`${workspaceRoot}${path.sep}`)) {
+    throw new Error("Path escapes the workspace");
+  }
+
+  return resolved;
+}
+
+function toRelativeWorkspacePath(workspaceRoot: string, absolutePath: string): string {
+  const relative = path.relative(workspaceRoot, absolutePath).replace(/\\/g, "/");
+  return relative === "" ? "" : relative;
+}
 
 function getBackgroundExtension(filename: string, mimeType: string): string {
   const normalized = mimeType.toLowerCase();
@@ -47,9 +63,12 @@ function getBackgroundExtension(filename: string, mimeType: string): string {
   return fallback || ".png";
 }
 
-async function toFileEntry(absolutePath: string): Promise<FileEntry> {
+async function toFileEntry(
+  workspaceRoot: string,
+  absolutePath: string
+): Promise<FileEntry> {
   const fileStat = await stat(absolutePath);
-  const relativePath = toRelativeWorkspacePath(absolutePath);
+  const relativePath = toRelativeWorkspacePath(workspaceRoot, absolutePath);
   return {
     name: path.basename(absolutePath),
     path: relativePath,
@@ -60,9 +79,13 @@ async function toFileEntry(absolutePath: string): Promise<FileEntry> {
   };
 }
 
-export async function listDirectory(relativePath = ""): Promise<DirectoryListing> {
-  await ensureDataScaffold();
-  const targetPath = resolveWorkspacePath(relativePath);
+export async function listDirectory(
+  userId: string,
+  relativePath = ""
+): Promise<DirectoryListing> {
+  await ensureDataScaffold(userId);
+  const { workspaceRoot } = await getWorkspaceSession(userId);
+  const targetPath = resolveWorkspacePath(workspaceRoot, relativePath);
   const directoryStat = await stat(targetPath).catch(() => null);
   if (!directoryStat || !directoryStat.isDirectory()) {
     throw new Error("Directory not found");
@@ -72,22 +95,23 @@ export async function listDirectory(relativePath = ""): Promise<DirectoryListing
   const entries = await Promise.all(
     names
       .sort((left, right) => left.localeCompare(right))
-      .map((name) => toFileEntry(path.join(targetPath, name)))
+      .map((name) => toFileEntry(workspaceRoot, path.join(targetPath, name)))
   );
 
   return {
-    path: toRelativeWorkspacePath(targetPath),
+    path: toRelativeWorkspacePath(workspaceRoot, targetPath),
     entries,
   };
 }
 
-export async function readWorkspaceFile(relativePath: string): Promise<{
+export async function readWorkspaceFile(userId: string, relativePath: string): Promise<{
   content: Buffer;
   filename: string;
   mimeType: string;
 }> {
-  await ensureDataScaffold();
-  const targetPath = resolveWorkspacePath(relativePath);
+  await ensureDataScaffold(userId);
+  const { workspaceRoot } = await getWorkspaceSession(userId);
+  const targetPath = resolveWorkspacePath(workspaceRoot, relativePath);
   const fileStat = await stat(targetPath).catch(() => null);
   if (!fileStat || !fileStat.isFile()) {
     throw new Error("File not found");
@@ -101,81 +125,103 @@ export async function readWorkspaceFile(relativePath: string): Promise<{
 }
 
 export async function writeWorkspaceTextFile(
+  userId: string,
   relativePath: string,
   content: string
 ): Promise<string> {
-  await ensureDataScaffold();
+  await ensureDataScaffold(userId);
+  const { workspaceRoot } = await getWorkspaceSession(userId);
   const safeRelativePath = relativePath.replace(/^\/+/, "");
   if (!safeRelativePath) {
     throw new Error("A file path is required");
   }
-  const targetPath = resolveWorkspacePath(safeRelativePath);
+  const targetPath = resolveWorkspacePath(workspaceRoot, safeRelativePath);
   await mkdir(path.dirname(targetPath), { recursive: true });
   await writeFile(targetPath, content, "utf-8");
-  return toRelativeWorkspacePath(targetPath);
+  return toRelativeWorkspacePath(workspaceRoot, targetPath);
 }
 
 export async function createWorkspaceDirectory(
+  userId: string,
   parentPath: string,
   name: string
 ): Promise<string> {
-  await ensureDataScaffold();
+  await ensureDataScaffold(userId);
+  const { workspaceRoot } = await getWorkspaceSession(userId);
   const safeName = sanitizeName(name);
-  const targetPath = resolveWorkspacePath(path.posix.join(parentPath, safeName));
+  const targetPath = resolveWorkspacePath(
+    workspaceRoot,
+    path.posix.join(parentPath, safeName)
+  );
   await mkdir(targetPath, { recursive: false });
-  return toRelativeWorkspacePath(targetPath);
+  return toRelativeWorkspacePath(workspaceRoot, targetPath);
 }
 
 export async function renameWorkspacePath(
+  userId: string,
   relativePath: string,
   nextName: string
 ): Promise<string> {
-  await ensureDataScaffold();
-  const sourcePath = resolveWorkspacePath(relativePath);
+  await ensureDataScaffold(userId);
+  const { workspaceRoot } = await getWorkspaceSession(userId);
+  const sourcePath = resolveWorkspacePath(workspaceRoot, relativePath);
   const targetPath = path.join(path.dirname(sourcePath), sanitizeName(nextName));
   await rename(sourcePath, targetPath);
-  return toRelativeWorkspacePath(targetPath);
+  return toRelativeWorkspacePath(workspaceRoot, targetPath);
 }
 
 export async function moveWorkspacePath(
+  userId: string,
   relativePath: string,
   destinationParentPath: string,
   nextName?: string
 ): Promise<string> {
-  await ensureDataScaffold();
-  const sourcePath = resolveWorkspacePath(relativePath);
+  await ensureDataScaffold(userId);
+  const { workspaceRoot } = await getWorkspaceSession(userId);
+  const sourcePath = resolveWorkspacePath(workspaceRoot, relativePath);
   const filename = nextName ? sanitizeName(nextName) : path.basename(sourcePath);
   const targetPath = resolveWorkspacePath(
+    workspaceRoot,
     path.posix.join(destinationParentPath, filename)
   );
   await mkdir(path.dirname(targetPath), { recursive: true });
   await rename(sourcePath, targetPath);
-  return toRelativeWorkspacePath(targetPath);
+  return toRelativeWorkspacePath(workspaceRoot, targetPath);
 }
 
-export async function deleteWorkspacePath(relativePath: string): Promise<void> {
-  await ensureDataScaffold();
-  const targetPath = resolveWorkspacePath(relativePath);
+export async function deleteWorkspacePath(
+  userId: string,
+  relativePath: string
+): Promise<void> {
+  await ensureDataScaffold(userId);
+  const { workspaceRoot } = await getWorkspaceSession(userId);
+  const targetPath = resolveWorkspacePath(workspaceRoot, relativePath);
   await rm(targetPath, { recursive: true, force: false });
 }
 
 export async function uploadWorkspaceFile(
+  userId: string,
   parentPath: string,
   filename: string,
   content: Buffer
 ): Promise<string> {
-  await ensureDataScaffold();
+  await ensureDataScaffold(userId);
+  const { workspaceRoot } = await getWorkspaceSession(userId);
   const safeName = sanitizeName(filename);
-  const targetPath = resolveWorkspacePath(path.posix.join(parentPath, safeName));
+  const targetPath = resolveWorkspacePath(
+    workspaceRoot,
+    path.posix.join(parentPath, safeName)
+  );
   await mkdir(path.dirname(targetPath), { recursive: true });
   await writeFile(targetPath, content);
-  return toRelativeWorkspacePath(targetPath);
+  return toRelativeWorkspacePath(workspaceRoot, targetPath);
 }
 
 export async function setWorkspaceBackgroundFromFile(
+  userId: string,
   relativePath: string
 ): Promise<string> {
-  const { content, filename, mimeType } = await readWorkspaceFile(relativePath);
+  const { content, filename, mimeType } = await readWorkspaceFile(userId, relativePath);
   if (!mimeType.toLowerCase().startsWith("image/")) {
     throw new Error("Only image files can be set as desktop backgrounds");
   }
@@ -185,5 +231,5 @@ export async function setWorkspaceBackgroundFromFile(
     mimeType
   )}`;
 
-  return uploadWorkspaceFile(CUSTOM_BACKGROUND_DIRECTORY, targetFilename, content);
+  return uploadWorkspaceFile(userId, CUSTOM_BACKGROUND_DIRECTORY, targetFilename, content);
 }

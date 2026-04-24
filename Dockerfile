@@ -14,8 +14,8 @@ RUN npm run build
 FROM node:24-alpine AS runner
 ENV NODE_ENV=production
 WORKDIR /app
-RUN apk add --no-cache bash
+RUN apk add --no-cache bash docker-cli
 COPY --from=builder /app/neural-labs ./neural-labs
 WORKDIR /app/neural-labs
 EXPOSE 3000
-CMD ["npm", "run", "start", "--", "--hostname", "0.0.0.0", "--port", "3000"]
+CMD ["npm", "run", "start", "--", "--hostname", "0.0.0.0"]

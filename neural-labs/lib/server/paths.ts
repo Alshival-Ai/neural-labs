@@ -1,28 +1,15 @@
 import path from "node:path";
 
-const DATA_ROOT = path.join(process.cwd(), ".neural-labs-data");
-const WORKSPACE_ROOT = path.join(DATA_ROOT, "workspace");
-const STATE_FILE = path.join(DATA_ROOT, "state.json");
-
-export function getDataRoot(): string {
-  return DATA_ROOT;
-}
-
-export function getWorkspaceRoot(): string {
-  return WORKSPACE_ROOT;
-}
-
-export function getStateFilePath(): string {
-  return STATE_FILE;
-}
-
-export function resolveWorkspacePath(relativePath = ""): string {
+export function resolveWorkspacePath(
+  workspaceRoot: string,
+  relativePath = ""
+): string {
   const safeRelativePath = relativePath.replace(/^\/+/, "");
-  const resolved = path.resolve(WORKSPACE_ROOT, safeRelativePath);
+  const resolved = path.resolve(workspaceRoot, safeRelativePath);
 
   if (
-    resolved !== WORKSPACE_ROOT &&
-    !resolved.startsWith(`${WORKSPACE_ROOT}${path.sep}`)
+    resolved !== workspaceRoot &&
+    !resolved.startsWith(`${workspaceRoot}${path.sep}`)
   ) {
     throw new Error("Path escapes the workspace");
   }
@@ -30,7 +17,10 @@ export function resolveWorkspacePath(relativePath = ""): string {
   return resolved;
 }
 
-export function toRelativeWorkspacePath(absolutePath: string): string {
-  const relative = path.relative(WORKSPACE_ROOT, absolutePath).replace(/\\/g, "/");
+export function toRelativeWorkspacePath(
+  workspaceRoot: string,
+  absolutePath: string
+): string {
+  const relative = path.relative(workspaceRoot, absolutePath).replace(/\\/g, "/");
   return relative === "" ? "" : relative;
 }

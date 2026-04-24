@@ -1,26 +1,32 @@
 import { NextResponse } from "next/server";
 
 import { deleteWorkspacePath, listDirectory } from "@/lib/server/filesystem";
-import { jsonError } from "@/lib/server/http";
+import { jsonErrorFromUnknown } from "@/lib/server/http";
+import { applyUserSessionCookie, getUserSessionFromRequest } from "@/lib/server/user-session";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   try {
+    const session = getUserSessionFromRequest(request);
     const url = new URL(request.url);
-    return NextResponse.json(await listDirectory(url.searchParams.get("path") ?? ""));
+    const response = NextResponse.json(
+      await listDirectory(session.userId, url.searchParams.get("path") ?? "")
+    );
+    return applyUserSessionCookie(response, session);
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Unable to list files", 404);
+    return jsonErrorFromUnknown(error, "Unable to list files", 404);
   }
 }
 
 export async function DELETE(request: Request) {
   try {
+    const session = getUserSessionFromRequest(request);
     const url = new URL(request.url);
     const path = url.searchParams.get("path") ?? "";
-    await deleteWorkspacePath(path);
-    return new NextResponse(null, { status: 204 });
+    await deleteWorkspacePath(session.userId, path);
+    return applyUserSessionCookie(new NextResponse(null, { status: 204 }), session);
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Unable to delete path");
+    return jsonErrorFromUnknown(error, "Unable to delete path");
   }
 }

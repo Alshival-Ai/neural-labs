@@ -22,8 +22,8 @@ function requireDefaultProvider(providers: ProviderRecord[]): ProviderRecord {
   return provider;
 }
 
-export async function readNeuraConfig(): Promise<NeuraConfig> {
-  const settings = await readSettingsSnapshot();
+export async function readNeuraConfig(userId: string): Promise<NeuraConfig> {
+  const settings = await readSettingsSnapshot(userId);
   const provider =
     settings.providers.find((entry) => entry.isDefault) ?? settings.providers[0] ?? null;
 
@@ -34,8 +34,8 @@ export async function readNeuraConfig(): Promise<NeuraConfig> {
   };
 }
 
-export async function createConversation(): Promise<ConversationRecord> {
-  const config = await readNeuraConfig();
+export async function createConversation(userId: string): Promise<ConversationRecord> {
+  const config = await readNeuraConfig(userId);
   const now = new Date().toISOString();
   const summary: ConversationSummary = {
     id: randomUUID(),
@@ -50,7 +50,7 @@ export async function createConversation(): Promise<ConversationRecord> {
     messages: [],
   };
 
-  return saveConversation(conversation);
+  return saveConversation(userId, conversation);
 }
 
 function buildOpenAiMessages(messages: ConversationMessage[]) {
@@ -167,15 +167,16 @@ export async function generateAssistantReply(
 }
 
 export async function appendConversationMessage(
+  userId: string,
   conversationId: string,
   userText: string
 ): Promise<ConversationRecord> {
-  const existing = await getConversation(conversationId);
+  const existing = await getConversation(userId, conversationId);
   if (!existing) {
     throw new Error("Conversation not found");
   }
 
-  const settings = await readSettingsSnapshot();
+  const settings = await readSettingsSnapshot(userId);
   const provider = requireDefaultProvider(settings.providers);
   const now = new Date().toISOString();
   const userMessage: ConversationMessage = {
@@ -206,7 +207,7 @@ export async function appendConversationMessage(
     createdAt: new Date().toISOString(),
   };
 
-  return saveConversation({
+  return saveConversation(userId, {
     summary: {
       ...draftConversation.summary,
       updatedAt: assistantMessage.createdAt,
@@ -257,7 +258,9 @@ export async function testProviderConnection(
   return { ok: true, message: "Provider connection looks healthy." };
 }
 
-export async function listConversationSummaries(): Promise<ConversationSummary[]> {
-  const conversations = await listConversations();
+export async function listConversationSummaries(
+  userId: string
+): Promise<ConversationSummary[]> {
+  const conversations = await listConversations(userId);
   return conversations.map((conversation) => conversation.summary);
 }

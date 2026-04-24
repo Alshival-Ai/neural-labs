@@ -5,10 +5,10 @@ Standalone browser-based desktop environment for Neural Labs.
 ## What Is Included
 
 - Desktop workspace UI with draggable windows
-- File explorer backed by a local workspace directory
-- Text editor backed by local file APIs
-- Terminal sessions backed by local shell processes
-- `Neura` chat with local conversation history
+- File explorer backed by per-user Docker workspaces
+- Text editor backed by per-user Docker workspaces
+- Terminal sessions executed inside per-user Docker containers
+- `Neura` chat with per-user conversation history
 - Desktop Settings with local LLM/provider management
 - No upstream product naming inside the `neural-labs/` codebase
 
@@ -28,6 +28,7 @@ The app treats the repository-root `./.env` as the canonical environment file.
 Examples:
 
 ```bash
+PORT=3000
 VITE_PUBLIC_APP_NAME=Neural Labs
 NEURAL_LABS_THEME=dark
 NEURAL_LABS_BACKGROUND_ID=aurora
@@ -46,9 +47,18 @@ Notes:
 
 - `VITE_*` and `NEXT_PUBLIC_*` variables are exposed to client-side code.
 - Server-only values such as provider API keys remain available through `process.env`.
+- `PORT` controls the app port for both local `npm run dev/start` and Docker Compose.
 - OpenAI and Anthropic env values are reconciled into Neural Labs providers on startup.
 - `NEURAL_LABS_DEFAULT_PROVIDER` accepts `openai` or `anthropic`; if unset and both exist, OpenAI wins.
 - The legacy `NEURAL_LABS_PROVIDER_*` variables still work as a fallback single-provider seed when the new provider-specific vars are not set.
+- Workspace/runtime tuning:
+  - `NEURAL_LABS_WORKSPACE_BACKEND=docker|local` (default: `docker`)
+  - `NEURAL_LABS_WORKSPACE_IMAGE` (default: `ubuntu:24.04`)
+  - `NEURAL_LABS_WORKSPACE_SHELL` (default: `bash`)
+  - `NEURAL_LABS_CONTAINER_PREFIX` (default: `neural-labs-user`)
+  - `NEURAL_LABS_VOLUME_PREFIX` (default: `neural-labs-user`)
+  - `NEURAL_LABS_WORKSPACE_PATH` (default: `/workspace`)
+  - `NEURAL_LABS_DATA_DIR` only applies when backend is `local`
 
 ## Docker Compose From Repo Root
 
@@ -59,12 +69,9 @@ docker compose up --build
 ```
 
 Open `http://localhost:3000`.
+If you set `PORT` in `.env`, Compose binds and serves on that port instead.
 
-Compose uses the repository-root `./.env` file and bind-mounts runtime data to:
-
-```text
-./.neural-labs-data/
-```
+Compose uses the repository-root `./.env` file and mounts `/var/run/docker.sock` so the app can preprovision per-user Docker containers and persistent Docker volumes.
 
 Stop the stack with:
 
@@ -83,27 +90,16 @@ docker build -t neural-labs .
 Run:
 
 ```bash
-docker run --rm -p 3000:3000 neural-labs
+docker run --rm -p ${PORT:-3000}:${PORT:-3000} --env-file .env -v /var/run/docker.sock:/var/run/docker.sock neural-labs
 ```
 
-For `docker run`, pass the root env file explicitly:
+## Runtime Data
 
-```bash
-docker run --rm --env-file .env -p 3000:3000 neural-labs
-```
+With `NEURAL_LABS_WORKSPACE_BACKEND=docker` (default), each user gets:
+- a dedicated Docker container
+- a dedicated persistent Docker volume mounted at `/workspace`
 
-## Local Data
-
-Runtime data is stored in:
-
-```text
-.neural-labs-data/
-```
-
-That directory contains:
-
-- `workspace/` for files created in the desktop
-- `state.json` for desktop settings, providers, and Neura conversations
+All workspace files plus Neural Labs state (`.neural-labs/state.json`) are stored in that user volume.
 
 ## Verification
 

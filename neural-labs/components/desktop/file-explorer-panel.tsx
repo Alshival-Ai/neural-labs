@@ -25,6 +25,8 @@ import type { DirectoryListing, FileEntry } from "@/lib/shared/types";
 
 const CONTEXT_MENU_MARGIN_PX = 8;
 const SHOW_HIDDEN_STORAGE_KEY = "neural-labs-desktop-explorer-show-hidden-v1";
+const FAVORITES_STORAGE_KEY = "neural-labs-desktop-explorer-favorites-v1";
+const DEFAULT_FAVORITE_PATHS = [""];
 
 interface ContextMenuState {
   entry: FileEntry | null;
@@ -63,6 +65,21 @@ function getAncestorPaths(path: string): string[] {
 
 function formatPathLabel(path: string): string {
   return path ? `~/${path}` : "~";
+}
+
+function normalizePath(path: string): string {
+  return path.replace(/^\/+/, "").replace(/\/+$/, "");
+}
+
+function createDirectoryEntry(path: string, name: string): FileEntry {
+  return {
+    name,
+    path,
+    isDirectory: true,
+    size: 0,
+    modifiedAt: "",
+    mimeType: "inode/directory",
+  };
 }
 
 function formatBytes(size: number): string {
@@ -337,6 +354,7 @@ export function FileExplorerPanel({
   const [dropTargetPath, setDropTargetPath] = useState<string | null>(null);
   const [contextMenuState, setContextMenuState] = useState<ContextMenuState | null>(null);
   const [showHiddenEntries, setShowHiddenEntries] = useState(false);
+  const [favoritePaths, setFavoritePaths] = useState<string[]>(DEFAULT_FAVORITE_PATHS);
 
   const currentPath = listing?.path ?? "";
   const orderedEntries = useMemo(() => sortEntries(listing?.entries ?? []), [listing?.entries]);
@@ -358,36 +376,6 @@ export function FileExplorerPanel({
   );
   const breadcrumbs = useMemo(() => getPathSegments(currentPath), [currentPath]);
   const currentDirectoryLabel = useMemo(() => formatPathLabel(currentPath), [currentPath]);
-  const rootDirectories = useMemo(
-    () => (visibleEntriesByPath[""] ?? []).filter((entry) => entry.isDirectory),
-    [visibleEntriesByPath]
-  );
-  const sidebarLocations = useMemo(() => {
-    const items: Array<{ label: string; path: string; kind: "workspace" | "folder" }> = [
-      { label: "Workspace", path: "", kind: "workspace" },
-    ];
-
-    breadcrumbs.forEach((crumb) => {
-      items.push({
-        label: crumb.label,
-        path: crumb.path,
-        kind: "folder",
-      });
-    });
-
-    rootDirectories.forEach((entry) => {
-      if (items.some((item) => item.path === entry.path)) {
-        return;
-      }
-      items.push({
-        label: entry.name,
-        path: entry.path,
-        kind: "folder",
-      });
-    });
-
-    return items;
-  }, [breadcrumbs, rootDirectories]);
   const selectedPathSet = useMemo(() => new Set(selectedPaths), [selectedPaths]);
   const expandedPathSet = useMemo(() => new Set(expandedPaths), [expandedPaths]);
   const loadingPathSet = useMemo(() => new Set(loadingPaths), [loadingPaths]);
@@ -398,6 +386,32 @@ export function FileExplorerPanel({
     });
     return map;
   }, [entriesByPath]);
+  const favoriteItems = useMemo(() => {
+    const seen = new Set<string>();
+    const items: Array<{ path: string; label: string; entry: FileEntry }> = [];
+
+    favoritePaths.forEach((rawPath) => {
+      const path = normalizePath(rawPath);
+      if (seen.has(path)) {
+        return;
+      }
+      seen.add(path);
+
+      const existingEntry = entryByPath.get(path);
+      const label =
+        path === ""
+          ? "Workspace"
+          : existingEntry?.name || path.split("/").filter(Boolean).pop() || path;
+
+      items.push({
+        path,
+        label,
+        entry: existingEntry ?? createDirectoryEntry(path, label),
+      });
+    });
+
+    return items;
+  }, [entryByPath, favoritePaths]);
 
   async function loadDirectory(path: string, options?: { force?: boolean }) {
     if (!options?.force && (path in entriesByPath || loadingPaths.includes(path))) {
@@ -456,11 +470,40 @@ export function FileExplorerPanel({
   }, []);
 
   useEffect(() => {
+    const raw = window.localStorage.getItem(FAVORITES_STORAGE_KEY);
+    if (!raw) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) {
+        return;
+      }
+
+      const normalized = parsed
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => normalizePath(value));
+      const next = Array.from(new Set([...DEFAULT_FAVORITE_PATHS, ...normalized]));
+      setFavoritePaths(next);
+    } catch {
+      // Ignore malformed local storage values.
+    }
+  }, []);
+
+  useEffect(() => {
     window.localStorage.setItem(
       SHOW_HIDDEN_STORAGE_KEY,
       showHiddenEntries ? "1" : "0"
     );
   }, [showHiddenEntries]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      FAVORITES_STORAGE_KEY,
+      JSON.stringify(Array.from(new Set([...DEFAULT_FAVORITE_PATHS, ...favoritePaths])))
+    );
+  }, [favoritePaths]);
 
   useEffect(() => {
     const validPaths = new Set(visibleEntries.map((entry) => entry.path));
@@ -652,6 +695,21 @@ export function FileExplorerPanel({
     onNavigate(entry.path);
   };
 
+  const addFavorite = (path: string) => {
+    const normalized = normalizePath(path);
+    setFavoritePaths((current) =>
+      current.includes(normalized) ? current : [...current, normalized]
+    );
+  };
+
+  const removeFavorite = (path: string) => {
+    const normalized = normalizePath(path);
+    if (normalized === "") {
+      return;
+    }
+    setFavoritePaths((current) => current.filter((value) => value !== normalized));
+  };
+
   const handleTreeToggle = (entry: FileEntry) => {
     setExpandedPaths((current) =>
       current.includes(entry.path)
@@ -672,6 +730,13 @@ export function FileExplorerPanel({
   };
 
   const contextEntry = contextMenuState?.entry ?? null;
+  const contextEntryPath = contextEntry?.isDirectory
+    ? normalizePath(contextEntry.path)
+    : null;
+  const contextEntryIsFavorite = Boolean(
+    contextEntryPath !== null && favoritePaths.includes(contextEntryPath)
+  );
+  const currentPathIsFavorite = favoritePaths.includes(currentPath);
   const isRootContextEntry = contextEntry?.isDirectory && contextEntry.path === "";
   const canSetContextEntryAsBackground = Boolean(
     contextEntry &&
@@ -735,11 +800,11 @@ export function FileExplorerPanel({
         <div className="nl-files__sidebar-body">
           <div className="nl-files__section-label">Favorites</div>
           <div className="nl-files__shortcuts">
-            {sidebarLocations.map((item) => {
+            {favoriteItems.map((item) => {
               const isActive = item.path === currentPath;
               return (
                 <button
-                  key={`${item.kind}:${item.path}`}
+                  key={item.path}
                   type="button"
                   className={cn(
                     "nl-files__shortcut",
@@ -747,6 +812,7 @@ export function FileExplorerPanel({
                     dropTargetPath === item.path && "nl-files__shortcut--drop"
                   )}
                   onClick={() => onNavigate(item.path)}
+                  onContextMenu={(event) => openContextMenu(event, item.entry)}
                   onDragOver={(event) => {
                     if (eventHasExternalFiles(event) || canDropToPath(item.path)) {
                       event.preventDefault();
@@ -770,51 +836,6 @@ export function FileExplorerPanel({
             })}
           </div>
 
-          {rootDirectories.length > 0 ? (
-            <>
-              <div className="nl-files__section-label nl-files__section-label--spaced">
-                Root Folders
-              </div>
-              <div className="nl-files__shortcuts">
-                {rootDirectories.map((entry) => {
-                  const isActive = entry.path === currentPath;
-                  return (
-                    <button
-                      key={entry.path}
-                      type="button"
-                      className={cn(
-                        "nl-files__shortcut",
-                        isActive && "nl-files__shortcut--active",
-                        dropTargetPath === entry.path && "nl-files__shortcut--drop"
-                      )}
-                      onClick={() => onNavigate(entry.path)}
-                      onContextMenu={(event) => openContextMenu(event, entry)}
-                      onDragOver={(event) => {
-                        if (eventHasExternalFiles(event) || canDropToPath(entry.path)) {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          event.dataTransfer.dropEffect = eventHasExternalFiles(event)
-                            ? "copy"
-                            : "move";
-                          setDropTargetPath(entry.path);
-                        }
-                      }}
-                      onDragLeave={() => {
-                        if (dropTargetPath === entry.path) {
-                          setDropTargetPath(null);
-                        }
-                      }}
-                      onDrop={(event) => void handleDropToPath(event, entry.path)}
-                    >
-                      <FolderIcon className="nl-file-tree__icon nl-file-tree__icon--folder" />
-                      <span className="nl-file-tree__label">{entry.name}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </>
-          ) : null}
-
           <div className="nl-files__section-label nl-files__section-label--spaced">
             Navigation Tree
           </div>
@@ -828,14 +849,7 @@ export function FileExplorerPanel({
               )}
               onClick={() => onNavigate("")}
               onContextMenu={(event) =>
-                openContextMenu(event, {
-                  name: "~",
-                  path: "",
-                  isDirectory: true,
-                  size: 0,
-                  modifiedAt: "",
-                  mimeType: "inode/directory",
-                })
+                openContextMenu(event, createDirectoryEntry("", "~"))
               }
               onDragOver={(event) => {
                 if (eventHasExternalFiles(event) || canDropToPath("")) {
@@ -1196,6 +1210,14 @@ export function FileExplorerPanel({
               ? renderMenuAction("Open", () => onOpenEntry(contextEntry))
               : null}
 
+          {contextEntry?.isDirectory
+            ? contextEntryIsFavorite
+              ? renderMenuAction("Remove from Favorites", () =>
+                  removeFavorite(contextEntry.path)
+                )
+              : renderMenuAction("Add to Favorites", () => addFavorite(contextEntry.path))
+            : null}
+
           {previewable
             ? renderMenuAction("Preview", () => onPreviewEntry(contextEntry as FileEntry))
             : null}
@@ -1267,6 +1289,16 @@ export function FileExplorerPanel({
                 },
                 { destructive: true }
               )
+            : null}
+
+          {!contextEntry
+            ? currentPathIsFavorite
+              ? renderMenuAction("Remove Current Folder from Favorites", () =>
+                  removeFavorite(currentPath)
+                )
+              : renderMenuAction("Add Current Folder to Favorites", () =>
+                  addFavorite(currentPath)
+                )
             : null}
 
           {!contextEntry

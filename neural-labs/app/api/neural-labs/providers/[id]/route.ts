@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 
-import { jsonError } from "@/lib/server/http";
+import { jsonErrorFromUnknown } from "@/lib/server/http";
 import { deleteProvider, saveProvider, setDefaultProvider } from "@/lib/server/store";
 import type { ProviderDraft } from "@/lib/shared/types";
+import { applyUserSessionCookie, getUserSessionFromRequest } from "@/lib/server/user-session";
 
 export const runtime = "nodejs";
 
@@ -11,30 +12,38 @@ export async function PATCH(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = getUserSessionFromRequest(request);
     const { id } = await context.params;
     const payload = (await request.json()) as Record<string, unknown>;
 
     if (payload.makeDefault === true) {
-      return NextResponse.json(await setDefaultProvider(id));
+      return applyUserSessionCookie(
+        NextResponse.json(await setDefaultProvider(session.userId, id)),
+        session
+      );
     }
 
-    return NextResponse.json(
-      await saveProvider(payload as unknown as ProviderDraft, id)
+    return applyUserSessionCookie(
+      NextResponse.json(
+        await saveProvider(session.userId, payload as unknown as ProviderDraft, id)
+      ),
+      session
     );
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Unable to update provider");
+    return jsonErrorFromUnknown(error, "Unable to update provider");
   }
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = getUserSessionFromRequest(request);
     const { id } = await context.params;
-    await deleteProvider(id);
-    return new NextResponse(null, { status: 204 });
+    await deleteProvider(session.userId, id);
+    return applyUserSessionCookie(new NextResponse(null, { status: 204 }), session);
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Unable to delete provider", 404);
+    return jsonErrorFromUnknown(error, "Unable to delete provider", 404);
   }
 }
