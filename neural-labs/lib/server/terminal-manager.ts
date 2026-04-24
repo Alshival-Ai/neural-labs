@@ -23,6 +23,8 @@ interface TerminalManagerLike {
   close(userId: string, sessionId: string): void;
   issueWsTicket(userId: string, sessionId: string): string;
   consumeWsTicket(userId: string, token: string): string | null;
+  issueWsAuthTicket(userId: string): string;
+  consumeWsAuthTicket(token: string): string | null;
 }
 
 const runtime = require("./terminal-manager-runtime.js") as {

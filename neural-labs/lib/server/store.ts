@@ -4,6 +4,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 import {
+  DEFAULT_DESKTOP_BACKGROUND_ID,
   DEFAULT_THEME,
   PROVIDER_TEMPLATES,
 } from "@/lib/shared/providers";
@@ -51,7 +52,7 @@ const DEFAULT_SETTINGS: DesktopSettings = {
     process.env.NEURAL_LABS_BACKGROUND_ID === "ocean-night" ||
     process.env.NEURAL_LABS_BACKGROUND_ID === "aurora"
       ? process.env.NEURAL_LABS_BACKGROUND_ID
-      : "aurora",
+      : DEFAULT_DESKTOP_BACKGROUND_ID,
   customBackgroundPath: null,
 };
 

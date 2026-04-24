@@ -46,6 +46,25 @@ export const BACKGROUND_PRESETS: Array<{
   },
 ];
 
+export const DEFAULT_DESKTOP_BACKGROUND_ID: DesktopBackgroundPresetId =
+  "sunrise-grid";
+
+export function getBackgroundPreset(
+  backgroundId: DesktopBackgroundId | DesktopBackgroundPresetId | string | undefined
+) {
+  return (
+    BACKGROUND_PRESETS.find((entry) => entry.id === backgroundId) ??
+    BACKGROUND_PRESETS.find((entry) => entry.id === DEFAULT_DESKTOP_BACKGROUND_ID) ??
+    BACKGROUND_PRESETS[0]!
+  );
+}
+
+export function getBackgroundPresetClassName(
+  backgroundId: DesktopBackgroundId | DesktopBackgroundPresetId | string | undefined
+): string {
+  return getBackgroundPreset(backgroundId).className;
+}
+
 export const PROVIDER_TEMPLATES: ProviderTemplate[] = [
   {
     id: "openai",

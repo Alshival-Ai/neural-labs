@@ -2,8 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { FoldIcon, MaximizeIcon } from "@/components/ui/icons";
-
 export type WindowSnapZone =
   | "left"
   | "right"
@@ -349,13 +347,7 @@ export function DesktopWindowFrame({
               }
               className="nl-window__traffic-light nl-window__traffic-light--accent"
               onClick={onToggleMaximize}
-            >
-              {windowState.maximized ? (
-                <FoldIcon className="nl-window__traffic-icon" />
-              ) : (
-                <MaximizeIcon className="nl-window__traffic-icon" />
-              )}
-            </button>
+            />
           </div>
           <span className="nl-window__title">{windowState.title}</span>
         </div>

@@ -15,7 +15,7 @@ import type {
   TerminalPaneState,
   TerminalTabState,
 } from "@/components/desktop/app-types";
-import { createTerminalWsToken } from "@/lib/client/api";
+import { createTerminalSession, createTerminalWsToken } from "@/lib/client/api";
 import {
   CloseIcon,
   PlusIcon,
@@ -53,10 +53,12 @@ function TerminalPaneSurface({
   sessionId,
   isActive,
   onFocus,
+  onSessionRecovered,
 }: {
   sessionId: string;
   isActive: boolean;
   onFocus: () => void;
+  onSessionRecovered?: (nextSessionId: string) => void;
 }) {
   const { resolvedTheme } = useTheme();
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -208,7 +210,26 @@ function TerminalPaneSurface({
         return true;
       });
 
-      const tokenPayload = await createTerminalWsToken(sessionId);
+      let tokenPayload: { token: string; ws_path: string };
+      let currentSessionId = sessionId.trim();
+      if (!currentSessionId) {
+        const recoveredSession = await createTerminalSession();
+        currentSessionId = recoveredSession.id;
+        onSessionRecovered?.(recoveredSession.id);
+      }
+
+      try {
+        tokenPayload = await createTerminalWsToken(currentSessionId);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        if (!/terminal session not found|terminal_id is required/i.test(message)) {
+          throw error;
+        }
+
+        const recoveredSession = await createTerminalSession();
+        onSessionRecovered?.(recoveredSession.id);
+        tokenPayload = await createTerminalWsToken(recoveredSession.id);
+      }
       if (isDisposed) {
         return;
       }
@@ -282,9 +303,13 @@ function TerminalPaneSurface({
 
       window.addEventListener("resize", onWindowResize);
       resizeTerminal();
-    })().catch(() => {
+    })().catch((error) => {
+      console.error("[terminal-pane] initialization failed", error);
       if (!isDisposed) {
-        host.textContent = "Unable to initialize terminal surface.";
+        host.textContent =
+          error instanceof Error && error.message
+            ? error.message
+            : "Unable to initialize terminal surface.";
       }
     });
 
@@ -349,6 +374,7 @@ export function TerminalPanel({
   onDuplicateTab,
   onRenameTab,
   onReorderTabs,
+  onRecoverPaneSession,
 }: {
   layout: TerminalLayoutState | null;
   isInitializing: boolean;
@@ -361,6 +387,7 @@ export function TerminalPanel({
   onDuplicateTab: (tabId: string) => Promise<void> | void;
   onRenameTab: (tabId: string) => void;
   onReorderTabs: (tabs: TerminalTabState[]) => void;
+  onRecoverPaneSession: (tabId: string, paneId: string, sessionId: string) => void;
 }) {
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
 
@@ -542,6 +569,9 @@ export function TerminalPanel({
                 sessionId={activePane.sessionId}
                 isActive
                 onFocus={() => onSetActivePane(activeTab.tabId, activePane.paneId)}
+                onSessionRecovered={(nextSessionId) =>
+                  onRecoverPaneSession(activeTab.tabId, activePane.paneId, nextSessionId)
+                }
               />
             ) : null}
           </div>
@@ -583,6 +613,9 @@ export function TerminalPanel({
                       sessionId={pane.sessionId}
                       isActive={isActivePane}
                       onFocus={() => onSetActivePane(activeTab.tabId, pane.paneId)}
+                      onSessionRecovered={(nextSessionId) =>
+                        onRecoverPaneSession(activeTab.tabId, pane.paneId, nextSessionId)
+                      }
                     />
                   </div>
                 </div>

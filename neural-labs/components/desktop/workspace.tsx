@@ -26,11 +26,12 @@ import {
   sendMessage,
   setDesktopBackgroundFromFile,
   testProvider,
+  updateProfile,
   updateProvider,
   uploadFile,
   movePath,
 } from "@/lib/client/api";
-import { BACKGROUND_PRESETS } from "@/lib/shared/providers";
+import { getBackgroundPresetClassName } from "@/lib/shared/providers";
 import type {
   AuthViewer,
   ConversationRecord,
@@ -83,6 +84,7 @@ interface PreviewWindowState {
 }
 
 const CUSTOM_BACKGROUND_DIRECTORY = ".neural-labs/backgrounds";
+const USER_AVATAR_DIRECTORY = ".neural-labs/profile";
 const WINDOW_GAP = 12;
 const SNAP_THRESHOLD = 28;
 const MIN_WINDOW_WIDTH = 420;
@@ -166,6 +168,34 @@ function getCustomBackgroundFileName(file: File): string {
     ? `.${file.name.split(".").pop()?.toLowerCase() ?? "png"}`
     : ".png";
   return `custom-background${extension}`;
+}
+
+function getAvatarFileName(file: File): string {
+  if (file.type === "image/png") {
+    return "avatar.png";
+  }
+  if (file.type === "image/jpeg") {
+    return "avatar.jpg";
+  }
+  if (file.type === "image/webp") {
+    return "avatar.webp";
+  }
+  if (file.type === "image/gif") {
+    return "avatar.gif";
+  }
+
+  const extension = file.name.includes(".")
+    ? `.${file.name.split(".").pop()?.toLowerCase() ?? "png"}`
+    : ".png";
+  return `avatar${extension}`;
+}
+
+function getViewerInitials(email: string): string {
+  const value = email.trim();
+  if (!value) {
+    return "U";
+  }
+  return value.slice(0, 2).toUpperCase();
 }
 
 function isTextLike(entry: FileEntry): boolean {
@@ -325,9 +355,16 @@ function createWindowBase(
   };
 }
 
-export function NeuralLabsWorkspace({ viewer }: { viewer: AuthViewer }) {
+export function NeuralLabsWorkspace({
+  viewer,
+  initialSettings,
+}: {
+  viewer: AuthViewer;
+  initialSettings: SettingsSnapshot | null;
+}) {
   const { setTheme } = useTheme();
-  const [settings, setSettings] = useState<SettingsSnapshot | null>(null);
+  const [currentViewer, setCurrentViewer] = useState<AuthViewer>(viewer);
+  const [settings, setSettings] = useState<SettingsSnapshot | null>(initialSettings);
   const [listing, setListing] = useState<DirectoryListing | null>(null);
   const [fileBackHistory, setFileBackHistory] = useState<string[]>([]);
   const [fileForwardHistory, setFileForwardHistory] = useState<string[]>([]);
@@ -343,8 +380,10 @@ export function NeuralLabsWorkspace({ viewer }: { viewer: AuthViewer }) {
   const [activeConversation, setActiveConversation] = useState<ConversationRecord | null>(null);
   const [neuraConfig, setNeuraConfig] = useState<NeuraConfig | null>(null);
   const [notice, setNotice] = useState<string>("");
+  const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
   const [workspaceBounds, setWorkspaceBounds] = useState({ width: 1280, height: 720 });
   const workspaceRef = useRef<HTMLElement | null>(null);
+  const avatarMenuRef = useRef<HTMLDivElement | null>(null);
   const windowsRef = useRef<WorkspaceWindow[]>([]);
   const editorWindowsRef = useRef<Record<string, DesktopEditorWindowState>>({});
   const terminalWindowsRef = useRef<Record<string, DesktopTerminalWindowState>>({});
@@ -359,19 +398,25 @@ export function NeuralLabsWorkspace({ viewer }: { viewer: AuthViewer }) {
       )}")`;
     }
 
-    const preset =
-      BACKGROUND_PRESETS.find((entry) => entry.id === settings?.desktop.backgroundId) ??
-      BACKGROUND_PRESETS[0];
-    return preset.className;
+    return getBackgroundPresetClassName(settings?.desktop.backgroundId);
   }, [settings?.desktop.backgroundId, settings?.desktop.customBackgroundPath]);
+
+  const avatarUrl = useMemo(
+    () =>
+      currentViewer.avatarPath ? getFileUrl(currentViewer.avatarPath) : null,
+    [currentViewer.avatarPath]
+  );
 
   useEffect(() => {
     let cancelled = false;
 
     async function bootstrap() {
       try {
+        const settingsPromise = initialSettings
+          ? Promise.resolve(initialSettings)
+          : fetchSettings();
         const [nextSettings, nextListing, config, conversationIndex] = await Promise.all([
-          fetchSettings(),
+          settingsPromise,
           listFiles(""),
           fetchNeuraConfig(),
           listConversations(),
@@ -399,6 +444,20 @@ export function NeuralLabsWorkspace({ viewer }: { viewer: AuthViewer }) {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    function handlePointerDown(event: MouseEvent) {
+      if (!avatarMenuRef.current?.contains(event.target as Node)) {
+        setAvatarMenuOpen(false);
+      }
+    }
+
+    if (avatarMenuOpen) {
+      window.addEventListener("mousedown", handlePointerDown);
+    }
+
+    return () => window.removeEventListener("mousedown", handlePointerDown);
+  }, [avatarMenuOpen]);
 
   useEffect(() => {
     void setTheme(settings?.desktop.theme ?? "dark");
@@ -1351,24 +1410,49 @@ export function NeuralLabsWorkspace({ viewer }: { viewer: AuthViewer }) {
           </div>
 
           <div className="nl-topbar__actions">
-            {viewer.role === "admin" ? (
-              <a className="nl-topbar__link" href="/admin">
-                Admin
-              </a>
-            ) : null}
-            <span className="nl-topbar__chip">{viewer.email}</span>
-            <button
-              type="button"
-              className="nl-topbar__button"
-              onClick={() => {
-                void (async () => {
-                  await logoutRequest();
-                  window.location.href = "/login";
-                })();
-              }}
-            >
-              Sign out
-            </button>
+            <div ref={avatarMenuRef} className="nl-topbar__avatar-menu">
+              <button
+                type="button"
+                className="nl-topbar__avatar-button"
+                aria-haspopup="menu"
+                aria-expanded={avatarMenuOpen}
+                onClick={() => setAvatarMenuOpen((current) => !current)}
+              >
+                {avatarUrl ? (
+                  <img
+                    src={avatarUrl}
+                    alt={currentViewer.email}
+                    className="nl-topbar__avatar-image"
+                  />
+                ) : (
+                  <span className="nl-topbar__avatar-fallback">
+                    {getViewerInitials(currentViewer.email)}
+                  </span>
+                )}
+              </button>
+
+              {avatarMenuOpen ? (
+                <div className="nl-topbar__dropdown" role="menu">
+                  <div className="nl-topbar__dropdown-header">
+                    <strong>{currentViewer.email}</strong>
+                    <span>{currentViewer.role}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="nl-topbar__dropdown-item"
+                    onClick={() => {
+                      setAvatarMenuOpen(false);
+                      void (async () => {
+                        await logoutRequest();
+                        window.location.href = "/login";
+                      })();
+                    }}
+                  >
+                    Sign out
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </div>
         </header>
 
@@ -1544,6 +1628,28 @@ export function NeuralLabsWorkspace({ viewer }: { viewer: AuthViewer }) {
                           : null,
                       }))
                     }
+                    onRecoverPaneSession={(tabId, paneId, sessionId) =>
+                      updateTerminalWindowState(window.id, (state) => ({
+                        ...state,
+                        layout: state.layout
+                          ? {
+                              ...state.layout,
+                              tabs: state.layout.tabs.map((tab) =>
+                                tab.tabId !== tabId
+                                  ? tab
+                                  : {
+                                      ...tab,
+                                      panes: tab.panes.map((pane) =>
+                                        pane.paneId === paneId
+                                          ? { ...pane, sessionId }
+                                          : pane
+                                      ),
+                                    }
+                              ),
+                            }
+                          : null,
+                      }))
+                    }
                   />
                 ) : null}
 
@@ -1588,6 +1694,8 @@ export function NeuralLabsWorkspace({ viewer }: { viewer: AuthViewer }) {
 
                 {window.kind === "settings" ? (
                   <SettingsPanel
+                    viewer={currentViewer}
+                    avatarUrl={avatarUrl}
                     snapshot={settings}
                     customBackgroundUrl={
                       settings?.desktop.customBackgroundPath
@@ -1657,6 +1765,39 @@ export function NeuralLabsWorkspace({ viewer }: { viewer: AuthViewer }) {
                     onTestProvider={async (providerId) => {
                       const result = await testProvider(providerId);
                       return result.message;
+                    }}
+                    onUploadAvatar={async (file) => {
+                      if (!file.type.startsWith("image/")) {
+                        throw new Error("Choose an image file for the avatar");
+                      }
+                      const previousAvatarPath = currentViewer.avatarPath;
+                      const upload = await uploadFile(
+                        USER_AVATAR_DIRECTORY,
+                        new File([file], getAvatarFileName(file), {
+                          type: file.type || undefined,
+                        })
+                      );
+                      const result = await updateProfile({ avatarPath: upload.path });
+                      setCurrentViewer(result.viewer);
+                      if (
+                        previousAvatarPath &&
+                        previousAvatarPath !== upload.path
+                      ) {
+                        await deletePath(previousAvatarPath).catch(() => undefined);
+                      }
+                      await refreshListing(listing?.path ?? "");
+                      setNotice("Avatar updated.");
+                    }}
+                    onRemoveAvatar={async () => {
+                      const avatarPath = currentViewer.avatarPath;
+                      if (!avatarPath) {
+                        return;
+                      }
+                      const result = await updateProfile({ avatarPath: null });
+                      setCurrentViewer(result.viewer);
+                      await deletePath(avatarPath).catch(() => undefined);
+                      await refreshListing(listing?.path ?? "");
+                      setNotice("Avatar removed.");
                     }}
                   />
                 ) : null}

@@ -45,6 +45,7 @@ function getDb() {
       email TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
       role TEXT NOT NULL,
+      avatar_path TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -58,6 +59,10 @@ function getDb() {
       last_seen_at TEXT NOT NULL
     );
   `);
+  const userColumns = db.prepare("PRAGMA table_info(users)").all();
+  if (!userColumns.some((column) => column.name === "avatar_path")) {
+    db.exec("ALTER TABLE users ADD COLUMN avatar_path TEXT");
+  }
   dbInstance = db;
   return db;
 }
@@ -108,6 +113,7 @@ function getViewerFromHeaders(headers) {
          s.expires_at,
          u.email,
          u.role,
+         u.avatar_path,
          u.created_at,
          u.updated_at
        FROM sessions s
@@ -129,6 +135,7 @@ function getViewerFromHeaders(headers) {
     id: row.user_id,
     email: row.email,
     role: row.role,
+    avatarPath: row.avatar_path ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
