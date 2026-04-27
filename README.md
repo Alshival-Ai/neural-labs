@@ -1,30 +1,34 @@
 # Neural Labs
 
-Neural Labs is a browser-based desktop environment with built-in AI chat, terminal access, file management, and per-user workspaces.
+Neural Labs is a full browser workspace for teams that need more than a chat box. It gives each user a persistent Docker-backed environment with files, terminals, AI chat, previews, settings, invite-only access, and VS Code in the browser.
 
-If you are just trying to get the app running, you do not need to understand the internal architecture first. The normal path is:
+It feels like a lightweight cloud desktop: open files, run commands, inspect generated artifacts, chat with `Neura`, and jump into VS Code without leaving the browser.
 
-1. Copy the example environment file.
-2. Start the app with `./start.sh`.
-3. Open the URL shown in your terminal.
-4. Sign in with the first admin account from `.env`.
+![Neural Labs desktop workspace](docs/screenshots/neural-labs-desktop.png)
 
-The deeper technical details are later in this document.
+[Watch the Neural Labs demo](https://youtu.be/PnmC09Jj6jk)
 
-## What You Are Starting
+## Why It Exists
 
-When the app is running, users sign into a desktop-like workspace in the browser. From there they can:
+Neural Labs is built for AI-assisted work where the browser should be the whole operating surface, not just the chat UI.
 
-- browse and manage files
-- open a text editor
-- use terminal sessions backed by a dedicated workspace container
-- chat with `Neura`
-- configure model providers
-- adjust appearance and account settings
+- **A real workspace per user**: every user gets a dedicated Docker volume and managed workspace container.
+- **Tools where the files live**: terminal, file explorer, previews, editor, and VS Code all point at the same persistent home directory.
+- **Invite-only access**: seed the first admin, invite users, and let each person return to their own workspace.
+- **Provider-ready AI chat**: bootstrap OpenAI-compatible and Anthropic-compatible providers from `.env`, then manage them in Settings.
+- **Browser-native VS Code**: launch VS Code from the dock in a new tab, backed by the same workspace container.
 
-Access is invite-only. The first admin account is created from your `.env` file the first time the app boots with an empty auth database.
+## VS Code In The Browser
+
+Click the VS Code icon in the dock and Neural Labs starts `code-server` inside that user's workspace container. The browser opens `/vscode/` in a new tab through the Neural Labs authenticated proxy.
+
+That means the Neural Labs terminal, file manager, and VS Code all see the same files, SSH config, Git config, and home directory.
+
+![Neural Labs and VS Code side by side](docs/screenshots/neural-labs-vscode.png)
 
 ## Quick Start
+
+If you are just trying to get the app running, you do not need to understand the internal architecture first.
 
 ### What You Need
 
@@ -47,7 +51,7 @@ Open `.env` and set at least these values:
 
 ```bash
 AUTH_SECRET=change-this-to-a-long-random-value
-NEURAL_LABS_INITIAL_ADMIN_EMAIL=admin@example.com
+NEURAL_LABS_INITIAL_ADMIN_EMAIL=admin@alshival.ai
 NEURAL_LABS_INITIAL_ADMIN_PASSWORD=change-me-admin-password
 OPENAI_DEFAULT_API_KEY=your_api_key_here
 ```
@@ -81,7 +85,7 @@ The helper script starts the Docker Compose stack defined in `compose.yml` and b
 By default, open:
 
 ```text
-http://localhost:3000
+http://localhost:3001
 ```
 
 If you changed `PORT` in `.env`, use that port instead.
@@ -115,9 +119,10 @@ If you want the shortest possible walkthrough:
 1. Run `cp .env.example .env`.
 2. Fill in `AUTH_SECRET`, the initial admin credentials, and at least one provider API key.
 3. Run `./start.sh`.
-4. Open `http://localhost:3000`.
+4. Open `http://localhost:3001`.
 5. Sign in with the seeded admin account.
-6. Open the desktop `Settings` panel to test provider configuration, set the default provider for `Neura`, and create invite links for teammates.
+6. Open `Settings` to test providers, set the default provider for `Neura`, and create invite links.
+7. Click the VS Code icon in the dock to open the same workspace in browser VS Code.
 
 ## Common Startup Commands
 
@@ -238,12 +243,12 @@ Key values:
 ### Server and Auth
 
 ```bash
-PORT=3000
+PORT=3001
 AUTH_SECRET=change-me-before-production
 AUTH_BASE_URL=
 AUTH_DB_PATH=/app/data/auth/auth.db
 AUTH_COOKIE_SECURE=false
-NEURAL_LABS_INITIAL_ADMIN_EMAIL=admin@example.com
+NEURAL_LABS_INITIAL_ADMIN_EMAIL=admin@alshival.ai
 NEURAL_LABS_INITIAL_ADMIN_PASSWORD=change-me-admin-password
 ```
 
@@ -260,7 +265,7 @@ Notes:
 
 ```bash
 VITE_PUBLIC_APP_NAME=Neural Labs
-NEURAL_LABS_THEME=dark
+NEURAL_LABS_THEME=system
 NEURAL_LABS_BACKGROUND_ID=sunrise-grid
 ```
 
@@ -332,7 +337,7 @@ The default `compose.yml`:
 - builds the app image from the repository root
 - connects the app to the shared workspace Docker network
 - loads environment variables from `.env`
-- binds `${PORT:-3000}` on the host
+- binds `${PORT:-3001}` on the host
 - mounts `.env` read-only into the container
 - mounts an `auth-data` Docker volume for the SQLite auth database
 - mounts `/var/run/docker.sock` so the app can create per-user Docker containers
@@ -375,7 +380,7 @@ Run manually:
 
 ```bash
 docker volume create auth-data
-docker run --rm -p ${PORT:-3000}:${PORT:-3000} --env-file .env -v /var/run/docker.sock:/var/run/docker.sock -v /var/lib/docker/volumes:/var/lib/docker/volumes -v auth-data:/app/data/auth neural-labs
+docker run --rm -p ${PORT:-3001}:${PORT:-3001} --env-file .env -v /var/run/docker.sock:/var/run/docker.sock -v /var/lib/docker/volumes:/var/lib/docker/volumes -v auth-data:/app/data/auth neural-labs
 ```
 
 The image builds the Next.js app from `neural-labs/` and starts it through `npm run start`.
