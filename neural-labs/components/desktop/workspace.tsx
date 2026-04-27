@@ -1808,8 +1808,11 @@ export function NeuralLabsWorkspace({
 
         <nav className="nl-dock">
           {DOCK_APPS.map((app) => {
-            const Icon = app.icon;
-            const activeWindow = windows.find((window) => window.kind === app.kind);
+            const Icon = "icon" in app ? app.icon : null;
+            const activeWindow =
+              app.kind === "vscode"
+                ? null
+                : windows.find((window) => window.kind === app.kind);
 
             return (
               <button
@@ -1849,10 +1852,18 @@ export function NeuralLabsWorkspace({
                     if (!focusOrRestoreLatestWindow("terminal")) {
                       void openTerminal();
                     }
+                    return;
+                  }
+                  if (app.kind === "vscode") {
+                    window.open("/vscode/", "_blank", "noopener,noreferrer");
                   }
                 }}
               >
-                <Icon className="nl-dock__icon" />
+                {Icon ? (
+                  <Icon className="nl-dock__icon" />
+                ) : "iconSrc" in app ? (
+                  <img className="nl-dock__image" src={app.iconSrc} alt="" />
+                ) : null}
                 <span>{app.label}</span>
               </button>
             );

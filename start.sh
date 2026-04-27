@@ -89,6 +89,26 @@ if [[ ! -f "$ROOT_DIR/$compose_file" ]]; then
   exit 1
 fi
 
+get_env_value() {
+  local key="$1"
+  local env_file="$ROOT_DIR/.env"
+  if [[ -f "$env_file" ]]; then
+    local line
+    line="$(grep -E "^${key}=" "$env_file" | tail -n 1 || true)"
+    if [[ -n "$line" ]]; then
+      printf '%s\n' "${line#*=}"
+      return
+    fi
+  fi
+  printf '%s\n' ""
+}
+
+workspace_image="${NEURAL_LABS_WORKSPACE_IMAGE:-$(get_env_value NEURAL_LABS_WORKSPACE_IMAGE)}"
+if [[ -z "$workspace_image" || "$workspace_image" == "ubuntu:24.04" ]]; then
+  workspace_image="neural-labs-workspace:latest"
+fi
+export NEURAL_LABS_WORKSPACE_IMAGE="$workspace_image"
+
 compose_cmd=(docker compose -f "$ROOT_DIR/$compose_file")
 
 if [[ "$compose_restart" == true ]]; then
@@ -104,6 +124,15 @@ if [[ "$detach" == true ]]; then
   up_args+=(-d)
 fi
 up_args+=("${extra_args[@]}")
+
+if [[ "$build" == true ]]; then
+  if [[ "$workspace_image" == neural-labs-workspace* ]]; then
+    echo "Building workspace image: $workspace_image"
+    docker build -f "$ROOT_DIR/workspace.Dockerfile" -t "$workspace_image" "$ROOT_DIR"
+  else
+    echo "Using configured workspace image without local build: $workspace_image"
+  fi
+fi
 
 echo "Starting services with $compose_file..."
 "${compose_cmd[@]}" "${up_args[@]}"

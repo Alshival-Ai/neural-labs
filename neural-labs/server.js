@@ -2,7 +2,13 @@ const { createServer } = require("node:http");
 
 const next = require("next");
 const { WebSocketServer } = require("next/dist/compiled/ws");
+const { getViewerFromHeaders } = require("./lib/server/auth-runtime.js");
 const { getTerminalManager: getRuntimeTerminalManager } = require("./lib/server/terminal-manager-runtime.js");
+const {
+  isVsCodePath,
+  proxyVsCodeHttp,
+  proxyVsCodeUpgrade,
+} = require("./lib/server/vscode-runtime.js");
 
 const TERMINAL_WS_PATH = "/api/neural-labs/terminal/ws";
 
@@ -63,6 +69,17 @@ async function main() {
     if (!handleRequest) {
       res.statusCode = 503;
       res.end("Server not ready");
+      return;
+    }
+
+    if (isVsCodePath(req.url)) {
+      Promise.resolve(proxyVsCodeHttp(req, res, getViewerFromHeaders(req.headers))).catch((error) => {
+        console.error("VS Code proxy error", error);
+        if (!res.headersSent) {
+          res.statusCode = 500;
+        }
+        res.end("VS Code proxy error");
+      });
       return;
     }
 
@@ -196,6 +213,11 @@ async function main() {
       terminalWss.handleUpgrade(req, socket, head, (ws) => {
         terminalWss.emit("connection", ws, req);
       });
+      return;
+    }
+
+    if (isVsCodePath(req.url)) {
+      void proxyVsCodeUpgrade(req, socket, head, getViewerFromHeaders(req.headers));
       return;
     }
 

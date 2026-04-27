@@ -1,9 +1,30 @@
-chatVSP-main
-chatVSP-main.zip
+# Local secrets
 .env
-neural-labs/node_modules
-neural-labs/.next
-neural-labs/.neural-labs-data
+.env.*
+!.env.example
+
+# Local tooling state
+.codex
+.codex/
+
+# Build and dependency output
+node_modules/
+**/node_modules/
+.next/
+**/.next/
+dist/
+build/
+coverage/
+neural-labs/tsconfig.tsbuildinfo
+
+# Runtime data
+.neural-labs-data/
+**/.neural-labs-data/
+
+# Local project dumps and archives
 Alshival.Ai/
 DevTools-main/
 DevTools-main.zip
+chatVSP-main/
+chatVSP-main.zip
+*.zip

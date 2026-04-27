@@ -15,6 +15,11 @@
   --topbar-text: rgba(255, 255, 255, 0.84);
   --topbar-chip-bg: rgba(255, 255, 255, 0.08);
   --topbar-chip-border: rgba(255, 255, 255, 0.15);
+  --topbar-menu-bg: rgba(9, 16, 28, 0.96);
+  --topbar-menu-border: rgba(255, 255, 255, 0.14);
+  --topbar-menu-text: #eff4ff;
+  --topbar-menu-muted: rgba(239, 244, 255, 0.68);
+  --topbar-menu-hover-bg: rgba(255, 255, 255, 0.08);
   --window-border: rgba(255, 255, 255, 0.2);
   --window-border-active: rgba(255, 255, 255, 0.28);
   --window-bg: rgba(12, 17, 29, 0.88);
@@ -94,6 +99,11 @@ html[data-theme="light"] {
   --topbar-text: rgba(255, 255, 255, 0.86);
   --topbar-chip-bg: rgba(255, 255, 255, 0.78);
   --topbar-chip-border: rgba(203, 213, 225, 0.72);
+  --topbar-menu-bg: rgba(255, 255, 255, 0.96);
+  --topbar-menu-border: rgba(203, 213, 225, 0.86);
+  --topbar-menu-text: #0f172a;
+  --topbar-menu-muted: #64748b;
+  --topbar-menu-hover-bg: rgba(15, 23, 42, 0.06);
   --window-border: rgba(203, 213, 225, 0.8);
   --window-border-active: rgba(15, 23, 42, 0.18);
   --window-bg: rgba(252, 253, 255, 0.96);
@@ -294,9 +304,11 @@ select {
   right: 0;
   width: 14rem;
   padding: 0.45rem;
-  border: 1px solid var(--line);
+  border: 1px solid var(--topbar-menu-border);
   border-radius: 18px;
-  background: var(--surface-app-elevated);
+  background: var(--topbar-menu-bg);
+  color: var(--topbar-menu-text);
+  backdrop-filter: blur(18px);
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.32);
 }
 
@@ -309,10 +321,11 @@ select {
 
 .nl-topbar__dropdown-header strong {
   font-size: 0.86rem;
+  color: var(--topbar-menu-text);
 }
 
 .nl-topbar__dropdown-header span {
-  color: var(--muted);
+  color: var(--topbar-menu-muted);
   font-size: 0.75rem;
   text-transform: capitalize;
 }
@@ -324,14 +337,14 @@ select {
   border: 0;
   border-radius: 14px;
   background: transparent;
-  color: var(--text);
+  color: var(--topbar-menu-text);
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
 
 .nl-topbar__dropdown-item:hover {
-  background: var(--selection-bg);
+  background: var(--topbar-menu-hover-bg);
 }
 
 .nl-toolbar-subcopy,
@@ -448,6 +461,13 @@ select {
 .nl-dock__icon {
   width: 0.92rem;
   height: 0.92rem;
+}
+
+.nl-dock__image {
+  width: 1.75rem;
+  height: 1.75rem;
+  object-fit: contain;
+  flex: 0 0 auto;
 }
 
 .nl-window__body {
@@ -2335,6 +2355,11 @@ html[data-theme="light"] .nl-dock__button--active {
 }
 
 .nl-provision-loader {
+  --loader-text: #f8fbff;
+  --loader-muted: rgba(190, 210, 238, 0.78);
+  --loader-panel: rgba(8, 17, 26, 0.9);
+  --loader-border: rgba(255, 255, 255, 0.22);
+  --loader-track: rgba(255, 255, 255, 0.12);
   position: fixed;
   inset: 0;
   z-index: 9999;
@@ -2348,100 +2373,72 @@ html[data-theme="light"] .nl-dock__button--active {
   inset: 0;
   z-index: 0;
   background:
-    radial-gradient(circle at 20% 10%, rgba(79, 140, 255, 0.24), transparent 45%),
-    radial-gradient(circle at 80% 90%, rgba(255, 180, 74, 0.16), transparent 40%),
-    #060b18;
-}
-
-html[data-theme="light"] .nl-provision-loader__backdrop {
-  background:
-    radial-gradient(circle at 20% 10%, rgba(37, 99, 235, 0.12), transparent 45%),
-    radial-gradient(circle at 80% 90%, rgba(245, 158, 11, 0.1), transparent 40%),
-    #f8fafc;
+    radial-gradient(circle at 22% 14%, rgba(42, 216, 139, 0.18), transparent 30%),
+    radial-gradient(circle at 78% 82%, rgba(99, 168, 255, 0.2), transparent 36%),
+    linear-gradient(180deg, #08131f 0%, #061018 48%, #02070c 100%);
 }
 
 .nl-provision-loader__card {
   position: relative;
   z-index: 1;
-  width: min(560px, calc(100vw - 2.5rem));
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  border-radius: 22px;
-  padding: 1.8rem 1.4rem 1.25rem;
-  background: rgba(15, 23, 42, 0.75);
-  backdrop-filter: blur(18px);
-  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.38);
+  width: min(420px, calc(100vw - 2.5rem));
+  border: 1px solid var(--loader-border);
+  border-radius: 18px;
+  padding: 1.6rem 1.45rem 1.3rem;
+  background: var(--loader-panel);
+  box-shadow: 0 24px 72px rgba(0, 0, 0, 0.46);
   text-align: center;
 }
 
-html[data-theme="light"] .nl-provision-loader__card {
-  background: rgba(255, 255, 255, 0.9);
-}
-
 .nl-provision-loader__logo {
-  width: min(220px, 54vw);
+  width: min(160px, 48vw);
   max-width: 100%;
-  margin: 0 auto 0.55rem;
+  margin: 0 auto 0.75rem;
   display: flex;
   justify-content: center;
 }
 
 .nl-provision-loader__logo-mark {
-  width: 5.6rem;
-  height: 5.6rem;
-  border-radius: 1.4rem;
+  width: 4.4rem;
+  height: 4.4rem;
+  border-radius: 1.15rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.16rem;
-  border: 1px solid rgba(148, 163, 184, 0.22);
+  border: 1px solid var(--loader-border);
   background:
-    radial-gradient(circle at 26% 22%, rgba(79, 140, 255, 0.34), transparent 48%),
-    linear-gradient(180deg, rgba(30, 41, 59, 0.96), rgba(15, 23, 42, 0.92));
-  color: #f8fafc;
-  font-size: 1.4rem;
+    radial-gradient(circle at 28% 22%, rgba(42, 216, 139, 0.28), transparent 46%),
+    linear-gradient(180deg, rgba(16, 31, 45, 0.98), rgba(8, 17, 26, 0.96));
+  color: var(--loader-text);
+  font-size: 1.2rem;
   font-weight: 700;
   letter-spacing: 0.04em;
-}
-
-html[data-theme="light"] .nl-provision-loader__logo-mark {
-  background:
-    radial-gradient(circle at 26% 22%, rgba(79, 140, 255, 0.18), transparent 48%),
-    linear-gradient(180deg, rgba(241, 245, 249, 0.98), rgba(226, 232, 240, 0.92));
-  color: #0f172a;
 }
 
 .nl-provision-loader__wordmark {
   min-height: 1.3em;
   display: inline-block;
-  font-family: "Space Grotesk", var(--font-sans);
-  font-size: clamp(1.75rem, 5.2vw, 2.75rem);
+  font-size: 1.45rem;
   font-weight: 700;
-  letter-spacing: 0.04em;
-  color: var(--text);
+  letter-spacing: 0;
+  color: var(--loader-text);
   margin-bottom: 0.25rem;
 }
 
-.nl-provision-loader__wordmark::after {
-  content: "|";
-  margin-left: 0.08em;
-  color: var(--accent);
-  animation: nl-loader-cursor 0.95s steps(1) infinite;
-}
-
 .nl-provision-loader__label {
-  font-family: "Space Grotesk", var(--font-sans);
-  font-size: 0.96rem;
+  font-size: 0.82rem;
   font-weight: 500;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--loader-muted);
   margin-bottom: 0.8rem;
 }
 
 .nl-provision-loader__track {
-  height: 7px;
+  height: 6px;
   border-radius: 999px;
-  background: rgba(148, 163, 184, 0.25);
+  background: var(--loader-track);
   overflow: hidden;
 }
 
@@ -2449,8 +2446,8 @@ html[data-theme="light"] .nl-provision-loader__logo-mark {
   height: 100%;
   width: 35%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #4f8cff, #ffb44a);
-  animation: nl-loader-sweep 1.4s ease-in-out infinite;
+  background: linear-gradient(90deg, #2ad88b, #63a8ff);
+  animation: nl-loader-sweep 1.25s ease-in-out infinite;
 }
 
 @keyframes nl-loader-sweep {
@@ -2467,31 +2464,19 @@ html[data-theme="light"] .nl-provision-loader__logo-mark {
   }
 }
 
-@keyframes nl-loader-cursor {
-  0%,
-  45% {
-    opacity: 1;
-  }
-
-  46%,
-  100% {
-    opacity: 0;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .nl-provision-loader__bar {
     animation: none;
     width: 100%;
   }
 
-  .nl-provision-loader__wordmark::after {
-    animation: none;
-    opacity: 0;
-  }
 }
 
 .nl-auth-shell {
+  --text: #eff4ff;
+  --muted: rgba(170, 193, 230, 0.78);
+  --line: rgba(255, 255, 255, 0.16);
+  --window-border: rgba(255, 255, 255, 0.64);
   min-height: 100vh;
   min-height: 100dvh;
   padding: 2rem;
@@ -2577,6 +2562,7 @@ html[data-theme="light"] .nl-provision-loader__logo-mark {
   font-size: clamp(3.1rem, 4.2vw, 4.9rem);
   line-height: 0.96;
   letter-spacing: -0.04em;
+  color: var(--text);
 }
 
 .nl-auth-split__hero-text p {

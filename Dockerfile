@@ -5,7 +5,6 @@ RUN npm ci
 
 FROM node:24-alpine AS builder
 WORKDIR /app
-COPY .env ./.env
 COPY --from=deps /app/neural-labs/node_modules ./neural-labs/node_modules
 COPY neural-labs ./neural-labs
 WORKDIR /app/neural-labs

@@ -308,15 +308,20 @@ Operationally:
 
 ```bash
 NEURAL_LABS_WORKSPACE_BACKEND=docker
-NEURAL_LABS_WORKSPACE_IMAGE=ubuntu:24.04
+NEURAL_LABS_WORKSPACE_IMAGE=neural-labs-workspace:latest
+NEURAL_LABS_WORKSPACE_NETWORK=neural-labs-workspaces
 NEURAL_LABS_WORKSPACE_SHELL=bash
 NEURAL_LABS_CONTAINER_IDLE_TIMEOUT_MS=3600000
 NEURAL_LABS_CONTAINER_IDLE_SWEEP_INTERVAL_MS=300000
+NEURAL_LABS_VSCODE_ENABLED=true
+NEURAL_LABS_VSCODE_PORT=13337
 ```
 
 Related implementation details:
 
 - per-user workspace containers are created from `NEURAL_LABS_WORKSPACE_IMAGE`
+- the default workspace image is built from `workspace.Dockerfile` and includes `code-server`
+- the VS Code dock icon opens `/vscode/`, which is authenticated by Neural Labs and proxied to `code-server` inside the current user's workspace container
 - the current workspace path inside those containers is configured separately by the app runtime
 - the container and volume naming is derived from the user id with Neural Labs prefixes
 
@@ -325,6 +330,7 @@ Related implementation details:
 The default `compose.yml`:
 
 - builds the app image from the repository root
+- connects the app to the shared workspace Docker network
 - loads environment variables from `.env`
 - binds `${PORT:-3000}` on the host
 - mounts `.env` read-only into the container

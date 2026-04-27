@@ -1124,6 +1124,7 @@ export const DOCK_APPS = [
   { kind: "files", label: "Files", icon: FolderIcon, accent: "#62a6ff" },
   { kind: "editor", label: "Editor", icon: FileIcon, accent: "#ff9b5d" },
   { kind: "terminal", label: "Terminal", icon: TerminalIcon, accent: "#8ef7b0" },
+  { kind: "vscode", label: "VS Code", iconSrc: "/apps/vscode.png", accent: "#2d9bf0" },
   { kind: "neura", label: "Neura", icon: SparkIcon, accent: "#f7ce68" },
   { kind: "settings", label: "Desktop Settings", icon: SettingsIcon, accent: "#e0d7ff" },
 ] as const;
