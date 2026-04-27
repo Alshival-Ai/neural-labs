@@ -5,6 +5,8 @@ import { useState } from "react";
 import { EnvironmentLoader } from "@/components/auth/environment-loader";
 import { login } from "@/lib/client/api";
 
+const MINIMUM_LOADER_MS = 2000;
+
 export function LoginScreen({ backgroundStyle }: { backgroundStyle: string }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -15,14 +17,21 @@ export function LoginScreen({ backgroundStyle }: { backgroundStyle: string }) {
     event.preventDefault();
     setIsSubmitting(true);
     setError("");
+    const loaderStartedAt = Date.now();
 
     try {
       await login({ email, password });
+      const elapsedMs = Date.now() - loaderStartedAt;
+      if (elapsedMs < MINIMUM_LOADER_MS) {
+        await new Promise((resolve) =>
+          window.setTimeout(resolve, MINIMUM_LOADER_MS - elapsedMs)
+        );
+      }
       window.location.href = "/desktop";
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Unable to sign in");
-    } finally {
       setIsSubmitting(false);
+    } finally {
     }
   }
 
