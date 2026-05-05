@@ -1,12 +1,15 @@
 "use client";
 
 import {
+  Fragment,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type DragEvent as ReactDragEvent,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import { useTheme } from "next-themes";
 
@@ -15,14 +18,32 @@ import type {
   TerminalPaneState,
   TerminalTabState,
 } from "@/components/desktop/app-types";
-import { createTerminalSession, createTerminalWsToken } from "@/lib/client/api";
+import {
+  closeTerminalSession,
+  createTerminalSession,
+  createTerminalWsToken,
+} from "@/lib/client/api";
 import {
   CloseIcon,
   PlusIcon,
   RefreshIcon,
+  SearchIcon,
   TerminalIcon,
 } from "@/components/ui/icons";
-import { Button, cn } from "@/components/ui/primitives";
+import { cn } from "@/components/ui/primitives";
+
+type TerminalConnectionState =
+  | "connecting"
+  | "connected"
+  | "disconnected"
+  | "exited"
+  | "reconnecting";
+
+interface TerminalPaneMeta {
+  cols: number;
+  rows: number;
+  state: TerminalConnectionState;
+}
 
 function reorderTabs(
   tabs: TerminalTabState[],
@@ -53,22 +74,64 @@ function TerminalPaneSurface({
   sessionId,
   isActive,
   onFocus,
+  onAddTab,
+  onCloseActiveTab,
+  onMetaChange,
   onSessionRecovered,
 }: {
   sessionId: string;
   isActive: boolean;
   onFocus: () => void;
+  onAddTab: () => Promise<void> | void;
+  onCloseActiveTab: () => Promise<void> | void;
+  onMetaChange?: (meta: TerminalPaneMeta) => void;
   onSessionRecovered?: (nextSessionId: string) => void;
 }) {
   const { resolvedTheme } = useTheme();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<import("@xterm/xterm").Terminal | null>(null);
   const fitAddonRef = useRef<import("@xterm/addon-fit").FitAddon | null>(null);
+  const searchAddonRef = useRef<import("@xterm/addon-search").SearchAddon | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const inputBufferRef = useRef("");
   const inputFlushTimerRef = useRef<number | null>(null);
   const disconnectNoticeRef = useRef(false);
+  const [connectionState, setConnectionState] =
+    useState<TerminalConnectionState>("connecting");
+  const [terminalSize, setTerminalSize] = useState({ cols: 0, rows: 0 });
+  const [connectionAttempt, setConnectionAttempt] = useState(0);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchValue, setSearchValue] = useState("");
+  const terminalSizeRef = useRef(terminalSize);
+  const connectionStateRef = useRef(connectionState);
+  const onMetaChangeRef = useRef(onMetaChange);
+  const onAddTabRef = useRef(onAddTab);
+  const onCloseActiveTabRef = useRef(onCloseActiveTab);
+  const onSessionRecoveredRef = useRef(onSessionRecovered);
+
+  useEffect(() => {
+    onMetaChangeRef.current = onMetaChange;
+    onAddTabRef.current = onAddTab;
+    onCloseActiveTabRef.current = onCloseActiveTab;
+    onSessionRecoveredRef.current = onSessionRecovered;
+  }, [onAddTab, onCloseActiveTab, onMetaChange, onSessionRecovered]);
+
+  const publishMeta = useCallback(
+    (meta: Partial<TerminalPaneMeta>) => {
+      const nextMeta = {
+        cols: meta.cols ?? terminalRef.current?.cols ?? terminalSizeRef.current.cols,
+        rows: meta.rows ?? terminalRef.current?.rows ?? terminalSizeRef.current.rows,
+        state: meta.state ?? connectionStateRef.current,
+      };
+      terminalSizeRef.current = { cols: nextMeta.cols, rows: nextMeta.rows };
+      connectionStateRef.current = nextMeta.state;
+      setTerminalSize({ cols: nextMeta.cols, rows: nextMeta.rows });
+      setConnectionState(nextMeta.state);
+      onMetaChangeRef.current?.(nextMeta);
+    },
+    []
+  );
 
   const sendSocketMessage = useCallback((payload: object) => {
     const socket = socketRef.current;
@@ -97,20 +160,76 @@ function TerminalPaneSurface({
     () =>
       resolvedTheme === "light"
         ? {
-            background: "#fcfdff",
+            background: "#ffffff",
             foreground: "#0f172a",
             cursor: "#0f172a",
-            cursorAccent: "#fcfdff",
+            cursorAccent: "#ffffff",
             selectionBackground: "rgba(42, 104, 255, 0.22)",
           }
         : {
-            background: "#0b0d12",
+            background: "#070d17",
             foreground: "#f8fafc",
             cursor: "#f8fafc",
-            cursorAccent: "#0b0d12",
+            cursorAccent: "#070d17",
             selectionBackground: "rgba(148, 163, 184, 0.28)",
           },
     [resolvedTheme]
+  );
+
+  const copySelection = useCallback(() => {
+    const selection = terminalRef.current?.getSelection();
+    if (selection) {
+      void navigator.clipboard.writeText(selection);
+    }
+  }, []);
+
+  const pasteFromClipboard = useCallback(() => {
+    void navigator.clipboard
+      .readText()
+      .then((text) => {
+        if (!text) {
+          return;
+        }
+        inputBufferRef.current += text;
+        flushInput();
+      })
+      .catch(() => {});
+  }, [flushInput]);
+
+  const clearTerminal = useCallback(() => {
+    terminalRef.current?.clear();
+  }, []);
+
+  const reconnectTerminal = useCallback(() => {
+    publishMeta({ state: "reconnecting" });
+    socketRef.current?.close();
+    setConnectionAttempt((current) => current + 1);
+  }, [publishMeta]);
+
+  const restartTerminal = useCallback(async () => {
+    publishMeta({ state: "reconnecting" });
+    try {
+      await closeTerminalSession(sessionId);
+    } catch {
+      // The existing session may already be gone.
+    }
+    const nextSession = await createTerminalSession(terminalSizeRef.current);
+    onSessionRecoveredRef.current?.(nextSession.id);
+  }, [publishMeta, sessionId]);
+
+  const runSearch = useCallback(
+    (direction: "next" | "previous" = "next", value = searchValue) => {
+      const query = value.trim();
+      if (!query) {
+        return;
+      }
+      if (direction === "next") {
+        searchAddonRef.current?.findNext(query);
+        return;
+      }
+      searchAddonRef.current?.findPrevious(query);
+    },
+    [searchValue]
   );
 
   const resizeTerminal = useCallback(() => {
@@ -130,12 +249,13 @@ function TerminalPaneSurface({
       return;
     }
 
+    publishMeta({ cols: terminal.cols, rows: terminal.rows });
     sendSocketMessage({
       type: "resize",
       cols: terminal.cols,
       rows: terminal.rows,
     });
-  }, [sendSocketMessage]);
+  }, [publishMeta, sendSocketMessage]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -151,9 +271,10 @@ function TerminalPaneSurface({
     };
 
     void (async () => {
-      const [{ Terminal }, { FitAddon }] = await Promise.all([
+      const [{ Terminal }, { FitAddon }, { SearchAddon }] = await Promise.all([
         import("@xterm/xterm"),
         import("@xterm/addon-fit"),
+        import("@xterm/addon-search"),
       ]);
       if (isDisposed) {
         return;
@@ -172,11 +293,14 @@ function TerminalPaneSurface({
         scrollback: 6000,
       });
       const fitAddon = new FitAddon();
+      const searchAddon = new SearchAddon();
       terminal.loadAddon(fitAddon);
+      terminal.loadAddon(searchAddon);
       terminal.open(host);
 
       terminalRef.current = terminal;
       fitAddonRef.current = fitAddon;
+      searchAddonRef.current = searchAddon;
 
       terminal.attachCustomKeyEventHandler((event: KeyboardEvent) => {
         if (event.type !== "keydown") {
@@ -186,24 +310,33 @@ function TerminalPaneSurface({
         const key = event.key.toLowerCase();
         const usesModifier = event.ctrlKey || event.metaKey;
 
+        if (usesModifier && event.shiftKey && key === "t") {
+          event.preventDefault();
+          void onAddTabRef.current();
+          return false;
+        }
+
+        if (usesModifier && event.shiftKey && key === "w") {
+          event.preventDefault();
+          void onCloseActiveTabRef.current();
+          return false;
+        }
+
+        if (usesModifier && event.shiftKey && key === "f") {
+          event.preventDefault();
+          setIsSearchOpen(true);
+          return false;
+        }
+
         if (usesModifier && event.shiftKey && key === "c") {
           event.preventDefault();
-          const selection = terminal.getSelection();
-          if (selection) {
-            void navigator.clipboard.writeText(selection);
-          }
+          copySelection();
           return false;
         }
 
         if (usesModifier && key === "v") {
           event.preventDefault();
-          void navigator.clipboard
-            .readText()
-            .then((text) => {
-              inputBufferRef.current += text;
-              flushInput();
-            })
-            .catch(() => {});
+          pasteFromClipboard();
           return false;
         }
 
@@ -213,9 +346,12 @@ function TerminalPaneSurface({
       let tokenPayload: { token: string; ws_path: string };
       let currentSessionId = sessionId.trim();
       if (!currentSessionId) {
-        const recoveredSession = await createTerminalSession();
+        const recoveredSession = await createTerminalSession({
+          cols: terminal.cols,
+          rows: terminal.rows,
+        });
         currentSessionId = recoveredSession.id;
-        onSessionRecovered?.(recoveredSession.id);
+        onSessionRecoveredRef.current?.(recoveredSession.id);
       }
 
       try {
@@ -226,8 +362,11 @@ function TerminalPaneSurface({
           throw error;
         }
 
-        const recoveredSession = await createTerminalSession();
-        onSessionRecovered?.(recoveredSession.id);
+        const recoveredSession = await createTerminalSession({
+          cols: terminal.cols,
+          rows: terminal.rows,
+        });
+        onSessionRecoveredRef.current?.(recoveredSession.id);
         tokenPayload = await createTerminalWsToken(recoveredSession.id);
       }
       if (isDisposed) {
@@ -243,11 +382,13 @@ function TerminalPaneSurface({
       socket = new WebSocket(`${protocol}//${window.location.host}${wsPath}`);
       socketRef.current = socket;
       disconnectNoticeRef.current = false;
+      publishMeta({ state: "connecting" });
 
       socket.addEventListener("open", () => {
         if (isDisposed) {
           return;
         }
+        publishMeta({ state: "connected" });
         flushInput();
         resizeTerminal();
       });
@@ -263,6 +404,7 @@ function TerminalPaneSurface({
             terminal.write(payload.text);
           }
           if (payload.type === "exit") {
+            publishMeta({ state: "exited" });
             terminal.writeln("\r\n[terminal exited]");
           }
           if (payload.type === "error" && payload.text) {
@@ -278,6 +420,7 @@ function TerminalPaneSurface({
           return;
         }
         disconnectNoticeRef.current = true;
+        publishMeta({ state: "disconnected" });
         terminal.writeln("\r\n[terminal stream disconnected]");
       };
 
@@ -333,9 +476,19 @@ function TerminalPaneSurface({
       terminalRef.current?.dispose();
       terminalRef.current = null;
       fitAddonRef.current = null;
+      searchAddonRef.current = null;
       host.replaceChildren();
     };
-  }, [flushInput, resizeTerminal, sessionId, terminalTheme]);
+  }, [
+    connectionAttempt,
+    copySelection,
+    flushInput,
+    pasteFromClipboard,
+    publishMeta,
+    resizeTerminal,
+    sessionId,
+    terminalTheme,
+  ]);
 
   useEffect(() => {
     if (!isActive) {
@@ -357,7 +510,91 @@ function TerminalPaneSurface({
       role="button"
       tabIndex={0}
     >
+      <div className="nl-terminal-app__pane-toolbar" aria-label="Terminal pane tools">
+        <span
+          className={cn(
+            "nl-terminal-app__state",
+            `nl-terminal-app__state--${connectionState}`
+          )}
+        >
+          {connectionState}
+        </span>
+        <span className="nl-terminal-app__size">
+          {terminalSize.cols || "--"} x {terminalSize.rows || "--"}
+        </span>
+        <button
+          type="button"
+          className="nl-terminal-app__tool"
+          onClick={() => setIsSearchOpen((current) => !current)}
+          title="Search"
+          aria-label="Search terminal"
+        >
+          <SearchIcon className="nl-inline-icon" />
+        </button>
+        <button
+          type="button"
+          className="nl-terminal-app__tool"
+          onClick={reconnectTerminal}
+          title="Reconnect"
+          aria-label="Reconnect terminal stream"
+        >
+          <RefreshIcon className="nl-inline-icon" />
+        </button>
+        <button
+          type="button"
+          className="nl-terminal-app__tool"
+          onClick={() => void restartTerminal()}
+          title="Restart shell"
+          aria-label="Restart shell"
+        >
+          <TerminalIcon className="nl-inline-icon" />
+        </button>
+      </div>
+      {isSearchOpen ? (
+        <form
+          className="nl-terminal-app__search"
+          onSubmit={(event) => {
+            event.preventDefault();
+            runSearch("next");
+          }}
+        >
+          <input
+            value={searchValue}
+            onChange={(event) => {
+              const nextValue = event.target.value;
+              setSearchValue(nextValue);
+              runSearch("next", nextValue);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setIsSearchOpen(false);
+              }
+            }}
+            placeholder="Search terminal"
+            autoFocus
+          />
+          <button type="button" onClick={() => runSearch("previous")}>
+            Prev
+          </button>
+          <button type="submit">Next</button>
+          <button type="button" onClick={() => setIsSearchOpen(false)}>
+            <CloseIcon className="nl-inline-icon" />
+          </button>
+        </form>
+      ) : null}
       <div ref={hostRef} className="nl-terminal-app__xterm-host" />
+      <div className="nl-terminal-app__quick-actions" aria-label="Terminal quick actions">
+        <button type="button" onClick={copySelection}>
+          Copy
+        </button>
+        <button type="button" onClick={pasteFromClipboard}>
+          Paste
+        </button>
+        <button type="button" onClick={clearTerminal}>
+          Clear
+        </button>
+      </div>
     </div>
   );
 }
@@ -390,6 +627,8 @@ export function TerminalPanel({
   onRecoverPaneSession: (tabId: string, paneId: string, sessionId: string) => void;
 }) {
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
+  const [paneMetaById, setPaneMetaById] = useState<Record<string, TerminalPaneMeta>>({});
+  const [splitRatioByTabId, setSplitRatioByTabId] = useState<Record<string, number>>({});
 
   const activeTab = useMemo(() => {
     if (!layout) {
@@ -410,6 +649,73 @@ export function TerminalPanel({
   }, [activeTab]);
 
   const canSplitActiveTab = Boolean(activeTab && activeTab.panes.length === 1);
+  const tabCount = layout?.tabs.length ?? 0;
+  const activeSplitLabel =
+    activeTab?.splitMode === "vertical"
+      ? "Split right"
+      : activeTab?.splitMode === "horizontal"
+        ? "Split down"
+        : "Single pane";
+  const activePaneMeta = activePane ? paneMetaById[activePane.paneId] : null;
+  const activePaneStatus = activePaneMeta?.state ?? "connecting";
+  const activePaneSize =
+    activePaneMeta && activePaneMeta.cols > 0 && activePaneMeta.rows > 0
+      ? `${activePaneMeta.cols} x ${activePaneMeta.rows}`
+      : "-- x --";
+
+  const handlePaneMetaChange = useCallback(
+    (paneId: string, meta: TerminalPaneMeta) => {
+      setPaneMetaById((current) => {
+        const existing = current[paneId];
+        if (
+          existing?.cols === meta.cols &&
+          existing.rows === meta.rows &&
+          existing.state === meta.state
+        ) {
+          return current;
+        }
+        return { ...current, [paneId]: meta };
+      });
+    },
+    []
+  );
+
+  const handleSplitResizeStart = (
+    event: ReactPointerEvent<HTMLDivElement>,
+    tab: TerminalTabState
+  ) => {
+    const splitElement = event.currentTarget.parentElement;
+    if (!splitElement) {
+      return;
+    }
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const rect = splitElement.getBoundingClientRect();
+    const isVertical = tab.splitMode === "vertical";
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const position = isVertical
+        ? moveEvent.clientX - rect.left
+        : moveEvent.clientY - rect.top;
+      const total = isVertical ? rect.width : rect.height;
+      if (total <= 0) {
+        return;
+      }
+      const ratio = Math.min(75, Math.max(25, (position / total) * 100));
+      setSplitRatioByTabId((current) => ({
+        ...current,
+        [tab.tabId]: ratio,
+      }));
+    };
+
+    const handlePointerUp = () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp, { once: true });
+  };
 
   const handleTabDrop = (
     event: ReactDragEvent<HTMLElement>,
@@ -428,7 +734,82 @@ export function TerminalPanel({
   return (
     <div className="nl-panel nl-panel--terminal nl-terminal-app">
       <div className="nl-terminal-app__header">
-        <div className="nl-terminal-app__tabs">
+        <div className="nl-terminal-app__topbar">
+          <div className="nl-terminal-app__brand">
+            <span className="nl-terminal-app__brand-mark">
+              <TerminalIcon className="nl-inline-icon" />
+            </span>
+            <span className="nl-terminal-app__brand-copy">
+              <strong>Terminal</strong>
+              <span>{activeTab?.title ?? "No active shell"}</span>
+            </span>
+          </div>
+
+          <div className="nl-terminal-app__actions" aria-label="Terminal actions">
+            <button
+              type="button"
+              className="nl-terminal-app__action"
+              disabled={!activeTab}
+              onClick={() => {
+                if (activeTab) {
+                  onRenameTab(activeTab.tabId);
+                }
+              }}
+            >
+              Rename
+            </button>
+            <button
+              type="button"
+              className="nl-terminal-app__action"
+              disabled={!activeTab}
+              onClick={() => {
+                if (activeTab) {
+                  void onDuplicateTab(activeTab.tabId);
+                }
+              }}
+            >
+              Duplicate
+            </button>
+            <button
+              type="button"
+              className="nl-terminal-app__action"
+              disabled={!canSplitActiveTab || !activeTab}
+              onClick={() => {
+                if (activeTab) {
+                  void onSplitTab(activeTab.tabId, "vertical");
+                }
+              }}
+            >
+              Split Right
+            </button>
+            <button
+              type="button"
+              className="nl-terminal-app__action"
+              disabled={!canSplitActiveTab || !activeTab}
+              onClick={() => {
+                if (activeTab) {
+                  void onSplitTab(activeTab.tabId, "horizontal");
+                }
+              }}
+            >
+              Split Down
+            </button>
+            <button
+              type="button"
+              className="nl-terminal-app__action nl-terminal-app__action--danger"
+              disabled={!activeTab}
+              onClick={() => {
+                if (activeTab) {
+                  void onCloseTab(activeTab.tabId);
+                }
+              }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+
+        <div className="nl-terminal-app__tab-rail">
           {(layout?.tabs ?? []).map((tab, index) => {
             const isActive = tab.tabId === activeTab?.tabId;
             return (
@@ -467,13 +848,14 @@ export function TerminalPanel({
                 onDrop={(event) => handleTabDrop(event, tab.tabId)}
                 onDragEnd={() => setDraggedTabId(null)}
               >
-                <TerminalIcon className="nl-inline-icon" />
+                <span className="nl-terminal-app__tab-dot" />
                 <span className="nl-terminal-app__tab-title">
                   {tab.title || `Terminal ${index + 1}`}
                 </span>
                 <button
                   type="button"
                   className="nl-terminal-app__tab-close"
+                  aria-label={`Close ${tab.title || `Terminal ${index + 1}`}`}
                   onClick={(event) => {
                     event.stopPropagation();
                     void onCloseTab(tab.tabId);
@@ -493,65 +875,6 @@ export function TerminalPanel({
             <PlusIcon className="nl-inline-icon" />
           </button>
         </div>
-
-        <div className="nl-terminal-app__actions">
-          <Button
-            variant="ghost"
-            disabled={!activeTab}
-            onClick={() => {
-              if (activeTab) {
-                onRenameTab(activeTab.tabId);
-              }
-            }}
-          >
-            Rename
-          </Button>
-          <Button
-            variant="ghost"
-            disabled={!activeTab}
-            onClick={() => {
-              if (activeTab) {
-                void onDuplicateTab(activeTab.tabId);
-              }
-            }}
-          >
-            Duplicate
-          </Button>
-          <Button
-            variant="ghost"
-            disabled={!canSplitActiveTab || !activeTab}
-            onClick={() => {
-              if (activeTab) {
-                void onSplitTab(activeTab.tabId, "vertical");
-              }
-            }}
-          >
-            Split Right
-          </Button>
-          <Button
-            variant="ghost"
-            disabled={!canSplitActiveTab || !activeTab}
-            onClick={() => {
-              if (activeTab) {
-                void onSplitTab(activeTab.tabId, "horizontal");
-              }
-            }}
-          >
-            Split Down
-          </Button>
-          <Button
-            variant="ghost"
-            disabled={!activeTab}
-            onClick={() => {
-              if (activeTab) {
-                void onCloseTab(activeTab.tabId);
-              }
-            }}
-          >
-            <RefreshIcon className="nl-inline-icon" />
-            Close Tab
-          </Button>
-        </div>
       </div>
 
       <div className="nl-terminal-app__body">
@@ -568,7 +891,10 @@ export function TerminalPanel({
               <TerminalPaneSurface
                 sessionId={activePane.sessionId}
                 isActive
+                onAddTab={onAddTab}
+                onCloseActiveTab={() => onCloseTab(activeTab.tabId)}
                 onFocus={() => onSetActivePane(activeTab.tabId, activePane.paneId)}
+                onMetaChange={(meta) => handlePaneMetaChange(activePane.paneId, meta)}
                 onSessionRecovered={(nextSessionId) =>
                   onRecoverPaneSession(activeTab.tabId, activePane.paneId, nextSessionId)
                 }
@@ -583,42 +909,71 @@ export function TerminalPanel({
                 ? "nl-terminal-app__split--vertical"
                 : "nl-terminal-app__split--horizontal"
             )}
+            style={
+              {
+                "--terminal-split-ratio": `${
+                  splitRatioByTabId[activeTab.tabId] ?? 50
+                }%`,
+              } as CSSProperties
+            }
           >
             {activeTab.panes.map((pane, index) => {
               const isActivePane = pane.paneId === activePane?.paneId;
               return (
-                <div
-                  key={pane.paneId}
-                  className={cn(
-                    "nl-terminal-app__pane",
-                    isActivePane && "nl-terminal-app__pane--active"
-                  )}
-                  onMouseDown={() => onSetActivePane(activeTab.tabId, pane.paneId)}
-                >
-                  <div className="nl-terminal-app__pane-header">
-                    <span>Pane {index + 1}</span>
-                    <button
-                      type="button"
-                      className="nl-terminal-app__pane-close"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void onClosePane(activeTab.tabId, pane.paneId);
-                      }}
-                    >
-                      <CloseIcon className="nl-inline-icon" />
-                    </button>
-                  </div>
-                  <div className="nl-terminal-app__pane-body">
-                    <TerminalPaneSurface
-                      sessionId={pane.sessionId}
-                      isActive={isActivePane}
-                      onFocus={() => onSetActivePane(activeTab.tabId, pane.paneId)}
-                      onSessionRecovered={(nextSessionId) =>
-                        onRecoverPaneSession(activeTab.tabId, pane.paneId, nextSessionId)
+                <Fragment key={pane.paneId}>
+                  {index === 1 ? (
+                    <div
+                      className="nl-terminal-app__split-divider"
+                      role="separator"
+                      aria-orientation={
+                        activeTab.splitMode === "vertical" ? "vertical" : "horizontal"
+                      }
+                      onPointerDown={(event) =>
+                        handleSplitResizeStart(event, activeTab)
                       }
                     />
+                  ) : null}
+                  <div
+                    className={cn(
+                      "nl-terminal-app__pane",
+                      isActivePane && "nl-terminal-app__pane--active"
+                    )}
+                    onMouseDown={() => onSetActivePane(activeTab.tabId, pane.paneId)}
+                  >
+                    <div className="nl-terminal-app__pane-header">
+                      <span>
+                        Pane {index + 1}
+                        {paneMetaById[pane.paneId]
+                          ? ` / ${paneMetaById[pane.paneId].state}`
+                          : ""}
+                      </span>
+                      <button
+                        type="button"
+                        className="nl-terminal-app__pane-close"
+                        aria-label={`Close pane ${index + 1}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void onClosePane(activeTab.tabId, pane.paneId);
+                        }}
+                      >
+                        <CloseIcon className="nl-inline-icon" />
+                      </button>
+                    </div>
+                    <div className="nl-terminal-app__pane-body">
+                      <TerminalPaneSurface
+                        sessionId={pane.sessionId}
+                        isActive={isActivePane}
+                        onAddTab={onAddTab}
+                        onCloseActiveTab={() => onCloseTab(activeTab.tabId)}
+                        onFocus={() => onSetActivePane(activeTab.tabId, pane.paneId)}
+                        onMetaChange={(meta) => handlePaneMetaChange(pane.paneId, meta)}
+                        onSessionRecovered={(nextSessionId) =>
+                          onRecoverPaneSession(activeTab.tabId, pane.paneId, nextSessionId)
+                        }
+                      />
+                    </div>
                   </div>
-                </div>
+                </Fragment>
               );
             })}
           </div>
@@ -626,8 +981,15 @@ export function TerminalPanel({
       </div>
 
       <div className="nl-terminal-app__footer">
-        <span>Keyboard input goes directly to the active terminal pane.</span>
-        <span>{layout?.tabs.length ?? 0} tab(s)</span>
+        <span>
+          {activeTab
+            ? `${activeSplitLabel} / ${activePaneStatus} / ${activePaneSize}`
+            : "No active tab"}
+        </span>
+        <span>
+          {tabCount} {tabCount === 1 ? "tab" : "tabs"}
+          {activeTab ? ` / ${activeTab.panes.length} ${activeTab.panes.length === 1 ? "pane" : "panes"}` : ""}
+        </span>
       </div>
     </div>
   );

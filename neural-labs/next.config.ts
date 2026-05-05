@@ -53,6 +53,7 @@ const exposedClientEnv = Object.fromEntries(
 const nextConfig: NextConfig = {
   typedRoutes: false,
   env: exposedClientEnv,
+  serverExternalPackages: ["@homebridge/node-pty-prebuilt-multiarch"],
 };
 
 export default nextConfig;

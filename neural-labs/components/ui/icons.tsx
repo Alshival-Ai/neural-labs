@@ -115,6 +115,15 @@ export function RefreshIcon(props: IconProps) {
   );
 }
 
+export function SearchIcon(props: IconProps) {
+  return (
+    <BaseIcon {...props}>
+      <circle cx="10.8" cy="10.8" r="6.2" />
+      <path d="m16 16 4 4" />
+    </BaseIcon>
+  );
+}
+
 export function UploadIcon(props: IconProps) {
   return (
     <BaseIcon {...props}>

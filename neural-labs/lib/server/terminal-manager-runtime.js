@@ -1,5 +1,6 @@
 const { randomUUID } = require("node:crypto");
-const { spawn } = require("node:child_process");
+const path = require("node:path");
+const pty = require("@homebridge/node-pty-prebuilt-multiarch");
 const {
   DOCKER_CONTAINER_PREFIX,
   ensureWorkspaceScaffold,
@@ -32,6 +33,8 @@ const CONTAINER_IDLE_SWEEP_INTERVAL_MS = Number.isFinite(
       Number.parseInt(process.env.NEURAL_LABS_CONTAINER_IDLE_SWEEP_INTERVAL_MS || "", 10)
     )
   : 5 * 60 * 1000;
+const DEFAULT_TERMINAL_COLS = 120;
+const DEFAULT_TERMINAL_ROWS = 32;
 const NEURAL_LABS_BANNER_TEXT =
   "\r\n" +
   " ███╗   ██╗███████╗██╗   ██╗██████╗  █████╗ ██╗         ██╗      █████╗ ██████╗ ███████╗\r\n" +
@@ -44,8 +47,26 @@ const NEURAL_LABS_BANNER_TEXT =
   "             >> environment initialized <<\r\n" +
   "\r\n";
 
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+function getShellBaseName(shell) {
+  return path.basename(shell.trim().split(/\s+/)[0] || shell);
+}
+
+function normalizeTerminalSize(cols, rows) {
+  const nextCols = Number.isFinite(cols)
+    ? Math.max(20, Math.min(500, Math.floor(cols)))
+    : DEFAULT_TERMINAL_COLS;
+  const nextRows = Number.isFinite(rows)
+    ? Math.max(6, Math.min(200, Math.floor(rows)))
+    : DEFAULT_TERMINAL_ROWS;
+  return { cols: nextCols, rows: nextRows };
+}
+
 class TerminalSession {
-  constructor(process) {
+  constructor(process, size) {
     this.id = randomUUID();
     this.title = "Shell";
     this.createdAt = new Date().toISOString();
@@ -54,6 +75,8 @@ class TerminalSession {
     this.backlog = [];
     this.listeners = new Set();
     this.process = process;
+    this.cols = size.cols;
+    this.rows = size.rows;
   }
 
   pushChunk(chunk) {
@@ -65,6 +88,21 @@ class TerminalSession {
     for (const listener of this.listeners) {
       listener(chunk);
     }
+  }
+
+  write(data) {
+    this.lastActivityAt = new Date().toISOString();
+    this.process.write(data);
+  }
+
+  resize(cols, rows) {
+    const size = normalizeTerminalSize(cols, rows);
+    this.cols = size.cols;
+    this.rows = size.rows;
+    if (!this.alive) {
+      return;
+    }
+    this.process.resize(size.cols, size.rows);
   }
 }
 
@@ -131,39 +169,52 @@ class TerminalManager {
     this.cleanupTimers.set(this.getCleanupTimerKey(userId, sessionId), timer);
   }
 
-  buildProcess(workspace) {
+  buildProcess(workspace, size) {
     if (workspace.backend !== "docker") {
       throw new Error("Neural Labs terminal is configured for docker backend only.");
     }
 
-    const shell = process.env.NEURAL_LABS_WORKSPACE_SHELL || "bash";
-    const interactiveShellCommand = `${shell} --noprofile --norc -i`;
     if (!workspace.containerName || !workspace.workspacePathInContainer) {
       throw new Error("Workspace container is not available for this user.");
     }
 
-    return spawn(
+    const shell = process.env.NEURAL_LABS_WORKSPACE_SHELL || "bash";
+    const configuredShellArgs = process.env.NEURAL_LABS_WORKSPACE_SHELL_ARGS?.trim();
+    const shellRcPath = `${workspace.workspacePathInContainer}/.neural-labs/shellrc`;
+    const shellArgs =
+      configuredShellArgs ||
+      (getShellBaseName(shell) === "bash"
+        ? `--rcfile ${shellQuote(shellRcPath)} -i`
+        : "-i");
+    const interactiveShellCommand = `${shellQuote(shell)} ${shellArgs}`.trim();
+
+    return pty.spawn(
       "docker",
       [
         "exec",
-        "-i",
+        "-it",
         "-w",
         workspace.workspacePathInContainer,
         "-e",
         `HOME=${workspace.workspacePathInContainer}`,
         "-e",
+        `COLUMNS=${size.cols}`,
+        "-e",
+        `LINES=${size.rows}`,
+        "-e",
         "PS1=neural-labs$ ",
         "-e",
         "TERM=xterm-256color",
         workspace.containerName,
-        "script",
-        "-qec",
-        interactiveShellCommand,
-        "/dev/null",
+        "sh",
+        "-lc",
+        `exec ${interactiveShellCommand}`,
       ],
       {
-        stdio: "pipe",
         env: process.env,
+        name: "xterm-256color",
+        cols: size.cols,
+        rows: size.rows,
       }
     );
   }
@@ -319,30 +370,30 @@ class TerminalManager {
     }
   }
 
-  async createSession(userId) {
+  async createSession(userId, size = {}) {
     markWorkspaceActivitySafe(userId);
     const workspace = await ensureWorkspaceScaffold(userId);
-    const child = this.buildProcess(workspace);
+    const initialSize = normalizeTerminalSize(size.cols, size.rows);
+    const child = this.buildProcess(workspace, initialSize);
 
-    const session = new TerminalSession(child);
+    const session = new TerminalSession(child, initialSize);
     session.pushChunk({
       type: "output",
       text: NEURAL_LABS_BANNER_TEXT,
       terminalId: session.id,
     });
-    const handleOutput = (buffer, type = "output") => {
+    const handleOutput = (text, type = "output") => {
       session.pushChunk({
         type,
-        text: buffer.toString("utf-8"),
+        text,
         terminalId: session.id,
       });
     };
 
-    child.stdout.on("data", (buffer) => handleOutput(buffer));
-    child.stderr.on("data", (buffer) => handleOutput(buffer));
-    child.on("exit", (code) => {
+    child.onData((data) => handleOutput(data));
+    child.onExit((event) => {
       session.alive = false;
-      handleOutput(Buffer.from(`\n[process exited with code ${code ?? 0}]\n`), "exit");
+      handleOutput(`\n[process exited with code ${event.exitCode ?? 0}]\n`, "exit");
       this.scheduleCleanup(userId, session.id);
     });
 
@@ -373,6 +424,9 @@ class TerminalManager {
       alive: session.alive,
       createdAt: session.createdAt,
       lastActivityAt: session.lastActivityAt,
+      cols: session.cols,
+      rows: session.rows,
+      state: session.alive ? "running" : "exited",
     };
   }
 
@@ -382,9 +436,18 @@ class TerminalManager {
       throw new Error("Terminal session not found");
     }
     const { session } = resolved;
-    session.lastActivityAt = new Date().toISOString();
     markWorkspaceActivitySafe(userId);
-    session.process.stdin.write(data);
+    session.write(data);
+  }
+
+  resize(userId, sessionId, cols, rows) {
+    const resolved = this.resolveOwnedSession(userId, sessionId);
+    if (!resolved) {
+      throw new Error("Terminal session not found");
+    }
+    const { session } = resolved;
+    session.resize(cols, rows);
+    markWorkspaceActivitySafe(userId);
   }
 
   subscribe(userId, sessionId, listener) {

@@ -113,7 +113,7 @@ export interface TerminalSessionSummary {
 }
 
 export interface TerminalChunk {
-  type: "output" | "exit";
+  type: "output" | "exit" | "error";
   text: string;
   terminalId: string;
 }
@@ -123,6 +123,9 @@ export interface TerminalStatus {
   alive: boolean;
   createdAt: string;
   lastActivityAt: string;
+  cols: number;
+  rows: number;
+  state: "running" | "exited";
 }
 
 export interface ApiErrorPayload {

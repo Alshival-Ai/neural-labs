@@ -436,8 +436,20 @@ export function TextEditorPanel({
       {windowState.isSidebarOpen ? (
         <aside className="nl-editor-app__sidebar">
           <div className="nl-editor-app__sidebar-header">
-            <strong>Open Files</strong>
-            <IconButton label="New scratch file" onClick={onCreateScratchTab}>
+            <div className="nl-editor-app__sidebar-brand">
+              <span className="nl-editor-app__brand-mark">
+                <FileIcon className="nl-inline-icon" />
+              </span>
+              <span>
+                <strong>Open Files</strong>
+                <span>{windowState.tabs.length} documents</span>
+              </span>
+            </div>
+            <IconButton
+              label="New scratch file"
+              className="nl-editor-app__icon-button"
+              onClick={onCreateScratchTab}
+            >
               <PlusIcon className="nl-inline-icon" />
             </IconButton>
           </div>
@@ -454,7 +466,9 @@ export function TextEditorPanel({
                   )}
                   onClick={() => onSetActiveTab(tab.tabId)}
                 >
-                  <FileIcon className="nl-list-item__icon" />
+                  <span className="nl-editor-app__document-icon">
+                    <FileIcon className="nl-inline-icon" />
+                  </span>
                   <span className="nl-editor-app__sidebar-meta">
                     <strong>{tab.name}</strong>
                     <span>{tab.path ? `~/${tab.path}` : "Unsaved scratch"}</span>
@@ -486,25 +500,36 @@ export function TextEditorPanel({
       ) : null}
 
       <div className="nl-editor-app__main">
-        <div className="nl-panel__toolbar nl-editor-app__toolbar">
-          <div className="nl-editor-app__toolbar-left">
-            <div className="nl-editor-app__path-chip">
-              {activeTab ? getTabPathLabel(activeTab) : "No active document"}
-            </div>
-            <div className="nl-editor-app__status-chip">{statusText}</div>
-          </div>
-          <div className="nl-toolbar-actions">
+        <header className="nl-editor-app__toolbar">
+          <div className="nl-editor-app__document-title">
             <IconButton
               label={windowState.isSidebarOpen ? "Hide sidebar" : "Show sidebar"}
+              className="nl-editor-app__icon-button"
               onClick={onToggleSidebar}
             >
               <SidebarIcon className="nl-inline-icon" />
             </IconButton>
-            <IconButton label="New scratch file" onClick={onCreateScratchTab}>
+            <span className="nl-editor-app__brand-mark">
+              <FileIcon className="nl-inline-icon" />
+            </span>
+            <span className="nl-editor-app__document-meta">
+              <strong>{activeTab?.name ?? "Text Editor"}</strong>
+              <span>{activeTab ? getTabPathLabel(activeTab) : "No active document"}</span>
+            </span>
+            <span className="nl-editor-app__status-chip">{statusText}</span>
+          </div>
+
+          <div className="nl-editor-app__toolbar-actions">
+            <IconButton
+              label="New scratch file"
+              className="nl-editor-app__icon-button"
+              onClick={onCreateScratchTab}
+            >
               <PlusIcon className="nl-inline-icon" />
             </IconButton>
             <IconButton
               label="Reload file"
+              className="nl-editor-app__icon-button"
               onClick={() => void handleReload()}
               disabled={!activeTab?.path || activeTab.isLoading || activeTab.isSaving}
             >
@@ -512,19 +537,21 @@ export function TextEditorPanel({
             </IconButton>
             <Button
               variant="ghost"
+              className="nl-editor-app__toolbar-button"
               onClick={() => setIsActionsOpen((current) => !current)}
             >
               <SparkIcon className="nl-inline-icon" />
               Actions
             </Button>
             <Button
+              className="nl-editor-app__save-button"
               onClick={() => void handleSave()}
               disabled={!activeTab || activeTab.isLoading || activeTab.isSaving}
             >
               Save
             </Button>
           </div>
-        </div>
+        </header>
 
         <div className="nl-editor-app__tab-rail">
           {windowState.tabs.map((tab) => {
@@ -536,8 +563,8 @@ export function TextEditorPanel({
                 className={cn("nl-editor-app__tab", active && "nl-editor-app__tab--active")}
                 onClick={() => onSetActiveTab(tab.tabId)}
               >
-                <FileIcon className="nl-inline-icon" />
-                <span>{tab.name}</span>
+                <span className="nl-editor-app__tab-dot" />
+                <span className="nl-editor-app__tab-name">{tab.name}</span>
                 {isTabDirty(tab) ? <span className="nl-editor-app__dirty-dot" /> : null}
                 <span
                   role="button"

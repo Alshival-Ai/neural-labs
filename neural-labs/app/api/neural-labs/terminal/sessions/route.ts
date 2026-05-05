@@ -21,7 +21,14 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const userSession = getUserSessionFromRequest(request);
-    const terminalSession = await getTerminalManager().createSession(userSession.userId);
+    const payload = (await request.json().catch(() => ({}))) as {
+      cols?: number;
+      rows?: number;
+    };
+    const terminalSession = await getTerminalManager().createSession(
+      userSession.userId,
+      payload
+    );
     const response = NextResponse.json({
       id: terminalSession.id,
       title: terminalSession.title,

@@ -10,11 +10,15 @@ interface TerminalSessionLike {
 }
 
 interface TerminalManagerLike {
-  createSession(userId: string): Promise<TerminalSessionLike>;
+  createSession(
+    userId: string,
+    size?: { cols?: number; rows?: number }
+  ): Promise<TerminalSessionLike>;
   list(userId: string): TerminalSessionSummary[];
   get(userId: string, sessionId: string): TerminalSessionLike | null;
   getStatus(userId: string, sessionId: string): TerminalStatus | null;
   writeInput(userId: string, sessionId: string, data: string): void;
+  resize(userId: string, sessionId: string, cols?: number, rows?: number): void;
   subscribe(
     userId: string,
     sessionId: string,

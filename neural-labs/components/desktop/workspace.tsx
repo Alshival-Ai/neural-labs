@@ -340,7 +340,8 @@ function createWindowBase(
   kind: AppKind,
   title: string,
   accent: string,
-  positionIndex: number
+  positionIndex: number,
+  zIndex: number
 ): WorkspaceWindow {
   const sizeByKind: Record<AppKind, { width: number; height: number }> = {
     files: { width: 760, height: 620 },
@@ -364,7 +365,7 @@ function createWindowBase(
     maximized: false,
     snappedZone: null,
     restoreBounds: null,
-    zIndex: 10 + positionIndex,
+    zIndex,
   };
 }
 
@@ -382,6 +383,10 @@ export function NeuralLabsWorkspace({
   const [fileBackHistory, setFileBackHistory] = useState<string[]>([]);
   const [fileForwardHistory, setFileForwardHistory] = useState<string[]>([]);
   const [windows, setWindows] = useState<WorkspaceWindow[]>([]);
+  const [snapPreview, setSnapPreview] = useState<{
+    windowId: string;
+    zone: WindowSnapZone;
+  } | null>(null);
   const [editorWindows, setEditorWindows] = useState<
     Record<string, DesktopEditorWindowState>
   >({});
@@ -424,6 +429,10 @@ export function NeuralLabsWorkspace({
       currentViewer.avatarPath ? getFileUrl(currentViewer.avatarPath) : null,
     [currentViewer.avatarPath]
   );
+
+  const snapPreviewBounds = snapPreview
+    ? getSnappedBounds(snapPreview.zone, workspaceBounds)
+    : null;
 
   useEffect(() => {
     const customPath = settings?.desktop.customBackgroundPath;
@@ -544,6 +553,11 @@ export function NeuralLabsWorkspace({
           : window
       )
     );
+  }
+
+  function getNextWindowZIndex(): number {
+    zCounter.current += 1;
+    return zCounter.current;
   }
 
   function updateWindowPosition(windowId: string, position: { x: number; y: number }) {
@@ -736,7 +750,13 @@ export function NeuralLabsWorkspace({
       focusWindow(existing.id);
       return existing.id;
     }
-    const nextWindow = createWindowBase(kind, title, accent, windows.length);
+    const nextWindow = createWindowBase(
+      kind,
+      title,
+      accent,
+      windows.length,
+      getNextWindowZIndex()
+    );
     setWindows((current) => [...current, nextWindow]);
     return nextWindow.id;
   }
@@ -759,7 +779,8 @@ export function NeuralLabsWorkspace({
       "editor",
       "Text Editor",
       "#ff9b5d",
-      windowsRef.current.length
+      windowsRef.current.length,
+      getNextWindowZIndex()
     );
     setWindows((current) => [...current, nextWindow]);
     setEditorWindows((current) => ({
@@ -939,7 +960,8 @@ export function NeuralLabsWorkspace({
       "terminal",
       "Terminal",
       "#82f4b2",
-      windowsRef.current.length
+      windowsRef.current.length,
+      getNextWindowZIndex()
     );
     setWindows((current) => [...current, nextWindow]);
     setTerminalWindows((current) => ({
@@ -976,7 +998,8 @@ export function NeuralLabsWorkspace({
       "preview",
       entry.name,
       "#9ad6ff",
-      windows.length
+      windows.length,
+      getNextWindowZIndex()
     );
     setWindows((current) => [...current, nextWindow]);
     setPreviewWindows((current) => ({
@@ -1500,6 +1523,17 @@ export function NeuralLabsWorkspace({
         </header>
 
         <main ref={workspaceRef} className="nl-workspace">
+          {snapPreviewBounds ? (
+            <div
+              className="nl-snap-preview"
+              style={{
+                width: snapPreviewBounds.width,
+                height: snapPreviewBounds.height,
+                transform: `translate(${snapPreviewBounds.x}px, ${snapPreviewBounds.y}px)`,
+              }}
+            />
+          ) : null}
+
           {windows.map((window) => {
             const active = window.zIndex === Math.max(...windows.map((entry) => entry.zIndex));
 
@@ -1514,6 +1548,9 @@ export function NeuralLabsWorkspace({
                 onMove={(position) => updateWindowPosition(window.id, position)}
                 onResize={(bounds) => updateWindowBounds(window.id, bounds)}
                 onSnap={(zone) => applyWindowSnap(window.id, zone)}
+                onSnapPreview={(zone) =>
+                  setSnapPreview(zone ? { windowId: window.id, zone } : null)
+                }
                 onClose={() => void closeWindow(window.id)}
                 onMinimize={() =>
                   setWindows((current) =>

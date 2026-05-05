@@ -1,13 +1,20 @@
+import { getBackgroundPresetClassName } from "@/lib/shared/providers";
+
 interface EnvironmentLoaderProps {
+  backgroundStyle?: string;
   label?: string;
 }
 
 export function EnvironmentLoader({
+  backgroundStyle = getBackgroundPresetClassName(undefined),
   label = "Provisioning your workspace",
 }: EnvironmentLoaderProps) {
   return (
     <div className="nl-provision-loader" aria-live="polite">
-      <div className="nl-provision-loader__backdrop" />
+      <div
+        className="nl-provision-loader__backdrop"
+        style={{ backgroundImage: backgroundStyle }}
+      />
       <section
         className="nl-provision-loader__card"
         role="status"

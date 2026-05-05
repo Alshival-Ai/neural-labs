@@ -37,7 +37,9 @@ export function LoginScreen({ backgroundStyle }: { backgroundStyle: string }) {
 
   return (
     <main className="nl-auth-shell" style={{ backgroundImage: backgroundStyle }}>
-      {isSubmitting ? <EnvironmentLoader /> : null}
+      {isSubmitting ? (
+        <EnvironmentLoader backgroundStyle={backgroundStyle} />
+      ) : null}
       <section className="nl-auth-split">
         <div className="nl-auth-split__hero">
           <div className="nl-auth-split__hero-copy">

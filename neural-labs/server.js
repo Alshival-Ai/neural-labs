@@ -167,8 +167,13 @@ async function main() {
         Number.isFinite(payload.cols) &&
         Number.isFinite(payload.rows)
       ) {
-        // Resize messages are accepted for protocol compatibility. Current
-        // shell sessions run without a PTY resize API in this runtime.
+        try {
+          manager.resize(userId, terminalId, payload.cols, payload.rows);
+        } catch (error) {
+          closeWithError(
+            error instanceof Error ? error.message : "Unable to resize terminal."
+          );
+        }
         return;
       }
     });

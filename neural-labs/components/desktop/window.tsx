@@ -51,6 +51,7 @@ interface DragState {
   currentY: number;
   width: number;
   height: number;
+  snapZone: WindowSnapZone | null;
 }
 
 interface ResizeState {
@@ -125,6 +126,7 @@ export function DesktopWindowFrame({
   onMove,
   onResize,
   onSnap,
+  onSnapPreview,
   onClose,
   onMinimize,
   onToggleMaximize,
@@ -143,6 +145,7 @@ export function DesktopWindowFrame({
     height: number;
   }) => void;
   onSnap: (zone: WindowSnapZone) => void;
+  onSnapPreview: (zone: WindowSnapZone | null) => void;
   onClose: () => void;
   onMinimize: () => void;
   onToggleMaximize: () => void;
@@ -177,11 +180,22 @@ export function DesktopWindowFrame({
           x: clamp(current.originX + deltaX, WINDOW_GAP, maxX),
           y: clamp(current.originY + deltaY, WINDOW_GAP, maxY),
         };
+        const snapZone = detectSnapZone(
+          nextPosition.x,
+          nextPosition.y,
+          current.width,
+          current.height,
+          workspaceBounds
+        );
         onMove(nextPosition);
+        if (snapZone !== current.snapZone) {
+          onSnapPreview(snapZone);
+        }
         interactionRef.current = {
           ...current,
           currentX: nextPosition.x,
           currentY: nextPosition.y,
+          snapZone,
         };
         return;
       }
@@ -236,36 +250,39 @@ export function DesktopWindowFrame({
       onResize({ x, y, width, height });
     }
 
-    function handlePointerUp() {
+    function finishInteraction(shouldSnap: boolean) {
       const current = interactionRef.current;
       if (current?.mode === "drag") {
-        const snapZone = detectSnapZone(
-          current.currentX,
-          current.currentY,
-          current.width,
-          current.height,
-          workspaceBounds
-        );
-        if (snapZone) {
-          onSnap(snapZone);
+        onSnapPreview(null);
+        if (shouldSnap && current.snapZone) {
+          onSnap(current.snapZone);
         }
       }
       setInteraction(null);
       interactionRef.current = null;
     }
 
+    function handlePointerUp() {
+      finishInteraction(true);
+    }
+
+    function handlePointerCancel() {
+      finishInteraction(false);
+    }
+
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
-    window.addEventListener("pointercancel", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerCancel);
     return () => {
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
-      window.removeEventListener("pointercancel", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerCancel);
     };
   }, [
     onMove,
     onResize,
     onSnap,
+    onSnapPreview,
     windowState.height,
     windowState.width,
     workspaceBounds.height,
@@ -311,6 +328,7 @@ export function DesktopWindowFrame({
             return;
           }
           onFocus();
+          onSnapPreview(null);
           setInteraction({
             mode: "drag",
             startX: event.clientX,
@@ -321,6 +339,7 @@ export function DesktopWindowFrame({
             currentY: windowState.y,
             width: windowState.width,
             height: windowState.height,
+            snapZone: null,
           });
         }}
       >
@@ -363,6 +382,7 @@ export function DesktopWindowFrame({
                 event.preventDefault();
                 event.stopPropagation();
                 onFocus();
+                onSnapPreview(null);
                 setInteraction({
                   mode: "resize",
                   direction: handle.direction,

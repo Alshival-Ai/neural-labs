@@ -255,9 +255,16 @@ export async function listTerminalSessions(): Promise<{ sessions: TerminalSessio
   return parseResponse(await fetch("/api/neural-labs/terminal/sessions"));
 }
 
-export async function createTerminalSession(): Promise<TerminalSessionSummary> {
+export async function createTerminalSession(size?: {
+  cols?: number;
+  rows?: number;
+}): Promise<TerminalSessionSummary> {
   return parseResponse(
-    await fetch("/api/neural-labs/terminal/sessions", { method: "POST" })
+    await fetch("/api/neural-labs/terminal/sessions", {
+      method: "POST",
+      headers: size ? { "Content-Type": "application/json" } : undefined,
+      body: size ? JSON.stringify(size) : undefined,
+    })
   );
 }
 
