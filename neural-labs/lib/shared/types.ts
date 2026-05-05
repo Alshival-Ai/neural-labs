@@ -52,6 +52,7 @@ export interface DesktopSettings {
   theme: ThemeMode;
   backgroundId: DesktopBackgroundId;
   customBackgroundPath: string | null;
+  customBackgroundVersion: string | null;
 }
 
 export interface SettingsSnapshot {
@@ -146,5 +147,27 @@ export interface AuthInviteRecord {
   createdAt: string;
   expiresAt: string;
   acceptedAt: string | null;
+  revokedAt: string | null;
+}
+
+export interface AuthAdminUserRecord {
+  id: string;
+  email: string;
+  role: AuthRole;
+  avatarPath: string | null;
+  createdAt: string;
+  updatedAt: string;
+  disabledAt: string | null;
+  lastActivityAt: string | null;
+  activeSessionCount: number;
+}
+
+export interface AuthPasswordResetRecord {
+  id: string;
+  userId: string;
+  email: string;
+  createdAt: string;
+  expiresAt: string;
+  usedAt: string | null;
   revokedAt: string | null;
 }

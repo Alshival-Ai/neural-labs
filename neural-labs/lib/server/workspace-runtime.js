@@ -261,10 +261,29 @@ async function ensureWorkspaceScaffold(userId) {
   return workspace;
 }
 
+async function destroyWorkspaceSession(userId) {
+  const safeId = toSafeId(userId);
+  const volumeName = `${DOCKER_VOLUME_PREFIX}-${safeId}`;
+  const containerName = `${DOCKER_CONTAINER_PREFIX}-${safeId}`;
+
+  try {
+    await runDocker(["rm", "-f", containerName]);
+  } catch {
+    // The container may not exist yet.
+  }
+
+  try {
+    await runDocker(["volume", "rm", "-f", volumeName]);
+  } catch {
+    // The volume may not exist yet.
+  }
+}
+
 module.exports = {
   DOCKER_CONTAINER_PREFIX,
   DOCKER_NETWORK,
   DOCKER_WORKSPACE_PATH,
+  destroyWorkspaceSession,
   ensureWorkspaceScaffold,
   getLastWorkspaceActivityMs,
   getWorkspaceSession,

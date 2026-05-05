@@ -1,6 +1,6 @@
 # Neural Labs
 
-Neural Labs is a full browser workspace for teams that need more than a chat box. It gives each user a persistent Docker-backed environment with files, terminals, AI chat, previews, settings, invite-only access, and VS Code in the browser.
+Neural Labs is a full browser workspace for teams that need more than a chat box. It gives each user a persistent Docker-backed environment with files, terminals, AI chat, previews, settings, admin-managed access, and VS Code in the browser.
 
 It feels like a lightweight cloud desktop: open files, run commands, inspect generated artifacts, chat with `Neura`, and jump into VS Code without leaving the browser.
 
@@ -14,8 +14,8 @@ Neural Labs is built for AI-assisted work where the browser should be the whole 
 
 - **A real workspace per user**: every user gets a dedicated Docker volume and managed workspace container.
 - **Tools where the files live**: terminal, file explorer, previews, editor, and VS Code all point at the same persistent home directory.
-- **Invite-only access**: seed the first admin, invite users, and let each person return to their own workspace.
-- **Provider-ready AI chat**: bootstrap OpenAI-compatible and Anthropic-compatible providers from `.env`, then manage them in Settings.
+- **Admin-managed access**: seed the first admin, invite or directly create users, recover accounts, suspend access, and let each person return to their own workspace.
+- **Provider-ready AI chat**: use Neura's conversation-history chat workspace, bootstrap OpenAI-compatible and Anthropic-compatible providers from `.env`, then manage them in Settings.
 - **Browser-native VS Code**: launch VS Code from the dock in a new tab, backed by the same workspace container.
 
 ## VS Code In The Browser
@@ -100,15 +100,15 @@ On first boot with an empty auth database:
 
 After signing in, you land in the desktop workspace.
 
-### 5. Invite Other Users
+### 5. Manage Other Users
 
-Invite management is inside the desktop UI for admins:
+User management is inside the desktop UI for admins:
 
 1. Sign in as an admin.
 2. Open the `Settings` app on the desktop.
 3. Open the `Admin` section.
-4. Create an invite link for another user.
-5. Share that link with them.
+4. Create invite links, create users directly, reset passwords, suspend accounts, revoke sessions, or delete users.
+5. Share invite links, reset links, or temporary passwords out of band as needed.
 
 Invited users accept their link, set their password, and then use the normal sign-in page going forward.
 
@@ -121,7 +121,7 @@ If you want the shortest possible walkthrough:
 3. Run `./start.sh`.
 4. Open `http://localhost:3001`.
 5. Sign in with the seeded admin account.
-6. Open `Settings` to test providers, set the default provider for `Neura`, and create invite links.
+6. Open `Settings` to test providers, set the default provider for `Neura`, and manage users.
 7. Click the VS Code icon in the dock to open the same workspace in browser VS Code.
 
 ## Common Startup Commands
@@ -326,6 +326,7 @@ Related implementation details:
 
 - per-user workspace containers are created from `NEURAL_LABS_WORKSPACE_IMAGE`
 - the default workspace image is built from `workspace.Dockerfile` and includes `code-server`
+- idle per-user containers stop after `NEURAL_LABS_CONTAINER_IDLE_TIMEOUT_MS` milliseconds; the default `3600000` is 1 hour, and files remain persisted in the user's Docker volume
 - the VS Code dock icon opens `/vscode/`, which is authenticated by Neural Labs and proxied to `code-server` inside the current user's workspace container
 - the current workspace path inside those containers is configured separately by the app runtime
 - the container and volume naming is derived from the user id with Neural Labs prefixes
@@ -337,7 +338,7 @@ The default `compose.yml`:
 - builds the app image from the repository root
 - connects the app to the shared workspace Docker network
 - loads environment variables from `.env`
-- binds `${PORT:-3001}` on the host
+- binds `${PORT:-3001}` on `127.0.0.1` by default so a VM-level reverse proxy can own public HTTP/HTTPS
 - mounts `.env` read-only into the container
 - mounts an `auth-data` Docker volume for the SQLite auth database
 - mounts `/var/run/docker.sock` so the app can create per-user Docker containers
@@ -418,18 +419,38 @@ With the default docker-backed setup:
 - each user gets their own managed workspace container
 - workspace files and Neural Labs state persist across app restarts
 - auth data, sessions, and invites persist in the mounted auth database volume
+- custom desktop backgrounds are served through versioned private browser cache URLs so repeat desktop loads do not re-download the same image
 
-## User Flow for Operators
+## User Administration
 
-The actual access flow is:
+The normal access flow is:
 
 1. Seed the first admin account through `.env`.
 2. Start the app.
 3. Sign in through `/login`.
 4. Open the desktop workspace.
-5. Use `Settings` -> `Admin` to create invite links.
-6. Invited users accept the link and set their password.
-7. Returning users sign in normally and return to the same persistent workspace.
+5. Use `Settings` -> `Admin` to manage users.
+
+Admins can:
+
+- create invite links so users set their own first password
+- create users directly with a generated temporary password or an admin-supplied password
+- promote or demote users between `user` and `admin`
+- suspend and restore accounts
+- revoke a user's active sessions
+- create one-time password reset links
+- generate emergency temporary passwords
+- delete a user while preserving workspace data
+- delete a user and explicitly remove their Docker workspace container and volume
+
+Safety rules:
+
+- the last active admin cannot be demoted, suspended, or deleted
+- admins cannot delete their own active account from the UI
+- destructive workspace deletion requires explicit confirmation
+- password reset links are one-time use and expire automatically
+
+No email delivery is built in. Admins copy invite links, reset links, and temporary passwords manually.
 
 ## Verification
 

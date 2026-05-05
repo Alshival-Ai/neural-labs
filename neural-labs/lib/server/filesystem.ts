@@ -108,6 +108,26 @@ export async function readWorkspaceFile(userId: string, relativePath: string): P
   content: Buffer;
   filename: string;
   mimeType: string;
+  size: number;
+  modifiedAt: string;
+  etag: string;
+}> {
+  const metadata = await getWorkspaceFileMetadata(userId, relativePath);
+  const { workspaceRoot } = await getWorkspaceSession(userId);
+  const targetPath = resolveWorkspacePath(workspaceRoot, relativePath);
+
+  return {
+    ...metadata,
+    content: await readFile(targetPath),
+  };
+}
+
+export async function getWorkspaceFileMetadata(userId: string, relativePath: string): Promise<{
+  filename: string;
+  mimeType: string;
+  size: number;
+  modifiedAt: string;
+  etag: string;
 }> {
   await ensureDataScaffold(userId);
   const { workspaceRoot } = await getWorkspaceSession(userId);
@@ -118,9 +138,11 @@ export async function readWorkspaceFile(userId: string, relativePath: string): P
   }
 
   return {
-    content: await readFile(targetPath),
     filename: path.basename(targetPath),
     mimeType: getMimeType(targetPath),
+    size: fileStat.size,
+    modifiedAt: fileStat.mtime.toISOString(),
+    etag: `"${fileStat.size.toString(16)}-${Math.trunc(fileStat.mtimeMs).toString(16)}"`,
   };
 }
 

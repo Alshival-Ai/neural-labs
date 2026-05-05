@@ -47,7 +47,8 @@ function getDb() {
       role TEXT NOT NULL,
       avatar_path TEXT,
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      disabled_at TEXT
     );
 
     CREATE TABLE IF NOT EXISTS sessions (
@@ -62,6 +63,9 @@ function getDb() {
   const userColumns = db.prepare("PRAGMA table_info(users)").all();
   if (!userColumns.some((column) => column.name === "avatar_path")) {
     db.exec("ALTER TABLE users ADD COLUMN avatar_path TEXT");
+  }
+  if (!userColumns.some((column) => column.name === "disabled_at")) {
+    db.exec("ALTER TABLE users ADD COLUMN disabled_at TEXT");
   }
   dbInstance = db;
   return db;
@@ -115,7 +119,8 @@ function getViewerFromHeaders(headers) {
          u.role,
          u.avatar_path,
          u.created_at,
-         u.updated_at
+         u.updated_at,
+         u.disabled_at
        FROM sessions s
        JOIN users u ON u.id = s.user_id
        WHERE s.token_hash = ?`
@@ -127,6 +132,10 @@ function getViewerFromHeaders(headers) {
   }
 
   if (new Date(row.expires_at).getTime() <= Date.now()) {
+    getDb().prepare("DELETE FROM sessions WHERE id = ?").run(row.id);
+    return null;
+  }
+  if (row.disabled_at) {
     getDb().prepare("DELETE FROM sessions WHERE id = ?").run(row.id);
     return null;
   }

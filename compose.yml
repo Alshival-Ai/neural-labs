@@ -6,7 +6,7 @@ services:
     env_file:
       - .env
     ports:
-      - "${PORT:-3000}:${PORT:-3000}"
+      - "127.0.0.1:${PORT:-3000}:${PORT:-3000}"
     volumes:
       - ./.env:/app/.env:ro
       - auth-data:/app/data/auth

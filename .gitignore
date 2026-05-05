@@ -1,8 +1,9 @@
 # Local secrets
 .env
 .env.*
+AGENTS.md
 !.env.example
-
+image*.png
 # Local tooling state
 .codex
 .codex/

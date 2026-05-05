@@ -29,6 +29,7 @@ let authDb: DatabaseSync | null = null;
 
 const workspaceRuntime = require("./workspace-runtime.js") as {
   getWorkspaceSession: (userId: string) => Promise<WorkspaceSession>;
+  destroyWorkspaceSession: (userId: string) => Promise<void>;
   markWorkspaceActivitySafe: (userId: string, at?: Date) => void;
 };
 
@@ -76,4 +77,8 @@ export async function getWorkspaceSession(userId: string): Promise<WorkspaceSess
   markWorkspaceActivity(userId);
   workspaceRuntime.markWorkspaceActivitySafe(userId);
   return workspaceRuntime.getWorkspaceSession(userId);
+}
+
+export async function destroyWorkspaceSession(userId: string): Promise<void> {
+  await workspaceRuntime.destroyWorkspaceSession(userId);
 }

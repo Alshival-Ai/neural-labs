@@ -16,6 +16,8 @@ import {
   ChevronUpIcon,
   FileIcon,
   FolderIcon,
+  GridIcon,
+  ListIcon,
   PlusIcon,
   RefreshIcon,
   UploadIcon,
@@ -200,7 +202,9 @@ function ExplorerTreeRow({
       }}
     >
       <span className="nl-file-tree__chevron">{isExpanded ? "▾" : "▸"}</span>
-      <FolderIcon className="nl-file-tree__icon nl-file-tree__icon--folder" />
+      <span className="nl-file-tree__icon-wrap">
+        <FolderIcon className="nl-file-tree__icon nl-file-tree__icon--folder" />
+      </span>
       <span className="nl-file-tree__label">{entry.name}</span>
     </div>
   );
@@ -793,105 +797,118 @@ export function FileExplorerPanel({
 
       <aside className="nl-files__sidebar">
         <div className="nl-files__sidebar-header">
-          <strong>File Explorer</strong>
-          <span>{currentDirectoryLabel}</span>
+          <div className="nl-files__sidebar-title-row">
+            <strong>File Explorer</strong>
+            <span className="nl-files__path-chip">{currentDirectoryLabel}</span>
+          </div>
         </div>
 
         <div className="nl-files__sidebar-body">
-          <div className="nl-files__section-label">Favorites</div>
-          <div className="nl-files__shortcuts">
-            {favoriteItems.map((item) => {
-              const isActive = item.path === currentPath;
-              return (
-                <button
-                  key={item.path}
-                  type="button"
-                  className={cn(
-                    "nl-files__shortcut",
-                    isActive && "nl-files__shortcut--active",
-                    dropTargetPath === item.path && "nl-files__shortcut--drop"
-                  )}
-                  onClick={() => onNavigate(item.path)}
-                  onContextMenu={(event) => openContextMenu(event, item.entry)}
-                  onDragOver={(event) => {
-                    if (eventHasExternalFiles(event) || canDropToPath(item.path)) {
-                      event.preventDefault();
-                      event.dataTransfer.dropEffect = eventHasExternalFiles(event)
-                        ? "copy"
-                        : "move";
-                      setDropTargetPath(item.path);
-                    }
-                  }}
-                  onDragLeave={() => {
-                    if (dropTargetPath === item.path) {
-                      setDropTargetPath(null);
-                    }
-                  }}
-                  onDrop={(event) => void handleDropToPath(event, item.path)}
-                >
+          <div className="nl-files__section">
+            <div className="nl-files__section-header">
+              <span className="nl-files__section-label">Favorites</span>
+              <span className="nl-files__section-count">{favoriteItems.length}</span>
+            </div>
+            <div className="nl-files__shortcuts">
+              {favoriteItems.map((item) => {
+                const isActive = item.path === currentPath;
+                return (
+                  <button
+                    key={item.path}
+                    type="button"
+                    className={cn(
+                      "nl-files__shortcut",
+                      isActive && "nl-files__shortcut--active",
+                      dropTargetPath === item.path && "nl-files__shortcut--drop"
+                    )}
+                    onClick={() => onNavigate(item.path)}
+                    onContextMenu={(event) => openContextMenu(event, item.entry)}
+                    onDragOver={(event) => {
+                      if (eventHasExternalFiles(event) || canDropToPath(item.path)) {
+                        event.preventDefault();
+                        event.dataTransfer.dropEffect = eventHasExternalFiles(event)
+                          ? "copy"
+                          : "move";
+                        setDropTargetPath(item.path);
+                      }
+                    }}
+                    onDragLeave={() => {
+                      if (dropTargetPath === item.path) {
+                        setDropTargetPath(null);
+                      }
+                    }}
+                    onDrop={(event) => void handleDropToPath(event, item.path)}
+                  >
+                    <span className="nl-files__shortcut-icon">
+                      <FolderIcon className="nl-file-tree__icon nl-file-tree__icon--folder" />
+                    </span>
+                    <span className="nl-file-tree__label">{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="nl-files__section">
+            <div className="nl-files__section-header">
+              <span className="nl-files__section-label">Navigation</span>
+            </div>
+            <div className="nl-file-tree">
+              <button
+                type="button"
+                className={cn(
+                  "nl-file-tree__row nl-file-tree__row--root",
+                  currentPath === "" && "nl-file-tree__row--selected",
+                  dropTargetPath === "" && "nl-file-tree__row--drop"
+                )}
+                onClick={() => onNavigate("")}
+                onContextMenu={(event) =>
+                  openContextMenu(event, createDirectoryEntry("", "~"))
+                }
+                onDragOver={(event) => {
+                  if (eventHasExternalFiles(event) || canDropToPath("")) {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = eventHasExternalFiles(event)
+                      ? "copy"
+                      : "move";
+                    setDropTargetPath("");
+                  }
+                }}
+                onDragLeave={() => {
+                  if (dropTargetPath === "") {
+                    setDropTargetPath(null);
+                  }
+                }}
+                onDrop={(event) => void handleDropToPath(event, "")}
+              >
+                <span className="nl-file-tree__chevron">{currentPath === "" ? "▾" : "▸"}</span>
+                <span className="nl-file-tree__icon-wrap">
                   <FolderIcon className="nl-file-tree__icon nl-file-tree__icon--folder" />
-                  <span className="nl-file-tree__label">{item.label}</span>
-                </button>
-              );
-            })}
-          </div>
+                </span>
+                <span className="nl-file-tree__label">Workspace</span>
+              </button>
 
-          <div className="nl-files__section-label nl-files__section-label--spaced">
-            Navigation Tree
-          </div>
-          <div className="nl-file-tree">
-            <button
-              type="button"
-              className={cn(
-                "nl-file-tree__row nl-file-tree__row--root",
-                currentPath === "" && "nl-file-tree__row--selected",
-                dropTargetPath === "" && "nl-file-tree__row--drop"
-              )}
-              onClick={() => onNavigate("")}
-              onContextMenu={(event) =>
-                openContextMenu(event, createDirectoryEntry("", "~"))
-              }
-              onDragOver={(event) => {
-                if (eventHasExternalFiles(event) || canDropToPath("")) {
-                  event.preventDefault();
-                  event.dataTransfer.dropEffect = eventHasExternalFiles(event)
-                    ? "copy"
-                    : "move";
-                  setDropTargetPath("");
-                }
-              }}
-              onDragLeave={() => {
-                if (dropTargetPath === "") {
-                  setDropTargetPath(null);
-                }
-              }}
-              onDrop={(event) => void handleDropToPath(event, "")}
-            >
-              <span className="nl-file-tree__chevron">{currentPath === "" ? "▾" : "▸"}</span>
-              <FolderIcon className="nl-file-tree__icon nl-file-tree__icon--folder" />
-              <span className="nl-file-tree__label">Workspace</span>
-            </button>
+              <ExplorerTreeBranch
+                path=""
+                depth={0}
+                entriesByPath={visibleEntriesByPath}
+                expandedPaths={expandedPathSet}
+                loadingPaths={loadingPathSet}
+                selectedPath={selectedTreePath}
+                dropTargetPath={dropTargetPath}
+                onSelect={handleTreeSelect}
+                onToggle={handleTreeToggle}
+                onOpenMenu={openContextMenu}
+                onDragStartEntry={handleDragStart}
+                onDragEndEntry={clearDragState}
+                onDragOverDirectory={handleTreeDragOver}
+                onDropDirectory={(event, entry) => void handleDropToPath(event, entry.path)}
+              />
 
-            <ExplorerTreeBranch
-              path=""
-              depth={0}
-              entriesByPath={visibleEntriesByPath}
-              expandedPaths={expandedPathSet}
-              loadingPaths={loadingPathSet}
-              selectedPath={selectedTreePath}
-              dropTargetPath={dropTargetPath}
-              onSelect={handleTreeSelect}
-              onToggle={handleTreeToggle}
-              onOpenMenu={openContextMenu}
-              onDragStartEntry={handleDragStart}
-              onDragEndEntry={clearDragState}
-              onDragOverDirectory={handleTreeDragOver}
-              onDropDirectory={(event, entry) => void handleDropToPath(event, entry.path)}
-            />
-
-            {loadingPathSet.has("") ? (
-              <div className="nl-file-tree__hint">Loading folders...</div>
-            ) : null}
+              {loadingPathSet.has("") ? (
+                <div className="nl-file-tree__hint">Loading folders...</div>
+              ) : null}
+            </div>
           </div>
         </div>
       </aside>
@@ -950,23 +967,29 @@ export function FileExplorerPanel({
             <div className="nl-files__view-toggle">
               <button
                 type="button"
+                aria-label="Icon view"
+                aria-pressed={viewMode === "icon"}
+                title="Icon view"
                 className={cn(
-                  "nl-button nl-button--ghost",
-                  viewMode === "icon" && "nl-button--solid"
+                  "nl-files__view-button",
+                  viewMode === "icon" && "nl-files__view-button--active"
                 )}
                 onClick={() => setViewMode("icon")}
               >
-                Icons
+                <GridIcon />
               </button>
               <button
                 type="button"
+                aria-label="List view"
+                aria-pressed={viewMode === "list"}
+                title="List view"
                 className={cn(
-                  "nl-button nl-button--ghost",
-                  viewMode === "list" && "nl-button--solid"
+                  "nl-files__view-button",
+                  viewMode === "list" && "nl-files__view-button--active"
                 )}
                 onClick={() => setViewMode("list")}
               >
-                List
+                <ListIcon />
               </button>
             </div>
 
@@ -1293,23 +1316,23 @@ export function FileExplorerPanel({
 
           {!contextEntry
             ? currentPathIsFavorite
-              ? renderMenuAction("Remove Current Folder from Favorites", () =>
+              ? renderMenuAction("Remove from Favorites", () =>
                   removeFavorite(currentPath)
                 )
-              : renderMenuAction("Add Current Folder to Favorites", () =>
+              : renderMenuAction("Add to Favorites", () =>
                   addFavorite(currentPath)
                 )
             : null}
 
           {!contextEntry
             ? renderMenuAction(
-                showHiddenEntries ? "Hide Hidden Files/Folders" : "Show Hidden Files/Folders",
+                showHiddenEntries ? "Hide Hidden Items" : "Show Hidden Items",
                 () => setShowHiddenEntries((current) => !current)
               )
             : null}
 
           {!contextEntry
-            ? renderMenuAction("Refresh Tree", async () => {
+            ? renderMenuAction("Refresh", async () => {
                 await refreshTreePath("");
                 await refreshTreePath(currentPath);
               })

@@ -54,6 +54,7 @@ const DEFAULT_SETTINGS: DesktopSettings = {
       ? process.env.NEURAL_LABS_BACKGROUND_ID
       : DEFAULT_DESKTOP_BACKGROUND_ID,
   customBackgroundPath: null,
+  customBackgroundVersion: null,
 };
 
 function isValidBackgroundId(value: string | undefined): value is DesktopBackgroundId {
@@ -75,6 +76,11 @@ function normalizeSettings(settings: DesktopSettings): DesktopSettings {
     settings.customBackgroundPath.trim()
       ? settings.customBackgroundPath.trim()
       : null;
+  const customBackgroundVersion =
+    typeof settings.customBackgroundVersion === "string" &&
+    settings.customBackgroundVersion.trim()
+      ? settings.customBackgroundVersion.trim()
+      : null;
 
   if (backgroundId.startsWith("custom:")) {
     const selectedPath = backgroundId.slice("custom:".length);
@@ -84,12 +90,14 @@ function normalizeSettings(settings: DesktopSettings): DesktopSettings {
         ...settings,
         backgroundId: DEFAULT_SETTINGS.backgroundId,
         customBackgroundPath: null,
+        customBackgroundVersion: null,
       };
     }
     return {
       ...settings,
       backgroundId: `custom:${nextPath}`,
       customBackgroundPath: nextPath,
+      customBackgroundVersion,
     };
   }
 
@@ -97,6 +105,9 @@ function normalizeSettings(settings: DesktopSettings): DesktopSettings {
     ...settings,
     backgroundId,
     customBackgroundPath,
+    customBackgroundVersion: backgroundId.startsWith("custom:")
+      ? customBackgroundVersion
+      : null,
   };
 }
 

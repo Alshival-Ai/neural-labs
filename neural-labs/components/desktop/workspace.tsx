@@ -190,6 +190,19 @@ function getAvatarFileName(file: File): string {
   return `avatar${extension}`;
 }
 
+function createBackgroundCacheVersion(): string {
+  return Date.now().toString(36);
+}
+
+function preloadImage(url: string): Promise<void> {
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.addEventListener("load", () => resolve(), { once: true });
+    image.addEventListener("error", () => resolve(), { once: true });
+    image.src = url;
+  });
+}
+
 function getViewerInitials(email: string): string {
   const value = email.trim();
   if (!value) {
@@ -394,18 +407,38 @@ export function NeuralLabsWorkspace({
     const backgroundId = settings?.desktop.backgroundId;
     if (backgroundId?.startsWith("custom:") && customPath) {
       return `linear-gradient(rgba(6,16,24,0.18), rgba(6,16,24,0.28)), url("${getFileUrl(
-        customPath
+        customPath,
+        { version: settings?.desktop.customBackgroundVersion }
       )}")`;
     }
 
     return getBackgroundPresetClassName(settings?.desktop.backgroundId);
-  }, [settings?.desktop.backgroundId, settings?.desktop.customBackgroundPath]);
+  }, [
+    settings?.desktop.backgroundId,
+    settings?.desktop.customBackgroundPath,
+    settings?.desktop.customBackgroundVersion,
+  ]);
 
   const avatarUrl = useMemo(
     () =>
       currentViewer.avatarPath ? getFileUrl(currentViewer.avatarPath) : null,
     [currentViewer.avatarPath]
   );
+
+  useEffect(() => {
+    const customPath = settings?.desktop.customBackgroundPath;
+    if (!settings?.desktop.backgroundId.startsWith("custom:") || !customPath) {
+      return;
+    }
+    const image = new Image();
+    image.src = getFileUrl(customPath, {
+      version: settings.desktop.customBackgroundVersion,
+    });
+  }, [
+    settings?.desktop.backgroundId,
+    settings?.desktop.customBackgroundPath,
+    settings?.desktop.customBackgroundVersion,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -673,14 +706,24 @@ export function NeuralLabsWorkspace({
 
   async function applyDesktopBackground(
     backgroundId: DesktopBackgroundId,
-    customBackgroundPath?: string | null
+    customBackgroundPath?: string | null,
+    customBackgroundVersion?: string | null
   ) {
+    if (backgroundId.startsWith("custom:") && customBackgroundPath) {
+      await preloadImage(
+        getFileUrl(customBackgroundPath, { version: customBackgroundVersion })
+      );
+    }
     await saveDesktopSettings({
       backgroundId,
       customBackgroundPath:
         customBackgroundPath === undefined
           ? settings?.desktop.customBackgroundPath ?? null
           : customBackgroundPath,
+      customBackgroundVersion:
+        customBackgroundVersion === undefined
+          ? settings?.desktop.customBackgroundVersion ?? null
+          : customBackgroundVersion,
     });
     setSettings(await fetchSettings());
   }
@@ -1531,7 +1574,11 @@ export function NeuralLabsWorkspace({
                     }}
                     onSetAsBackground={async (entry) => {
                       const result = await setDesktopBackgroundFromFile(entry.path);
-                      await applyDesktopBackground(`custom:${result.path}`, result.path);
+                      await applyDesktopBackground(
+                        `custom:${result.path}`,
+                        result.path,
+                        createBackgroundCacheVersion()
+                      );
                       await refreshListing(listing?.path ?? "");
                       setNotice("Desktop background updated.");
                     }}
@@ -1699,7 +1746,9 @@ export function NeuralLabsWorkspace({
                     snapshot={settings}
                     customBackgroundUrl={
                       settings?.desktop.customBackgroundPath
-                        ? getFileUrl(settings.desktop.customBackgroundPath)
+                        ? getFileUrl(settings.desktop.customBackgroundPath, {
+                            version: settings.desktop.customBackgroundVersion,
+                          })
                         : null
                     }
                     onSaveDesktopSettings={async (payload) => {
@@ -1717,7 +1766,11 @@ export function NeuralLabsWorkspace({
                           type: file.type || undefined,
                         })
                       );
-                      await applyDesktopBackground(`custom:${upload.path}`, upload.path);
+                      await applyDesktopBackground(
+                        `custom:${upload.path}`,
+                        upload.path,
+                        createBackgroundCacheVersion()
+                      );
                       await refreshListing(listing?.path ?? "");
                       setNotice("Custom background uploaded.");
                     }}
@@ -1726,7 +1779,12 @@ export function NeuralLabsWorkspace({
                       if (!customPath) {
                         throw new Error("Upload a custom background first");
                       }
-                      await applyDesktopBackground(`custom:${customPath}`, customPath);
+                      await applyDesktopBackground(
+                        `custom:${customPath}`,
+                        customPath,
+                        settings?.desktop.customBackgroundVersion ??
+                          createBackgroundCacheVersion()
+                      );
                     }}
                     onDeleteCustomBackground={async () => {
                       const customPath = settings?.desktop.customBackgroundPath;
@@ -1737,6 +1795,7 @@ export function NeuralLabsWorkspace({
                       await saveDesktopSettings({
                         backgroundId: "sunrise-grid",
                         customBackgroundPath: null,
+                        customBackgroundVersion: null,
                       });
                       setSettings(await fetchSettings());
                       await refreshListing(listing?.path ?? "");

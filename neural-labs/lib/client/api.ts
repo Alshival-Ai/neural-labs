@@ -1,5 +1,7 @@
 import type {
+  AuthAdminUserRecord,
   AuthInviteRecord,
+  AuthPasswordResetRecord,
   AuthRole,
   AuthViewer,
   ConversationRecord,
@@ -42,6 +44,7 @@ export async function saveDesktopSettings(payload: {
   theme?: "dark" | "light" | "system";
   backgroundId?: string;
   customBackgroundPath?: string | null;
+  customBackgroundVersion?: string | null;
 }) {
   return parseResponse(
     await fetch("/api/neural-labs/settings", {
@@ -113,9 +116,15 @@ export async function readTextFile(path: string): Promise<string> {
   return response.text();
 }
 
-export function getFileUrl(path: string): string {
+export function getFileUrl(
+  path: string,
+  options: { version?: string | null } = {}
+): string {
   const params = new URLSearchParams();
   params.set("path", path);
+  if (options.version) {
+    params.set("v", options.version);
+  }
   return `/api/neural-labs/files/content?${params.toString()}`;
 }
 
@@ -327,12 +336,117 @@ export async function revokeInviteRequest(inviteId: string): Promise<void> {
   );
 }
 
+export async function listUsersRequest(): Promise<{ users: AuthAdminUserRecord[] }> {
+  return parseResponse(await fetch("/api/auth/users"));
+}
+
+export async function createUserRequest(payload: {
+  email: string;
+  role?: AuthRole;
+  password?: string;
+  generatePassword?: boolean;
+}): Promise<{ user: AuthAdminUserRecord; temporaryPassword: string | null }> {
+  return parseResponse(
+    await fetch("/api/auth/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+  );
+}
+
+export async function updateUserRequest(
+  userId: string,
+  payload: { role?: AuthRole; disabled?: boolean }
+): Promise<{ user: AuthAdminUserRecord }> {
+  return parseResponse(
+    await fetch(`/api/auth/users/${encodeURIComponent(userId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+  );
+}
+
+export async function deleteUserRequest(
+  userId: string,
+  payload: { deleteWorkspace?: boolean }
+): Promise<{ deleted: { id: string; email: string } }> {
+  return parseResponse(
+    await fetch(`/api/auth/users/${encodeURIComponent(userId)}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+  );
+}
+
+export async function revokeUserSessionsRequest(userId: string): Promise<void> {
+  await parseResponse(
+    await fetch(`/api/auth/users/${encodeURIComponent(userId)}/sessions`, {
+      method: "DELETE",
+    })
+  );
+}
+
+export async function setUserPasswordRequest(
+  userId: string,
+  payload: { password?: string; generatePassword?: boolean }
+): Promise<{ temporaryPassword: string | null }> {
+  return parseResponse(
+    await fetch(`/api/auth/users/${encodeURIComponent(userId)}/password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+  );
+}
+
+export async function listPasswordResetsRequest(): Promise<{
+  resets: AuthPasswordResetRecord[];
+}> {
+  return parseResponse(await fetch("/api/auth/password-resets"));
+}
+
+export async function createPasswordResetRequest(
+  userId: string
+): Promise<AuthPasswordResetRecord & { resetUrl: string }> {
+  return parseResponse(
+    await fetch("/api/auth/password-resets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId }),
+    })
+  );
+}
+
+export async function revokePasswordResetRequest(resetId: string): Promise<void> {
+  await parseResponse(
+    await fetch(`/api/auth/password-resets/${encodeURIComponent(resetId)}`, {
+      method: "DELETE",
+    })
+  );
+}
+
 export async function acceptInviteRequest(
   token: string,
   payload: { password: string }
 ): Promise<{ viewer: AuthViewer }> {
   return parseResponse(
     await fetch(`/api/auth/invite/${encodeURIComponent(token)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+  );
+}
+
+export async function acceptPasswordResetRequest(
+  token: string,
+  payload: { password: string }
+): Promise<{ viewer: AuthViewer }> {
+  return parseResponse(
+    await fetch(`/api/auth/password-reset/${encodeURIComponent(token)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),

@@ -3,7 +3,13 @@ import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-import type { AuthRole, AuthViewer, AuthInviteRecord } from "@/lib/shared/types";
+import type {
+  AuthAdminUserRecord,
+  AuthPasswordResetRecord,
+  AuthRole,
+  AuthViewer,
+  AuthInviteRecord,
+} from "@/lib/shared/types";
 
 export const AUTH_SESSION_COOKIE_NAME = "neural_labs_session";
 const DEFAULT_AUTH_DB_PATH = path.join(
@@ -17,6 +23,7 @@ const DEFAULT_AUTH_DB_PATH = path.join(
 const DEFAULT_AUTH_SECRET = "change-me-in-production";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 const INVITE_TTL_SECONDS = 60 * 60 * 24 * 7;
+const PASSWORD_RESET_TTL_SECONDS = 60 * 60 * 2;
 const PASSWORD_HASH_BYTES = 64;
 
 type UserRow = {
@@ -27,6 +34,7 @@ type UserRow = {
   avatar_path: string | null;
   created_at: string;
   updated_at: string;
+  disabled_at: string | null;
 };
 
 type SessionRow = {
@@ -50,6 +58,18 @@ type InviteRow = {
   revoked_at: string | null;
 };
 
+type PasswordResetRow = {
+  id: string;
+  user_id: string;
+  token_hash: string;
+  created_by_user_id: string | null;
+  created_at: string;
+  expires_at: string;
+  used_at: string | null;
+  revoked_at: string | null;
+  email?: string;
+};
+
 interface SessionLookupRow {
   sessionId: string;
   userId: string;
@@ -63,6 +83,7 @@ interface SessionLookupRow {
   avatarPath: string | null;
   userCreatedAt: string;
   userUpdatedAt: string;
+  disabledAt: string | null;
 }
 
 interface SessionCookieContext {
@@ -116,7 +137,8 @@ function getDb(): DatabaseSync {
       role TEXT NOT NULL CHECK(role IN ('admin', 'user')),
       avatar_path TEXT,
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      disabled_at TEXT
     );
 
     CREATE TABLE IF NOT EXISTS sessions (
@@ -145,14 +167,29 @@ function getDb(): DatabaseSync {
       revoked_at TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS password_resets (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token_hash TEXT NOT NULL UNIQUE,
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      revoked_at TEXT
+    );
+
     CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions(user_id);
     CREATE INDEX IF NOT EXISTS invites_email_idx ON invites(email);
+    CREATE INDEX IF NOT EXISTS password_resets_user_id_idx ON password_resets(user_id);
   `);
   const userColumns = db
     .prepare("PRAGMA table_info(users)")
     .all() as Array<{ name: string }>;
   if (!userColumns.some((column) => column.name === "avatar_path")) {
     db.exec("ALTER TABLE users ADD COLUMN avatar_path TEXT");
+  }
+  if (!userColumns.some((column) => column.name === "disabled_at")) {
+    db.exec("ALTER TABLE users ADD COLUMN disabled_at TEXT");
   }
   ensureInitialAdminSeeded(db);
   dbInstance = db;
@@ -272,6 +309,27 @@ function toInviteRecord(row: InviteRow): AuthInviteRecord {
   };
 }
 
+function toPasswordResetRecord(row: PasswordResetRow & { email: string }): AuthPasswordResetRecord {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    email: row.email,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+    usedAt: row.used_at,
+    revokedAt: row.revoked_at,
+  };
+}
+
+function getResetUrl(token: string): string {
+  const baseUrl =
+    process.env.AUTH_BASE_URL?.trim() || process.env.NEXT_PUBLIC_APP_URL?.trim() || "";
+  if (baseUrl) {
+    return `${baseUrl.replace(/\/$/, "")}/reset-password/${encodeURIComponent(token)}`;
+  }
+  return `/reset-password/${encodeURIComponent(token)}`;
+}
+
 function countUsersInternal(): number {
   const db = getDb();
   const row = db.prepare("SELECT COUNT(*) as count FROM users").get() as { count: number };
@@ -320,11 +378,12 @@ function createUserInDb(
     avatar_path: null,
     created_at: now,
     updated_at: now,
+    disabled_at: null,
   };
 
   db.prepare(
-    `INSERT INTO users (id, email, password_hash, role, avatar_path, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO users (id, email, password_hash, role, avatar_path, created_at, updated_at, disabled_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     user.id,
     user.email,
@@ -332,7 +391,8 @@ function createUserInDb(
     user.role,
     user.avatar_path,
     user.created_at,
-    user.updated_at
+    user.updated_at,
+    user.disabled_at
   );
 
   return user;
@@ -358,7 +418,7 @@ function findUserByEmail(email: string): UserRow | null {
   const row = db
     .prepare(
       `SELECT id, email, password_hash, role, created_at, updated_at
-       , avatar_path
+       , avatar_path, disabled_at
        FROM users
        WHERE email = ?`
     )
@@ -371,7 +431,7 @@ function findUserById(userId: string): UserRow | null {
   const row = db
     .prepare(
       `SELECT id, email, password_hash, role, created_at, updated_at
-       , avatar_path
+       , avatar_path, disabled_at
        FROM users
        WHERE id = ?`
     )
@@ -435,6 +495,51 @@ function createUser(email: string, password: string, role: AuthRole): UserRow {
   return createUserInDb(getDb(), email, password, role);
 }
 
+function generateTemporaryPassword(): string {
+  return randomBytes(18).toString("base64url");
+}
+
+function countActiveAdmins(): number {
+  const row = getDb()
+    .prepare(
+      `SELECT COUNT(*) AS count
+       FROM users
+       WHERE role = 'admin' AND disabled_at IS NULL`
+    )
+    .get() as { count: number };
+  return row.count;
+}
+
+function assertCanRemoveActiveAdmin(actor: AuthViewer, target: UserRow, action: string): void {
+  if (target.role !== "admin" || target.disabled_at) {
+    return;
+  }
+  if (countActiveAdmins() <= 1) {
+    throw new AuthError(`Cannot ${action} the last active admin`, 400);
+  }
+}
+
+function findPasswordResetByToken(token: string): (PasswordResetRow & { email: string }) | null {
+  const row = getDb()
+    .prepare(
+      `SELECT
+         pr.id,
+         pr.user_id,
+         pr.token_hash,
+         pr.created_by_user_id,
+         pr.created_at,
+         pr.expires_at,
+         pr.used_at,
+         pr.revoked_at,
+         u.email
+       FROM password_resets pr
+       JOIN users u ON u.id = pr.user_id
+       WHERE pr.token_hash = ?`
+    )
+    .get(hashOpaqueToken(token)) as (PasswordResetRow & { email: string }) | undefined;
+  return row ?? null;
+}
+
 function requireActiveInvite(token: string): InviteRow {
   const invite = findInviteByToken(token);
   if (!invite) {
@@ -468,7 +573,8 @@ function readSessionFromToken(token: string): SessionLookupRow | null {
          u.role,
          u.avatar_path,
          u.created_at AS user_created_at,
-         u.updated_at AS user_updated_at
+         u.updated_at AS user_updated_at,
+         u.disabled_at
        FROM sessions s
        JOIN users u ON u.id = s.user_id
        WHERE s.token_hash = ?`
@@ -487,6 +593,7 @@ function readSessionFromToken(token: string): SessionLookupRow | null {
         avatar_path: string | null;
         user_created_at: string;
         user_updated_at: string;
+        disabled_at: string | null;
       }
     | undefined;
 
@@ -495,6 +602,10 @@ function readSessionFromToken(token: string): SessionLookupRow | null {
   }
 
   if (new Date(row.expires_at).getTime() <= Date.now()) {
+    db.prepare("DELETE FROM sessions WHERE id = ?").run(row.session_id);
+    return null;
+  }
+  if (row.disabled_at) {
     db.prepare("DELETE FROM sessions WHERE id = ?").run(row.session_id);
     return null;
   }
@@ -512,6 +623,7 @@ function readSessionFromToken(token: string): SessionLookupRow | null {
     avatarPath: row.avatar_path,
     userCreatedAt: row.user_created_at,
     userUpdatedAt: row.user_updated_at,
+    disabledAt: row.disabled_at,
   };
 }
 
@@ -559,6 +671,7 @@ export function getSessionContextFromRequest(request: Request): SessionCookieCon
       avatar_path: session.avatarPath,
       created_at: session.userCreatedAt,
       updated_at: session.userUpdatedAt,
+      disabled_at: session.disabledAt,
     }),
   };
 }
@@ -584,6 +697,7 @@ export function getViewerFromCookieHeader(cookieHeader: string | null): AuthView
     avatar_path: session.avatarPath,
     created_at: session.userCreatedAt,
     updated_at: session.userUpdatedAt,
+    disabled_at: session.disabledAt,
   });
 }
 
@@ -617,6 +731,7 @@ export function getViewerBySessionToken(sessionToken: string): AuthViewer | null
     avatar_path: session.avatarPath,
     created_at: session.userCreatedAt,
     updated_at: session.userUpdatedAt,
+    disabled_at: session.disabledAt,
   });
 }
 
@@ -645,6 +760,9 @@ export function loginWithPassword(email: string, password: string): {
   const user = findUserByEmail(email);
   if (!user || !verifyPassword(password, user.password_hash)) {
     throw new AuthError("Invalid email or password", 401);
+  }
+  if (user.disabled_at) {
+    throw new AuthError("This account is suspended", 403);
   }
 
   return {
@@ -742,6 +860,328 @@ export function createInvite(
     revokedAt: null,
     invitationUrl: getInviteUrl(token),
   };
+}
+
+export function listUsers(actor: AuthViewer): AuthAdminUserRecord[] {
+  if (actor.role !== "admin") {
+    throw new AuthError("Admin access required", 403);
+  }
+
+  const now = new Date().toISOString();
+  const rows = getDb()
+    .prepare(
+      `SELECT
+         u.id,
+         u.email,
+         u.role,
+         u.avatar_path,
+         u.created_at,
+         u.updated_at,
+         u.disabled_at,
+         wa.last_activity_at,
+         (
+           SELECT COUNT(*)
+           FROM sessions s
+           WHERE s.user_id = u.id AND datetime(s.expires_at) > datetime(?)
+         ) AS active_session_count
+       FROM users u
+       LEFT JOIN workspace_activity wa ON wa.user_id = u.id
+       ORDER BY datetime(u.created_at) DESC`
+    )
+    .all(now) as Array<{
+      id: string;
+      email: string;
+      role: AuthRole;
+      avatar_path: string | null;
+      created_at: string;
+      updated_at: string;
+      disabled_at: string | null;
+      last_activity_at: string | null;
+      active_session_count: number;
+    }>;
+
+  return rows.map((row) => ({
+    id: row.id,
+    email: row.email,
+    role: row.role,
+    avatarPath: row.avatar_path,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    disabledAt: row.disabled_at,
+    lastActivityAt: row.last_activity_at,
+    activeSessionCount: row.active_session_count,
+  }));
+}
+
+export function createUserAsAdmin(
+  actor: AuthViewer,
+  payload: { email: string; role?: AuthRole; password?: string; generatePassword?: boolean }
+): { user: AuthAdminUserRecord; temporaryPassword: string | null } {
+  if (actor.role !== "admin") {
+    throw new AuthError("Admin access required", 403);
+  }
+
+  const temporaryPassword = payload.generatePassword ? generateTemporaryPassword() : null;
+  const password = temporaryPassword ?? payload.password ?? "";
+  const user = createUser(payload.email, password, payload.role ?? "user");
+  return {
+    user: listUsers(actor).find((entry) => entry.id === user.id) ?? {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      avatarPath: user.avatar_path,
+      createdAt: user.created_at,
+      updatedAt: user.updated_at,
+      disabledAt: user.disabled_at,
+      lastActivityAt: null,
+      activeSessionCount: 0,
+    },
+    temporaryPassword,
+  };
+}
+
+export function updateUserAsAdmin(
+  actor: AuthViewer,
+  userId: string,
+  payload: { role?: AuthRole; disabled?: boolean }
+): AuthAdminUserRecord {
+  if (actor.role !== "admin") {
+    throw new AuthError("Admin access required", 403);
+  }
+  const user = findUserById(userId);
+  if (!user) {
+    throw new AuthError("User not found", 404);
+  }
+
+  const nextRole = payload.role ?? user.role;
+  const nextDisabledAt =
+    payload.disabled === undefined
+      ? user.disabled_at
+      : payload.disabled
+        ? user.disabled_at ?? new Date().toISOString()
+        : null;
+
+  if ((nextRole !== "admin" || nextDisabledAt) && user.role === "admin" && !user.disabled_at) {
+    assertCanRemoveActiveAdmin(actor, user, nextRole !== "admin" ? "demote" : "suspend");
+  }
+
+  const updatedAt = new Date().toISOString();
+  getDb()
+    .prepare(
+      `UPDATE users
+       SET role = ?, disabled_at = ?, updated_at = ?
+       WHERE id = ?`
+    )
+    .run(nextRole, nextDisabledAt, updatedAt, userId);
+
+  if (nextDisabledAt) {
+    revokeUserSessions(actor, userId);
+  }
+
+  const updated = listUsers(actor).find((entry) => entry.id === userId);
+  if (!updated) {
+    throw new AuthError("User not found", 404);
+  }
+  return updated;
+}
+
+export function revokeUserSessions(actor: AuthViewer, userId: string): void {
+  if (actor.role !== "admin") {
+    throw new AuthError("Admin access required", 403);
+  }
+  if (!findUserById(userId)) {
+    throw new AuthError("User not found", 404);
+  }
+  getDb().prepare("DELETE FROM sessions WHERE user_id = ?").run(userId);
+}
+
+export function setUserPasswordAsAdmin(
+  actor: AuthViewer,
+  userId: string,
+  payload: { password?: string; generatePassword?: boolean }
+): { temporaryPassword: string | null } {
+  if (actor.role !== "admin") {
+    throw new AuthError("Admin access required", 403);
+  }
+  if (!findUserById(userId)) {
+    throw new AuthError("User not found", 404);
+  }
+  const temporaryPassword = payload.generatePassword ? generateTemporaryPassword() : null;
+  const password = temporaryPassword ?? payload.password ?? "";
+  if (password.length < 8) {
+    throw new AuthError("Password must be at least 8 characters", 400);
+  }
+  getDb()
+    .prepare("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?")
+    .run(encodePassword(password), new Date().toISOString(), userId);
+  revokeUserSessions(actor, userId);
+  return { temporaryPassword };
+}
+
+export function createPasswordReset(
+  actor: AuthViewer,
+  userId: string
+): AuthPasswordResetRecord & { resetUrl: string } {
+  if (actor.role !== "admin") {
+    throw new AuthError("Admin access required", 403);
+  }
+  const user = findUserById(userId);
+  if (!user) {
+    throw new AuthError("User not found", 404);
+  }
+
+  const db = getDb();
+  const now = new Date();
+  db.prepare(
+    `UPDATE password_resets
+     SET revoked_at = ?
+     WHERE user_id = ? AND used_at IS NULL AND revoked_at IS NULL`
+  ).run(now.toISOString(), userId);
+
+  const resetId = randomUUID();
+  const token = generateOpaqueToken();
+  const expiresAt = new Date(now.getTime() + PASSWORD_RESET_TTL_SECONDS * 1000).toISOString();
+  db.prepare(
+    `INSERT INTO password_resets
+       (id, user_id, token_hash, created_by_user_id, created_at, expires_at, used_at, revoked_at)
+     VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)`
+  ).run(resetId, userId, hashOpaqueToken(token), actor.id, now.toISOString(), expiresAt);
+
+  return {
+    id: resetId,
+    userId,
+    email: user.email,
+    createdAt: now.toISOString(),
+    expiresAt,
+    usedAt: null,
+    revokedAt: null,
+    resetUrl: getResetUrl(token),
+  };
+}
+
+export function listPasswordResets(actor: AuthViewer): AuthPasswordResetRecord[] {
+  if (actor.role !== "admin") {
+    throw new AuthError("Admin access required", 403);
+  }
+  const rows = getDb()
+    .prepare(
+      `SELECT
+         pr.id,
+         pr.user_id,
+         pr.token_hash,
+         pr.created_by_user_id,
+         pr.created_at,
+         pr.expires_at,
+         pr.used_at,
+         pr.revoked_at,
+         u.email
+       FROM password_resets pr
+       JOIN users u ON u.id = pr.user_id
+       ORDER BY datetime(pr.created_at) DESC`
+    )
+    .all() as Array<PasswordResetRow & { email: string }>;
+  return rows.map(toPasswordResetRecord);
+}
+
+export function revokePasswordReset(actor: AuthViewer, resetId: string): void {
+  if (actor.role !== "admin") {
+    throw new AuthError("Admin access required", 403);
+  }
+  const result = getDb()
+    .prepare(
+      `UPDATE password_resets
+       SET revoked_at = COALESCE(revoked_at, ?)
+       WHERE id = ?`
+    )
+    .run(new Date().toISOString(), resetId);
+  if (result.changes === 0) {
+    throw new AuthError("Password reset not found", 404);
+  }
+}
+
+export function getPasswordResetPreview(token: string): AuthPasswordResetRecord {
+  const reset = findPasswordResetByToken(token);
+  if (!reset) {
+    throw new AuthError("Password reset not found", 404);
+  }
+  if (reset.revoked_at) {
+    throw new AuthError("Password reset has been revoked", 410);
+  }
+  if (reset.used_at) {
+    throw new AuthError("Password reset has already been used", 410);
+  }
+  if (new Date(reset.expires_at).getTime() <= Date.now()) {
+    throw new AuthError("Password reset has expired", 410);
+  }
+  return toPasswordResetRecord(reset);
+}
+
+export function acceptPasswordReset(token: string, password: string): {
+  viewer: AuthViewer;
+  sessionToken: string;
+} {
+  if (password.length < 8) {
+    throw new AuthError("Password must be at least 8 characters", 400);
+  }
+  const reset = findPasswordResetByToken(token);
+  if (!reset) {
+    throw new AuthError("Password reset not found", 404);
+  }
+  getPasswordResetPreview(token);
+  const user = findUserById(reset.user_id);
+  if (!user) {
+    throw new AuthError("User not found", 404);
+  }
+  if (user.disabled_at) {
+    throw new AuthError("This account is suspended", 403);
+  }
+
+  const db = getDb();
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.prepare("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?").run(
+      encodePassword(password),
+      new Date().toISOString(),
+      user.id
+    );
+    db.prepare("UPDATE password_resets SET used_at = ? WHERE id = ?").run(
+      new Date().toISOString(),
+      reset.id
+    );
+    db.prepare("DELETE FROM sessions WHERE user_id = ?").run(user.id);
+    const sessionToken = issueSession(user.id);
+    db.exec("COMMIT");
+    return {
+      viewer: toViewer({
+        ...user,
+        password_hash: encodePassword(password),
+        updated_at: new Date().toISOString(),
+      }),
+      sessionToken,
+    };
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+export function deleteUserAsAdmin(
+  actor: AuthViewer,
+  userId: string
+): { id: string; email: string } {
+  if (actor.role !== "admin") {
+    throw new AuthError("Admin access required", 403);
+  }
+  if (actor.id === userId) {
+    throw new AuthError("You cannot delete your own account", 400);
+  }
+  const user = findUserById(userId);
+  if (!user) {
+    throw new AuthError("User not found", 404);
+  }
+  assertCanRemoveActiveAdmin(actor, user, "delete");
+  getDb().prepare("DELETE FROM users WHERE id = ?").run(userId);
+  return { id: user.id, email: user.email };
 }
 
 export function listInvites(actor: AuthViewer): AuthInviteRecord[] {

@@ -1,16 +1,27 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import {
+  createPasswordResetRequest,
   createInviteRequest,
+  createUserRequest,
+  deleteUserRequest,
+  listPasswordResetsRequest,
   listInvitesRequest,
+  listUsersRequest,
   logout,
+  revokePasswordResetRequest,
   revokeInviteRequest,
+  revokeUserSessionsRequest,
+  setUserPasswordRequest,
+  updateUserRequest,
 } from "@/lib/client/api";
 import { buildProviderDraft, PROVIDER_TEMPLATES } from "@/lib/shared/providers";
 import type {
+  AuthAdminUserRecord,
   AuthInviteRecord,
+  AuthPasswordResetRecord,
   AuthRole,
   AuthViewer,
   ConversationRecord,
@@ -43,6 +54,7 @@ import {
   SidebarIcon,
   SparkIcon,
   TerminalIcon,
+  TrashIcon,
   UploadIcon,
 } from "@/components/ui/icons";
 export { FileExplorerPanel } from "@/components/desktop/file-explorer-panel";
@@ -75,6 +87,27 @@ export function PreviewPanel({
       {fileText ?? "Loading preview..."}
     </pre>
   );
+}
+
+function formatConversationTime(value: string): string {
+  const timestamp = new Date(value);
+  if (Number.isNaN(timestamp.getTime())) {
+    return "Recent";
+  }
+
+  const now = new Date();
+  const isSameDay = timestamp.toDateString() === now.toDateString();
+  if (isSameDay) {
+    return timestamp.toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }
+
+  return timestamp.toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+  });
 }
 
 export function NeuraPanel({
@@ -117,124 +150,158 @@ export function NeuraPanel({
     }
   }, [activeConversation, conversations.length, onCreateConversation]);
 
+  const activeConversationId = activeConversation?.summary.id ?? null;
+  const providerLabel = defaultProviderName
+    ? `${defaultModel} via ${defaultProviderName}`
+    : defaultModel;
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!draft.trim() || sending) {
+      return;
+    }
+    setSending(true);
+    try {
+      await onSendMessage(draft);
+      setDraft("");
+    } finally {
+      setSending(false);
+    }
+  }
+
   return (
-    <div className="nl-panel">
-      <div className="nl-neura-layout">
+    <div className="nl-panel nl-neura-app">
+      <div className={cn("nl-neura-layout", !sidebarOpen && "nl-neura-layout--collapsed")}>
         {sidebarOpen ? (
-        <aside className="nl-sidebar-card nl-neura-sidebar">
-          <div className="nl-panel__toolbar nl-panel__toolbar--stacked">
-            <div>
-              <h3>{assistantName}</h3>
-              <p className="nl-muted-copy">
-                {defaultModel}
-                {defaultProviderName ? ` via ${defaultProviderName}` : ""}
-              </p>
-            </div>
-            <Button onClick={onCreateConversation}>
-              <PlusIcon className="nl-inline-icon" />
-              New Chat
-            </Button>
-          </div>
-          <div className="nl-list">
-            {conversations.map((conversation) => (
-              <button
-                key={conversation.id}
-                type="button"
-                className={cn(
-                  "nl-list-item",
-                  activeConversation?.summary.id === conversation.id &&
-                    "nl-list-item--selected"
-                )}
-                onClick={() => onSelectConversation(conversation.id)}
-              >
-                <SparkIcon className="nl-list-item__icon" />
-                <span className="nl-list-item__meta">
-                  <strong>{conversation.title}</strong>
-                  <span>{conversation.model}</span>
+          <aside className="nl-neura-sidebar" aria-label="Conversation history">
+            <div className="nl-neura-sidebar__top">
+              <div className="nl-neura-brand">
+                <span className="nl-neura-brand__mark">
+                  <SparkIcon className="nl-inline-icon" />
                 </span>
+                <span>
+                  <strong>{assistantName}</strong>
+                  <span>{providerLabel}</span>
+                </span>
+              </div>
+              <button
+                type="button"
+                className="nl-neura-new-chat"
+                onClick={onCreateConversation}
+              >
+                <PlusIcon className="nl-inline-icon" />
+                New Chat
               </button>
-            ))}
-          </div>
-          {activeConversation ? (
-            <Button
-              variant="danger"
-              onClick={() => onDeleteConversation(activeConversation.summary.id)}
-            >
-              Delete Conversation
-            </Button>
-          ) : null}
-        </aside>
+            </div>
+
+            <div className="nl-neura-history">
+              <div className="nl-neura-history__label">
+                <span>Recent</span>
+                <span>{conversations.length}</span>
+              </div>
+              {conversations.length ? (
+                conversations.map((conversation) => (
+                  <button
+                    key={conversation.id}
+                    type="button"
+                    className={cn(
+                      "nl-neura-history__item",
+                      activeConversationId === conversation.id &&
+                        "nl-neura-history__item--active"
+                    )}
+                    onClick={() => onSelectConversation(conversation.id)}
+                  >
+                    <span className="nl-neura-history__item-title">
+                      {conversation.title}
+                    </span>
+                    <span className="nl-neura-history__item-meta">
+                      <span>{conversation.model}</span>
+                      <span>{formatConversationTime(conversation.updatedAt)}</span>
+                    </span>
+                  </button>
+                ))
+              ) : (
+                <div className="nl-neura-history__empty">
+                  Start a chat to build history.
+                </div>
+              )}
+            </div>
+
+            {activeConversationId ? (
+              <button
+                type="button"
+                className="nl-neura-delete-chat"
+                onClick={() => onDeleteConversation(activeConversationId)}
+              >
+                <TrashIcon className="nl-inline-icon" />
+                Delete current
+              </button>
+            ) : null}
+          </aside>
         ) : null}
+
         <section className="nl-chat nl-chat--neura">
           <header className="nl-neura-header">
             <div className="nl-neura-header__title">
               <button
                 type="button"
-                className="nl-nav-button"
-                aria-label="Toggle conversation sidebar"
+                className="nl-neura-icon-button"
+                aria-label="Toggle conversation history"
                 onClick={() => setSidebarOpen((current) => !current)}
               >
                 <SidebarIcon className="nl-inline-icon" />
               </button>
               <div className="nl-neura-header__meta">
                 <strong>{activeConversation?.summary.title ?? assistantName}</strong>
-                <span>
-                  {defaultModel}
-                  {defaultProviderName ? ` via ${defaultProviderName}` : ""}
-                </span>
+                <span>{providerLabel}</span>
               </div>
             </div>
-            <Button onClick={onCreateConversation}>
+            <button
+              type="button"
+              className="nl-neura-header__new-chat"
+              onClick={onCreateConversation}
+            >
               <PlusIcon className="nl-inline-icon" />
               New Chat
-            </Button>
+            </button>
           </header>
+
           <div className="nl-chat__messages nl-chat__messages--neura">
             {activeConversation?.messages.length ? (
-              activeConversation.messages.map((message) => (
-                <article
-                  key={message.id}
-                  className={cn(
-                    "nl-message",
-                    message.role === "assistant" && "nl-message--assistant",
-                    message.role === "assistant"
-                      ? "nl-message--assistant-rich"
-                      : "nl-message--user-rich"
-                  )}
-                >
-                  <header>
-                    <strong>{message.role === "assistant" ? assistantName : "You"}</strong>
-                    <span>{new Date(message.createdAt).toLocaleTimeString()}</span>
-                  </header>
-                  <p>{message.content}</p>
-                </article>
-              ))
+              activeConversation.messages.map((message) => {
+                const isAssistant = message.role === "assistant";
+                return (
+                  <article
+                    key={message.id}
+                    className={cn(
+                      "nl-message",
+                      isAssistant ? "nl-message--assistant" : "nl-message--user-rich"
+                    )}
+                  >
+                    <header>
+                      <strong>{isAssistant ? assistantName : "You"}</strong>
+                      <span>{new Date(message.createdAt).toLocaleTimeString()}</span>
+                    </header>
+                    <p>{message.content}</p>
+                  </article>
+                );
+              })
             ) : (
-              <div className="nl-empty-state">
-                Create or select a conversation to start using Neura.
+              <div className="nl-neura-empty-state">
+                <span className="nl-neura-empty-state__mark">
+                  <SparkIcon className="nl-inline-icon" />
+                </span>
+                <strong>{activeConversation ? "New conversation" : "No conversation selected"}</strong>
+                <span>Ask Neura about your workspace, files, code, or project context.</span>
               </div>
             )}
           </div>
-          <form
-            className="nl-chat__composer nl-chat__composer--pill"
-            onSubmit={async (event) => {
-              event.preventDefault();
-              if (!draft.trim() || sending) {
-                return;
-              }
-              setSending(true);
-              try {
-                await onSendMessage(draft);
-                setDraft("");
-              } finally {
-                setSending(false);
-              }
-            }}
-          >
-            <div className="nl-neura-composer__actions">
+
+          <form className="nl-chat__composer nl-chat__composer--pill" onSubmit={handleSubmit}>
+            <div className="nl-neura-composer__tools">
               <button
                 type="button"
-                className="nl-nav-button"
+                className="nl-neura-tool-button"
                 aria-label="Voice input unavailable"
                 disabled
               >
@@ -242,7 +309,7 @@ export function NeuraPanel({
               </button>
               <button
                 type="button"
-                className="nl-nav-button"
+                className="nl-neura-tool-button"
                 aria-label="Attachments unavailable"
                 disabled
               >
@@ -250,7 +317,7 @@ export function NeuraPanel({
               </button>
               <button
                 type="button"
-                className="nl-nav-button"
+                className="nl-neura-tool-button"
                 aria-label="Image upload unavailable"
                 disabled
               >
@@ -258,17 +325,21 @@ export function NeuraPanel({
               </button>
             </div>
             <TextArea
-              rows={3}
+              rows={1}
               value={draft}
-              placeholder="Ask Neura for help with your workspace or project."
+              placeholder="Ask Neura anything..."
               onChange={(event) => setDraft(event.target.value)}
             />
-            <div className="nl-neura-composer__footer">
+            <div className="nl-neura-composer__meta">
               <Badge accent="neutral">{defaultModel}</Badge>
-              <Button type="submit" disabled={!activeConversation || sending}>
+              <button
+                type="submit"
+                className="nl-neura-send-button"
+                disabled={!activeConversation || sending || !draft.trim()}
+              >
                 <ArrowUpIcon className="nl-inline-icon" />
-                {sending ? "Sending..." : "Send"}
-              </Button>
+                <span>{sending ? "Sending" : "Send"}</span>
+              </button>
             </div>
           </form>
         </section>
@@ -301,6 +372,7 @@ export function SettingsPanel({
     theme?: ThemeMode;
     backgroundId?: DesktopBackgroundId;
     customBackgroundPath?: string | null;
+    customBackgroundVersion?: string | null;
   }) => Promise<void>;
   customBackgroundUrl: string | null;
   onUploadCustomBackground: (file: File) => Promise<void>;
@@ -321,6 +393,15 @@ export function SettingsPanel({
   const [draft, setDraft] = useState<ProviderDraft>(buildProviderDraft("openai"));
   const [templateId, setTemplateId] = useState("openai");
   const [status, setStatus] = useState<string>("");
+  const [users, setUsers] = useState<AuthAdminUserRecord[]>([]);
+  const [resets, setResets] = useState<AuthPasswordResetRecord[]>([]);
+  const [userEmail, setUserEmail] = useState("");
+  const [userPassword, setUserPassword] = useState("");
+  const [userRole, setUserRole] = useState<AuthRole>("user");
+  const [shouldGeneratePassword, setShouldGeneratePassword] = useState(true);
+  const [adminStatusText, setAdminStatusText] = useState("");
+  const [latestTemporaryPassword, setLatestTemporaryPassword] = useState("");
+  const [latestResetUrl, setLatestResetUrl] = useState("");
   const [invites, setInvites] = useState<AuthInviteRecord[]>([]);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<AuthRole>("user");
@@ -328,7 +409,10 @@ export function SettingsPanel({
   const [latestInviteUrl, setLatestInviteUrl] = useState("");
   const [isLoadingInvites, setIsLoadingInvites] = useState(false);
   const [isSubmittingInvite, setIsSubmittingInvite] = useState(false);
+  const [isSubmittingUser, setIsSubmittingUser] = useState(false);
   const [revokingInviteId, setRevokingInviteId] = useState<string | null>(null);
+  const [workingUserId, setWorkingUserId] = useState<string | null>(null);
+  const [revokingResetId, setRevokingResetId] = useState<string | null>(null);
   const [hasLoadedInvites, setHasLoadedInvites] = useState(false);
   const backgroundUploadRef = useRef<HTMLInputElement | null>(null);
   const avatarUploadRef = useRef<HTMLInputElement | null>(null);
@@ -366,14 +450,20 @@ export function SettingsPanel({
 
     setIsLoadingInvites(true);
     setInviteStatusText("");
-    void listInvitesRequest()
-      .then((result) => {
-        setInvites(result.invites);
+    void Promise.all([
+      listUsersRequest(),
+      listInvitesRequest(),
+      listPasswordResetsRequest(),
+    ])
+      .then(([userResult, inviteResult, resetResult]) => {
+        setUsers(userResult.users);
+        setInvites(inviteResult.invites);
+        setResets(resetResult.resets);
         setHasLoadedInvites(true);
       })
       .catch((error) => {
         setInviteStatusText(
-          error instanceof Error ? error.message : "Unable to load invites"
+          error instanceof Error ? error.message : "Unable to load admin data"
         );
       })
       .finally(() => setIsLoadingInvites(false));
@@ -403,7 +493,7 @@ export function SettingsPanel({
           {
             id: "admin" as const,
             label: "Admin",
-            description: "Invite management",
+            description: "Users and recovery",
             icon: SettingsIcon,
           },
         ]
@@ -421,6 +511,31 @@ export function SettingsPanel({
       return "Expired";
     }
     return "Active";
+  }
+
+  function resetStateLabel(reset: AuthPasswordResetRecord): string {
+    if (reset.revokedAt) {
+      return "Revoked";
+    }
+    if (reset.usedAt) {
+      return "Used";
+    }
+    if (new Date(reset.expiresAt).getTime() <= Date.now()) {
+      return "Expired";
+    }
+    return "Active";
+  }
+
+  async function refreshAdminData() {
+    const [userResult, inviteResult, resetResult] = await Promise.all([
+      listUsersRequest(),
+      listInvitesRequest(),
+      listPasswordResetsRequest(),
+    ]);
+    setUsers(userResult.users);
+    setInvites(inviteResult.invites);
+    setResets(resetResult.resets);
+    setHasLoadedInvites(true);
   }
 
   async function handleLogout() {
@@ -461,6 +576,160 @@ export function SettingsPanel({
       );
     } finally {
       setIsSubmittingInvite(false);
+    }
+  }
+
+  async function handleCreateUser(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSubmittingUser(true);
+    setAdminStatusText("");
+    setLatestTemporaryPassword("");
+
+    try {
+      const result = await createUserRequest({
+        email: userEmail,
+        role: userRole,
+        password: shouldGeneratePassword ? undefined : userPassword,
+        generatePassword: shouldGeneratePassword,
+      });
+      setUsers((current) => [result.user, ...current]);
+      setUserEmail("");
+      setUserPassword("");
+      setUserRole("user");
+      setShouldGeneratePassword(true);
+      if (result.temporaryPassword) {
+        setLatestTemporaryPassword(result.temporaryPassword);
+      }
+      setAdminStatusText("User created.");
+    } catch (error) {
+      setAdminStatusText(error instanceof Error ? error.message : "Unable to create user");
+    } finally {
+      setIsSubmittingUser(false);
+    }
+  }
+
+  async function handleUpdateUser(
+    userId: string,
+    payload: { role?: AuthRole; disabled?: boolean }
+  ) {
+    setWorkingUserId(userId);
+    setAdminStatusText("");
+    try {
+      const result = await updateUserRequest(userId, payload);
+      setUsers((current) =>
+        current.map((entry) => (entry.id === userId ? result.user : entry))
+      );
+      setAdminStatusText("User updated.");
+    } catch (error) {
+      setAdminStatusText(error instanceof Error ? error.message : "Unable to update user");
+    } finally {
+      setWorkingUserId(null);
+    }
+  }
+
+  async function handleRevokeSessions(userId: string) {
+    setWorkingUserId(userId);
+    setAdminStatusText("");
+    try {
+      await revokeUserSessionsRequest(userId);
+      setUsers((current) =>
+        current.map((entry) =>
+          entry.id === userId ? { ...entry, activeSessionCount: 0 } : entry
+        )
+      );
+      setAdminStatusText("Sessions revoked.");
+    } catch (error) {
+      setAdminStatusText(error instanceof Error ? error.message : "Unable to revoke sessions");
+    } finally {
+      setWorkingUserId(null);
+    }
+  }
+
+  async function handleCreatePasswordReset(userId: string) {
+    setWorkingUserId(userId);
+    setAdminStatusText("");
+    setLatestResetUrl("");
+    try {
+      const reset = await createPasswordResetRequest(userId);
+      setResets((current) => [
+        {
+          id: reset.id,
+          userId: reset.userId,
+          email: reset.email,
+          createdAt: reset.createdAt,
+          expiresAt: reset.expiresAt,
+          usedAt: reset.usedAt,
+          revokedAt: reset.revokedAt,
+        },
+        ...current.filter((entry) => entry.userId !== reset.userId || entry.usedAt),
+      ]);
+      setLatestResetUrl(reset.resetUrl);
+      setAdminStatusText("Password reset link created.");
+    } catch (error) {
+      setAdminStatusText(error instanceof Error ? error.message : "Unable to create reset link");
+    } finally {
+      setWorkingUserId(null);
+    }
+  }
+
+  async function handleGenerateTemporaryPassword(userId: string) {
+    setWorkingUserId(userId);
+    setAdminStatusText("");
+    setLatestTemporaryPassword("");
+    try {
+      const result = await setUserPasswordRequest(userId, { generatePassword: true });
+      setLatestTemporaryPassword(result.temporaryPassword ?? "");
+      setUsers((current) =>
+        current.map((entry) =>
+          entry.id === userId ? { ...entry, activeSessionCount: 0 } : entry
+        )
+      );
+      setAdminStatusText("Temporary password generated.");
+    } catch (error) {
+      setAdminStatusText(
+        error instanceof Error ? error.message : "Unable to generate temporary password"
+      );
+    } finally {
+      setWorkingUserId(null);
+    }
+  }
+
+  async function handleDeleteUser(user: AuthAdminUserRecord, deleteWorkspace: boolean) {
+    const confirmation = deleteWorkspace
+      ? window.prompt(`Type DELETE WORKSPACE to delete ${user.email} and remove workspace data.`)
+      : window.prompt(`Type DELETE to delete ${user.email}. Workspace data will be preserved.`);
+    if (confirmation !== (deleteWorkspace ? "DELETE WORKSPACE" : "DELETE")) {
+      return;
+    }
+
+    setWorkingUserId(user.id);
+    setAdminStatusText("");
+    try {
+      await deleteUserRequest(user.id, { deleteWorkspace });
+      setUsers((current) => current.filter((entry) => entry.id !== user.id));
+      setAdminStatusText(deleteWorkspace ? "User and workspace deleted." : "User deleted.");
+    } catch (error) {
+      setAdminStatusText(error instanceof Error ? error.message : "Unable to delete user");
+    } finally {
+      setWorkingUserId(null);
+    }
+  }
+
+  async function handleRevokePasswordReset(resetId: string) {
+    setRevokingResetId(resetId);
+    setAdminStatusText("");
+    try {
+      await revokePasswordResetRequest(resetId);
+      setResets((current) =>
+        current.map((reset) =>
+          reset.id === resetId ? { ...reset, revokedAt: new Date().toISOString() } : reset
+        )
+      );
+      setAdminStatusText("Password reset revoked.");
+    } catch (error) {
+      setAdminStatusText(error instanceof Error ? error.message : "Unable to revoke reset");
+    } finally {
+      setRevokingResetId(null);
     }
   }
 
@@ -1020,12 +1289,260 @@ export function SettingsPanel({
                 <div>
                   <h3>Admin</h3>
                   <p className="nl-muted-copy">
-                    Create invites and manage who can access Neural Labs.
+                    Manage users, account recovery, sessions, and invites.
                   </p>
                 </div>
               </div>
 
               <div className="nl-settings-card">
+                <div className="nl-settings-card__header">
+                  <div>
+                    <strong>Users</strong>
+                    <p className="nl-muted-copy">
+                      Create accounts directly or manage existing access.
+                    </p>
+                  </div>
+                </div>
+
+                <form
+                  className="nl-settings-inline-form nl-admin-create-user-form"
+                  onSubmit={handleCreateUser}
+                >
+                  <Field label="User Email">
+                    <TextInput
+                      type="email"
+                      autoComplete="email"
+                      value={userEmail}
+                      onChange={(event) => setUserEmail(event.target.value)}
+                      placeholder="teammate@example.com"
+                      required
+                    />
+                  </Field>
+
+                  <Field label="Role">
+                    <Select
+                      value={userRole}
+                      onChange={(event) => setUserRole(event.target.value as AuthRole)}
+                    >
+                      <option value="user">User</option>
+                      <option value="admin">Admin</option>
+                    </Select>
+                  </Field>
+
+                  <Field label="Password">
+                    <TextInput
+                      type="password"
+                      value={userPassword}
+                      onChange={(event) => setUserPassword(event.target.value)}
+                      placeholder={shouldGeneratePassword ? "Generated" : "At least 8 characters"}
+                      disabled={shouldGeneratePassword}
+                      minLength={8}
+                    />
+                  </Field>
+
+                  <label className="nl-inline-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={shouldGeneratePassword}
+                      onChange={(event) => setShouldGeneratePassword(event.target.checked)}
+                    />
+                    Generate temporary password
+                  </label>
+
+                  <div className="nl-settings-inline-form__actions">
+                    <Button type="submit" disabled={isSubmittingUser}>
+                      {isSubmittingUser ? "Creating..." : "Create User"}
+                    </Button>
+                  </div>
+                </form>
+
+                {latestTemporaryPassword ? (
+                  <div className="nl-auth-callout">
+                    <strong>Temporary Password</strong>
+                    <p>{latestTemporaryPassword}</p>
+                    <Button
+                      variant="ghost"
+                      onClick={() =>
+                        void navigator.clipboard.writeText(latestTemporaryPassword)
+                      }
+                    >
+                      Copy Password
+                    </Button>
+                  </div>
+                ) : null}
+
+                {latestResetUrl ? (
+                  <div className="nl-auth-callout">
+                    <strong>Password Reset Link</strong>
+                    <p>{latestResetUrl}</p>
+                    <Button
+                      variant="ghost"
+                      onClick={() => void navigator.clipboard.writeText(latestResetUrl)}
+                    >
+                      Copy Link
+                    </Button>
+                  </div>
+                ) : null}
+
+                {adminStatusText ? (
+                  <div className="nl-status-note">{adminStatusText}</div>
+                ) : null}
+
+                <div className="nl-admin-user-list">
+                  {isLoadingInvites ? (
+                    <div className="nl-auth-table__empty">Loading users...</div>
+                  ) : users.length === 0 ? (
+                    <div className="nl-auth-table__empty">No users created yet.</div>
+                  ) : (
+                    users.map((user) => (
+                      <div key={user.id} className="nl-admin-user-row">
+                        <div className="nl-admin-user-row__meta">
+                          <span>
+                            <strong>{user.email}</strong>
+                            <small>Email</small>
+                          </span>
+                          <span>
+                            <strong>{user.role}</strong>
+                            <small>Role</small>
+                          </span>
+                          <span>
+                            <strong>{user.disabledAt ? "Suspended" : "Active"}</strong>
+                            <small>Status</small>
+                          </span>
+                          <span>
+                            <strong>
+                              {user.lastActivityAt
+                                ? new Date(user.lastActivityAt).toLocaleString()
+                                : `${user.activeSessionCount} sessions`}
+                            </strong>
+                            <small>Activity</small>
+                          </span>
+                        </div>
+                        <div className="nl-admin-user-row__actions">
+                          <Button
+                            variant="ghost"
+                            disabled={workingUserId === user.id}
+                            onClick={() =>
+                              void handleUpdateUser(user.id, {
+                                role: user.role === "admin" ? "user" : "admin",
+                              })
+                            }
+                          >
+                            {user.role === "admin" ? "Make User" : "Make Admin"}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            disabled={workingUserId === user.id}
+                            onClick={() =>
+                              void handleUpdateUser(user.id, {
+                                disabled: !user.disabledAt,
+                              })
+                            }
+                          >
+                            {user.disabledAt ? "Restore" : "Suspend"}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            disabled={workingUserId === user.id}
+                            onClick={() => void handleCreatePasswordReset(user.id)}
+                          >
+                            Reset Link
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            disabled={workingUserId === user.id}
+                            onClick={() => void handleGenerateTemporaryPassword(user.id)}
+                          >
+                            Temp Password
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            disabled={workingUserId === user.id}
+                            onClick={() => void handleRevokeSessions(user.id)}
+                          >
+                            Revoke Sessions
+                          </Button>
+                          <Button
+                            variant="danger"
+                            disabled={workingUserId === user.id || user.id === viewer.id}
+                            onClick={() => void handleDeleteUser(user, false)}
+                          >
+                            Delete
+                          </Button>
+                          <Button
+                            variant="danger"
+                            disabled={workingUserId === user.id || user.id === viewer.id}
+                            onClick={() => void handleDeleteUser(user, true)}
+                          >
+                            Delete Workspace
+                          </Button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="nl-settings-card">
+                <div className="nl-settings-card__header">
+                  <div>
+                    <strong>Recovery Links</strong>
+                    <p className="nl-muted-copy">
+                      Reset links are one-time use and expire automatically.
+                    </p>
+                  </div>
+                  <Button variant="ghost" onClick={() => void refreshAdminData()}>
+                    Refresh
+                  </Button>
+                </div>
+
+                <div className="nl-auth-table">
+                  <div className="nl-auth-table__header">
+                    <span>Email</span>
+                    <span>Status</span>
+                    <span>Created</span>
+                    <span>Expires</span>
+                    <span />
+                  </div>
+
+                  {isLoadingInvites ? (
+                    <div className="nl-auth-table__empty">Loading resets...</div>
+                  ) : resets.length === 0 ? (
+                    <div className="nl-auth-table__empty">No recovery links created yet.</div>
+                  ) : (
+                    resets.map((reset) => (
+                      <div key={reset.id} className="nl-auth-table__row">
+                        <span>{reset.email}</span>
+                        <span>{resetStateLabel(reset)}</span>
+                        <span>{new Date(reset.createdAt).toLocaleString()}</span>
+                        <span>{new Date(reset.expiresAt).toLocaleString()}</span>
+                        <span>
+                          {!reset.usedAt && !reset.revokedAt ? (
+                            <Button
+                              variant="ghost"
+                              disabled={revokingResetId === reset.id}
+                              onClick={() => void handleRevokePasswordReset(reset.id)}
+                            >
+                              {revokingResetId === reset.id ? "Revoking..." : "Revoke"}
+                            </Button>
+                          ) : null}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="nl-settings-card">
+                <div className="nl-settings-card__header">
+                  <div>
+                    <strong>Invites</strong>
+                    <p className="nl-muted-copy">
+                      Invite links let users set their own first password.
+                    </p>
+                  </div>
+                </div>
+
                 <form className="nl-settings-inline-form" onSubmit={handleCreateInvite}>
                   <Field label="Invite Email">
                     <TextInput

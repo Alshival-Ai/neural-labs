@@ -24,6 +24,7 @@ export async function PUT(request: Request) {
       theme?: "dark" | "light" | "system";
       backgroundId?: DesktopBackgroundId;
       customBackgroundPath?: string | null;
+      customBackgroundVersion?: string | null;
     };
     const response = NextResponse.json(
       await updateDesktopSettings(session.userId, payload)
