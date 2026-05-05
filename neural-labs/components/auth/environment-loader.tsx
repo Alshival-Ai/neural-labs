@@ -22,8 +22,7 @@ export function EnvironmentLoader({
       >
         <div className="nl-provision-loader__logo" aria-hidden="true">
           <div className="nl-provision-loader__logo-mark">
-            <span>N</span>
-            <span>L</span>
+            <img src="/brand/alshival-brain-256.png" alt="" />
           </div>
         </div>
         <div className="nl-provision-loader__wordmark">Neural Labs</div>

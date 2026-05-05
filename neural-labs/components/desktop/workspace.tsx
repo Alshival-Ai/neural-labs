@@ -219,9 +219,17 @@ function isTextLike(entry: FileEntry): boolean {
   );
 }
 
+function isSpreadsheetLike(entry: FileEntry): boolean {
+  return (
+    entry.mimeType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+    entry.name.toLowerCase().endsWith(".xlsx")
+  );
+}
+
 function isPreviewable(entry: FileEntry): boolean {
   return (
     isTextLike(entry) ||
+    isSpreadsheetLike(entry) ||
     entry.mimeType.startsWith("image/") ||
     entry.mimeType === "application/pdf" ||
     entry.mimeType.startsWith("text/html")

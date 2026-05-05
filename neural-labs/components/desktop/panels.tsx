@@ -61,6 +61,268 @@ export { FileExplorerPanel } from "@/components/desktop/file-explorer-panel";
 export { TextEditorPanel } from "@/components/desktop/text-editor-panel";
 export { TerminalPanel } from "@/components/desktop/terminal-panel";
 
+type SpreadsheetPreviewState =
+  | { status: "loading" }
+  | {
+      status: "ready";
+      rows: string[][];
+      columnCount: number;
+      sheetName: string | null;
+    }
+  | { status: "error"; message: string };
+
+const SPREADSHEET_MIME_TYPE =
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const SPREADSHEET_PREVIEW_MAX_COLUMNS = 24;
+const SPREADSHEET_PREVIEW_MAX_ROWS = 80;
+
+function isSpreadsheetEntry(entry: FileEntry): boolean {
+  return (
+    entry.mimeType === SPREADSHEET_MIME_TYPE ||
+    entry.name.toLowerCase().endsWith(".xlsx")
+  );
+}
+
+function getRelationshipId(node: Element): string | null {
+  return (
+    node.getAttribute("r:id") ||
+    node.getAttributeNS(
+      "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+      "id"
+    )
+  );
+}
+
+function getCellColumnIndex(reference: string | null): number | null {
+  const letters = reference?.match(/^[A-Z]+/i)?.[0];
+  if (!letters) {
+    return null;
+  }
+
+  return letters
+    .toUpperCase()
+    .split("")
+    .reduce((index, letter) => index * 26 + letter.charCodeAt(0) - 64, 0) - 1;
+}
+
+function getColumnLabel(index: number): string {
+  let value = index + 1;
+  let label = "";
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    label = String.fromCharCode(65 + remainder) + label;
+    value = Math.floor((value - 1) / 26);
+  }
+  return label;
+}
+
+function getElementText(node: Element | null): string {
+  if (!node) {
+    return "";
+  }
+
+  return Array.from(node.getElementsByTagName("t"))
+    .map((textNode) => textNode.textContent ?? "")
+    .join("");
+}
+
+async function parseSpreadsheetPreview(
+  fileUrl: string
+): Promise<Extract<SpreadsheetPreviewState, { status: "ready" }>> {
+  const response = await fetch(fileUrl);
+  if (!response.ok) {
+    throw new Error("Unable to load spreadsheet file.");
+  }
+
+  const [{ default: JSZip }, buffer] = await Promise.all([
+    import("jszip"),
+    response.arrayBuffer(),
+  ]);
+  const zip = await JSZip.loadAsync(buffer);
+  const parser = new DOMParser();
+
+  const sharedStringsXml = await zip.file("xl/sharedStrings.xml")?.async("text");
+  const sharedStrings = sharedStringsXml
+    ? Array.from(
+        parser
+          .parseFromString(sharedStringsXml, "application/xml")
+          .getElementsByTagName("si")
+      ).map((item) => getElementText(item))
+    : [];
+
+  const workbookXml = await zip.file("xl/workbook.xml")?.async("text");
+  const relationshipXml = await zip.file("xl/_rels/workbook.xml.rels")?.async("text");
+  let sheetName: string | null = null;
+  let worksheetPath = "xl/worksheets/sheet1.xml";
+
+  if (workbookXml) {
+    const workbook = parser.parseFromString(workbookXml, "application/xml");
+    const firstSheet = workbook.getElementsByTagName("sheet")[0];
+    sheetName = firstSheet?.getAttribute("name") ?? null;
+    const relationshipId = firstSheet ? getRelationshipId(firstSheet) : null;
+
+    if (relationshipXml && relationshipId) {
+      const relationships = parser.parseFromString(relationshipXml, "application/xml");
+      const relationship = Array.from(relationships.getElementsByTagName("Relationship")).find(
+        (node) => node.getAttribute("Id") === relationshipId
+      );
+      const target = relationship?.getAttribute("Target");
+      if (target) {
+        const normalizedTarget = target.startsWith("/") ? target.slice(1) : `xl/${target}`;
+        worksheetPath = normalizedTarget.replace(/\/{2,}/g, "/");
+      }
+    }
+  }
+
+  const worksheetXml = await zip.file(worksheetPath)?.async("text");
+  if (!worksheetXml) {
+    throw new Error("No readable worksheet was found.");
+  }
+
+  const worksheet = parser.parseFromString(worksheetXml, "application/xml");
+  const rows = Array.from(worksheet.getElementsByTagName("row")).slice(
+    0,
+    SPREADSHEET_PREVIEW_MAX_ROWS
+  );
+  const parsedRows = rows.map((rowNode) => {
+    const cells = Array(SPREADSHEET_PREVIEW_MAX_COLUMNS).fill("") as string[];
+    Array.from(rowNode.getElementsByTagName("c")).forEach((cellNode, fallbackIndex) => {
+      const columnIndex = getCellColumnIndex(cellNode.getAttribute("r")) ?? fallbackIndex;
+      if (columnIndex >= SPREADSHEET_PREVIEW_MAX_COLUMNS) {
+        return;
+      }
+
+      const valueNode = cellNode.getElementsByTagName("v")[0];
+      const rawValue = valueNode?.textContent ?? "";
+      const type = cellNode.getAttribute("t");
+      if (type === "s") {
+        cells[columnIndex] = sharedStrings[Number(rawValue)] ?? "";
+      } else if (type === "inlineStr") {
+        cells[columnIndex] = getElementText(cellNode);
+      } else {
+        cells[columnIndex] = rawValue;
+      }
+    });
+    return cells;
+  });
+
+  const lastRowIndex = parsedRows.reduce(
+    (lastIndex, row, index) => (row.some(Boolean) ? index : lastIndex),
+    -1
+  );
+  const visibleRows = lastRowIndex >= 0 ? parsedRows.slice(0, lastRowIndex + 1) : [];
+  const columnCount = Math.max(
+    1,
+    Math.min(
+      SPREADSHEET_PREVIEW_MAX_COLUMNS,
+      visibleRows.reduce((max, row) => {
+        const lastCellIndex = row.reduce(
+          (lastIndex, cell, index) => (cell ? index : lastIndex),
+          -1
+        );
+        return Math.max(max, lastCellIndex + 1);
+      }, 0)
+    )
+  );
+
+  return {
+    status: "ready",
+    rows: visibleRows.map((row) => row.slice(0, columnCount)),
+    columnCount,
+    sheetName,
+  };
+}
+
+function SpreadsheetPreview({
+  entry,
+  fileUrl,
+}: {
+  entry: FileEntry;
+  fileUrl: string;
+}) {
+  const [preview, setPreview] = useState<SpreadsheetPreviewState>({ status: "loading" });
+
+  useEffect(() => {
+    let isActive = true;
+    setPreview({ status: "loading" });
+
+    parseSpreadsheetPreview(fileUrl)
+      .then((nextPreview) => {
+        if (isActive) {
+          setPreview(nextPreview);
+        }
+      })
+      .catch((error) => {
+        if (isActive) {
+          setPreview({
+            status: "error",
+            message:
+              error instanceof Error
+                ? error.message
+                : "Unable to preview this spreadsheet.",
+          });
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [fileUrl]);
+
+  if (preview.status === "loading") {
+    return <div className="nl-spreadsheet-preview__state">Loading spreadsheet preview...</div>;
+  }
+
+  if (preview.status === "error") {
+    return (
+      <div className="nl-spreadsheet-preview__state nl-spreadsheet-preview__state--error">
+        <strong>Unable to preview this spreadsheet.</strong>
+        <span>{preview.message}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="nl-spreadsheet-preview">
+      <div className="nl-spreadsheet-preview__header">
+        <div>
+          <strong>{entry.name}</strong>
+          <span>{preview.sheetName ?? "Sheet 1"}</span>
+        </div>
+        <span>{preview.rows.length} rows shown</span>
+      </div>
+      {preview.rows.length > 0 ? (
+        <div className="nl-spreadsheet-preview__table-wrap">
+          <table className="nl-spreadsheet-preview__table">
+            <thead>
+              <tr>
+                <th aria-label="Row number" />
+                {Array.from({ length: preview.columnCount }, (_, index) => (
+                  <th key={index}>{getColumnLabel(index)}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {preview.rows.map((row, rowIndex) => (
+                <tr key={rowIndex}>
+                  <th>{rowIndex + 1}</th>
+                  {Array.from({ length: preview.columnCount }, (_, columnIndex) => (
+                    <td key={columnIndex}>{row[columnIndex]}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="nl-spreadsheet-preview__empty">
+          No visible cells found in this workbook.
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function PreviewPanel({
   entry,
   fileUrl,
@@ -76,6 +338,10 @@ export function PreviewPanel({
         <img className="nl-preview-image" src={fileUrl} alt={entry.name} />
       </div>
     );
+  }
+
+  if (isSpreadsheetEntry(entry)) {
+    return <SpreadsheetPreview entry={entry} fileUrl={fileUrl} />;
   }
 
   if (entry.mimeType === "application/pdf" || entry.mimeType.startsWith("text/html")) {

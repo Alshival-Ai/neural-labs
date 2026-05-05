@@ -18,6 +18,7 @@ const MIME_BY_EXTENSION = new Map<string, string>([
   [".webp", "image/webp"],
   [".pdf", "application/pdf"],
   [".csv", "text/csv; charset=utf-8"],
+  [".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
 ]);
 
 export function getMimeType(filename: string, isDirectory = false): string {

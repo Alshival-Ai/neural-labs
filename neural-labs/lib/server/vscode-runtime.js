@@ -97,6 +97,24 @@ async function getContainerHost(containerName) {
   return ipAddress || containerName;
 }
 
+async function stopCodeServer(containerName) {
+  await runDocker([
+    "exec",
+    containerName,
+    "sh",
+    "-lc",
+    `pkill -f '[c]ode-server --bind-addr 0.0.0.0:${VSCODE_PORT}' || true`,
+  ]);
+
+  const stoppedAt = Date.now();
+  while (Date.now() - stoppedAt < 5_000) {
+    if (!(await canReachCodeServer(containerName))) {
+      return;
+    }
+    await delay(200);
+  }
+}
+
 async function startCodeServer(workspace) {
   if (!workspace.containerName || !workspace.workspacePathInContainer) {
     throw new Error("Workspace container is not available for VS Code.");
@@ -148,6 +166,9 @@ async function ensureCodeServerForUser(userId) {
     promise = (async () => {
       markWorkspaceActivitySafe(userId);
       const workspace = await ensureWorkspaceScaffold(userId);
+      if (workspace.vscodeSettingsChanged && workspace.containerName) {
+        await stopCodeServer(workspace.containerName);
+      }
       await startCodeServer(workspace);
       return workspace;
     })().finally(() => {

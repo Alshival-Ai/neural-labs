@@ -13,7 +13,7 @@ It feels like a lightweight cloud desktop: open files, run commands, inspect gen
 Neural Labs is built for AI-assisted work where the browser should be the whole operating surface, not just the chat UI.
 
 - **A real workspace per user**: every user gets a dedicated Docker volume and managed workspace container.
-- **Tools where the files live**: a modern terminal, text editor, file explorer, previews, and VS Code all point at the same persistent home directory.
+- **Tools where the files live**: a modern terminal, text editor, file explorer, previews including spreadsheets, and VS Code all point at the same persistent home directory.
 - **Admin-managed access**: seed the first admin, invite or directly create users, recover accounts, suspend access, and let each person return to their own workspace.
 - **Provider-ready AI chat**: use Neura's conversation-history chat workspace, bootstrap OpenAI-compatible and Anthropic-compatible providers from `.env`, then manage them in Settings.
 - **Browser-native VS Code**: launch VS Code from the dock in a new tab, backed by the same workspace container.
@@ -272,6 +272,9 @@ NEURAL_LABS_BACKGROUND_ID=sunrise-grid
 `NEURAL_LABS_BACKGROUND_ID` controls the default desktop background, login
 screen background, and loading animation background.
 
+The loading animation places `/brand/alshival-brain-256.png` directly on the
+animation card as its logo mark.
+
 Supported built-in backgrounds include:
 
 - `aurora`
@@ -335,6 +338,7 @@ Related implementation details:
 - `NEURAL_LABS_WORKSPACE_SHELL_ARGS` can override the managed shell startup when a custom shell launch is required
 - idle per-user containers stop after `NEURAL_LABS_CONTAINER_IDLE_TIMEOUT_MS` milliseconds; the default `3600000` is 1 hour, and files remain persisted in the user's Docker volume
 - the VS Code dock icon opens `/vscode/`, which is authenticated by Neural Labs and proxied to `code-server` inside the current user's workspace container
+- VS Code's integrated terminal default profile is managed as `Neural Labs`, using the same `.neural-labs/shellrc` environment as the Neural Labs terminal app
 - the current workspace path inside those containers is configured separately by the app runtime
 - the container and volume naming is derived from the user id with Neural Labs prefixes
 
