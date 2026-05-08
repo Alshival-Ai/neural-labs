@@ -55,6 +55,7 @@ async function main() {
   const dev = process.argv.includes("--dev") || process.env.NODE_ENV !== "production";
   const hostname = readArg("--hostname") || process.env.HOST || "0.0.0.0";
   const port = Number.parseInt(readArg("--port") || process.env.PORT || "3000", 10);
+  const browserHost = hostname === "0.0.0.0" || hostname === "::" ? "localhost" : hostname;
 
   let handleRequest = null;
   let handleUpgrade = null;
@@ -208,8 +209,9 @@ async function main() {
   });
 
   server.listen(port, hostname, () => {
+    const bindNote = browserHost === hostname ? "" : `, bound to ${hostname}`;
     console.log(
-      `> Ready on http://${hostname}:${port} (${dev ? "development" : "production"})`
+      `> Ready on http://${browserHost}:${port} (${dev ? "development" : "production"}${bindNote})`
     );
   });
 }

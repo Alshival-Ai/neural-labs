@@ -2491,6 +2491,327 @@ html[data-theme="light"] .nl-provision-loader__logo-mark {
   }
 }
 
+.nl-landing-shell {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto auto;
+  align-content: center;
+  justify-items: center;
+  row-gap: clamp(1rem, 2.4vh, 2rem);
+  min-height: 100vh;
+  min-height: 100dvh;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  background-color: var(--bg);
+  background-size: cover;
+  background-position: center;
+  color: var(--text);
+}
+
+.nl-landing-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(6, 16, 24, 0.38), rgba(6, 16, 24, 0.9)),
+    linear-gradient(90deg, rgba(6, 16, 24, 0.94), rgba(6, 16, 24, 0.52));
+  pointer-events: none;
+}
+
+html[data-theme="light"] .nl-landing-shell::before {
+  background:
+    linear-gradient(180deg, rgba(248, 251, 255, 0.44), rgba(231, 237, 248, 0.92)),
+    linear-gradient(90deg, rgba(248, 251, 255, 0.88), rgba(248, 251, 255, 0.42));
+}
+
+.nl-landing-hero,
+.nl-landing-capabilities {
+  position: relative;
+  z-index: 1;
+}
+
+.nl-landing-actions,
+.nl-landing-button {
+  display: inline-flex;
+  align-items: center;
+}
+
+.nl-landing-hero {
+  width: min(100%, 76rem);
+  min-height: 0;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(22rem, 32rem);
+  align-items: center;
+  gap: 3rem;
+}
+
+.nl-landing-hero__copy {
+  max-width: 42rem;
+}
+
+.nl-landing-hero__mark {
+  width: min(100%, 20rem);
+  height: auto;
+  display: block;
+  margin: 0 0 1.35rem;
+  filter: drop-shadow(0 22px 46px rgba(0, 0, 0, 0.34));
+}
+
+.nl-landing-kicker,
+.nl-landing-access-note,
+.nl-landing-capabilities span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.nl-landing-kicker {
+  margin: 0 0 0.65rem;
+}
+
+.nl-landing-hero h1 {
+  margin: 0;
+  font-size: 4rem;
+  line-height: 0.95;
+  letter-spacing: 0;
+}
+
+.nl-landing-hero__lead {
+  max-width: 36rem;
+  margin: 1rem 0 0;
+  color: var(--muted);
+  font-size: 1.12rem;
+  line-height: 1.55;
+}
+
+.nl-landing-actions {
+  min-height: 3rem;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  margin-top: 1.35rem;
+}
+
+.nl-landing-button {
+  min-height: 2.9rem;
+  justify-content: center;
+  padding: 0.78rem 1rem;
+  border: 1px solid var(--button-border);
+  border-radius: 14px;
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.nl-landing-button--primary {
+  border-color: transparent;
+  background: var(--button-solid-bg);
+  color: var(--button-solid-text);
+}
+
+.nl-landing-button--primary:hover {
+  background: var(--button-solid-hover-bg);
+}
+
+.nl-landing-preview {
+  border: 1px solid var(--window-border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--window-bg);
+  box-shadow: var(--window-shadow);
+  backdrop-filter: blur(20px);
+}
+
+.nl-landing-preview__bar {
+  min-height: 2.35rem;
+  padding: 0 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  border-bottom: 1px solid var(--window-header-border);
+  background: var(--window-header-bg);
+}
+
+.nl-landing-preview__bar span {
+  width: 0.72rem;
+  height: 0.72rem;
+  border-radius: 999px;
+}
+
+.nl-landing-preview__bar span:nth-child(1) {
+  background: #ff6b6b;
+}
+
+.nl-landing-preview__bar span:nth-child(2) {
+  background: #f6be4f;
+}
+
+.nl-landing-preview__bar span:nth-child(3) {
+  background: #35c95e;
+}
+
+.nl-landing-preview__body {
+  min-height: clamp(18rem, 34vh, 22rem);
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  background: var(--window-body-bg);
+}
+
+.nl-landing-preview__sidebar {
+  padding: 1rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  border-right: 1px solid var(--line);
+  background: var(--surface-app-elevated);
+}
+
+.nl-landing-preview__sidebar span,
+.nl-landing-preview__window,
+.nl-landing-preview__terminal {
+  border: 1px solid var(--line);
+  background: var(--surface-app-raised);
+}
+
+.nl-landing-preview__sidebar span {
+  height: 2.3rem;
+  border-radius: 8px;
+}
+
+.nl-landing-preview__workspace {
+  min-width: 0;
+  padding: 1rem;
+  display: grid;
+  grid-template-columns: 1fr 0.75fr;
+  grid-template-rows: 1fr 0.9fr;
+  gap: 0.85rem;
+}
+
+.nl-landing-preview__window,
+.nl-landing-preview__terminal {
+  border-radius: 8px;
+}
+
+.nl-landing-preview__window--wide {
+  grid-column: span 2;
+  background:
+    linear-gradient(180deg, rgba(99, 168, 255, 0.14), transparent),
+    var(--surface-app-raised);
+}
+
+.nl-landing-preview__terminal {
+  background:
+    linear-gradient(180deg, rgba(123, 224, 167, 0.1), transparent),
+    var(--terminal-bg);
+}
+
+.nl-landing-capabilities {
+  width: min(100%, 76rem);
+  margin: 0 auto;
+  padding: 0 1.5rem;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.nl-landing-capabilities article {
+  min-height: 7rem;
+  padding: 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-app-elevated);
+  backdrop-filter: blur(18px);
+}
+
+.nl-landing-capabilities h2 {
+  margin: 0.5rem 0 0;
+  font-size: 1rem;
+  letter-spacing: 0;
+}
+
+.nl-landing-capabilities p {
+  margin: 0.45rem 0 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+@media (max-width: 1100px) {
+  .nl-landing-hero {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+
+  .nl-landing-hero__copy {
+    max-width: 44rem;
+  }
+
+  .nl-landing-hero h1 {
+    font-size: 3.4rem;
+  }
+
+  .nl-landing-preview {
+    max-width: 42rem;
+  }
+
+  .nl-landing-capabilities {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 680px) {
+  .nl-landing-hero {
+    padding: 1rem 1rem 2rem;
+  }
+
+  .nl-landing-hero__mark {
+    width: min(100%, 17rem);
+    margin-bottom: 1.2rem;
+  }
+
+  .nl-landing-hero h1 {
+    font-size: 2.65rem;
+    line-height: 1;
+  }
+
+  .nl-landing-hero__lead {
+    font-size: 1rem;
+  }
+
+  .nl-landing-button {
+    width: 100%;
+  }
+
+  .nl-landing-access-note {
+    width: 100%;
+    text-align: center;
+  }
+
+  .nl-landing-preview__body {
+    min-height: 17rem;
+    grid-template-columns: 3.5rem minmax(0, 1fr);
+  }
+
+  .nl-landing-preview__workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .nl-landing-preview__window--wide {
+    grid-column: auto;
+  }
+
+  .nl-landing-preview__window:not(.nl-landing-preview__window--wide) {
+    display: none;
+  }
+
+  .nl-landing-capabilities {
+    padding: 0 1rem 2rem;
+  }
+}
+
 .nl-auth-shell {
   min-height: 100vh;
   min-height: 100dvh;
