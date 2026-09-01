@@ -1,0 +1,7 @@
+[Unit]
+Description=Neural Labs tenant cells
+Wants=network-online.target
+After=network-online.target
+
+[Install]
+WantedBy=multi-user.target

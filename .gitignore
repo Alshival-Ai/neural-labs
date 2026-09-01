@@ -1,0 +1,30 @@
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+*.secret
+*.token
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/
+**/secrets/
+id_rsa*
+id_ed25519*
+
+# Generated tenant state and backups
+state/
+generated/
+backups/
+tenant.env
+openclaw.json
+
+# Runtime and editor noise
+*.log
+*.pid
+.DS_Store
+.idea/
+.vscode/
+__pycache__/
+.pytest_cache/

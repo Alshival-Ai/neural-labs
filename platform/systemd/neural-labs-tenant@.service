@@ -1,0 +1,18 @@
+[Unit]
+Description=Neural Labs OpenClaw tenant %i
+Documentation=https://github.com/Alshival-Ai/neural-labs
+Wants=network-online.target
+After=network-online.target
+PartOf=neural-labs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=-/etc/neural-labs/platform.env
+ExecStart=/opt/neural-labs/current/scripts/tenant-compose.sh %i up
+ExecStop=/opt/neural-labs/current/scripts/tenant-compose.sh %i down
+TimeoutStartSec=180
+TimeoutStopSec=90
+
+[Install]
+WantedBy=neural-labs.target

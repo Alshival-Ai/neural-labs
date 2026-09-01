@@ -1,0 +1,16 @@
+apiVersion: neural-labs.alshival.ai/v1alpha1
+kind: OpenClawTenant
+metadata:
+  name: example-dev
+spec:
+  enabled: false
+  ingress:
+    gateway:
+      bindAddress: 127.0.0.1
+      port: 18791
+  resources:
+    gateway:
+      cpus: 2.0
+      memory: 3g
+  sharedSkillsRelease: dev
+  mcpPolicy: developer-default
