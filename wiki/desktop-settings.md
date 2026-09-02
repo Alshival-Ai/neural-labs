@@ -47,9 +47,11 @@ OpenClaw keeps the resulting credential in its persistent workspace volume.
 While pairing is active, Settings polls the control plane until the device code
 arrives and continues polling until authentication succeeds, fails, expires, or
 is cancelled; operators do not need to refresh the page between those states.
-The controller invokes OpenClaw over container loopback, which is permitted
-because every process in the V1 shared workspace is already mutually trusted;
-the Gateway is not made public by this allowance.
+After OpenClaw's login process exits successfully, the controller refreshes the
+local provider inventory before it classifies the result. This prevents a
+best-effort Gateway refresh failure or stale cached status from hiding a newly
+persisted OAuth profile. The CLI is not granted trusted-proxy access over
+container loopback.
 
 The MCP area is read-only in V1. It reports the loopback provider service that
 the workspace attaches globally to shared OpenClaw agents as

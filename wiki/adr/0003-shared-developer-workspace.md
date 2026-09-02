@@ -55,11 +55,11 @@ URL and user code, never the access token, refresh token, or OpenClaw auth
 database. The browser receives the same short-lived pairing fields. Provider
 credentials remain in the persistent workspace volumes.
 
-Allow trusted-proxy authentication from container loopback so the fixed
-provider controller can run OpenClaw's own CLI auth-status probe before the
-device-code flow. This does not publish a new listener: the Gateway remains in
-the shared workspace container, its host binding remains loopback-only, and all
-processes in that container are already inside the mutually trusted V1 boundary.
+Do not grant trusted-proxy authentication to container-loopback clients. The
+fixed provider controller may run OpenClaw's device-code CLI locally, but after
+that process exits it verifies the result by rereading the local provider
+inventory. OpenClaw's best-effort request to refresh the running Gateway may be
+rejected without invalidating an OAuth profile that was already persisted.
 
 The Files app exposes a narrow HTTP API below `/workspace/api/files*`. Nginx
 applies the same control-plane authentication subrequest and immutable user
@@ -140,9 +140,9 @@ not synchronized between browsers.
 - The control plane can request one allowlisted provider-login operation in the
   workspace. Rotating `NEURAL_LABS_WORKSPACE_CONTROL_TOKEN` requires recreating
   both containers but does not invalidate the OpenAI account credential.
-- A process already inside the mutually trusted workspace may reach the Gateway
-  over loopback. This is required by OpenClaw's provider-login CLI and must not
-  be enabled in a container that runs untrusted workloads.
+- A process inside the workspace is not implicitly a trusted Gateway proxy.
+  Internal CLI status refreshes over loopback may be rejected; provider-login
+  completion is verified against the local auth-profile inventory instead.
 - Personal terminal metadata is user-isolated, but shell commands still operate
   inside the mutually trusted shared workspace and can read shared container
   state. Team Terminal keystrokes and output are intentionally collaborative.

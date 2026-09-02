@@ -87,3 +87,30 @@ test("does not misreport a local Gateway authorization failure as an OpenAI outa
     "OpenClaw rejected its local login client. Restart the workspace and try again.",
   );
 });
+
+test("refreshes provider status after a successful login before classifying the result", async () => {
+  const child = new FakeChild();
+  let authenticated = false;
+  let refreshes = 0;
+  const controller = createProviderAuthController({
+    providerAuthenticated: () => authenticated,
+    modelReady: () => authenticated,
+    refreshStatus: async () => {
+      refreshes += 1;
+      authenticated = true;
+    },
+    spawnLogin: () => child,
+  });
+
+  controller.start();
+  child.stderr.emit(
+    "data",
+    "unauthorized reason=trusted_proxy_untrusted_source phase=auth_credentials_received",
+  );
+  child.emit("exit", 0, null);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(refreshes, 1);
+  assert.equal(controller.snapshot().state, "connected");
+  assert.equal(controller.snapshot().authenticated, true);
+});

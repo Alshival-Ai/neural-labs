@@ -61,12 +61,16 @@ function publicMessage(value) {
 export function createProviderAuthController({
   providerAuthenticated,
   modelReady,
+  refreshStatus,
   spawnLogin = defaultSpawn,
   now = () => Date.now(),
   loginTimeoutMs = LOGIN_TIMEOUT_MS,
 } = {}) {
   if (typeof providerAuthenticated !== "function" || typeof modelReady !== "function") {
     throw new Error("Provider authentication checks are required");
+  }
+  if (refreshStatus !== undefined && typeof refreshStatus !== "function") {
+    throw new Error("Provider status refresh must be a function");
   }
 
   let child;
@@ -181,7 +185,7 @@ export function createProviderAuthController({
         message: error.message || "OpenAI sign-in could not start.",
       };
     });
-    child.once("exit", (code, signal) => {
+    child.once("exit", async (code, signal) => {
       clearProcess();
       if (cancelled) {
         state = {
@@ -192,6 +196,13 @@ export function createProviderAuthController({
           message: null,
         };
         return;
+      }
+      if (code === 0 && refreshStatus) {
+        try {
+          await refreshStatus();
+        } catch {
+          // The cached status below still provides the safe fallback result.
+        }
       }
       const authenticated = safeBoolean(providerAuthenticated);
       if (code === 0 && authenticated) {
