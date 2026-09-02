@@ -12,6 +12,7 @@ is automatically registered with the shared OpenClaw configuration as
 - `google_place_photo`: resolve one place photo to a safe Google URL.
 - `google_geocode_address`: geocode a postal address.
 - `google_reverse_geocode`: reverse-geocode coordinates.
+- `search_gif`: return 8-20 KLIPY GIF choices with selection guidance.
 - `pexels_search_photos`: return 8-20 reviewed photo choices and attribution.
 - `pexels_search_videos`: return 8-20 progressive MP4 choices and attribution.
 - `pexels_download_media`: download a signed search selection safely into an
@@ -29,6 +30,7 @@ Keep provider credentials outside Git in the ignored root `.env`, which
 must remain mode `0600`:
 
     GOOGLE_PLACES_API_KEY=...
+    KLIPY_API_KEY=...
     PEXELS_API_KEY=...
 
 An operator may maintain the same values in host environment.d files, but must
@@ -63,7 +65,7 @@ and provenance.
 ## Operations
 
 `bin/neural-labs doctor` checks `/healthz` through `docker compose exec`
-and requires both providers to be configured. The workspace health endpoint is
+and requires all three providers to be configured. The workspace health endpoint is
 ready only when both OpenClaw and the local MCP are ready. If the MCP process
 exits, the container exits so its restart policy can recover the complete
 workspace together.

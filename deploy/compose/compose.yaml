@@ -116,6 +116,7 @@ services:
       NEURAL_LABS_WORKSPACE_MCP_PORT: 8792
       NEURAL_LABS_PROJECTS_ROOT: /home/node/workspace/projects
       GOOGLE_PLACES_API_KEY: ${GOOGLE_PLACES_API_KEY:-}
+      KLIPY_API_KEY: ${KLIPY_API_KEY:-}
       PEXELS_API_KEY: ${PEXELS_API_KEY:-}
     cap_drop:
       - ALL

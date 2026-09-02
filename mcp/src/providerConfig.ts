@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 
 export interface ProviderConfig {
   googleApiKey?: string;
+  klipyApiKey?: string;
   pexelsApiKey?: string;
   projectsRoot: string;
   downloadSigningKey: Buffer;
@@ -28,9 +29,11 @@ export function loadProviderConfig(
     throw new Error("NEURAL_LABS_PROJECTS_ROOT must be absolute");
   }
   const googleApiKey = optional(env, "GOOGLE_PLACES_API_KEY");
+  const klipyApiKey = optional(env, "KLIPY_API_KEY");
   const pexelsApiKey = optional(env, "PEXELS_API_KEY");
   return {
     ...(googleApiKey ? { googleApiKey } : {}),
+    ...(klipyApiKey ? { klipyApiKey } : {}),
     ...(pexelsApiKey ? { pexelsApiKey } : {}),
     projectsRoot,
     downloadSigningKey: createHmac(

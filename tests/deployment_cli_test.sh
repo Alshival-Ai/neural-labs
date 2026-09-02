@@ -42,6 +42,7 @@ grep -q 'NEURAL_LABS_WORKSPACE_CONTROL_TOKEN' "${compose_file}"
 grep -q 'NEURAL_LABS_WORKSPACE_MAX_UPLOAD_BYTES' "${compose_file}"
 grep -q 'CONTROL_PLANE_WORKSPACE_TEAM_AGENT_URL' "${compose_file}"
 grep -q 'GOOGLE_PLACES_API_KEY' "${compose_file}"
+grep -q 'KLIPY_API_KEY' "${compose_file}"
 grep -q 'PEXELS_API_KEY' "${compose_file}"
 grep -q 'NEURAL_LABS_WORKSPACE_MCP_PORT' "${compose_file}"
 if grep -q '^  mcp:$' "${compose_file}"; then

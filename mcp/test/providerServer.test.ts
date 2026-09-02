@@ -58,6 +58,7 @@ async function config(): Promise<ProviderConfig> {
   temporaryDirectories.push(projectsRoot);
   return {
     googleApiKey: "google-test-secret",
+    klipyApiKey: "klipy-test-secret",
     pexelsApiKey: "pexels-test-secret",
     projectsRoot,
     downloadSigningKey: randomBytes(32),
@@ -88,7 +89,55 @@ describe("workspace provider MCP", () => {
       "pexels_download_media",
       "pexels_search_photos",
       "pexels_search_videos",
+      "search_gif",
     ]);
+    await application.close();
+  });
+
+  it("searches KLIPY and returns a bounded safe GIF choice set", async () => {
+    const providerConfig = await config();
+    const fetchProvider = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      expect(url.hostname).toBe("api.klipy.com");
+      expect(url.searchParams.get("q")).toBe("excited wave");
+      expect(url.searchParams.get("key")).toBe("klipy-test-secret");
+      expect(url.searchParams.get("client_key")).toBe("neural-labs-workspace");
+      expect(url.searchParams.get("limit")).toBe("20");
+      return Response.json({
+        results: [
+          {
+            id: "gif-1",
+            content_description: "Excited wave",
+            media_formats: { gif: { url: "https://media.klipy.com/wave.gif" } },
+          },
+          {
+            id: "unsafe",
+            media_formats: { gif: { url: "http://example.com/unsafe.gif" } },
+          },
+        ],
+      });
+    });
+    const application = createProviderApplication(
+      providerConfig,
+      fetchProvider as typeof fetch,
+    );
+    const search = (await callTool(application, "search_gif", {
+      query: "excited wave",
+      limit: 1,
+    })) as {
+      result: {
+        structuredContent: {
+          count: number;
+          results: Array<{ id: string; url: string }>;
+        };
+      };
+    };
+    expect(search.result.structuredContent.count).toBe(1);
+    expect(search.result.structuredContent.results[0]).toEqual({
+      id: "gif-1",
+      title: "Excited wave",
+      url: "https://media.klipy.com/wave.gif",
+    });
     await application.close();
   });
 

@@ -377,7 +377,7 @@ command_doctor() {
   health_check control-plane "http://127.0.0.1:${control_port}/readyz" || failure=1
   health_check workspace-gateway "http://127.0.0.1:${workspace_port}/healthz" || failure=1
   health_check workspace-desktop "http://127.0.0.1:${workspace_desktop_port}/healthz" || failure=1
-  if compose exec -T workspace node -e "fetch('http://127.0.0.1:8792/healthz').then(async r=>{const j=await r.json();if(!r.ok||j.status!=='ok'||!j.googleConfigured||!j.pexelsConfigured)process.exit(1)}).catch(()=>process.exit(1))"; then
+  if compose exec -T workspace node -e "fetch('http://127.0.0.1:8792/healthz').then(async r=>{const j=await r.json();if(!r.ok||j.status!=='ok'||!j.googleConfigured||!j.klipyConfigured||!j.pexelsConfigured)process.exit(1)}).catch(()=>process.exit(1))"; then
     echo "ok    workspace-mcp (loopback)"
   else
     echo "fail  workspace MCP or provider configuration is not healthy" >&2

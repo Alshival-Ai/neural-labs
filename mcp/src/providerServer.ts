@@ -7,6 +7,7 @@ import { toNodeHandler } from "@modelcontextprotocol/node";
 import type { Express, NextFunction, Request, Response } from "express";
 
 import { registerGoogleTools } from "./googleProviders.js";
+import { registerKlipyTools } from "./klipyProvider.js";
 import { registerPexelsTools } from "./pexelsProvider.js";
 import type { ProviderConfig } from "./providerConfig.js";
 
@@ -29,6 +30,7 @@ export function createProviderApplication(
     response.status(200).json({
       status: "ok",
       googleConfigured: Boolean(config.googleApiKey),
+      klipyConfigured: Boolean(config.klipyApiKey),
       pexelsConfigured: Boolean(config.pexelsApiKey),
     });
   });
@@ -43,6 +45,7 @@ export function createProviderApplication(
         },
       );
       registerGoogleTools(server, config, fetchFn);
+      registerKlipyTools(server, config, fetchFn);
       registerPexelsTools(server, config, fetchFn);
       return server;
     },

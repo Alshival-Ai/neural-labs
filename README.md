@@ -35,7 +35,7 @@ section; see the [workspace guide](wiki/shared-workspace.md). The
 [administrator settings guide](wiki/desktop-settings.md) covers access,
 authentication, MCP, and audit controls.
 The [workspace provider MCP guide](wiki/workspace-provider-mcp.md) documents
-Google Places, Geocoding, and Pexels tools available to the shared agent.
+Google Places, Geocoding, KLIPY, and Pexels tools available to the shared agent.
 The [Files guide](wiki/files.md) documents browser uploads, folder management,
 downloads, deletion, and the shared-filesystem boundary. The
 [Editor guide](wiki/editor.md) covers shared text-file creation, editing,
