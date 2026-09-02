@@ -18,7 +18,8 @@ COPY mcp/package.json mcp/package-lock.json ./
 RUN npm ci
 COPY mcp/tsconfig.json mcp/tsconfig.build.json ./
 COPY mcp/src ./src
-RUN npm run build \
+COPY mcp/test ./test
+RUN npm run validate \
     && npm prune --omit=dev
 
 FROM ${OPENCLAW_IMAGE}
