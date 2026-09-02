@@ -22,8 +22,10 @@ the workspace entrypoint. Bind it to workspace loopback only and register it
 automatically with the shared OpenClaw runtime. Make MCP readiness part of
 workspace readiness and restart the container if the MCP exits.
 
-Inject the existing Google and Pexels env files into only the workspace
-container. Accept that all approved workspace users can reach the MCP and,
+Materialize the existing Google and Pexels values into the ignored, mode-0600
+root `.env` and inject them into only the workspace container. This avoids
+Snap Docker's inability to read hidden home paths and includes the keys in the
+normal recovery set. Accept that all approved workspace users can reach the MCP and,
 because they already have unrestricted sudo in this explicitly trusted
 environment, can inspect its process environment.
 

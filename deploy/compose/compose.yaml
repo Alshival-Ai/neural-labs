@@ -104,11 +104,6 @@ services:
         CODEX_VERSION: ${NEURAL_LABS_CODEX_VERSION:-0.152.0}
     image: ${NEURAL_LABS_WORKSPACE_IMAGE:-neural-labs-workspace:local}
     restart: unless-stopped
-    env_file:
-      - path: ${NEURAL_LABS_MCP_GOOGLE_ENV_FILE:-/dev/null}
-        required: false
-      - path: ${NEURAL_LABS_MCP_PEXELS_ENV_FILE:-/dev/null}
-        required: false
     environment:
       NEURAL_LABS_PUBLIC_ORIGIN: ${NEURAL_LABS_PUBLIC_ORIGIN:-https://neural-labs.example.com}
       NEURAL_LABS_WORKSPACE_PROXY_IP: ${NEURAL_LABS_WORKSPACE_PROXY_IP:-172.30.42.1}
@@ -120,6 +115,8 @@ services:
       NEURAL_LABS_WORKSPACE_STATUS_PORT: 18790
       NEURAL_LABS_WORKSPACE_MCP_PORT: 8792
       NEURAL_LABS_PROJECTS_ROOT: /home/node/workspace/projects
+      GOOGLE_PLACES_API_KEY: ${GOOGLE_PLACES_API_KEY:-}
+      PEXELS_API_KEY: ${PEXELS_API_KEY:-}
     cap_drop:
       - ALL
     cap_add:

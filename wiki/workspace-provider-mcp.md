@@ -25,16 +25,16 @@ unexpected media types, oversized files, and overwrites.
 
 ## Credentials
 
-Keep provider credentials outside Git in root-owned or operator-owned files
-with mode `0600`. Set their absolute paths in the ignored root `.env`:
-
-    NEURAL_LABS_MCP_GOOGLE_ENV_FILE=/home/data-team/.config/environment.d/30-global-mcp-google-places.conf
-    NEURAL_LABS_MCP_PEXELS_ENV_FILE=/home/data-team/.config/environment.d/31-global-mcp-pexels.conf
-
-The referenced files use Compose env-file syntax:
+Keep provider credentials outside Git in the ignored root `.env`, which
+must remain mode `0600`:
 
     GOOGLE_PLACES_API_KEY=...
     PEXELS_API_KEY=...
+
+An operator may maintain the same values in host environment.d files, but must
+materialize them into the protected root `.env` for Compose. This also keeps
+them in the standard encrypted recovery set. Snap-confined Docker installations
+cannot read hidden home paths such as `~/.config/environment.d` directly.
 
 Compose injects these values only into the trusted workspace container. All
 approved workspace users share that trust boundary and the container retains
