@@ -84,46 +84,12 @@ services:
       - "${NEURAL_LABS_BIND_ADDRESS:-127.0.0.1}:${CONTROL_PLANE_PORT:-4174}:4174"
     networks:
       - control-db
-      - control-mcp
       - workspace-ingress
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4174/readyz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
-      start_period: 10s
-
-  mcp:
-    build:
-      context: ../..
-      dockerfile: mcp/Containerfile
-    image: neural-labs-mcp:local
-    restart: unless-stopped
-    read_only: true
-    tmpfs:
-      - /tmp:size=16m,mode=1777
-    cap_drop:
-      - ALL
-    environment:
-      MCP_HOST: 0.0.0.0
-      MCP_PORT: 3000
-      MCP_ALLOWED_HOSTS: ${NEURAL_LABS_HOSTNAME:-neural-labs.example.com},mcp,127.0.0.1,localhost
-      MCP_CONTROL_PLANE_CONFIG_URL: http://control-plane:4174/internal/mcp/config
-      MCP_CONFIG_TOKEN: ${NEURAL_LABS_MCP_CONFIG_TOKEN}
-      MCP_CONFIG_POLL_INTERVAL_MS: 30000
-      MCP_TEAM_API_URL: http://control-plane:4174/internal/mcp/team
-    ports:
-      - "${NEURAL_LABS_BIND_ADDRESS:-127.0.0.1}:${MCP_PORT:-3000}:3000"
-    networks:
-      - control-mcp
-    depends_on:
-      control-plane:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 10s
       timeout: 3s
       retries: 10
@@ -138,6 +104,11 @@ services:
         CODEX_VERSION: ${NEURAL_LABS_CODEX_VERSION:-0.152.0}
     image: ${NEURAL_LABS_WORKSPACE_IMAGE:-neural-labs-workspace:local}
     restart: unless-stopped
+    env_file:
+      - path: ${NEURAL_LABS_MCP_GOOGLE_ENV_FILE:-/dev/null}
+        required: false
+      - path: ${NEURAL_LABS_MCP_PEXELS_ENV_FILE:-/dev/null}
+        required: false
     environment:
       NEURAL_LABS_PUBLIC_ORIGIN: ${NEURAL_LABS_PUBLIC_ORIGIN:-https://neural-labs.example.com}
       NEURAL_LABS_WORKSPACE_PROXY_IP: ${NEURAL_LABS_WORKSPACE_PROXY_IP:-172.30.42.1}
@@ -147,6 +118,8 @@ services:
       NEURAL_LABS_WORKSPACE_MAX_UPLOAD_BYTES: ${NEURAL_LABS_WORKSPACE_MAX_UPLOAD_BYTES:-2147483648}
       OPENCLAW_GATEWAY_PORT: 18789
       NEURAL_LABS_WORKSPACE_STATUS_PORT: 18790
+      NEURAL_LABS_WORKSPACE_MCP_PORT: 8792
+      NEURAL_LABS_PROJECTS_ROOT: /home/node/workspace/projects
     cap_drop:
       - ALL
     cap_add:
@@ -182,7 +155,6 @@ networks:
   landing-ingress:
   control-db:
     internal: true
-  control-mcp:
   workspace-ingress:
     ipam:
       config:

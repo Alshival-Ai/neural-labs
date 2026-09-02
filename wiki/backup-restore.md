@@ -18,7 +18,9 @@ argument. Never place recovery sets inside the source repository.
 
 The command briefly stops the workspace for a consistent archive, restarts it,
 and creates a timestamped recovery set containing the custom-format PostgreSQL
-dump, shared home/OpenClaw/provider state, and complete deployment environment.
+dump, shared home/OpenClaw/provider state, project sites below
+`/home/node/workspace/projects`, media provenance, and the complete
+deployment environment.
 It never deletes or expires older backups.
 
 Encrypt and move the resulting recovery set to the operator's backup system.
@@ -49,12 +51,13 @@ For manual disaster recovery:
 2. Start PostgreSQL without exposing application routes.
 3. Restore the custom-format dump with `pg_restore --clean --if-exists` into the
    `neural_labs` database.
-4. Start the control plane and MCP, check `/readyz`, and inspect container logs.
+4. Start the control plane, check `/readyz`, and inspect container logs.
 5. Restore `workspace-home.tar.gz` into the three workspace volumes while the
    Gateway is stopped.
 6. Start the landing and workspace containers and restore Nginx traffic.
 7. Test local login, Microsoft login, administrator access, workspace HTTP and
-   WebSocket access, Codex status, an OpenClaw automation, and MCP OAuth.
+   WebSocket access, Codex status, an OpenClaw automation, and the loopback
+   provider MCP.
 
 The PostgreSQL password can be deliberately rotated with coordinated database
 and `.env` changes. Compose rematerializes the MCP config token for both

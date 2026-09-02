@@ -41,10 +41,17 @@ grep -q 'workspace-home:/home/node' "${compose_file}"
 grep -q 'NEURAL_LABS_WORKSPACE_CONTROL_TOKEN' "${compose_file}"
 grep -q 'NEURAL_LABS_WORKSPACE_MAX_UPLOAD_BYTES' "${compose_file}"
 grep -q 'CONTROL_PLANE_WORKSPACE_TEAM_AGENT_URL' "${compose_file}"
-grep -q 'MCP_TEAM_API_URL' "${compose_file}"
+grep -q 'NEURAL_LABS_MCP_GOOGLE_ENV_FILE' "${compose_file}"
+grep -q 'NEURAL_LABS_MCP_PEXELS_ENV_FILE' "${compose_file}"
+grep -q 'NEURAL_LABS_WORKSPACE_MCP_PORT' "${compose_file}"
+if grep -q '^  mcp:$' "${compose_file}"; then
+  echo "public MCP must not be a Compose service in V1" >&2
+  exit 1
+fi
 grep -q 'auth_request /_workspace_auth' "${nginx_file}"
 grep -q 'neural_labs_workspace_desktop' "${nginx_file}"
 grep -q 'proxy_set_header Upgrade \$http_upgrade' "${nginx_file}"
+grep -A2 'location = /mcp' "${nginx_file}" | grep -q 'return 404'
 [[ "$(grep -c 'client_max_body_size 2g' "${nginx_file}")" -ge 3 ]]
 if grep -Eq 'privileged:[[:space:]]*true|/var/run/docker.sock|/home/data-team|/root:' "${compose_file}"; then
   echo "workspace Compose configuration contains a prohibited privilege or mount" >&2

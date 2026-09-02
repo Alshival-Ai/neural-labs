@@ -285,6 +285,7 @@ export function createWorkspaceHttpServer({
   workspaceRoot,
   publicOrigin,
   gatewayReady,
+  mcpReady = async () => true,
   providerAuthenticated,
   openclawModelReady,
   providerAuth,
@@ -511,10 +512,16 @@ export function createWorkspaceHttpServer({
     }
 
     if (pathname === "/status" || pathname === "/healthz") {
-      const ready = await gatewayReady();
+      const [gatewayIsReady, mcpIsReady] = await Promise.all([
+        gatewayReady(),
+        mcpReady(),
+      ]);
+      const ready = gatewayIsReady && mcpIsReady;
       const providerReady = providerAuthenticated();
       const body = JSON.stringify({
         status: ready ? "ready" : "starting",
+        gatewayReady: gatewayIsReady,
+        mcpReady: mcpIsReady,
         openclawVersion,
         codexVersion,
         providerAuthenticated: providerReady,

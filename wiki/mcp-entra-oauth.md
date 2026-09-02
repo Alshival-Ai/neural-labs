@@ -1,5 +1,9 @@
 # Microsoft Entra OAuth setup for the MCP server
 
+> Future public mode: this implementation is retained for a later, separately
+> reviewed public MCP release. V1 deliberately returns `404` for public MCP
+> and OAuth routes. Do not follow this runbook to enable ingress on a V1 host.
+
 This runbook explains how Codex signs in with Microsoft and connects to the Streamable HTTP MCP endpoint in `mcp/`.
 
 ## Architecture

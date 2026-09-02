@@ -7,7 +7,7 @@ import { WebSocket } from "ws";
 
 import { createWorkspaceHttpServer } from "./http-server.mjs";
 
-async function fixture(ready = true, { maxUploadBytes, maxTextBytes, runTeamAgent } = {}) {
+async function fixture(ready = true, { maxUploadBytes, maxTextBytes, mcpReady = true, runTeamAgent } = {}) {
   const desktopRoot = await mkdtemp(path.join(tmpdir(), "neural-labs-desktop-test-"));
   const workspaceRoot = path.join(desktopRoot, "workspace-root");
   await mkdir(path.join(desktopRoot, "assets"));
@@ -28,6 +28,7 @@ async function fixture(ready = true, { maxUploadBytes, maxTextBytes, runTeamAgen
     workspaceRoot,
     publicOrigin: "https://neural-labs.example.com",
     gatewayReady: async () => ready,
+    mcpReady: async () => mcpReady,
     providerAuthenticated: () => false,
     openclawModelReady: () => false,
     providerAuth: {
@@ -442,6 +443,8 @@ test("reports gateway readiness without exposing arbitrary files", async () => {
     assert.equal(health.status, 503);
     assert.deepEqual(await health.json(), {
       status: "starting",
+      gatewayReady: false,
+      mcpReady: true,
       openclawVersion: "2026.8.2",
       codexVersion: "0.152.0",
       providerAuthenticated: false,
@@ -454,6 +457,26 @@ test("reports gateway readiness without exposing arbitrary files", async () => {
     assert.equal((await fetch(`${app.origin}/workspace/assets/missing.js`)).status, 404);
     assert.equal((await fetch(`${app.origin}/workspace/unknown`)).status, 404);
     assert.equal((await fetch(`${app.origin}/workspace`, { method: "POST" })).status, 405);
+  } finally {
+    await app.close();
+  }
+});
+
+test("holds workspace readiness while the local MCP is unavailable", async () => {
+  const app = await fixture(true, { mcpReady: false });
+  try {
+    const health = await fetch(`${app.origin}/healthz`);
+    assert.equal(health.status, 503);
+    assert.deepEqual(await health.json(), {
+      status: "starting",
+      gatewayReady: true,
+      mcpReady: false,
+      openclawVersion: "2026.8.2",
+      codexVersion: "0.152.0",
+      providerAuthenticated: false,
+      codexAuthenticated: false,
+      openclawModelReady: false,
+    });
   } finally {
     await app.close();
   }

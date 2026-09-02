@@ -11,6 +11,16 @@ COPY workspace/desktop/index.html workspace/desktop/tsconfig.json workspace/desk
 COPY workspace/desktop/src ./src
 RUN npm run build
 
+FROM node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS mcp-build
+
+WORKDIR /build
+COPY mcp/package.json mcp/package-lock.json ./
+RUN npm ci
+COPY mcp/tsconfig.json mcp/tsconfig.build.json ./
+COPY mcp/src ./src
+RUN npm run build \
+    && npm prune --omit=dev
+
 FROM ${OPENCLAW_IMAGE}
 
 ARG CODEX_VERSION=0.152.0
@@ -54,6 +64,9 @@ COPY workspace/team-agent.mjs /usr/local/lib/neural-labs/team-agent.mjs
 COPY workspace/terminal-manager.mjs /usr/local/lib/neural-labs/terminal-manager.mjs
 COPY workspace/shell /usr/local/share/neural-labs/shell
 COPY --from=desktop-build /build/dist /usr/local/share/neural-labs/desktop
+COPY --chown=node:node --from=mcp-build /build/package.json /build/package-lock.json /usr/local/lib/neural-labs/mcp/
+COPY --chown=node:node --from=mcp-build /build/node_modules /usr/local/lib/neural-labs/mcp/node_modules
+COPY --chown=node:node --from=mcp-build /build/dist /usr/local/lib/neural-labs/mcp/dist
 COPY tmp/neural-labs-spectrum-paper-wallpaper.png /usr/local/share/neural-labs/desktop/assets/wallpaper.png
 COPY tmp/neural-labs-spectrum-paper-tablet.png /usr/local/share/neural-labs/desktop/assets/wallpaper-tablet.png
 COPY tmp/neural-labs-spectrum-paper-mobile.png /usr/local/share/neural-labs/desktop/assets/wallpaper-mobile.png
@@ -65,6 +78,7 @@ RUN chmod 0440 /etc/sudoers.d/neural-labs-workspace \
       /home/node/.config/openclaw \
       /home/node/.openclaw \
       /home/node/workspace \
+      /home/node/workspace/projects \
     && chown -R node:node /home/node
 
 ENV HOME=/home/node \

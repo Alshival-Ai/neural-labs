@@ -13,6 +13,7 @@ validate:
 	node --check workspace/file-events.mjs
 	node --check workspace/provider-auth.mjs
 	node --check workspace/terminal-manager.mjs
+	node --check mcp/dist/local.js
 	npm --prefix workspace/desktop run validate
 	node --test web/server.test.mjs
 	npm --prefix workspace test

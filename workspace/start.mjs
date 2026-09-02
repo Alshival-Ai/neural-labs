@@ -10,6 +10,7 @@ import { runTeamAgent } from "/usr/local/lib/neural-labs/team-agent.mjs";
 
 const gatewayPort = parsePort(process.env.OPENCLAW_GATEWAY_PORT, 18789);
 const statusPort = parsePort(process.env.NEURAL_LABS_WORKSPACE_STATUS_PORT, 18790);
+const mcpPort = parsePort(process.env.NEURAL_LABS_WORKSPACE_MCP_PORT, 8792);
 const publicOrigin = parsePublicOrigin(
   process.env.NEURAL_LABS_PUBLIC_ORIGIN ?? "https://neural-labs.example.com",
 );
@@ -134,6 +135,13 @@ function configureGateway() {
         headers: { authorization: "Bearer ${NEURAL_LABS_TEAM_CAPABILITY}" },
       },
     },
+    {
+      path: "mcp.servers.neural-labs-tools",
+      value: {
+        transport: "streamable-http",
+        url: "http://127.0.0.1:" + String(mcpPort) + "/mcp",
+      },
+    },
     { path: "gateway.controlUi.allowedOrigins", value: [publicOrigin] },
     { path: "gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback", value: false },
     { path: "gateway.terminal.enabled", value: false },
@@ -225,6 +233,20 @@ async function gatewayReady() {
   }
 }
 
+async function mcpReady() {
+  try {
+    const response = await fetch(
+      "http://127.0.0.1:" + String(mcpPort) + "/healthz",
+      { signal: AbortSignal.timeout(1500) },
+    );
+    if (!response.ok) return false;
+    const status = await response.json();
+    return status?.status === "ok";
+  } catch {
+    return false;
+  }
+}
+
 await seedShellProfiles();
 configureGateway();
 await refreshProviderStatus();
@@ -243,12 +265,18 @@ const gateway = spawn(
   ["gateway", "run", "--bind", "lan", "--port", String(gatewayPort)],
   { stdio: "inherit" },
 );
+const workspaceMcp = spawn(
+  process.execPath,
+  ["/usr/local/lib/neural-labs/mcp/dist/local.js"],
+  { stdio: "inherit" },
+);
 
 const workspaceServer = createWorkspaceHttpServer({
   desktopRoot,
   workspaceRoot,
   publicOrigin,
   gatewayReady,
+  mcpReady,
   providerAuthenticated,
   openclawModelReady,
   providerAuth,
@@ -271,7 +299,9 @@ function stop(signal) {
   providerAuth.cancel();
   workspaceServer.close();
   gateway.kill(signal);
+  workspaceMcp.kill(signal);
   setTimeout(() => gateway.kill("SIGKILL"), 10_000).unref();
+  setTimeout(() => workspaceMcp.kill("SIGKILL"), 10_000).unref();
 }
 
 process.once("SIGINT", () => stop("SIGINT"));
@@ -281,6 +311,23 @@ gateway.once("error", (error) => {
   console.error("OpenClaw Gateway failed to start", error);
   process.exitCode = 1;
   workspaceServer.close();
+});
+
+workspaceMcp.once("error", (error) => {
+  console.error("Workspace MCP failed to start", error);
+  process.exitCode = 1;
+  gateway.kill("SIGTERM");
+  workspaceServer.close();
+});
+
+workspaceMcp.once("exit", (code, signal) => {
+  if (stopping) return;
+  console.error(
+    "Workspace MCP exited unexpectedly" +
+      (signal ? " after " + signal : " with code " + String(code)),
+  );
+  gateway.kill("SIGTERM");
+  workspaceServer.close(() => process.exit(code ?? 1));
 });
 
 gateway.once("exit", (code, signal) => {

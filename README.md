@@ -1,13 +1,14 @@
 # Neural Labs
 
-Neural Labs is an open-source, self-hosted control plane and authenticated MCP
-server. This repository contains:
+Neural Labs is an open-source, self-hosted control plane and shared developer
+workspace. This repository contains:
 
 - `web/`: the public landing page;
 - `console/`: the React account, login, signup, and approval interface;
 - `control-plane/`: onboarding, session security, authorization, and console
   APIs;
-- `mcp/`: the Microsoft Entra-protected Streamable HTTP MCP server;
+- `mcp/`: the workspace-local provider MCP plus a retained,
+  disabled implementation of the future Microsoft Entra-protected public server;
 - `workspace/`: the shared desktop plus the pinned OpenClaw and Codex developer
   runtime, including the Neura agent and persistent Files apps;
 - `deploy/`: loopback-only Compose and host Nginx configuration;
@@ -15,7 +16,8 @@ server. This repository contains:
 
 Start with the [container deployment guide](wiki/container-deployment.md), then
 follow the [manual Entra app setup](wiki/entra-app-setup.md) if Microsoft sign-in
-or authenticated MCP access is required.
+is required. V1 provider tools run only inside the trusted shared workspace;
+public MCP ingress is deliberately disabled.
 
 ```bash
 bin/neural-labs init
@@ -32,6 +34,8 @@ shared OpenClaw runtime to a ChatGPT/Codex subscription from its Workspace
 section; see the [workspace guide](wiki/shared-workspace.md). The
 [administrator settings guide](wiki/desktop-settings.md) covers access,
 authentication, MCP, and audit controls.
+The [workspace provider MCP guide](wiki/workspace-provider-mcp.md) documents
+Google Places, Geocoding, and Pexels tools available to the shared agent.
 The [Files guide](wiki/files.md) documents browser uploads, folder management,
 downloads, deletion, and the shared-filesystem boundary. The
 [Editor guide](wiki/editor.md) covers shared text-file creation, editing,

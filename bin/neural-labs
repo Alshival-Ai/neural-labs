@@ -152,7 +152,7 @@ validate_port() {
 }
 
 validate_deployment_config() {
-  local origin hostname bind_address landing_port control_port mcp_port workspace_port workspace_desktop_port environment_mode
+  local origin hostname bind_address landing_port control_port workspace_port workspace_desktop_port environment_mode
   local auto_setup initial_admin local_enabled microsoft_enabled mcp_enabled tenant_id client_id
   local client_secret certificate_base64 workspace_cpus workspace_memory workspace_max_upload_bytes openclaw_image
   local openclaw_version codex_version workspace_subnet workspace_proxy_ip
@@ -167,7 +167,6 @@ validate_deployment_config() {
   bind_address="$(env_value NEURAL_LABS_BIND_ADDRESS || true)"
   landing_port="$(env_value LANDING_PORT || true)"
   control_port="$(env_value CONTROL_PLANE_PORT || true)"
-  mcp_port="$(env_value MCP_PORT || true)"
   workspace_port="$(env_value WORKSPACE_PORT || true)"
   workspace_desktop_port="$(env_value WORKSPACE_DESKTOP_PORT || printf '4181')"
   auto_setup="$(env_value NEURAL_LABS_AUTO_SETUP || true)"
@@ -186,12 +185,11 @@ validate_deployment_config() {
     die "NEURAL_LABS_BIND_ADDRESS must remain 127.0.0.1"
   validate_port LANDING_PORT "${landing_port}"
   validate_port CONTROL_PLANE_PORT "${control_port}"
-  validate_port MCP_PORT "${mcp_port}"
   validate_port WORKSPACE_PORT "${workspace_port}"
   validate_port WORKSPACE_DESKTOP_PORT "${workspace_desktop_port}"
-  [[ "${landing_port}" != "${control_port}" && "${landing_port}" != "${mcp_port}" && "${landing_port}" != "${workspace_port}" && "${landing_port}" != "${workspace_desktop_port}" &&
-     "${control_port}" != "${mcp_port}" && "${control_port}" != "${workspace_port}" && "${control_port}" != "${workspace_desktop_port}" &&
-     "${mcp_port}" != "${workspace_port}" && "${mcp_port}" != "${workspace_desktop_port}" && "${workspace_port}" != "${workspace_desktop_port}" ]] ||
+  [[ "${landing_port}" != "${control_port}" && "${landing_port}" != "${workspace_port}" && "${landing_port}" != "${workspace_desktop_port}" &&
+     "${control_port}" != "${workspace_port}" && "${control_port}" != "${workspace_desktop_port}" &&
+     "${workspace_port}" != "${workspace_desktop_port}" ]] ||
     die "all published service ports must be distinct"
 
   workspace_cpus="$(env_value NEURAL_LABS_WORKSPACE_CPUS || true)"
@@ -263,7 +261,7 @@ command_init() {
   chmod 0600 "${compose_environment}"
 
   if [[ "${created_environment}" == true && -f "${legacy_compose_environment}" ]]; then
-    for key in NEURAL_LABS_PUBLIC_ORIGIN NEURAL_LABS_HOSTNAME NEURAL_LABS_BIND_ADDRESS LANDING_PORT CONTROL_PLANE_PORT MCP_PORT; do
+    for key in NEURAL_LABS_PUBLIC_ORIGIN NEURAL_LABS_HOSTNAME NEURAL_LABS_BIND_ADDRESS LANDING_PORT CONTROL_PLANE_PORT; do
       legacy_value="$(env_value_from "${legacy_compose_environment}" "${key}" || true)"
       [[ -n "${legacy_value}" ]] && set_env_value "${key}" "${legacy_value}"
     done
@@ -355,20 +353,19 @@ wait_for_health() {
 }
 
 command_doctor() {
-  local landing_port control_port mcp_port workspace_port workspace_desktop_port failure=0 running_services
+  local landing_port control_port workspace_port workspace_desktop_port failure=0 running_services
   require_command curl
   require_docker
   validate_deployment_config
   landing_port="$(env_value LANDING_PORT)"
   control_port="$(env_value CONTROL_PLANE_PORT)"
-  mcp_port="$(env_value MCP_PORT)"
   workspace_port="$(env_value WORKSPACE_PORT)"
   workspace_desktop_port="$(env_value WORKSPACE_DESKTOP_PORT || printf '4181')"
 
   note "Compose services"
   compose ps
   running_services="$(compose ps --status running --services)"
-  for service in postgres landing control-plane mcp workspace; do
+  for service in postgres landing control-plane workspace; do
     if ! grep -qx "${service}" <<<"${running_services}"; then
       echo "fail  ${service} is not a running Compose service" >&2
       failure=1
@@ -378,9 +375,14 @@ command_doctor() {
   note "Loopback health"
   health_check landing "http://127.0.0.1:${landing_port}/healthz" || failure=1
   health_check control-plane "http://127.0.0.1:${control_port}/readyz" || failure=1
-  health_check mcp "http://127.0.0.1:${mcp_port}/healthz" || failure=1
   health_check workspace-gateway "http://127.0.0.1:${workspace_port}/healthz" || failure=1
   health_check workspace-desktop "http://127.0.0.1:${workspace_desktop_port}/healthz" || failure=1
+  if compose exec -T workspace node -e "fetch('http://127.0.0.1:8792/healthz').then(async r=>{const j=await r.json();if(!r.ok||j.status!=='ok'||!j.googleConfigured||!j.pexelsConfigured)process.exit(1)}).catch(()=>process.exit(1))"; then
+    echo "ok    workspace-mcp (loopback)"
+  else
+    echo "fail  workspace MCP or provider configuration is not healthy" >&2
+    failure=1
+  fi
 
   note "Published bindings"
   if compose port landing 8080 | grep -qv '^127\.0\.0\.1:'; then
@@ -389,10 +391,6 @@ command_doctor() {
   fi
   if compose port control-plane 4174 | grep -qv '^127\.0\.0\.1:'; then
     echo "fail  control-plane is not bound exclusively to IPv4 loopback" >&2
-    failure=1
-  fi
-  if compose port mcp 3000 | grep -qv '^127\.0\.0\.1:'; then
-    echo "fail  MCP is not bound exclusively to IPv4 loopback" >&2
     failure=1
   fi
   if compose port workspace 18789 | grep -qv '^127\.0\.0\.1:'; then
@@ -463,7 +461,7 @@ command_restore() {
   note "Creating a safety backup before destructive restoration"
   command_backup
   note "Stopping public services"
-  compose stop landing control-plane mcp workspace
+  compose stop landing control-plane workspace
 
   note "Restoring PostgreSQL"
   compose exec -T postgres pg_restore \

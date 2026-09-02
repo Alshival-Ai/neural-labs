@@ -1,8 +1,10 @@
 # Container deployment and onboarding
 
 The supported deployment is Docker Compose behind an existing host Nginx. The
-five HTTP ports bind to loopback by default; PostgreSQL has no host port. The
+four HTTP ports bind to loopback by default; PostgreSQL has no host port. The
 workspace desktop and its status endpoint share one loopback listener.
+The provider MCP is a child process inside the workspace container and has no
+host or Compose-network listener.
 
 ## Prerequisites
 
@@ -42,7 +44,8 @@ them again after a reboot. Validate the private listeners:
 bin/neural-labs doctor
 ```
 
-An MCP health response of `unconfigured` is healthy during onboarding.
+The doctor checks the workspace-local MCP through the container. Both provider
+credentials must be configured for it to pass.
 
 ## 3. Enable same-domain ingress
 
@@ -63,7 +66,7 @@ The routing is:
 |---|---|
 | `/` and landing assets | landing `127.0.0.1:4173` |
 | login, setup, account, admin, `/api/`, `/auth/` | control plane `127.0.0.1:4174` |
-| `/mcp`, `/oauth/`, OAuth well-known metadata | MCP `127.0.0.1:3000` |
+| `/mcp`, `/oauth/`, OAuth well-known metadata | Explicit `404`; public MCP is disabled in V1 |
 | `/workspace`, its assets, and `/workspace/api/files*` | Authenticated workspace desktop and confined file API `127.0.0.1:4181` |
 | `/workspace/neura/socket` | Authenticated Neura-to-OpenClaw WebSocket `127.0.0.1:4180` |
 
@@ -99,11 +102,12 @@ the same environment from the console.
 ```bash
 curl --fail https://neural-labs.example.com/healthz
 curl --fail https://neural-labs.example.com/api/auth/providers
-curl --fail https://neural-labs.example.com/.well-known/oauth-protected-resource/mcp
+test "$(curl -sS -o /dev/null -w '%{http_code}' https://neural-labs.example.com/mcp)" = 404
+test "$(curl -sS -o /dev/null -w '%{http_code}' https://neural-labs.example.com/.well-known/oauth-protected-resource/mcp)" = 404
 ```
 
-The metadata request returns `503` until Microsoft MCP access is enabled, and
-an unauthenticated configured MCP request must return `401`, never tool data.
+The MCP and OAuth paths return `404`. Provider tools are reachable only
+by the shared OpenClaw runtime over workspace loopback.
 An unauthenticated request to `/workspace` must redirect to login, and an
 unauthenticated WebSocket handshake at `/workspace/neura/socket` must not reach
 the Gateway. The retired `/workspace/openclaw/` browser UI returns `404`.
