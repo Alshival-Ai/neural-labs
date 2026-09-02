@@ -44,6 +44,9 @@ OpenAI device pairing remains workspace-owned. The control plane may start,
 cancel, and report the fixed OpenClaw flow through a private token-authenticated
 endpoint. The browser sees only the short-lived verification URL and user code;
 OpenClaw keeps the resulting credential in its persistent workspace volume.
+The controller invokes OpenClaw over container loopback, which is permitted
+because every process in the V1 shared workspace is already mutually trusted;
+the Gateway is not made public by this allowance.
 
 The MCP area is read-only in V1. It reports the loopback provider service that
 the workspace attaches globally to shared OpenClaw agents as

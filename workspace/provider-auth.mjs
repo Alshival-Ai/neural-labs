@@ -45,6 +45,9 @@ function safeBoolean(check) {
 
 function publicMessage(value) {
   const clean = stripTerminalControl(value);
+  if (/trusted_proxy_untrusted_source|auth_credentials_received|unauthorized/iu.test(clean)) {
+    return "OpenClaw rejected its local login client. Restart the workspace and try again.";
+  }
   if (/device code.{0,80}(disabled|not enabled|unavailable)/isu.test(clean)) {
     return "Enable device-code login in your ChatGPT security or workspace settings, then try again.";
   }

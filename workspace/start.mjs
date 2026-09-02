@@ -110,7 +110,13 @@ function configureGateway() {
       value: ["x-forwarded-proto", "x-forwarded-host"],
     },
     { path: "gateway.auth.trustedProxy.allowUsers", value: [] },
-    { path: "gateway.auth.trustedProxy.allowLoopback", value: false },
+    {
+      // The administrator-only provider controller runs OpenClaw's own CLI in
+      // this trusted container. Its auth-status probe reaches the Gateway over
+      // loopback before the OpenAI device flow can begin.
+      path: "gateway.auth.trustedProxy.allowLoopback",
+      value: true,
+    },
     { path: "gateway.auth.trustedProxy.deviceAutoApprove.enabled", value: true },
     {
       path: "gateway.auth.trustedProxy.deviceAutoApprove.scopes",

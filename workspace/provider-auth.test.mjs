@@ -65,3 +65,25 @@ test("runs one device-code login at a time and exposes only the short-lived pair
   assert.equal(controller.snapshot().state, "connected");
   assert.equal(controller.snapshot().authenticated, true);
 });
+
+test("does not misreport a local Gateway authorization failure as an OpenAI outage", () => {
+  const child = new FakeChild();
+  const controller = createProviderAuthController({
+    providerAuthenticated: () => false,
+    modelReady: () => false,
+    spawnLogin: () => child,
+  });
+
+  controller.start();
+  child.stderr.emit(
+    "data",
+    "unauthorized reason=trusted_proxy_untrusted_source phase=auth_credentials_received",
+  );
+  child.emit("exit", 1, null);
+
+  assert.equal(controller.snapshot().state, "error");
+  assert.equal(
+    controller.snapshot().message,
+    "OpenClaw rejected its local login client. Restart the workspace and try again.",
+  );
+});
