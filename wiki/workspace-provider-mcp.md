@@ -69,5 +69,8 @@ exits, the container exits so its restart policy can recover the complete
 workspace together.
 
 Public `/mcp`, `/oauth/`, and OAuth discovery routes return `404`.
+The retained `mcp.alshival.ai` hostname uses
+`deploy/nginx/mcp.alshival.ai-disabled.conf`, which preserves ACME renewal but
+returns `404` for every non-challenge request.
 The retained Entra resource-server implementation is future code and requires a
 new security review plus explicit provider-tool wiring before public use.
