@@ -70,6 +70,12 @@ ready only when both OpenClaw and the local MCP are ready. If the MCP process
 exits, the container exits so its restart policy can recover the complete
 workspace together.
 
+The workspace health response includes a secret-free MCP status summary: its
+loopback endpoint, global OpenClaw server name, shared-agent scope, provider
+configuration flags, and registered tool names. The control plane uses that
+summary for the read-only MCP area in Settings; it does not reconstruct or
+advertise the retained public MCP configuration.
+
 Public `/mcp`, `/oauth/`, and OAuth discovery routes return `404`.
 The retained `mcp.alshival.ai` hostname uses
 `deploy/nginx/mcp.alshival.ai-disabled.conf`, which preserves ACME renewal but

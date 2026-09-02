@@ -37,7 +37,17 @@ function renderDesktop(role: "admin" | "user") {
     if (url === "/api/admin/overview") return json({
       counts: { pending: 0, active: 1, activeAdmins: 1, inactive: 0 },
       authentication: { localEnabled: true, microsoftEnabled: true, microsoftAvailable: true, microsoftSource: "environment" },
-      mcp: { configured: true, configVersion: 1 },
+      mcp: {
+        ready: true,
+        mode: "workspace-local",
+        endpoint: "http://127.0.0.1:8792/mcp",
+        transport: "streamable-http",
+        agentServerName: "neural-labs-tools",
+        agentScope: "shared-workspace",
+        publicAccess: false,
+        providers: { googlePlaces: true, googleGeocoding: true, klipy: true, pexels: true },
+        tools: ["search_gif"],
+      },
       workspace: { status: "ready", openclawVersion: "2026.8.2", codexVersion: "0.152.0", openclawModelReady: true },
       recentAudit: [],
     });

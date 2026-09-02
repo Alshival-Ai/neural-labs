@@ -69,7 +69,6 @@ const authenticationSettingsSchema = z.object({
   localAuthEnabled: z.boolean(),
   microsoftAuthEnabled: z.boolean(),
 });
-const mcpSettingsSchema = z.object({ enabled: z.boolean() });
 const handleSchema = z
   .string()
   .trim()
@@ -115,6 +114,22 @@ const workspaceRuntimeSchema = z.object({
   providerAuthenticated: z.boolean().optional(),
   codexAuthenticated: z.boolean(),
   openclawModelReady: z.boolean(),
+  mcp: z.object({
+    ready: z.boolean(),
+    mode: z.literal("workspace-local"),
+    endpoint: z.string().url(),
+    transport: z.literal("streamable-http"),
+    agentServerName: z.string().min(1).max(80),
+    agentScope: z.literal("shared-workspace"),
+    publicAccess: z.literal(false),
+    providers: z.object({
+      googlePlaces: z.boolean(),
+      googleGeocoding: z.boolean(),
+      klipy: z.boolean(),
+      pexels: z.boolean(),
+    }),
+    tools: z.array(z.string().min(1).max(100)).max(100),
+  }),
 });
 const workspaceProviderAuthSchema = z.object({
   provider: z.literal("openai"),
@@ -401,29 +416,31 @@ export function createApplication(input: {
   };
 
   const mcpData = async () => {
-    const stored = await database.getInstanceConfig();
-    const publicOrigin = authConfiguration.effectivePublicOrigin(stored);
-    const entra = authConfiguration.effectiveEntra(stored);
-    const runtime = publicOrigin
-      ? await database.getMcpRuntimeConfig(publicOrigin.origin)
-      : undefined;
-    const publicUrl = publicOrigin ? new URL("/mcp", publicOrigin).toString() : null;
-    return {
-      enabled: stored.microsoftMcpEnabled,
-      available: Boolean(entra),
-      configured: Boolean(runtime),
-      configVersion: stored.configVersion,
-      publicUrl,
-      protectedResourceMetadataUrl: publicOrigin
-        ? new URL("/.well-known/oauth-protected-resource/mcp", publicOrigin).toString()
-        : null,
-      authorizationServerMetadataUrl: publicOrigin
-        ? new URL("/.well-known/oauth-authorization-server", publicOrigin).toString()
-        : null,
-      oauthScope: runtime?.oauthScope ?? (entra ? `api://${entra.clientId}/mcp.access` : null),
-      requiredScope: runtime?.requiredScope ?? "mcp.access",
-      tokenAudience: runtime?.tokenAudience ?? entra?.clientId ?? null,
-    };
+    try {
+      const runtimeResponse = await workspaceFetch(config.workspace.statusUrl, {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(2_000),
+      });
+      if (!runtimeResponse.ok) throw new Error(`Workspace status returned ${runtimeResponse.status}`);
+      return workspaceRuntimeSchema.parse(await runtimeResponse.json()).mcp;
+    } catch {
+      return {
+        ready: false,
+        mode: "workspace-local" as const,
+        endpoint: "http://127.0.0.1:8792/mcp",
+        transport: "streamable-http" as const,
+        agentServerName: "neural-labs-tools",
+        agentScope: "shared-workspace" as const,
+        publicAccess: false as const,
+        providers: {
+          googlePlaces: false,
+          googleGeocoding: false,
+          klipy: false,
+          pexels: false,
+        },
+        tools: [],
+      };
+    }
   };
 
   const workspaceData = async () => {
@@ -1287,30 +1304,6 @@ export function createApplication(input: {
   app.get("/api/admin/mcp", async (request, response) => {
     const actor = await requireAdminJson(request, response);
     if (!actor) return;
-    response.json(await mcpData());
-  });
-
-  app.put("/api/admin/mcp", sameOrigin, async (request, response) => {
-    const actor = await requireAdminJson(request, response);
-    if (!actor || !requireCsrfJson(request, response, actor)) return;
-    const parsed = mcpSettingsSchema.safeParse(request.body);
-    if (!parsed.success) {
-      jsonError(response, 422, "invalid_mcp_settings", "MCP settings are invalid.");
-      return;
-    }
-    const stored = await database.getInstanceConfig();
-    if (parsed.data.enabled && !authConfiguration.effectiveEntra(stored)) {
-      jsonError(response, 409, "microsoft_unavailable", "Microsoft credentials are required for MCP.");
-      return;
-    }
-    await database.updateAuthSettings({
-      localAuthEnabled: stored.localAuthEnabled,
-      microsoftAuthEnabled: stored.microsoftAuthEnabled,
-      microsoftMcpEnabled: parsed.data.enabled,
-    });
-    await database.audit(actor.user.id, "mcp.settings_changed", null, {
-      enabled: parsed.data.enabled,
-    });
     response.json(await mcpData());
   });
 

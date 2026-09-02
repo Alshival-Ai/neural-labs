@@ -7,6 +7,18 @@ import { WebSocket } from "ws";
 
 import { createWorkspaceHttpServer } from "./http-server.mjs";
 
+const mcpStatusFixture = (ready = true) => ({
+  ready,
+  mode: "workspace-local",
+  endpoint: "http://127.0.0.1:8792/mcp",
+  transport: "streamable-http",
+  agentServerName: "neural-labs-tools",
+  agentScope: "shared-workspace",
+  publicAccess: false,
+  providers: { googlePlaces: true, googleGeocoding: true, klipy: true, pexels: true },
+  tools: ["google_places_search", "search_gif", "pexels_search_photos"],
+});
+
 async function fixture(ready = true, { maxUploadBytes, maxTextBytes, mcpReady = true, runTeamAgent } = {}) {
   const desktopRoot = await mkdtemp(path.join(tmpdir(), "neural-labs-desktop-test-"));
   const workspaceRoot = path.join(desktopRoot, "workspace-root");
@@ -28,7 +40,7 @@ async function fixture(ready = true, { maxUploadBytes, maxTextBytes, mcpReady = 
     workspaceRoot,
     publicOrigin: "https://neural-labs.example.com",
     gatewayReady: async () => ready,
-    mcpReady: async () => mcpReady,
+    mcpStatus: async () => mcpStatusFixture(mcpReady),
     providerAuthenticated: () => false,
     openclawModelReady: () => false,
     providerAuth: {
@@ -445,6 +457,7 @@ test("reports gateway readiness without exposing arbitrary files", async () => {
       status: "starting",
       gatewayReady: false,
       mcpReady: true,
+      mcp: mcpStatusFixture(true),
       openclawVersion: "2026.8.2",
       codexVersion: "0.152.0",
       providerAuthenticated: false,
@@ -471,6 +484,7 @@ test("holds workspace readiness while the local MCP is unavailable", async () =>
       status: "starting",
       gatewayReady: true,
       mcpReady: false,
+      mcp: mcpStatusFixture(false),
       openclawVersion: "2026.8.2",
       codexVersion: "0.152.0",
       providerAuthenticated: false,

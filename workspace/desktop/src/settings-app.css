@@ -216,6 +216,8 @@
 .settings-detail-list dt { color: #8b8c92; font-size: var(--desktop-font-small, 12px); }
 .settings-detail-list dd { overflow: hidden; margin: 0; color: #55565d; text-overflow: ellipsis; white-space: nowrap; font-size: var(--desktop-font-body, 13px); }
 .settings-detail-list code { color: var(--settings-violet); font-family: ui-monospace, monospace; font-size: var(--desktop-font-small, 12px); }
+.settings-tool-list { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .65rem; }
+.settings-tool-list > code { padding: .38rem .52rem; border: 1px solid rgba(123, 77, 255, .15); border-radius: 7px; color: #5f3bc4; background: rgba(123, 77, 255, .055); font-family: ui-monospace, monospace; font-size: var(--desktop-font-small, 12px); }
 .settings-copy-field { min-height: 3.3rem; display: flex; align-items: center; gap: .5rem; padding: .45rem .5rem; border-top: 1px solid var(--settings-line); }
 .settings-copy-field > div { min-width: 0; display: grid; gap: .14rem; }
 .settings-copy-field span { color: #93949a; font-size: var(--desktop-font-small, 12px); }

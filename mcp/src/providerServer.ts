@@ -11,6 +11,20 @@ import { registerKlipyTools } from "./klipyProvider.js";
 import { registerPexelsTools } from "./pexelsProvider.js";
 import type { ProviderConfig } from "./providerConfig.js";
 
+const GOOGLE_TOOLS = [
+  "google_places_search",
+  "google_place_details",
+  "google_place_photo",
+  "google_geocode_address",
+  "google_reverse_geocode",
+];
+const KLIPY_TOOLS = ["search_gif"];
+const PEXELS_TOOLS = [
+  "pexels_search_photos",
+  "pexels_search_videos",
+  "pexels_download_media",
+];
+
 export interface ProviderApplication {
   app: Express;
   close(): Promise<void>;
@@ -27,11 +41,29 @@ export function createProviderApplication(
   });
   app.disable("x-powered-by");
   app.get("/healthz", (_request, response) => {
+    const googleConfigured = Boolean(config.googleApiKey);
+    const klipyConfigured = Boolean(config.klipyApiKey);
+    const pexelsConfigured = Boolean(config.pexelsApiKey);
     response.status(200).json({
       status: "ok",
-      googleConfigured: Boolean(config.googleApiKey),
-      klipyConfigured: Boolean(config.klipyApiKey),
-      pexelsConfigured: Boolean(config.pexelsApiKey),
+      mode: "workspace-local",
+      transport: "streamable-http",
+      agentServerName: "neural-labs-tools",
+      publicAccess: false,
+      googleConfigured,
+      klipyConfigured,
+      pexelsConfigured,
+      providers: {
+        googlePlaces: googleConfigured,
+        googleGeocoding: googleConfigured,
+        klipy: klipyConfigured,
+        pexels: pexelsConfigured,
+      },
+      tools: [
+        ...(googleConfigured ? GOOGLE_TOOLS : []),
+        ...(klipyConfigured ? KLIPY_TOOLS : []),
+        ...(pexelsConfigured ? PEXELS_TOOLS : []),
+      ],
     });
   });
 

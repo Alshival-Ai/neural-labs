@@ -20,7 +20,7 @@ path redirect active users to `/workspace`.
 | Overview | Account counts, authentication state, MCP state, runtime health, and recent audit events |
 | Users | User approval, rejection, activation, disabling, and Admin/User role assignment |
 | Authentication | Local and Microsoft login enablement plus Entra secret or certificate rotation |
-| MCP | Microsoft-authenticated MCP enablement, discovery endpoints, scopes, and Codex setup |
+| MCP | Live workspace-local MCP health, shared-agent attachment, provider readiness, and registered tools |
 | Workspace | OpenClaw health and ChatGPT/Codex device-code pairing |
 | Audit log | The latest security-sensitive account and configuration activity |
 | About | Live runtime versions, service state, documentation, and project links |
@@ -44,6 +44,11 @@ OpenAI device pairing remains workspace-owned. The control plane may start,
 cancel, and report the fixed OpenClaw flow through a private token-authenticated
 endpoint. The browser sees only the short-lived verification URL and user code;
 OpenClaw keeps the resulting credential in its persistent workspace volume.
+
+The MCP area is read-only in V1. It reports the loopback provider service that
+the workspace attaches globally to shared OpenClaw agents as
+`neural-labs-tools`. Public endpoints, Entra scopes, and client registration
+controls are intentionally absent because public MCP ingress is disabled.
 
 ## Application boundaries
 

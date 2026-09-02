@@ -285,7 +285,17 @@ export function createWorkspaceHttpServer({
   workspaceRoot,
   publicOrigin,
   gatewayReady,
-  mcpReady = async () => true,
+  mcpStatus = async () => ({
+    ready: true,
+    mode: "workspace-local",
+    endpoint: "http://127.0.0.1:8792/mcp",
+    transport: "streamable-http",
+    agentServerName: "neural-labs-tools",
+    agentScope: "shared-workspace",
+    publicAccess: false,
+    providers: { googlePlaces: false, googleGeocoding: false, klipy: false, pexels: false },
+    tools: [],
+  }),
   providerAuthenticated,
   openclawModelReady,
   providerAuth,
@@ -512,16 +522,18 @@ export function createWorkspaceHttpServer({
     }
 
     if (pathname === "/status" || pathname === "/healthz") {
-      const [gatewayIsReady, mcpIsReady] = await Promise.all([
+      const [gatewayIsReady, mcp] = await Promise.all([
         gatewayReady(),
-        mcpReady(),
+        mcpStatus(),
       ]);
+      const mcpIsReady = mcp.ready;
       const ready = gatewayIsReady && mcpIsReady;
       const providerReady = providerAuthenticated();
       const body = JSON.stringify({
         status: ready ? "ready" : "starting",
         gatewayReady: gatewayIsReady,
         mcpReady: mcpIsReady,
+        mcp,
         openclawVersion,
         codexVersion,
         providerAuthenticated: providerReady,

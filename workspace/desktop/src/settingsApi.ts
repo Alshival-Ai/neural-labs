@@ -26,16 +26,20 @@ export type AuditEvent = {
 };
 
 export type McpSettings = {
-  enabled: boolean;
-  available: boolean;
-  configured: boolean;
-  configVersion: number;
-  publicUrl: string | null;
-  protectedResourceMetadataUrl: string | null;
-  authorizationServerMetadataUrl: string | null;
-  oauthScope: string | null;
-  requiredScope: string;
-  tokenAudience: string | null;
+  ready: boolean;
+  mode: "workspace-local";
+  endpoint: string;
+  transport: "streamable-http";
+  agentServerName: string;
+  agentScope: "shared-workspace";
+  publicAccess: false;
+  providers: {
+    googlePlaces: boolean;
+    googleGeocoding: boolean;
+    klipy: boolean;
+    pexels: boolean;
+  };
+  tools: string[];
 };
 
 export type WorkspaceStatus = {

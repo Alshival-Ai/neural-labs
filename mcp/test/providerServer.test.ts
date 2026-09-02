@@ -66,6 +66,25 @@ async function config(): Promise<ProviderConfig> {
 }
 
 describe("workspace provider MCP", () => {
+  it("reports only safe local configuration and its registered tool inventory", async () => {
+    const application = createProviderApplication(
+      await config(),
+      vi.fn() as unknown as typeof fetch,
+    );
+    const response = await request(application.app).get("/healthz").expect(200);
+    expect(response.body).toMatchObject({
+      status: "ok",
+      mode: "workspace-local",
+      transport: "streamable-http",
+      agentServerName: "neural-labs-tools",
+      publicAccess: false,
+      providers: { googlePlaces: true, googleGeocoding: true, klipy: true, pexels: true },
+    });
+    expect(response.body.tools).toHaveLength(9);
+    expect(response.text).not.toContain("test-secret");
+    await application.close();
+  });
+
   it("registers the complete configured provider tool set", async () => {
     const application = createProviderApplication(
       await config(),

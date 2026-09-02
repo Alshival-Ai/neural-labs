@@ -39,16 +39,15 @@ const workspace = {
 };
 
 const mcp = {
-  enabled: false,
-  available: true,
-  configured: false,
-  configVersion: 3,
-  publicUrl: "https://neural-labs.example.org/mcp",
-  protectedResourceMetadataUrl: "https://neural-labs.example.org/.well-known/oauth-protected-resource/mcp",
-  authorizationServerMetadataUrl: "https://neural-labs.example.org/.well-known/oauth-authorization-server",
-  oauthScope: "api://client/mcp.access",
-  requiredScope: "mcp.access",
-  tokenAudience: "client",
+  ready: true,
+  mode: "workspace-local",
+  endpoint: "http://127.0.0.1:8792/mcp",
+  transport: "streamable-http",
+  agentServerName: "neural-labs-tools",
+  agentScope: "shared-workspace",
+  publicAccess: false,
+  providers: { googlePlaces: true, googleGeocoding: true, klipy: true, pexels: true },
+  tools: ["google_places_search", "google_geocode_address", "search_gif", "pexels_search_photos"],
 };
 
 const overview = {
@@ -93,7 +92,6 @@ beforeEach(() => {
     if (url === "/api/admin/authentication" && method === "GET") return json(authentication);
     if (url === "/api/admin/authentication" && method === "PUT") return json({ ...authentication, localAuthEnabled: false, updatedAt: "2026-09-01T12:01:00.000Z" });
     if (url === "/api/admin/mcp" && method === "GET") return json(mcp);
-    if (url === "/api/admin/mcp" && method === "PUT") return json({ ...mcp, enabled: true, configured: true });
     if (url === "/api/workspace") return json(workspace);
     if (url === "/api/admin/workspace/provider" && method === "GET") return json({ provider: "openai", authMethod: "chatgpt", state: "disconnected", authenticated: false, modelReady: false, verificationUrl: null, userCode: null, expiresAt: null, message: null });
     if (url === "/api/admin/workspace/provider/connect" && method === "POST") return json({ provider: "openai", authMethod: "chatgpt", state: "starting", authenticated: false, modelReady: false, verificationUrl: null, userCode: null, expiresAt: null, message: null }, 202);
@@ -142,7 +140,7 @@ describe("Settings app", () => {
     expect(await screen.findByText("New Developer was updated.")).toBeInTheDocument();
   });
 
-  it("persists authentication and MCP changes through the live admin APIs", async () => {
+  it("persists authentication changes and reports the workspace-local MCP", async () => {
     const { unmount } = render(<SettingsApp csrfToken="csrf-token" currentUserId={admin.id} initialSection="authentication" />);
     const localLogin = await screen.findByRole("checkbox", { name: /Local login/ });
     fireEvent.click(localLogin);
@@ -154,12 +152,13 @@ describe("Settings app", () => {
 
     unmount();
     render(<SettingsApp csrfToken="csrf-token" currentUserId={admin.id} initialSection="mcp" />);
-    const mcpToggle = await screen.findByRole("checkbox", { name: /Enable MCP access/ });
-    fireEvent.click(mcpToggle);
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith(
-      "/api/admin/mcp",
-      expect.objectContaining({ method: "PUT", body: JSON.stringify({ enabled: true }) }),
-    ));
+    expect(await screen.findByRole("heading", { name: "Neural Labs Tools" })).toBeInTheDocument();
+    expect(screen.getByText("All shared workspace agents")).toBeInTheDocument();
+    expect(screen.getByText("google_geocode_address")).toBeInTheDocument();
+    expect(screen.getByText("Public access").parentElement).toHaveTextContent("Disabled");
+    expect(screen.queryByText("Public endpoints")).not.toBeInTheDocument();
+    expect(screen.queryByText("Microsoft Entra OAuth")).not.toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.some(([url, init]) => String(url) === "/api/admin/mcp" && init?.method === "PUT")).toBe(false);
   });
 
   it("starts workspace-owned ChatGPT pairing", async () => {

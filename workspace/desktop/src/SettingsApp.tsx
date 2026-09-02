@@ -5,11 +5,9 @@ import {
   ChevronRight,
   Clipboard,
   CloudCog,
-  Code2,
   ExternalLink,
   FileText,
   Gauge,
-  Globe2,
   Info,
   KeyRound,
   Menu,
@@ -252,7 +250,7 @@ export function SettingsApp({ administrator = true, csrfToken, currentUserId, us
           {administrator && section === "overview" && <OverviewPanel overview={overview} error={overviewError} onNavigate={chooseSection} onRefresh={() => void refreshOverview()} />}
           {administrator && section === "users" && <UsersPanel users={users} currentUserId={currentUserId} csrfToken={csrfToken} onUsers={setUsers} onNotice={setNotice} onMutated={refreshAfterMutation} />}
           {administrator && section === "authentication" && <AuthenticationPanel settings={authentication} csrfToken={csrfToken} onSettings={setAuthentication} onNotice={setNotice} onMutated={refreshAfterMutation} />}
-          {administrator && section === "mcp" && <McpPanel mcp={mcp} csrfToken={csrfToken} onMcp={setMcp} onNotice={setNotice} onMutated={refreshAfterMutation} />}
+          {administrator && section === "mcp" && <McpPanel mcp={mcp} />}
           {administrator && section === "workspace" && <WorkspacePanel workspace={workspace} provider={provider} csrfToken={csrfToken} onProvider={setProvider} onNotice={setNotice} onRefresh={() => void refreshWorkspace()} />}
           {administrator && section === "audit" && <AuditPanel events={audit} />}
           {administrator && section === "about" && <AboutPanel overview={overview} />}
@@ -279,7 +277,7 @@ function OverviewPanel({ overview, error, onNavigate, onRefresh }: { overview?: 
       <div className="settings-overview-grid">
         <OverviewCard accent="pink" label="Pending requests" value={String(overview.counts.pending)} detail="Waiting for review" onClick={() => onNavigate("users")} />
         <OverviewCard accent="amber" label="Login providers" value={String(Number(overview.authentication.localEnabled) + Number(overview.authentication.microsoftEnabled))} detail={overview.authentication.microsoftEnabled ? "Microsoft enabled" : "Local only"} onClick={() => onNavigate("authentication")} />
-        <OverviewCard accent="violet" label="MCP server" value={overview.mcp.configured ? "Ready" : "Off"} detail={`Configuration ${overview.mcp.configVersion}`} onClick={() => onNavigate("mcp")} />
+        <OverviewCard accent="violet" label="MCP server" value={overview.mcp.ready ? "Ready" : "Offline"} detail={`${overview.mcp.tools.length} tools · workspace local`} onClick={() => onNavigate("mcp")} />
         <OverviewCard accent="coral" label="Workspace" value={overview.workspace.status} detail={`OpenClaw ${overview.workspace.openclawVersion}`} onClick={() => onNavigate("workspace")} />
       </div>
       <div className="settings-mcp-grid">
@@ -295,7 +293,7 @@ function OverviewPanel({ overview, error, onNavigate, onRefresh }: { overview?: 
           <div className="settings-system-list">
             <ServiceRow label="Local authentication" ready={overview.authentication.localEnabled} value={overview.authentication.localEnabled ? "Enabled" : "Disabled"} />
             <ServiceRow label="Microsoft Entra" ready={overview.authentication.microsoftEnabled} value={overview.authentication.microsoftEnabled ? "Enabled" : overview.authentication.microsoftAvailable ? "Available" : "Not configured"} />
-            <ServiceRow label="MCP endpoint" ready={overview.mcp.configured} value={overview.mcp.configured ? "Ready" : "Disabled"} />
+            <ServiceRow label="Workspace MCP" ready={overview.mcp.ready} value={overview.mcp.ready ? "Ready" : "Offline"} />
             <ServiceRow label="OpenClaw workspace" ready={overview.workspace.status === "ready"} value={overview.workspace.status} />
           </div>
         </section>
@@ -486,35 +484,18 @@ function AuthenticationForm({ settings, csrfToken, onSettings, onNotice, onMutat
   );
 }
 
-function McpPanel({ mcp, csrfToken, onMcp, onNotice, onMutated }: { mcp?: McpSettings; csrfToken: string; onMcp: (mcp: McpSettings) => void; onNotice: NoticeSetter; onMutated: () => void }) {
-  const [saving, setSaving] = useState(false);
+function McpPanel({ mcp }: { mcp?: McpSettings }) {
   if (!mcp) return <LoadingPanel label="Loading MCP settings" />;
-  const command = mcp.publicUrl && mcp.tokenAudience ? `codex mcp add neural-labs --url ${mcp.publicUrl} --oauth-client-id ${mcp.tokenAudience}` : null;
-
-  async function save(enabled: boolean) {
-    setSaving(true);
-    onNotice(undefined);
-    try {
-      const next = await settingsRequest<McpSettings>("/api/admin/mcp", { method: "PUT", headers: settingsMutationHeaders(csrfToken), body: JSON.stringify({ enabled }) });
-      onMcp(next);
-      onNotice({ tone: "success", message: `Microsoft-authenticated MCP was ${next.enabled ? "enabled" : "disabled"}.` });
-      onMutated();
-    } catch (error) {
-      onNotice({ tone: "error", message: errorMessage(error, "MCP settings could not be saved.") });
-    } finally {
-      setSaving(false);
-    }
-  }
 
   return (
     <div className="settings-panel">
-      <SectionHeader eyebrow="Model Context Protocol" title="MCP" description="Expose approved Neural Labs tools to trusted clients through Microsoft authentication." icon={PlugZap} />
-      <section className="settings-card settings-mcp-hero"><div className="settings-mcp-hero__mark"><PlugZap /></div><div><span>Workspace endpoint</span><h2>Neural Labs MCP</h2><p>One authenticated doorway into the tools this team chooses to share.</p></div><span className={`settings-service-state${mcp.configured && mcp.enabled ? " is-ready" : ""}`}><i />{mcp.configured && mcp.enabled ? "Ready" : "Off"}</span></section>
+      <SectionHeader eyebrow="Model Context Protocol" title="MCP" description="Workspace-local tools attached automatically to every shared OpenClaw agent." icon={PlugZap} />
+      <section className="settings-card settings-mcp-hero"><div className="settings-mcp-hero__mark"><PlugZap /></div><div><span>Private workspace service</span><h2>Neural Labs Tools</h2><p>Provider tools run inside the workspace container and are not exposed publicly.</p></div><span className={`settings-service-state${mcp.ready ? " is-ready" : ""}`}><i />{mcp.ready ? "Ready" : "Offline"}</span></section>
       <div className="settings-mcp-grid">
-        <section className="settings-card"><div className="settings-card__heading"><div><span>Service state</span><h2>Microsoft MCP</h2><p>Require Entra tokens with the delegated MCP scope.</p></div><CloudCog /></div><ToggleRow label="Enable MCP access" description={mcp.available ? "Allow authenticated clients to discover and call shared tools." : "Configure Microsoft credentials first."} checked={mcp.enabled} disabled={!mcp.available || saving} onChange={(enabled) => void save(enabled)} /><dl className="settings-detail-list"><div><dt>Configuration</dt><dd>Version {mcp.configVersion}</dd></div><div><dt>Required scope</dt><dd><code>{mcp.requiredScope}</code></dd></div><div><dt>Authentication</dt><dd>Microsoft Entra OAuth</dd></div></dl></section>
-        <section className="settings-card"><div className="settings-card__heading"><div><span>Discovery</span><h2>Public endpoints</h2><p>Use these exact addresses when registering a client.</p></div><Globe2 /></div><CopyField label="MCP endpoint" value={mcp.publicUrl} onCopied={() => onNotice({ tone: "success", message: "MCP endpoint copied." })} /><CopyField label="Protected resource metadata" value={mcp.protectedResourceMetadataUrl} onCopied={() => onNotice({ tone: "success", message: "Protected resource metadata URL copied." })} /><CopyField label="Authorization server metadata" value={mcp.authorizationServerMetadataUrl} onCopied={() => onNotice({ tone: "success", message: "Authorization server metadata URL copied." })} /><CopyField label="OAuth scope" value={mcp.oauthScope} onCopied={() => onNotice({ tone: "success", message: "OAuth scope copied." })} /><CopyField label="Token audience" value={mcp.tokenAudience} onCopied={() => onNotice({ tone: "success", message: "Token audience copied." })} /></section>
+        <section className="settings-card"><div className="settings-card__heading"><div><span>Agent attachment</span><h2>Shared OpenClaw agents</h2><p>The global workspace configuration supplies this server to every agent automatically.</p></div><Bot /></div><dl className="settings-detail-list"><div><dt>Server name</dt><dd><code>{mcp.agentServerName}</code></dd></div><div><dt>Scope</dt><dd>All shared workspace agents</dd></div><div><dt>Transport</dt><dd>{mcp.transport}</dd></div><div><dt>Internal endpoint</dt><dd><code>{mcp.endpoint}</code></dd></div><div><dt>Public access</dt><dd>Disabled</dd></div></dl></section>
+        <section className="settings-card"><div className="settings-card__heading"><div><span>Provider readiness</span><h2>Credentials loaded</h2><p>Secrets stay inside the workspace container and are never returned here.</p></div><CloudCog /></div><div className="settings-system-list"><ServiceRow label="Google Places" ready={mcp.providers.googlePlaces} value={mcp.providers.googlePlaces ? "Configured" : "Missing"} /><ServiceRow label="Google Geocoding" ready={mcp.providers.googleGeocoding} value={mcp.providers.googleGeocoding ? "Configured" : "Missing"} /><ServiceRow label="KLIPY" ready={mcp.providers.klipy} value={mcp.providers.klipy ? "Configured" : "Missing"} /><ServiceRow label="Pexels" ready={mcp.providers.pexels} value={mcp.providers.pexels ? "Configured" : "Missing"} /></div></section>
       </div>
-      <section className="settings-card settings-connect-card"><div className="settings-card__heading"><div><span>Connect a client</span><h2>Codex setup</h2><p>Register the endpoint, complete Microsoft sign-in, then verify the identity returned by the server.</p></div><Code2 /></div>{command ? <div className="settings-code-field"><code>{command}</code><button type="button" onClick={() => void copyValue(command, () => onNotice({ tone: "success", message: "Codex command copied." }))}><Clipboard />Copy</button></div> : <p className="settings-card-note">MCP public configuration is incomplete.</p>}<ol><li><span>1</span><div><strong>Expose the API scope</strong><p>Add the delegated <code>mcp.access</code> scope in Entra.</p></div></li><li><span>2</span><div><strong>Register and authenticate</strong><p>Run the command, add Codex's callback URI, and sign in.</p></div></li><li><span>3</span><div><strong>Verify</strong><p>Call <code>whoami</code> before using workspace tools.</p></div></li></ol></section>
+      <section className="settings-card"><div className="settings-card__heading"><div><span>Registered capabilities</span><h2>{mcp.tools.length} tools available</h2><p>This is the live tool inventory reported by the workspace MCP.</p></div><PlugZap /></div><div className="settings-tool-list">{mcp.tools.length ? mcp.tools.map((tool) => <code key={tool}>{tool}</code>) : <p className="settings-card-note">No provider tools are currently registered.</p>}</div></section>
     </div>
   );
 }
@@ -567,7 +548,7 @@ function AboutPanel({ overview }: { overview?: OverviewData }) {
     <div className="settings-panel">
       <SectionHeader eyebrow="Product and runtime" title="About" description="The people, platform, and open tools behind this shared workspace." icon={Info} />
       <section className="settings-about-hero"><div className="settings-about-hero__mark"><span>N</span></div><div><span>Neural Labs</span><h2>A colorful place to build together.</h2><p>Shared workflows, skills, files, and agent context—powered by OpenClaw and shaped for teams.</p><div><a href="https://alshival.ai" target="_blank" rel="noreferrer">Developed by Alshival.Ai <ExternalLink /></a><a href="https://github.com/Alshival-Ai/neural-labs" target="_blank" rel="noreferrer">Source code <ExternalLink /></a></div></div></section>
-      <div className="settings-about-grid"><section className="settings-card"><div className="settings-card__heading"><div><span>Versions</span><h2>Runtime stack</h2><p>Components running in this shared environment.</p></div><Gauge /></div><dl className="settings-detail-list"><div><dt>Neural Labs</dt><dd><code>V1</code></dd></div><div><dt>OpenClaw</dt><dd><code>{overview?.workspace.openclawVersion ?? "Checking"}</code></dd></div><div><dt>Codex CLI</dt><dd><code>{overview?.workspace.codexVersion ?? "Checking"}</code></dd></div><div><dt>Theme</dt><dd>Spectrum Paper</dd></div></dl></section><section className="settings-card"><div className="settings-card__heading"><div><span>System</span><h2>Service health</h2><p>Live state reported by the control plane.</p></div><ShieldCheck /></div><div className="settings-system-list"><ServiceRow label="Workspace" ready={overview?.workspace.status === "ready"} value={overview?.workspace.status ?? "Checking"} /><ServiceRow label="OpenClaw model" ready={overview?.workspace.openclawModelReady === true} value={overview?.workspace.openclawModelReady ? "Ready" : "Setup required"} /><ServiceRow label="MCP endpoint" ready={overview?.mcp.configured === true} value={overview?.mcp.configured ? "Ready" : "Disabled"} /></div></section></div>
+      <div className="settings-about-grid"><section className="settings-card"><div className="settings-card__heading"><div><span>Versions</span><h2>Runtime stack</h2><p>Components running in this shared environment.</p></div><Gauge /></div><dl className="settings-detail-list"><div><dt>Neural Labs</dt><dd><code>V1</code></dd></div><div><dt>OpenClaw</dt><dd><code>{overview?.workspace.openclawVersion ?? "Checking"}</code></dd></div><div><dt>Codex CLI</dt><dd><code>{overview?.workspace.codexVersion ?? "Checking"}</code></dd></div><div><dt>Theme</dt><dd>Spectrum Paper</dd></div></dl></section><section className="settings-card"><div className="settings-card__heading"><div><span>System</span><h2>Service health</h2><p>Live state reported by the control plane.</p></div><ShieldCheck /></div><div className="settings-system-list"><ServiceRow label="Workspace" ready={overview?.workspace.status === "ready"} value={overview?.workspace.status ?? "Checking"} /><ServiceRow label="OpenClaw model" ready={overview?.workspace.openclawModelReady === true} value={overview?.workspace.openclawModelReady ? "Ready" : "Setup required"} /><ServiceRow label="Workspace MCP" ready={overview?.mcp.ready === true} value={overview?.mcp.ready ? "Ready" : "Offline"} /></div></section></div>
       <section className="settings-card settings-about-links"><a href="https://github.com/Alshival-Ai/neural-labs/tree/main/wiki" target="_blank" rel="noreferrer"><FileText /><span><strong>Documentation</strong><small>Architecture, operations, and guides</small></span><ExternalLink /></a><a href="https://github.com/Alshival-Ai/neural-labs/blob/main/wiki/adr/0003-shared-developer-workspace.md" target="_blank" rel="noreferrer"><KeyRound /><span><strong>Security notes</strong><small>Trust boundaries and shared access</small></span><ExternalLink /></a><a href="https://openclaw.ai" target="_blank" rel="noreferrer"><Bot /><span><strong>OpenClaw</strong><small>The agent runtime underneath Neura</small></span><ExternalLink /></a></section>
       <p className="settings-about-footer">Neural Labs · Built with care by Alshival.Ai</p>
     </div>

@@ -132,6 +132,17 @@ function application(user?: UserRecord) {
           providerAuthenticated: true,
           codexAuthenticated: true,
           openclawModelReady: true,
+          mcp: {
+            ready: true,
+            mode: "workspace-local",
+            endpoint: "http://127.0.0.1:8792/mcp",
+            transport: "streamable-http",
+            agentServerName: "neural-labs-tools",
+            agentScope: "shared-workspace",
+            publicAccess: false,
+            providers: { googlePlaces: true, googleGeocoding: true, klipy: true, pexels: true },
+            tools: ["google_places_search", "google_geocode_address", "search_gif", "pexels_search_photos"],
+          },
         };
     return new Response(JSON.stringify(payload), {
       status: 200,
@@ -250,6 +261,28 @@ describe("control-plane JSON and role routing", () => {
       openclawModelReady: true,
       publicUrl: "https://neural-labs.example.org/workspace",
     });
+  });
+
+  it("reports the workspace-local MCP without exposing legacy public controls", async () => {
+    const { app } = application(admin);
+    const response = await request(app).get("/api/admin/mcp").set("Cookie", cookies).expect(200);
+    expect(response.body).toMatchObject({
+      ready: true,
+      mode: "workspace-local",
+      endpoint: "http://127.0.0.1:8792/mcp",
+      agentServerName: "neural-labs-tools",
+      agentScope: "shared-workspace",
+      publicAccess: false,
+      providers: { googlePlaces: true, googleGeocoding: true, klipy: true, pexels: true },
+    });
+    expect(response.body.tools).toContain("search_gif");
+    expect(response.body).not.toHaveProperty("publicUrl");
+    await request(app)
+      .put("/api/admin/mcp")
+      .set("Cookie", cookies)
+      .set("X-CSRF-Token", "csrf-token")
+      .send({ enabled: true })
+      .expect(404);
   });
 
   it("lets only an administrator start workspace-owned ChatGPT device login", async () => {

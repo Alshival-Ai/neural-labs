@@ -233,17 +233,39 @@ async function gatewayReady() {
   }
 }
 
-async function mcpReady() {
+const unavailableMcpStatus = () => ({
+  ready: false,
+  mode: "workspace-local",
+  endpoint: "http://127.0.0.1:" + String(mcpPort) + "/mcp",
+  transport: "streamable-http",
+  agentServerName: "neural-labs-tools",
+  agentScope: "shared-workspace",
+  publicAccess: false,
+  providers: {
+    googlePlaces: false,
+    googleGeocoding: false,
+    klipy: false,
+    pexels: false,
+  },
+  tools: [],
+});
+
+async function mcpStatus() {
   try {
     const response = await fetch(
       "http://127.0.0.1:" + String(mcpPort) + "/healthz",
       { signal: AbortSignal.timeout(1500) },
     );
-    if (!response.ok) return false;
+    if (!response.ok) return unavailableMcpStatus();
     const status = await response.json();
-    return status?.status === "ok";
+    return {
+      ...unavailableMcpStatus(),
+      ready: status?.status === "ok",
+      providers: status?.providers ?? unavailableMcpStatus().providers,
+      tools: Array.isArray(status?.tools) ? status.tools : [],
+    };
   } catch {
-    return false;
+    return unavailableMcpStatus();
   }
 }
 
@@ -276,7 +298,7 @@ const workspaceServer = createWorkspaceHttpServer({
   workspaceRoot,
   publicOrigin,
   gatewayReady,
-  mcpReady,
+  mcpStatus,
   providerAuthenticated,
   openclawModelReady,
   providerAuth,
