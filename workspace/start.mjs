@@ -24,7 +24,7 @@ const maxUploadBytes = parsePositiveInteger(
 );
 const execFileAsync = promisify(execFile);
 const providerStatusRefreshMs = 15_000;
-const providerStatusCommandTimeoutMs = 30_000;
+const providerStatusCommandTimeoutMs = 120_000;
 const workspaceControlToken = process.env.NEURAL_LABS_WORKSPACE_CONTROL_TOKEN?.trim();
 if (!workspaceControlToken || workspaceControlToken.length < 32) {
   throw new Error("NEURAL_LABS_WORKSPACE_CONTROL_TOKEN must contain at least 32 characters");
