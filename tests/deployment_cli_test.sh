@@ -45,6 +45,7 @@ grep -q 'GOOGLE_PLACES_API_KEY' "${compose_file}"
 grep -q 'KLIPY_API_KEY' "${compose_file}"
 grep -q 'PEXELS_API_KEY' "${compose_file}"
 grep -q 'NEURAL_LABS_WORKSPACE_MCP_PORT' "${compose_file}"
+grep -q 'http://127.0.0.1:18790/healthz' "${compose_file}"
 if grep -q '^  mcp:$' "${compose_file}"; then
   echo "public MCP must not be a Compose service in V1" >&2
   exit 1

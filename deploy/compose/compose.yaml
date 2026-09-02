@@ -136,6 +136,12 @@ services:
     ports:
       - "${NEURAL_LABS_BIND_ADDRESS:-127.0.0.1}:${WORKSPACE_PORT:-4180}:18789"
       - "${NEURAL_LABS_BIND_ADDRESS:-127.0.0.1}:${WORKSPACE_DESKTOP_PORT:-4181}:18790"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "--max-time", "6", "http://127.0.0.1:18790/healthz"]
+      interval: 15s
+      timeout: 8s
+      retries: 6
+      start_period: 120s
     volumes:
       - workspace-home:/home/node
       - workspace-openclaw-state:/home/node/.openclaw
