@@ -44,6 +44,9 @@ OpenAI device pairing remains workspace-owned. The control plane may start,
 cancel, and report the fixed OpenClaw flow through a private token-authenticated
 endpoint. The browser sees only the short-lived verification URL and user code;
 OpenClaw keeps the resulting credential in its persistent workspace volume.
+While pairing is active, Settings polls the control plane until the device code
+arrives and continues polling until authentication succeeds, fails, expires, or
+is cancelled; operators do not need to refresh the page between those states.
 The controller invokes OpenClaw over container loopback, which is permitted
 because every process in the V1 shared workspace is already mutually trusted;
 the Gateway is not made public by this allowance.

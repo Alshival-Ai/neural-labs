@@ -502,8 +502,34 @@ function McpPanel({ mcp }: { mcp?: McpSettings }) {
 
 function WorkspacePanel({ workspace, provider, csrfToken, onProvider, onNotice, onRefresh }: { workspace?: WorkspaceStatus; provider?: WorkspaceProviderAuth; csrfToken: string; onProvider: (provider: WorkspaceProviderAuth) => void; onNotice: NoticeSetter; onRefresh: () => void }) {
   const [working, setWorking] = useState(false);
+  const providerBusy = provider?.state === "starting" || provider?.state === "awaiting_user";
+  useEffect(() => {
+    if (!providerBusy) return;
+
+    let active = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const schedule = (delay: number) => {
+      timer = setTimeout(() => void poll(), delay);
+    };
+    const poll = async () => {
+      try {
+        const next = await settingsRequest<WorkspaceProviderAuth>("/api/admin/workspace/provider");
+        if (!active) return;
+        onProvider(next);
+        if (next.state === "starting" || next.state === "awaiting_user") schedule(1_000);
+      } catch {
+        if (active) schedule(2_000);
+      }
+    };
+
+    schedule(250);
+    return () => {
+      active = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [providerBusy, onProvider]);
+
   if (!workspace || !provider) return <LoadingPanel label="Loading workspace status" />;
-  const providerBusy = provider.state === "starting" || provider.state === "awaiting_user";
   async function mutate(action: "connect" | "cancel") {
     setWorking(true);
     onNotice(undefined);

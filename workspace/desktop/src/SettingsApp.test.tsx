@@ -79,7 +79,10 @@ function json(value: unknown, status = 200) {
   return new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json" } });
 }
 
+let providerPairingStarted = false;
+
 beforeEach(() => {
+  providerPairingStarted = false;
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = String(input);
     const method = init?.method ?? "GET";
@@ -93,8 +96,13 @@ beforeEach(() => {
     if (url === "/api/admin/authentication" && method === "PUT") return json({ ...authentication, localAuthEnabled: false, updatedAt: "2026-09-01T12:01:00.000Z" });
     if (url === "/api/admin/mcp" && method === "GET") return json(mcp);
     if (url === "/api/workspace") return json(workspace);
-    if (url === "/api/admin/workspace/provider" && method === "GET") return json({ provider: "openai", authMethod: "chatgpt", state: "disconnected", authenticated: false, modelReady: false, verificationUrl: null, userCode: null, expiresAt: null, message: null });
-    if (url === "/api/admin/workspace/provider/connect" && method === "POST") return json({ provider: "openai", authMethod: "chatgpt", state: "starting", authenticated: false, modelReady: false, verificationUrl: null, userCode: null, expiresAt: null, message: null }, 202);
+    if (url === "/api/admin/workspace/provider" && method === "GET") return json(providerPairingStarted
+      ? { provider: "openai", authMethod: "chatgpt", state: "awaiting_user", authenticated: false, modelReady: false, verificationUrl: "https://auth.openai.com/codex/device", userCode: "TEST-CODE", expiresAt: "2026-09-01T12:15:00.000Z", message: null }
+      : { provider: "openai", authMethod: "chatgpt", state: "disconnected", authenticated: false, modelReady: false, verificationUrl: null, userCode: null, expiresAt: null, message: null });
+    if (url === "/api/admin/workspace/provider/connect" && method === "POST") {
+      providerPairingStarted = true;
+      return json({ provider: "openai", authMethod: "chatgpt", state: "starting", authenticated: false, modelReady: false, verificationUrl: null, userCode: null, expiresAt: null, message: null }, 202);
+    }
     if (url === "/api/admin/audit?limit=100") return json({ events: [] });
     return json({ error: { message: `Unexpected ${method} ${url}` } }, 500);
   });
@@ -168,5 +176,7 @@ describe("Settings app", () => {
       "/api/admin/workspace/provider/connect",
       expect.objectContaining({ method: "POST", body: JSON.stringify({}) }),
     ));
+    expect(await screen.findByText("TEST-CODE", { selector: "code" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open OpenAI sign-in/ })).toHaveAttribute("href", "https://auth.openai.com/codex/device");
   });
 });
