@@ -1,88 +1,45 @@
 # Neural Labs
 
-Neural Labs is the infrastructure skeleton for Kiki's shared OpenClaw development platform. Step 1 gives each developer an isolated OpenClaw cell with:
+Neural Labs is an open-source, self-hosted control plane and authenticated MCP
+server. This repository contains:
 
-- one OpenClaw Gateway and its built-in web Control UI;
-- one persistent private home for repositories, SSH configuration, OpenClaw state, and workspaces;
-- read-only team skills;
-- access to the shared MCP service through a tenant-specific credential; and
-- container-local command execution and `sudo`, without host administration.
+- `web/`: the public landing page;
+- `console/`: the React account, login, signup, and approval interface;
+- `control-plane/`: onboarding, session security, authorization, and console
+  APIs;
+- `mcp/`: the Microsoft Entra-protected Streamable HTTP MCP server;
+- `workspace/`: the shared desktop plus the pinned OpenClaw and Codex developer
+  runtime, including the Neura agent and persistent Files apps;
+- `deploy/`: loopback-only Compose and host Nginx configuration;
+- `wiki/`: setup, operations, security decisions, and recovery runbooks.
 
-The `data-team` account remains the only unrestricted host administrator. A tenant cannot access another tenant, Kiki's admin home, or the host container socket.
-
-> This branch is a platform skeleton, not a production deployment. It does not modify Kiki, create accounts, publish a web endpoint, or contain credentials.
-
-## Step 1 architecture
-
-```text
-Developer (temporary local tunnel/access method)
-                         |
-                         | unique loopback port + Gateway token
-                         v
-+---------------- OpenClaw tenant cell ----------------+
-|  Gateway + Control UI + command tools                |
-|                         |                            |
-|               persistent private home               |
-|        repositories, .ssh, state, personal skills   |
-|                         |                            |
-|              read-only team skills                  |
-+-------------------------|----------------------------+
-                          |
-                    HTTPS + tenant auth
-                          v
-                    Shared team MCP
-
-data-team owns lifecycle, images, policy, backups, and host services.
-```
-
-OpenClaw explicitly recommends one cell per tenant because a single Gateway is a trusted-operator boundary. The Gateway already serves the Control UI web application, so Step 1 needs no companion application container.
-
-Future work will put an authenticated landing page and reverse proxy in front of these cells. After login, that control plane can route a developer to their assigned Gateway. That routing and identity layer is deliberately outside Step 1.
-
-## Repository map
-
-- `platform/compose/` defines one repeatable OpenClaw tenant cell.
-- `images/openclaw-gateway/` adds development command-line tools to the official image.
-- `scripts/` provisions, validates, and operates tenant directories.
-- `skills/` holds team-wide, read-only OpenClaw skills.
-- `tenants/` contains a non-secret tenant manifest example.
-- `docs/` contains architecture decisions and operator runbooks.
-- `platform/systemd/` contains an optional host service template.
-
-## Safe local preview
-
-The validation path does not start containers or require credentials:
+Start with the [container deployment guide](wiki/container-deployment.md), then
+follow the [manual Entra app setup](wiki/entra-app-setup.md) if Microsoft sign-in
+or authenticated MCP access is required.
 
 ```bash
-make validate
+bin/neural-labs init
+# Edit the single root .env, including NEURAL_LABS_INITIAL_ADMIN_EMAIL.
+bin/neural-labs up
 ```
 
-To render a non-secret tenant directory under `/tmp`:
+Use `bin/neural-labs help` for status, logs, health checks, safe updates,
+backups, and shutdown. Compose remains the deployment source of truth.
 
-```bash
-STATE_ROOT=/tmp/neural-labs-tenants \
-  ./scripts/provision-tenant.sh example-dev 18791
-```
+Approved users share one persistent, always-on workspace. After the stack is
+started, an administrator opens the dock's **Settings** app and connects the
+shared OpenClaw runtime to a ChatGPT/Codex subscription from its Workspace
+section; see the [workspace guide](wiki/shared-workspace.md). The
+[administrator settings guide](wiki/desktop-settings.md) covers access,
+authentication, MCP, and audit controls.
+The [Files guide](wiki/files.md) documents browser uploads, folder management,
+downloads, deletion, and the shared-filesystem boundary. The
+[Editor guide](wiki/editor.md) covers shared text-file creation, editing,
+version-aware saves, and conflict handling.
+The [Automations guide](wiki/automations.md) covers the administrator-only
+OpenClaw scheduler app and its dedicated trusted-proxy boundary.
+The [Skills guide](wiki/skills.md) covers the live OpenClaw catalog, Skill
+Workshop, ClawHub discovery, and the developer-read/administrator-write split.
 
-Provisioning creates a random Gateway token without printing it and deliberately leaves MCP credential issuance as an operator action. Follow [the tenant runbook](docs/runbooks/provision-tenant.md) before starting a cell.
-
-## Design status
-
-The decisions captured here are intentionally narrow:
-
-- one Gateway container per developer;
-- one persistent container home per developer;
-- Gateway web ports bound to loopback by default;
-- outbound access allowed, with per-service credentials and MCP tool filters;
-- no host Docker/Podman socket, host admin home, or other tenant mount;
-- version- or digest-pinned OpenClaw images before deployment.
-
-See [Architecture](docs/architecture.md), [Threat model](docs/threat-model.md), and [Bootstrap Kiki](docs/runbooks/bootstrap-kiki.md).
-
-## Upstream references
-
-- [OpenClaw multi-tenant hosting](https://docs.openclaw.ai/gateway/multi-tenant-hosting)
-- [OpenClaw Docker deployment](https://docs.openclaw.ai/install/docker)
-- [OpenClaw security guidance](https://docs.openclaw.ai/gateway/security)
-- [OpenClaw MCP configuration](https://docs.openclaw.ai/cli/mcp)
-- [OpenClaw skills configuration](https://docs.openclaw.ai/tools/skills-config)
+Never place tenant credentials, certificates, deployment secrets, or database
+backups in the repository.

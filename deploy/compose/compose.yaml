@@ -1,0 +1,190 @@
+name: neural-labs
+
+services:
+  postgres:
+    image: postgres:18.6-bookworm@sha256:1c59e2c3c818eaa0f0628f695b36e7c9e362d6b219b36a54a32df645cbd7e1af
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: neural_labs
+      POSTGRES_USER: neural_labs
+      POSTGRES_PASSWORD: ${NEURAL_LABS_POSTGRES_PASSWORD}
+      PGDATA: /var/lib/postgresql/18/docker
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    networks:
+      - control-db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U neural_labs -d neural_labs"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  landing:
+    build:
+      context: ../..
+      dockerfile: web/Containerfile
+    image: neural-labs-landing:local
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    ports:
+      - "${NEURAL_LABS_BIND_ADDRESS:-127.0.0.1}:${LANDING_PORT:-4173}:8080"
+    networks:
+      - landing-ingress
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  control-plane:
+    build:
+      context: ../..
+      dockerfile: control-plane/Containerfile
+    image: neural-labs-control-plane:local
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    environment:
+      CONTROL_PLANE_HOST: 0.0.0.0
+      CONTROL_PLANE_PORT: 4174
+      CONTROL_PLANE_PUBLIC_ORIGIN: ${NEURAL_LABS_PUBLIC_ORIGIN:-https://neural-labs.example.com}
+      CONTROL_PLANE_AUTO_SETUP: ${NEURAL_LABS_AUTO_SETUP:-true}
+      CONTROL_PLANE_INITIAL_ADMIN_EMAIL: ${NEURAL_LABS_INITIAL_ADMIN_EMAIL:-}
+      CONTROL_PLANE_DEFAULT_LOCAL_AUTH_ENABLED: ${NEURAL_LABS_LOCAL_AUTH_ENABLED:-true}
+      CONTROL_PLANE_DEFAULT_MICROSOFT_AUTH_ENABLED: ${NEURAL_LABS_MICROSOFT_AUTH_ENABLED:-false}
+      CONTROL_PLANE_DEFAULT_MCP_ENABLED: ${NEURAL_LABS_MCP_ENABLED:-false}
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: neural_labs
+      PGUSER: neural_labs
+      PGPASSWORD: ${NEURAL_LABS_POSTGRES_PASSWORD}
+      CONTROL_PLANE_MASTER_KEY: ${NEURAL_LABS_CONTROL_PLANE_MASTER_KEY}
+      MCP_CONFIG_TOKEN: ${NEURAL_LABS_MCP_CONFIG_TOKEN}
+      WORKSPACE_CONTROL_TOKEN: ${NEURAL_LABS_WORKSPACE_CONTROL_TOKEN}
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID:-}
+      AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-}
+      AZURE_AUTHORITY_HOST: ${AZURE_AUTHORITY_HOST:-https://login.microsoftonline.com}
+      AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET:-}
+      AZURE_CLIENT_CERTIFICATE_BASE64: ${AZURE_CLIENT_CERTIFICATE_BASE64:-}
+      AZURE_CLIENT_CERTIFICATE_PASSPHRASE: ${AZURE_CLIENT_CERTIFICATE_PASSPHRASE:-}
+      CONTROL_PLANE_WORKSPACE_STATUS_URL: http://workspace:18790/status
+      CONTROL_PLANE_WORKSPACE_CONTROL_URL: http://workspace:18790/internal/provider-auth/openai
+      CONTROL_PLANE_WORKSPACE_TEAM_AGENT_URL: http://workspace:18790/internal/neura/team-run
+      CONTROL_PLANE_WORKSPACE_OPENCLAW_VERSION: ${NEURAL_LABS_OPENCLAW_VERSION:-2026.8.2}
+      CONTROL_PLANE_WORKSPACE_CODEX_VERSION: ${NEURAL_LABS_CODEX_VERSION:-0.152.0}
+    ports:
+      - "${NEURAL_LABS_BIND_ADDRESS:-127.0.0.1}:${CONTROL_PLANE_PORT:-4174}:4174"
+    networks:
+      - control-db
+      - control-mcp
+      - workspace-ingress
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4174/readyz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  mcp:
+    build:
+      context: ../..
+      dockerfile: mcp/Containerfile
+    image: neural-labs-mcp:local
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    environment:
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 3000
+      MCP_ALLOWED_HOSTS: ${NEURAL_LABS_HOSTNAME:-neural-labs.example.com},mcp,127.0.0.1,localhost
+      MCP_CONTROL_PLANE_CONFIG_URL: http://control-plane:4174/internal/mcp/config
+      MCP_CONFIG_TOKEN: ${NEURAL_LABS_MCP_CONFIG_TOKEN}
+      MCP_CONFIG_POLL_INTERVAL_MS: 30000
+      MCP_TEAM_API_URL: http://control-plane:4174/internal/mcp/team
+    ports:
+      - "${NEURAL_LABS_BIND_ADDRESS:-127.0.0.1}:${MCP_PORT:-3000}:3000"
+    networks:
+      - control-mcp
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  workspace:
+    build:
+      context: ../..
+      dockerfile: workspace/Containerfile
+      args:
+        OPENCLAW_IMAGE: ${NEURAL_LABS_OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:2026.8.2@sha256:5d25165995041caa6a7175bec82b25ad98c44eb269bb42435da8e27ec06e6be4}
+        CODEX_VERSION: ${NEURAL_LABS_CODEX_VERSION:-0.152.0}
+    image: ${NEURAL_LABS_WORKSPACE_IMAGE:-neural-labs-workspace:local}
+    restart: unless-stopped
+    environment:
+      NEURAL_LABS_PUBLIC_ORIGIN: ${NEURAL_LABS_PUBLIC_ORIGIN:-https://neural-labs.example.com}
+      NEURAL_LABS_WORKSPACE_PROXY_IP: ${NEURAL_LABS_WORKSPACE_PROXY_IP:-172.30.42.1}
+      NEURAL_LABS_OPENCLAW_VERSION: ${NEURAL_LABS_OPENCLAW_VERSION:-2026.8.2}
+      NEURAL_LABS_CODEX_VERSION: ${NEURAL_LABS_CODEX_VERSION:-0.152.0}
+      NEURAL_LABS_WORKSPACE_CONTROL_TOKEN: ${NEURAL_LABS_WORKSPACE_CONTROL_TOKEN}
+      NEURAL_LABS_WORKSPACE_MAX_UPLOAD_BYTES: ${NEURAL_LABS_WORKSPACE_MAX_UPLOAD_BYTES:-2147483648}
+      OPENCLAW_GATEWAY_PORT: 18789
+      NEURAL_LABS_WORKSPACE_STATUS_PORT: 18790
+    cap_drop:
+      - ALL
+    cap_add:
+      - AUDIT_WRITE
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - FSETID
+      - KILL
+      - NET_BIND_SERVICE
+      - SETGID
+      - SETUID
+      - SYS_CHROOT
+    cpus: ${NEURAL_LABS_WORKSPACE_CPUS:-10}
+    mem_limit: ${NEURAL_LABS_WORKSPACE_MEMORY:-16g}
+    ports:
+      - "${NEURAL_LABS_BIND_ADDRESS:-127.0.0.1}:${WORKSPACE_PORT:-4180}:18789"
+      - "${NEURAL_LABS_BIND_ADDRESS:-127.0.0.1}:${WORKSPACE_DESKTOP_PORT:-4181}:18790"
+    volumes:
+      - workspace-home:/home/node
+      - workspace-openclaw-state:/home/node/.openclaw
+      - workspace-openclaw-auth:/home/node/.config/openclaw
+    networks:
+      - workspace-ingress
+
+volumes:
+  postgres-data:
+  workspace-home:
+  workspace-openclaw-state:
+  workspace-openclaw-auth:
+
+networks:
+  landing-ingress:
+  control-db:
+    internal: true
+  control-mcp:
+  workspace-ingress:
+    ipam:
+      config:
+        - subnet: ${NEURAL_LABS_WORKSPACE_SUBNET:-172.30.42.0/29}
+          gateway: ${NEURAL_LABS_WORKSPACE_PROXY_IP:-172.30.42.1}

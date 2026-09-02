@@ -1,14 +1,42 @@
-.PHONY: validate test compose-config gateway-build
+.PHONY: validate test build compose-config security
 
 validate:
-	./scripts/validate.sh
+	bash tests/public_boundary_test.sh
+	npm --prefix console run validate
+	npm --prefix control-plane run validate
+	npm --prefix mcp run validate
+	node --check web/app.js
+	node --check web/server.mjs
+	node --check workspace/start.mjs
+	node --check workspace/http-server.mjs
+	node --check workspace/file-manager.mjs
+	node --check workspace/file-events.mjs
+	node --check workspace/provider-auth.mjs
+	node --check workspace/terminal-manager.mjs
+	npm --prefix workspace/desktop run validate
+	node --test web/server.test.mjs
+	npm --prefix workspace test
+	bash -n bin/neural-labs
+	bash tests/deployment_cli_test.sh
+	docker compose --env-file .env.example -f deploy/compose/compose.yaml config --quiet
 
-test: validate
+test:
+	npm --prefix console test
+	npm --prefix control-plane test
+	npm --prefix mcp test
+	npm --prefix workspace/desktop test
+	node --test web/server.test.mjs
+	npm --prefix workspace test
+
+build:
+	npm --prefix console run build
+	npm --prefix control-plane run build
+	npm --prefix mcp run build
+	npm --prefix workspace/desktop run build
+	docker compose --env-file .env.example -f deploy/compose/compose.yaml build
 
 compose-config:
-	@test -n "$(TENANT_ENV)" || { echo "usage: make compose-config TENANT_ENV=/path/to/tenant.env" >&2; exit 2; }
-	./scripts/tenant-compose.sh --env-file "$(TENANT_ENV)" config
+	docker compose --env-file .env.example -f deploy/compose/compose.yaml config
 
-gateway-build:
-	@test -n "$(OPENCLAW_BASE_IMAGE)" || { echo "usage: make gateway-build OPENCLAW_BASE_IMAGE=ghcr.io/openclaw/openclaw@sha256:..." >&2; exit 2; }
-	$${CONTAINER_CLI:-docker} build --build-arg "OPENCLAW_BASE_IMAGE=$(OPENCLAW_BASE_IMAGE)" -t neural-labs/openclaw-gateway:dev images/openclaw-gateway
+security:
+	bash tests/public_boundary_test.sh

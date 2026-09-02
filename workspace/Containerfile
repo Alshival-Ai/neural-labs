@@ -1,0 +1,87 @@
+ARG OPENCLAW_IMAGE=ghcr.io/openclaw/openclaw:2026.8.2@sha256:5d25165995041caa6a7175bec82b25ad98c44eb269bb42435da8e27ec06e6be4
+FROM ${OPENCLAW_IMAGE} AS desktop-build
+
+USER root
+WORKDIR /build
+
+COPY workspace/desktop/package.json workspace/desktop/package-lock.json ./
+RUN npm ci --include=dev
+
+COPY workspace/desktop/index.html workspace/desktop/tsconfig.json workspace/desktop/vite.config.ts ./
+COPY workspace/desktop/src ./src
+RUN npm run build
+
+FROM ${OPENCLAW_IMAGE}
+
+ARG CODEX_VERSION=0.152.0
+
+USER root
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends \
+      bash-completion \
+      build-essential \
+      ca-certificates \
+      curl \
+      jq \
+      less \
+      openssh-client \
+      procps \
+      python3 \
+      python3-pip \
+      ripgrep \
+      sudo \
+      util-linux \
+      vim-tiny \
+      zsh \
+      zsh-autosuggestions \
+      zsh-syntax-highlighting \
+    && npm install --global "@openai/codex@${CODEX_VERSION}" \
+    && npm cache clean --force \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY workspace/package.json workspace/package-lock.json /usr/local/lib/neural-labs/
+RUN npm ci --omit=dev --prefix /usr/local/lib/neural-labs \
+    && npm cache clean --force
+
+COPY workspace/sudoers-neural-labs /etc/sudoers.d/neural-labs-workspace
+COPY workspace/start.mjs /usr/local/lib/neural-labs/start.mjs
+COPY workspace/http-server.mjs /usr/local/lib/neural-labs/http-server.mjs
+COPY workspace/file-manager.mjs /usr/local/lib/neural-labs/file-manager.mjs
+COPY workspace/file-events.mjs /usr/local/lib/neural-labs/file-events.mjs
+COPY workspace/provider-auth.mjs /usr/local/lib/neural-labs/provider-auth.mjs
+COPY workspace/team-agent.mjs /usr/local/lib/neural-labs/team-agent.mjs
+COPY workspace/terminal-manager.mjs /usr/local/lib/neural-labs/terminal-manager.mjs
+COPY workspace/shell /usr/local/share/neural-labs/shell
+COPY --from=desktop-build /build/dist /usr/local/share/neural-labs/desktop
+COPY tmp/neural-labs-spectrum-paper-wallpaper.png /usr/local/share/neural-labs/desktop/assets/wallpaper.png
+COPY tmp/neural-labs-spectrum-paper-tablet.png /usr/local/share/neural-labs/desktop/assets/wallpaper-tablet.png
+COPY tmp/neural-labs-spectrum-paper-mobile.png /usr/local/share/neural-labs/desktop/assets/wallpaper-mobile.png
+
+RUN chmod 0440 /etc/sudoers.d/neural-labs-workspace \
+    && visudo --check --file=/etc/sudoers.d/neural-labs-workspace \
+    && mkdir -p \
+      /home/node/.codex \
+      /home/node/.config/openclaw \
+      /home/node/.openclaw \
+      /home/node/workspace \
+    && chown -R node:node /home/node
+
+ENV HOME=/home/node \
+    CODEX_HOME=/home/node/.codex \
+    OPENCLAW_HOME=/home/node \
+    OPENCLAW_STATE_DIR=/home/node/.openclaw \
+    OPENCLAW_CONFIG_PATH=/home/node/.openclaw/openclaw.json \
+    OPENCLAW_WORKSPACE_DIR=/home/node/workspace \
+    NEURAL_LABS_OPENCLAW_VERSION=2026.8.2 \
+    NEURAL_LABS_CODEX_VERSION=0.152.0
+
+USER node
+WORKDIR /home/node/workspace
+
+EXPOSE 18789 18790
+
+HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=10 \
+  CMD ["node", "/app/dist/docker-healthcheck.js"]
+
+CMD ["node", "/usr/local/lib/neural-labs/start.mjs"]

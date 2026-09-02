@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Neural Labs</title>
+  <defs>
+    <linearGradient id="spectrum" x1="14" y1="14" x2="50" y2="50" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#08a9ef"/>
+      <stop offset="0.38" stop-color="#7b4dff"/>
+      <stop offset="0.7" stop-color="#f23aa9"/>
+      <stop offset="1" stop-color="#ffb80f"/>
+    </linearGradient>
+    <radialGradient id="surface" cx="0" cy="0" r="1" gradientTransform="translate(18 13) rotate(48) scale(58)">
+      <stop stop-color="#272035"/>
+      <stop offset="0.55" stop-color="#11121a"/>
+      <stop offset="1" stop-color="#090a0f"/>
+    </radialGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="15" fill="url(#surface)"/>
+  <rect x="2.75" y="2.75" width="58.5" height="58.5" rx="14.25" fill="none" stroke="url(#spectrum)" stroke-opacity="0.5" stroke-width="1.5"/>
+  <path d="M16.5 46V18L47.5 46V18" fill="none" stroke="url(#spectrum)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M18 18 47 46" fill="none" stroke="#fff" stroke-opacity="0.18" stroke-width="1"/>
+  <g stroke="#0b0c11" stroke-width="2">
+    <circle cx="16.5" cy="18" r="4" fill="#08a9ef"/>
+    <circle cx="16.5" cy="46" r="4" fill="#7b4dff"/>
+    <circle cx="32" cy="32" r="4" fill="#f23aa9"/>
+    <circle cx="47.5" cy="18" r="4" fill="#ffb80f"/>
+    <circle cx="47.5" cy="46" r="4" fill="#ff6548"/>
+  </g>
+</svg>

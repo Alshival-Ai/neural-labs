@@ -1,0 +1,3 @@
+# Neural Labs provides maintained interactive defaults. Put personal overrides
+# in ~/.zshrc.local so image updates can improve the shared shell safely.
+source /usr/local/share/neural-labs/shell/neural-labs.zsh

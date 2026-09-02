@@ -1,0 +1,34 @@
+.font-size-control {
+  display: inline-grid;
+  grid-template-columns: 2rem minmax(3.65rem, auto) 2rem;
+  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-radius: 8px;
+  color: inherit;
+  background: color-mix(in srgb, currentColor 4%, transparent);
+}
+
+.font-size-control button {
+  min-width: 0;
+  height: 2rem;
+  display: grid;
+  place-items: center;
+  padding: 0 .35rem;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  font-size: var(--desktop-font-control, 14px);
+  font-weight: 760;
+  line-height: 1;
+}
+
+.font-size-control button + button { border-left: 1px solid color-mix(in srgb, currentColor 18%, transparent); }
+.font-size-control button:hover:not(:disabled) { background: color-mix(in srgb, currentColor 9%, transparent); }
+.font-size-control button:disabled { opacity: .32; cursor: default; }
+.font-size-control__reset { font-variant-numeric: tabular-nums; }
+
+@media (prefers-reduced-motion: reduce) {
+  .font-size-control button { transition: none; }
+}

@@ -1,0 +1,43 @@
+.git
+.github
+**/node_modules
+**/dist
+**/coverage
+
+# Never send credentials, runtime state, or recovery archives to the Docker
+# daemon. All current builds use the repository root as their context.
+.env
+.env.*
+**/.env
+**/.env.*
+**/*.secret
+**/*.token
+**/*.key
+**/*.pem
+**/*.p12
+**/*.pfx
+**/id_rsa*
+**/id_ed25519*
+**/secrets
+**/secrets/**
+**/backups
+**/backups/**
+**/state
+**/state/**
+**/generated
+**/generated/**
+**/.openclaw
+**/.openclaw/**
+**/openclaw.json
+**/tenant.env
+
+# Local and generated artifacts
+tmp/*
+!tmp/neural-labs-spectrum-paper-wallpaper.png
+!tmp/neural-labs-spectrum-paper-tablet.png
+!tmp/neural-labs-spectrum-paper-mobile.png
+*.zip
+*.log
+Screenshot From *.png
+Screenshot*.png
+screenshot*.png

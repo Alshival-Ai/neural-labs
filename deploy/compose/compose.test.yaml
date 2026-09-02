@@ -1,0 +1,12 @@
+# Development-only override for host-run PostgreSQL integration tests.
+# The database remains bound to loopback and this file is never used in production.
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:${POSTGRES_TEST_PORT:-55432}:5432"
+    networks:
+      - control-db
+      - test-ingress
+
+networks:
+  test-ingress:

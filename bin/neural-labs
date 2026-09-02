@@ -1,0 +1,608 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+repository_root="$(cd -- "${script_directory}/.." && pwd -P)"
+compose_file="${repository_root}/deploy/compose/compose.yaml"
+compose_environment="${repository_root}/.env"
+compose_environment_example="${repository_root}/.env.example"
+legacy_compose_environment="${repository_root}/deploy/compose/.env"
+legacy_secrets_directory="${repository_root}/deploy/secrets"
+backup_root="${NEURAL_LABS_BACKUP_ROOT:-$(dirname -- "${repository_root}")/backups/neural-labs}"
+
+die() {
+  echo "Error: $*" >&2
+  exit 1
+}
+
+note() {
+  echo "==> $*"
+}
+
+usage() {
+  cat <<'EOF'
+Neural Labs deployment CLI
+
+Usage: bin/neural-labs <command> [arguments]
+
+Commands:
+  init                 Create the single root .env and generate missing secrets
+  up                   Build and start the complete cluster
+  status               Show Compose service status
+  logs [service ...]   Follow the latest service logs
+  doctor               Validate configuration, isolation, and service health
+  update               Back up, rebuild, and replace the running cluster
+  stop                 Stop containers without deleting data
+  backup [directory]   Back up PostgreSQL, workspace state, and the root .env
+  restore DIR --confirm
+                       Replace instance state from a complete backup
+  workspace COMMAND    Manage the shared workspace (help for subcommands)
+  onboarding           Print first-run onboarding instructions
+  help                  Show this help
+
+Host Nginx installation and legacy-service cutover are intentionally separate
+operator actions. This command never deletes volumes or regenerates configured
+secret values.
+EOF
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || die "$1 is required"
+}
+
+require_docker() {
+  require_command docker
+  docker compose version >/dev/null 2>&1 || die "the Docker Compose plugin is required"
+  if ! docker info >/dev/null 2>&1; then
+    die "cannot access the Docker daemon; rerun with your explicit operator privilege method"
+  fi
+}
+
+compose() {
+  docker compose --env-file "${compose_environment}" -f "${compose_file}" "$@"
+}
+
+env_value_from() {
+  local source_file="$1"
+  local requested_key="$2"
+  local line key value
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    line="${line%$'\r'}"
+    [[ "${line}" == *=* ]] || continue
+    key="${line%%=*}"
+    value="${line#*=}"
+    if [[ "${key}" == "${requested_key}" ]]; then
+      printf '%s' "${value}"
+      return 0
+    fi
+  done <"${source_file}"
+  return 1
+}
+
+env_value() {
+  env_value_from "${compose_environment}" "$1"
+}
+
+set_env_value() {
+  local requested_key="$1"
+  local requested_value="$2"
+  local temporary line found=0 owner_uid owner_gid
+  owner_uid="$(stat -c '%u' "${compose_environment}")"
+  owner_gid="$(stat -c '%g' "${compose_environment}")"
+  temporary="$(mktemp "${repository_root}/.env.XXXXXX")"
+  chmod 0600 "${temporary}"
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    if [[ "${line}" == "${requested_key}="* ]]; then
+      printf '%s=%s\n' "${requested_key}" "${requested_value}" >>"${temporary}"
+      found=1
+    else
+      printf '%s\n' "${line}" >>"${temporary}"
+    fi
+  done <"${compose_environment}"
+  if (( found == 0 )); then
+    printf '%s=%s\n' "${requested_key}" "${requested_value}" >>"${temporary}"
+  fi
+  chown "${owner_uid}:${owner_gid}" "${temporary}"
+  mv -- "${temporary}" "${compose_environment}"
+}
+
+is_missing_secret() {
+  local value="$1"
+  [[ -z "${value}" || "${value}" == replace-with-* ]]
+}
+
+ensure_generated_secret() {
+  local key="$1"
+  local format="$2"
+  local current generated
+  current="$(env_value "${key}" || true)"
+  if ! is_missing_secret "${current}"; then
+    return
+  fi
+  case "${format}" in
+    base64) generated="$(openssl rand -base64 32 | tr -d '\n')" ;;
+    hex) generated="$(openssl rand -hex 48)" ;;
+    *) die "unsupported generated secret format" ;;
+  esac
+  set_env_value "${key}" "${generated}"
+}
+
+require_secret_values() {
+  local postgres_password master_key mcp_token workspace_control_token
+  postgres_password="$(env_value NEURAL_LABS_POSTGRES_PASSWORD || true)"
+  master_key="$(env_value NEURAL_LABS_CONTROL_PLANE_MASTER_KEY || true)"
+  mcp_token="$(env_value NEURAL_LABS_MCP_CONFIG_TOKEN || true)"
+  workspace_control_token="$(env_value NEURAL_LABS_WORKSPACE_CONTROL_TOKEN || true)"
+  (( ${#postgres_password} >= 32 )) && ! is_missing_secret "${postgres_password}" ||
+    die "NEURAL_LABS_POSTGRES_PASSWORD must contain at least 32 generated characters"
+  [[ "${master_key}" =~ ^[A-Fa-f0-9]{64}$ || "${master_key}" =~ ^[A-Za-z0-9+/]{43}=$ ]] ||
+    die "NEURAL_LABS_CONTROL_PLANE_MASTER_KEY must encode exactly 32 bytes"
+  (( ${#mcp_token} >= 32 )) && ! is_missing_secret "${mcp_token}" ||
+    die "NEURAL_LABS_MCP_CONFIG_TOKEN must contain at least 32 generated characters"
+  (( ${#workspace_control_token} >= 32 )) && ! is_missing_secret "${workspace_control_token}" ||
+    die "NEURAL_LABS_WORKSPACE_CONTROL_TOKEN must contain at least 32 generated characters"
+}
+
+validate_port() {
+  local name="$1"
+  local value="$2"
+  [[ "${value}" =~ ^[0-9]+$ ]] || die "${name} must be a numeric TCP port"
+  (( 10#${value} >= 1 && 10#${value} <= 65535 )) ||
+    die "${name} must be between 1 and 65535"
+}
+
+validate_deployment_config() {
+  local origin hostname bind_address landing_port control_port mcp_port workspace_port workspace_desktop_port environment_mode
+  local auto_setup initial_admin local_enabled microsoft_enabled mcp_enabled tenant_id client_id
+  local client_secret certificate_base64 workspace_cpus workspace_memory workspace_max_upload_bytes openclaw_image
+  local openclaw_version codex_version workspace_subnet workspace_proxy_ip
+  [[ -f "${compose_environment}" && ! -L "${compose_environment}" ]] ||
+    die "the root .env is missing; run bin/neural-labs init"
+  environment_mode="$(stat -c '%a' "${compose_environment}")"
+  [[ "${environment_mode}" == "600" ]] ||
+    die ".env must have mode 600 (found ${environment_mode})"
+
+  origin="$(env_value NEURAL_LABS_PUBLIC_ORIGIN || true)"
+  hostname="$(env_value NEURAL_LABS_HOSTNAME || true)"
+  bind_address="$(env_value NEURAL_LABS_BIND_ADDRESS || true)"
+  landing_port="$(env_value LANDING_PORT || true)"
+  control_port="$(env_value CONTROL_PLANE_PORT || true)"
+  mcp_port="$(env_value MCP_PORT || true)"
+  workspace_port="$(env_value WORKSPACE_PORT || true)"
+  workspace_desktop_port="$(env_value WORKSPACE_DESKTOP_PORT || printf '4181')"
+  auto_setup="$(env_value NEURAL_LABS_AUTO_SETUP || true)"
+  initial_admin="$(env_value NEURAL_LABS_INITIAL_ADMIN_EMAIL || true)"
+  local_enabled="$(env_value NEURAL_LABS_LOCAL_AUTH_ENABLED || true)"
+  microsoft_enabled="$(env_value NEURAL_LABS_MICROSOFT_AUTH_ENABLED || true)"
+  mcp_enabled="$(env_value NEURAL_LABS_MCP_ENABLED || true)"
+
+  [[ "${origin}" == https://* && "${origin}" != *example.com* ]] ||
+    die "NEURAL_LABS_PUBLIC_ORIGIN must be the final non-example HTTPS origin"
+  [[ -n "${hostname}" && "${hostname}" != *example.com* && "${hostname}" != *[[:space:]]* ]] ||
+    die "NEURAL_LABS_HOSTNAME must be the final public hostname"
+  [[ "${origin}" == "https://${hostname}" ]] ||
+    die "NEURAL_LABS_PUBLIC_ORIGIN must equal https://NEURAL_LABS_HOSTNAME"
+  [[ "${bind_address}" == "127.0.0.1" ]] ||
+    die "NEURAL_LABS_BIND_ADDRESS must remain 127.0.0.1"
+  validate_port LANDING_PORT "${landing_port}"
+  validate_port CONTROL_PLANE_PORT "${control_port}"
+  validate_port MCP_PORT "${mcp_port}"
+  validate_port WORKSPACE_PORT "${workspace_port}"
+  validate_port WORKSPACE_DESKTOP_PORT "${workspace_desktop_port}"
+  [[ "${landing_port}" != "${control_port}" && "${landing_port}" != "${mcp_port}" && "${landing_port}" != "${workspace_port}" && "${landing_port}" != "${workspace_desktop_port}" &&
+     "${control_port}" != "${mcp_port}" && "${control_port}" != "${workspace_port}" && "${control_port}" != "${workspace_desktop_port}" &&
+     "${mcp_port}" != "${workspace_port}" && "${mcp_port}" != "${workspace_desktop_port}" && "${workspace_port}" != "${workspace_desktop_port}" ]] ||
+    die "all published service ports must be distinct"
+
+  workspace_cpus="$(env_value NEURAL_LABS_WORKSPACE_CPUS || true)"
+  workspace_memory="$(env_value NEURAL_LABS_WORKSPACE_MEMORY || true)"
+  workspace_max_upload_bytes="$(env_value NEURAL_LABS_WORKSPACE_MAX_UPLOAD_BYTES || printf '2147483648')"
+  openclaw_image="$(env_value NEURAL_LABS_OPENCLAW_IMAGE || true)"
+  openclaw_version="$(env_value NEURAL_LABS_OPENCLAW_VERSION || true)"
+  codex_version="$(env_value NEURAL_LABS_CODEX_VERSION || true)"
+  workspace_subnet="$(env_value NEURAL_LABS_WORKSPACE_SUBNET || true)"
+  workspace_proxy_ip="$(env_value NEURAL_LABS_WORKSPACE_PROXY_IP || true)"
+  [[ "${workspace_cpus}" =~ ^[1-9][0-9]*([.][0-9]+)?$ ]] ||
+    die "NEURAL_LABS_WORKSPACE_CPUS must be a positive CPU count"
+  [[ "${workspace_memory}" =~ ^[1-9][0-9]*([kKmMgG])?$ ]] ||
+    die "NEURAL_LABS_WORKSPACE_MEMORY must be a positive Compose memory value such as 16g"
+  [[ "${workspace_max_upload_bytes}" =~ ^[1-9][0-9]*$ ]] ||
+    die "NEURAL_LABS_WORKSPACE_MAX_UPLOAD_BYTES must be a positive byte count"
+  [[ "${openclaw_image}" =~ ^ghcr\.io/openclaw/openclaw:[A-Za-z0-9._-]+@sha256:[a-f0-9]{64}$ ]] ||
+    die "NEURAL_LABS_OPENCLAW_IMAGE must be an official version tag pinned by sha256 digest"
+  [[ "${openclaw_version}" =~ ^[0-9]{4}\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]] ||
+    die "NEURAL_LABS_OPENCLAW_VERSION must be an exact release version"
+  [[ "${codex_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]] ||
+    die "NEURAL_LABS_CODEX_VERSION must be an exact release version"
+  [[ "${workspace_subnet}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$ ]] ||
+    die "NEURAL_LABS_WORKSPACE_SUBNET must be an IPv4 CIDR"
+  [[ "${workspace_proxy_ip}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
+    die "NEURAL_LABS_WORKSPACE_PROXY_IP must be an IPv4 address"
+  [[ "${auto_setup}" == "true" || "${auto_setup}" == "false" ]] ||
+    die "NEURAL_LABS_AUTO_SETUP must be true or false"
+  for provider_value in "${local_enabled}" "${microsoft_enabled}" "${mcp_enabled}"; do
+    [[ "${provider_value}" == "true" || "${provider_value}" == "false" ]] ||
+      die "provider switches must be true or false"
+  done
+  if [[ "${auto_setup}" == "true" ]]; then
+    [[ "${initial_admin}" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ && "${initial_admin}" != *@example.com ]] ||
+      die "NEURAL_LABS_INITIAL_ADMIN_EMAIL must be the intended non-example administrator email"
+    [[ "${local_enabled}" == "true" || "${microsoft_enabled}" == "true" ]] ||
+      die "automatic setup must enable at least one web login provider"
+  fi
+  if [[ "${microsoft_enabled}" == "true" || "${mcp_enabled}" == "true" ]]; then
+    tenant_id="$(env_value AZURE_TENANT_ID || true)"
+    client_id="$(env_value AZURE_CLIENT_ID || true)"
+    client_secret="$(env_value AZURE_CLIENT_SECRET || true)"
+    certificate_base64="$(env_value AZURE_CLIENT_CERTIFICATE_BASE64 || true)"
+    [[ -n "${tenant_id}" && -n "${client_id}" ]] ||
+      die "Microsoft providers require AZURE_TENANT_ID and AZURE_CLIENT_ID"
+    [[ -n "${client_secret}" || -n "${certificate_base64}" ]] ||
+      die "Microsoft providers require one Entra credential in .env"
+    [[ -z "${client_secret}" || -z "${certificate_base64}" ]] ||
+      die "configure either AZURE_CLIENT_SECRET or AZURE_CLIENT_CERTIFICATE_BASE64, not both"
+  fi
+  require_secret_values
+  compose config --quiet
+}
+
+command_init() {
+  local created_environment=false legacy_value
+  require_command openssl
+  require_docker
+  if [[ ! -e "${compose_environment}" ]]; then
+    cp -- "${compose_environment_example}" "${compose_environment}"
+    chmod 0600 "${compose_environment}"
+    created_environment=true
+    note "Created the root .env from .env.example"
+  elif [[ -L "${compose_environment}" || ! -f "${compose_environment}" ]]; then
+    die ".env must be a regular file"
+  else
+    note "Preserving existing root .env values"
+  fi
+  chmod 0600 "${compose_environment}"
+
+  if [[ "${created_environment}" == true && -f "${legacy_compose_environment}" ]]; then
+    for key in NEURAL_LABS_PUBLIC_ORIGIN NEURAL_LABS_HOSTNAME NEURAL_LABS_BIND_ADDRESS LANDING_PORT CONTROL_PLANE_PORT MCP_PORT; do
+      legacy_value="$(env_value_from "${legacy_compose_environment}" "${key}" || true)"
+      [[ -n "${legacy_value}" ]] && set_env_value "${key}" "${legacy_value}"
+    done
+    note "Migrated public values from the former deployment .env"
+  fi
+  if [[ "${created_environment}" == true && -d "${legacy_secrets_directory}" ]]; then
+    [[ -f "${legacy_secrets_directory}/postgres-password" ]] &&
+      set_env_value NEURAL_LABS_POSTGRES_PASSWORD "$(tr -d '\n' <"${legacy_secrets_directory}/postgres-password")"
+    [[ -f "${legacy_secrets_directory}/control-plane-master-key" ]] &&
+      set_env_value NEURAL_LABS_CONTROL_PLANE_MASTER_KEY "$(tr -d '\n' <"${legacy_secrets_directory}/control-plane-master-key")"
+    [[ -f "${legacy_secrets_directory}/mcp-config-token" ]] &&
+      set_env_value NEURAL_LABS_MCP_CONFIG_TOKEN "$(tr -d '\n' <"${legacy_secrets_directory}/mcp-config-token")"
+    note "Migrated existing generated secrets into the root .env"
+  fi
+  ensure_generated_secret NEURAL_LABS_POSTGRES_PASSWORD hex
+  ensure_generated_secret NEURAL_LABS_CONTROL_PLANE_MASTER_KEY base64
+  ensure_generated_secret NEURAL_LABS_MCP_CONFIG_TOKEN hex
+  ensure_generated_secret NEURAL_LABS_WORKSPACE_CONTROL_TOKEN hex
+  note "Review .env, especially the public origin and initial administrator email"
+}
+
+print_onboarding() {
+  local origin="https://neural-labs.example.com"
+  local initial_admin="the email configured in .env"
+  local local_enabled="true"
+  if [[ -r "${compose_environment}" ]]; then
+    origin="$(env_value NEURAL_LABS_PUBLIC_ORIGIN || printf '%s' "${origin}")"
+    initial_admin="$(env_value NEURAL_LABS_INITIAL_ADMIN_EMAIL || printf '%s' "${initial_admin}")"
+    local_enabled="$(env_value NEURAL_LABS_LOCAL_AUTH_ENABLED || printf 'true')"
+  fi
+  cat <<EOF
+
+Environment onboarding is configured from the root .env.
+Initial administrator: ${initial_admin}
+Open: ${origin}/$(if [[ "${local_enabled}" == "true" ]]; then printf 'signup'; else printf 'login'; fi)
+
+Only the configured email can claim the first active administrator account.
+Other identities remain pending until that administrator approves them.
+EOF
+}
+
+command_up() {
+  require_docker
+  validate_deployment_config
+  note "Building and starting the Neural Labs cluster"
+  compose up -d --build --remove-orphans
+  compose ps
+  print_onboarding
+}
+
+command_status() {
+  require_docker
+  [[ -f "${compose_environment}" ]] || die "run bin/neural-labs init first"
+  compose ps
+}
+
+command_logs() {
+  require_docker
+  [[ -f "${compose_environment}" ]] || die "run bin/neural-labs init first"
+  shift || true
+  compose logs --tail=200 --follow "$@"
+}
+
+health_check() {
+  local name="$1"
+  local url="$2"
+  if curl --fail --silent --show-error --max-time 5 "${url}" >/dev/null; then
+    echo "ok    ${name} (${url})"
+  else
+    echo "fail  ${name} (${url})" >&2
+    return 1
+  fi
+}
+
+wait_for_health() {
+  local name="$1"
+  local url="$2"
+  local attempts="${3:-45}"
+  local attempt
+  for attempt in $(seq 1 "${attempts}"); do
+    if curl --fail --silent --show-error --max-time 5 "${url}" >/dev/null 2>&1; then
+      echo "ok    ${name} (${url})"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "fail  ${name} did not become healthy after ${attempts} attempts (${url})" >&2
+  return 1
+}
+
+command_doctor() {
+  local landing_port control_port mcp_port workspace_port workspace_desktop_port failure=0 running_services
+  require_command curl
+  require_docker
+  validate_deployment_config
+  landing_port="$(env_value LANDING_PORT)"
+  control_port="$(env_value CONTROL_PLANE_PORT)"
+  mcp_port="$(env_value MCP_PORT)"
+  workspace_port="$(env_value WORKSPACE_PORT)"
+  workspace_desktop_port="$(env_value WORKSPACE_DESKTOP_PORT || printf '4181')"
+
+  note "Compose services"
+  compose ps
+  running_services="$(compose ps --status running --services)"
+  for service in postgres landing control-plane mcp workspace; do
+    if ! grep -qx "${service}" <<<"${running_services}"; then
+      echo "fail  ${service} is not a running Compose service" >&2
+      failure=1
+    fi
+  done
+
+  note "Loopback health"
+  health_check landing "http://127.0.0.1:${landing_port}/healthz" || failure=1
+  health_check control-plane "http://127.0.0.1:${control_port}/readyz" || failure=1
+  health_check mcp "http://127.0.0.1:${mcp_port}/healthz" || failure=1
+  health_check workspace-gateway "http://127.0.0.1:${workspace_port}/healthz" || failure=1
+  health_check workspace-desktop "http://127.0.0.1:${workspace_desktop_port}/healthz" || failure=1
+
+  note "Published bindings"
+  if compose port landing 8080 | grep -qv '^127\.0\.0\.1:'; then
+    echo "fail  landing is not bound exclusively to IPv4 loopback" >&2
+    failure=1
+  fi
+  if compose port control-plane 4174 | grep -qv '^127\.0\.0\.1:'; then
+    echo "fail  control-plane is not bound exclusively to IPv4 loopback" >&2
+    failure=1
+  fi
+  if compose port mcp 3000 | grep -qv '^127\.0\.0\.1:'; then
+    echo "fail  MCP is not bound exclusively to IPv4 loopback" >&2
+    failure=1
+  fi
+  if compose port workspace 18789 | grep -qv '^127\.0\.0\.1:'; then
+    echo "fail  workspace Gateway is not bound exclusively to IPv4 loopback" >&2
+    failure=1
+  fi
+  if compose port workspace 18790 | grep -qv '^127\.0\.0\.1:'; then
+    echo "fail  workspace desktop is not bound exclusively to IPv4 loopback" >&2
+    failure=1
+  fi
+
+  if (( failure != 0 )); then
+    die "one or more deployment checks failed"
+  fi
+  note "All deployment checks passed"
+}
+
+command_backup() {
+  local requested_destination="${1:-${backup_root}}"
+  local timestamp staging final workspace_was_running=false
+  require_docker
+  validate_deployment_config
+  [[ "${requested_destination}" != *$'\n'* ]] || die "backup destination contains an invalid newline"
+  mkdir -p -m 0700 -- "${requested_destination}"
+  requested_destination="$(cd -- "${requested_destination}" && pwd -P)"
+  timestamp="$(date -u +'%Y%m%dT%H%M%SZ')"
+  staging="$(mktemp -d "${requested_destination}/.neural-labs-backup-${timestamp}.XXXXXX")"
+  final="${requested_destination}/neural-labs-backup-${timestamp}"
+  [[ ! -e "${final}" ]] || die "backup destination already exists: ${final}"
+
+  note "Dumping PostgreSQL"
+  compose exec -T postgres pg_dump -U neural_labs -d neural_labs -Fc >"${staging}/database.dump"
+  if compose ps --status running --services | grep -qx workspace; then
+    workspace_was_running=true
+    note "Stopping the workspace briefly for a consistent state backup"
+    compose stop workspace
+  fi
+  note "Archiving the persistent shared workspace"
+  if ! compose run -T --rm --no-deps --entrypoint tar workspace \
+    -C /home/node -czf - . >"${staging}/workspace-home.tar.gz"; then
+    [[ "${workspace_was_running}" == true ]] && compose start workspace
+    rm -rf -- "${staging}"
+    die "workspace backup failed"
+  fi
+  [[ "${workspace_was_running}" == true ]] && compose start workspace
+  cp -- "${compose_environment}" "${staging}/neural-labs.env"
+  chmod -R go-rwx "${staging}"
+  mv -- "${staging}" "${final}"
+  note "Backup created at ${final}"
+  echo "Encrypt and move this recovery set off-host. No automatic retention is applied."
+}
+
+command_restore() {
+  local source_directory="${1:-}" confirmation="${2:-}"
+  local backup_password escaped_password
+  [[ -n "${source_directory}" && "${confirmation}" == "--confirm" ]] ||
+    die "usage: bin/neural-labs restore BACKUP_DIRECTORY --confirm"
+  [[ -d "${source_directory}" && ! -L "${source_directory}" ]] ||
+    die "backup directory must be a real directory"
+  source_directory="$(cd -- "${source_directory}" && pwd -P)"
+  for filename in database.dump workspace-home.tar.gz neural-labs.env; do
+    [[ -f "${source_directory}/${filename}" && ! -L "${source_directory}/${filename}" ]] ||
+      die "backup is missing regular file: ${filename}"
+  done
+  require_docker
+  validate_deployment_config
+
+  note "Creating a safety backup before destructive restoration"
+  command_backup
+  note "Stopping public services"
+  compose stop landing control-plane mcp workspace
+
+  note "Restoring PostgreSQL"
+  compose exec -T postgres pg_restore \
+    -U neural_labs -d neural_labs --clean --if-exists --no-owner --no-privileges \
+    <"${source_directory}/database.dump"
+
+  note "Replacing persistent workspace state"
+  compose run -T --rm --no-deps --entrypoint sh workspace -c '
+    find /home/node/.openclaw -mindepth 1 -delete
+    find /home/node/.config/openclaw -mindepth 1 -delete
+    find /home/node/.config -mindepth 1 -maxdepth 1 ! -name openclaw -exec rm -rf -- {} +
+    find /home/node -mindepth 1 -maxdepth 1 ! -name .openclaw ! -name .config -exec rm -rf -- {} +
+    tar -C /home/node -xzf -
+  ' <"${source_directory}/workspace-home.tar.gz"
+
+  backup_password="$(env_value_from "${source_directory}/neural-labs.env" NEURAL_LABS_POSTGRES_PASSWORD || true)"
+  (( ${#backup_password} >= 32 )) || die "backup environment has an invalid PostgreSQL password"
+  escaped_password="${backup_password//\'/\'\'}"
+  printf "ALTER ROLE neural_labs PASSWORD '%s';\n" "${escaped_password}" |
+    compose exec -T postgres psql -v ON_ERROR_STOP=1 -U neural_labs -d postgres
+  cp -- "${source_directory}/neural-labs.env" "${compose_environment}"
+  chmod 0600 "${compose_environment}"
+
+  note "Starting the restored cluster"
+  compose up -d --remove-orphans
+  command_doctor
+}
+
+command_workspace() {
+  local subcommand="${1:-help}"
+  require_docker
+  [[ -f "${compose_environment}" ]] || die "run bin/neural-labs init first"
+  case "${subcommand}" in
+    status)
+      compose ps workspace
+      compose exec -T workspace openclaw --version
+      compose exec -T workspace codex --version
+      if ! compose exec -T workspace openclaw models auth list --provider openai --json; then
+        echo "OpenClaw provider status could not be read."
+      fi
+      ;;
+    logs)
+      compose logs --tail=200 --follow workspace
+      ;;
+    shell)
+      compose exec workspace bash -l
+      ;;
+    codex-login)
+      compose exec workspace codex login --device-auth
+      ;;
+    provider-login)
+      compose exec workspace openclaw models auth login --provider openai --device-code --set-default
+      ;;
+    openclaw-configure)
+      compose exec workspace openclaw configure
+      ;;
+    update)
+      command_workspace_update
+      ;;
+    help|-h|--help)
+      cat <<'EOF'
+Usage: bin/neural-labs workspace <command>
+
+Commands:
+  status       Show service, version, and Codex authentication status
+  logs         Follow workspace and OpenClaw logs
+  shell        Open a login shell as the shared workspace user
+  codex-login  Authenticate the shared Codex installation with device code
+  provider-login
+               Connect OpenClaw to a ChatGPT/Codex subscription with device code
+  openclaw-configure
+               Configure OpenClaw model and channel providers interactively
+  update       Back up, rebuild, and replace only the workspace
+EOF
+      ;;
+    *) die "unknown workspace command: ${subcommand}" ;;
+  esac
+}
+
+command_workspace_update() {
+  local control_plane_port control_plane_status current_image rollback_tag timestamp
+  require_command curl
+  validate_deployment_config
+  note "Creating a pre-update backup"
+  command_backup
+  current_image="$(compose images -q workspace 2>/dev/null | head -n 1)"
+  if [[ -n "${current_image}" ]]; then
+    timestamp="$(date -u +'%Y%m%dT%H%M%SZ')"
+    rollback_tag="neural-labs-workspace:rollback-${timestamp}"
+    docker image tag "${current_image}" "${rollback_tag}"
+    note "Retained the previous workspace image as ${rollback_tag}"
+  fi
+  compose build workspace
+  compose up -d --no-deps --force-recreate workspace
+  wait_for_health workspace-desktop "http://127.0.0.1:$(env_value WORKSPACE_DESKTOP_PORT || printf '4181')/healthz"
+  control_plane_port="$(env_value CONTROL_PLANE_PORT || printf '4174')"
+  control_plane_status="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 \
+    "http://127.0.0.1:${control_plane_port}/api/team/channels" || true)"
+  if [[ "${control_plane_status}" == "404" ]]; then
+    note "The workspace is newer than the running control plane; run bin/neural-labs update to replace the complete cluster"
+  fi
+}
+
+command_update() {
+  require_docker
+  validate_deployment_config
+  note "Creating a pre-update backup"
+  command_backup
+  note "Building and replacing services"
+  compose up -d --build --remove-orphans
+  command_doctor
+}
+
+command_stop() {
+  require_docker
+  [[ -f "${compose_environment}" ]] || die "run bin/neural-labs init first"
+  note "Stopping containers; PostgreSQL data and the root .env are preserved"
+  compose stop
+}
+
+main() {
+  local command="${1:-help}"
+  case "${command}" in
+    init) command_init ;;
+    up) command_up ;;
+    status) command_status ;;
+    logs) command_logs "$@" ;;
+    doctor) command_doctor ;;
+    update) command_update ;;
+    stop) command_stop ;;
+    backup) command_backup "${2:-}" ;;
+    restore) command_restore "${2:-}" "${3:-}" ;;
+    workspace) command_workspace "${2:-help}" ;;
+    onboarding) print_onboarding ;;
+    help|-h|--help) usage ;;
+    *) usage >&2; die "unknown command: ${command}" ;;
+  esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

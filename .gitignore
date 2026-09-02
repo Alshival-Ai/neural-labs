@@ -10,19 +10,43 @@
 *.pfx
 secrets/
 **/secrets/
+deploy/compose/.env
 id_rsa*
 id_ed25519*
+tmp/*
+!tmp/neural-labs-spectrum-paper-wallpaper.png
+!tmp/neural-labs-spectrum-paper-tablet.png
+!tmp/neural-labs-spectrum-paper-mobile.png
 
-# Generated tenant state and backups
+# Private runtime content. Neural Labs is a public source repository; team
+# skills, agent memory, and OpenClaw state belong only in the workspace volume.
+skills/
+memory/
+MEMORY.md
+USER.md
+IDENTITY.md
+SOUL.md
+.openclaw/
+**/.openclaw/
+
+# Generated tenant state and recovery material
 state/
 generated/
 backups/
 tenant.env
 openclaw.json
+Screenshot From *.png
+Screenshot*.png
+screenshot*.png
 
 # Runtime and editor noise
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
 *.log
 *.pid
+*.zip
 .DS_Store
 .idea/
 .vscode/

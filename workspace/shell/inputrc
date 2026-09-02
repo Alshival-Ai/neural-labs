@@ -1,0 +1,14 @@
+# Familiar Readline behavior for developers who launch Bash explicitly.
+set editing-mode emacs
+set enable-bracketed-paste on
+set completion-ignore-case on
+set colored-completion-prefix on
+set colored-stats on
+set mark-symlinked-directories on
+set show-all-if-ambiguous on
+set visible-stats on
+"\e[A": history-search-backward
+"\e[B": history-search-forward
+"\e[H": beginning-of-line
+"\e[F": end-of-line
+"\e[2~": overwrite-mode
