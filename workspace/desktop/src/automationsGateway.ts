@@ -16,7 +16,7 @@ import type {
 import type { ConnectionState } from "./types";
 import type { ClawHubResult, SkillProposal, SkillProposalAction, SkillProposalDraft, SkillRecord } from "./SkillsApp";
 
-const CLIENT_VERSION = "0.2.0";
+const CLIENT_VERSION = "0.3.0";
 const INSTANCE_KEY = "neural-labs.automations.instance.v1";
 // This client intentionally has no browser device identity or reusable token.
 // Nginx authenticates an active Neural Labs administrator, overwrites the
@@ -258,6 +258,31 @@ export class AutomationsGateway {
   scanSkillHistory() {
     return this.client.request("skills.proposals.historyScan", { agentId: "main", direction: "older" });
   }
+}
+
+export function mapAutomationsSnapshot(status: unknown, listed: unknown, history: unknown, operationalOnly = false): AutomationsSnapshot {
+  const jobs = isRecord(listed) && Array.isArray(listed.jobs) ? listed.jobs : Array.isArray(listed) ? listed : [];
+  const entries = isRecord(history) && Array.isArray(history.entries) ? history.entries : Array.isArray(history) ? history : [];
+  const runsByJob = new Map<string, AutomationRun[]>();
+  for (const entry of entries) {
+    if (!isRecord(entry)) continue;
+    const jobId = stringValue(entry.jobId);
+    if (!jobId) continue;
+    runsByJob.set(jobId, [...(runsByJob.get(jobId) ?? []), mapRun(entry)]);
+  }
+  const mapped: AutomationsSnapshot = {
+    schedulerOnline: !isRecord(status) || status.enabled !== false,
+    jobs: jobs.flatMap((job, index) => isRecord(job) ? [mapJob(job, runsByJob.get(stringValue(job.id) ?? "") ?? [], index)] : []),
+  };
+  if (!operationalOnly) return mapped;
+  return { ...mapped, jobs: mapped.jobs.map((job) => ({
+    ...job,
+    schedule: { ...job.schedule, trigger: undefined, workingDirectory: undefined },
+    payload: { ...job.payload, content: "Configuration hidden from non-administrators", model: undefined, thinking: undefined, tools: undefined, workingDirectory: undefined },
+    agent: "Workspace agent",
+    delivery: { ...job.delivery, target: undefined, channel: undefined },
+    runs: job.runs.map((run) => ({ ...run, model: undefined, usage: undefined, error: undefined })),
+  })) };
 }
 
 function mapJob(job: RecordValue, runs: AutomationRun[], index: number): AutomationJob {

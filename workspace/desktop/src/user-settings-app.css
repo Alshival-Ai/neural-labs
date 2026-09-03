@@ -45,6 +45,25 @@
 .user-settings-handle small { color: var(--user-settings-muted); font-size: var(--desktop-font-small, 12px); font-weight: 500; }
 
 .user-settings-provider-list { display: grid; gap: .4rem; margin-top: .72rem; }
+.user-settings-openai-status { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .68rem; margin-top: .72rem; padding: .68rem; border: 1px solid var(--user-settings-line); border-radius: 10px; background: #fffef9; }
+.user-settings-openai-mark { width: 2.15rem; height: 2.15rem; display: grid; place-items: center; border-radius: 10px; color: #fff; background: linear-gradient(145deg, #08a9ef, #7b4dff); box-shadow: 0 8px 20px rgba(91, 77, 220, .16); }
+.user-settings-openai-mark.is-disconnected, .user-settings-openai-mark.is-error, .user-settings-openai-mark.is-paused { color: #696a72; background: #efedf5; box-shadow: none; }
+.user-settings-openai-mark svg { width: .9rem; height: .9rem; }
+.user-settings-openai-copy { min-width: 0; }
+.user-settings-openai-copy > strong { display: block; font-size: var(--desktop-font-body, 13px); }
+.user-settings-openai-copy > p { margin: .15rem 0 0; color: var(--user-settings-muted); font-size: var(--desktop-font-small, 12px); line-height: 1.45; }
+.user-settings-openai-error { display: block; margin-top: .3rem; color: #a43747; font-size: var(--desktop-font-small, 12px); }
+.user-settings-openai-actions { display: flex; align-items: center; gap: .35rem; }
+.user-settings-openai-actions button, .user-settings-device-code button, .user-settings-device-code a { min-height: 2rem; display: inline-flex; align-items: center; justify-content: center; gap: .3rem; padding: 0 .65rem; border: 1px solid var(--user-settings-ink); border-radius: 7px; color: #fff; background: var(--user-settings-ink); cursor: pointer; font: inherit; font-size: var(--desktop-font-small, 12px); font-weight: 750; text-decoration: none; white-space: nowrap; }
+.user-settings-openai-actions button.secondary, .user-settings-device-code button.secondary { color: var(--user-settings-ink); border-color: var(--user-settings-line); background: #fff; }
+.user-settings-openai-actions button:hover, .user-settings-device-code a:hover { border-color: #7b4dff; background: #7b4dff; color: #fff; }
+.user-settings-openai-actions button:disabled { opacity: .48; cursor: wait; }
+.user-settings-openai-actions svg, .user-settings-device-code svg { width: .65rem; height: .65rem; }
+.user-settings-device-code { display: grid; grid-template-columns: minmax(8rem, 1fr) auto auto; align-items: center; gap: .48rem; margin-top: .5rem; padding: .65rem; border: 1px dashed rgba(123, 77, 255, .28); border-radius: 10px; background: rgba(123, 77, 255, .035); }
+.user-settings-device-code > div { display: grid; gap: .12rem; }
+.user-settings-device-code small { color: var(--user-settings-muted); font-size: var(--desktop-font-small, 12px); }
+.user-settings-device-code strong { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--desktop-font-subheading, 16px); letter-spacing: .08em; }
+.user-settings-device-code > small { grid-column: 1 / -1; }
 .user-settings-provider-list article { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .65rem; padding: .62rem; border: 1px solid var(--user-settings-line); border-radius: 10px; background: #fffef9; }
 .user-settings-provider-list article > div:nth-child(2) { min-width: 0; }
 .user-settings-provider-list strong { display: block; font-size: var(--desktop-font-body, 13px); }
@@ -52,6 +71,8 @@
 .user-settings-provider-icon { width: 1.8rem; height: 1.8rem; display: grid; place-items: center; border-radius: 8px; background: #efedf5; }
 .user-settings-provider-icon.is-local { color: #7b4dff; background: #eee9ff; }
 .user-settings-provider-icon.is-local svg { width: .78rem; height: .78rem; }
+.user-settings-provider-icon.is-passkey { color: #2676ff; background: rgba(38, 118, 255, .09); }
+.user-settings-provider-icon.is-passkey svg { width: .82rem; height: .82rem; }
 .user-settings-provider-icon.is-microsoft { grid-template-columns: repeat(2, .42rem); grid-template-rows: repeat(2, .42rem); gap: .08rem; background: #f2f2f2; }
 .user-settings-provider-icon.is-microsoft span:nth-child(1) { background: #f35325; }
 .user-settings-provider-icon.is-microsoft span:nth-child(2) { background: #81bc06; }
@@ -75,6 +96,22 @@
 .user-settings-password-form button:hover { background: #7b4dff; border-color: #7b4dff; }
 .user-settings-password-form button:disabled { opacity: .48; cursor: wait; }
 
+.user-settings-passkeys { display: grid; gap: .55rem; margin-top: .65rem; }
+.user-settings-passkeys ul { display: grid; gap: .35rem; margin: 0; padding: 0; list-style: none; }
+.user-settings-passkeys li { display: flex; align-items: center; justify-content: space-between; gap: .6rem; padding: .55rem .65rem; border: 1px solid var(--user-settings-line); border-radius: 9px; background: #fffef9; }
+.user-settings-passkeys li strong, .user-settings-passkeys li small { display: block; }
+.user-settings-passkeys li strong { font-size: var(--desktop-font-body, 13px); }
+.user-settings-passkeys li small { margin-top: .12rem; color: var(--user-settings-muted); font-size: var(--desktop-font-small, 12px); }
+.user-settings-passkeys li button { padding: .3rem .5rem; border: 1px solid rgba(200, 63, 80, .22); border-radius: 7px; color: #9a2f3e; background: rgba(200, 63, 80, .055); cursor: pointer; font-size: var(--desktop-font-small, 12px); font-weight: 750; }
+.user-settings-passkey-form { display: grid; gap: .48rem; padding: .7rem; border: 1px dashed rgba(38, 118, 255, .24); border-radius: 10px; background: rgba(38, 118, 255, .035); }
+.user-settings-passkey-form label { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; }
+.user-settings-passkey-form label span { font-size: var(--desktop-font-body, 13px); font-weight: 750; }
+.user-settings-passkey-form label small { color: var(--user-settings-muted); font-size: var(--desktop-font-small, 12px); }
+.user-settings-passkey-form > div { display: grid; grid-template-columns: minmax(8rem, 1fr) auto; gap: .45rem; }
+.user-settings-passkey-form input { min-width: 0; height: 2rem; padding: 0 .58rem; border: 1px solid var(--user-settings-line); border-radius: 7px; background: #fff; outline: none; font-size: var(--desktop-font-body, 13px); }
+.user-settings-passkey-form button { min-height: 2rem; padding: 0 .7rem; border: 1px solid var(--user-settings-ink); border-radius: 7px; color: #fff; background: var(--user-settings-ink); cursor: pointer; font-size: var(--desktop-font-small, 12px); font-weight: 750; }
+.user-settings-passkey-form button:disabled, .user-settings-passkeys li button:disabled { opacity: .48; cursor: wait; }
+
 .user-settings-session { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .35rem .1rem; }
 .user-settings-session strong { display: block; font-size: var(--desktop-font-body, 13px); }
 .user-settings-session p { margin: .14rem 0 0; color: var(--user-settings-muted); font-size: var(--desktop-font-small, 12px); }
@@ -88,9 +125,14 @@
 }
 
 @media (max-width: 520px) {
+  .user-settings-openai-status { grid-template-columns: auto minmax(0, 1fr); align-items: start; }
+  .user-settings-openai-actions { grid-column: 2; justify-self: start; }
+  .user-settings-device-code { grid-template-columns: 1fr; }
+  .user-settings-device-code > small { grid-column: auto; }
   .user-settings-provider-list article { grid-template-columns: auto minmax(0, 1fr); }
   .user-settings-provider-list article > :last-child { grid-column: 2; justify-self: start; }
   .user-settings-password-form > div { grid-template-columns: 1fr; }
+  .user-settings-passkey-form > div { grid-template-columns: 1fr; }
   .user-settings-identity-list { grid-template-columns: 1fr; }
   .user-settings-identity-list > div:last-child { grid-column: auto; }
   .user-settings-font-size { grid-template-columns: auto minmax(0, 1fr); }

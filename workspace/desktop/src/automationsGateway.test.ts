@@ -7,6 +7,7 @@ import {
   AUTOMATIONS_CLIENT_INFO,
   AUTOMATIONS_CONNECTION_SCOPES,
   draftToGatewayParams,
+  mapAutomationsSnapshot,
 } from "./automationsGateway";
 
 const baseDraft: AutomationDraft = {
@@ -93,5 +94,18 @@ describe("OpenClaw automation request mapping", () => {
   it("converts fixed intervals to milliseconds", () => {
     expect(draftToGatewayParams({ ...baseDraft, scheduleKind: "every", scheduleValue: "4h" }).schedule)
       .toEqual({ kind: "every", everyMs: 14_400_000 });
+  });
+
+  it("keeps operational state visible while removing administrator-only configuration", () => {
+    const snapshot = mapAutomationsSnapshot(
+      { enabled: true },
+      { jobs: [{ id: "job-1", name: "Deploy watcher", enabled: true, schedule: { kind: "cron", expr: "0 * * * *" }, payload: { kind: "command", argv: ["deploy", "--token", "private"], cwd: "/private" }, delivery: { mode: "webhook", to: "https://internal.example" }, agentId: "main" }] },
+      { entries: [{ jobId: "job-1", runId: "run-1", status: "error", error: "private command failed", runAtMs: Date.now() }] },
+      true,
+    );
+    expect(snapshot.jobs[0]).toMatchObject({ name: "Deploy watcher", enabled: true, payload: { content: "Configuration hidden from non-administrators" }, agent: "Workspace agent" });
+    expect(snapshot.jobs[0].payload.workingDirectory).toBeUndefined();
+    expect(snapshot.jobs[0].delivery.target).toBeUndefined();
+    expect(snapshot.jobs[0].runs[0].error).toBeUndefined();
   });
 });

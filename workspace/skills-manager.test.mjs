@@ -80,3 +80,25 @@ test("skill files reject obvious credentials", async (t) => {
     (error) => error instanceof WorkspaceSkillError && error.code === "credential_detected",
   );
 });
+
+test("package publishing preserves support files and scans them for credentials", async (t) => {
+  const { manager, personalRoot } = await fixture(t);
+  const source = "---\nname: package-skill\ndescription: \"Uses a reference.\"\n---\n\n# Package skill\n";
+  await manager.savePackage(maya, {
+    fields: { name: "Package skill", slug: "package-skill", description: "Uses a reference.", scope: "personal" },
+    files: [
+      { path: "SKILL.md", content: source, kind: "text" },
+      { path: "references/guide.md", content: "# Guide\n", kind: "text" },
+      { path: "assets/mark.bin", content: Buffer.from([1, 2, 3]), kind: "asset" },
+    ],
+  });
+  assert.equal(await readFile(path.join(personalRoot, "package-skill", "references", "guide.md"), "utf8"), "# Guide\n");
+
+  await assert.rejects(manager.savePackage(maya, {
+    fields: { name: "Unsafe package", slug: "unsafe-package", description: "Contains a secret.", scope: "personal" },
+    files: [
+      { path: "SKILL.md", content: source.replace("package-skill", "unsafe-package"), kind: "text" },
+      { path: "scripts/run.sh", content: `TOKEN=${"sk-" + "a".repeat(32)}`, kind: "text" },
+    ],
+  }), (error) => error instanceof WorkspaceSkillError && error.code === "credential_detected");
+});

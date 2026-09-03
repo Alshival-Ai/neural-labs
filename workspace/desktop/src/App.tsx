@@ -33,7 +33,6 @@ import { NeuraGateway } from "./openclaw";
 import { AutomationsGateway } from "./automationsGateway";
 import { openPopoutSurface, type PopoutSurface } from "./popoutWindow";
 
-const AutomationsLiveApp = lazy(() => import("./AutomationsLiveApp").then((module) => ({ default: module.AutomationsLiveApp })));
 const EditorApp = lazy(() => import("./EditorApp").then((module) => ({ default: module.EditorApp })));
 const FilesApp = lazy(() => import("./FilesApp").then((module) => ({ default: module.FilesApp })));
 const NeuraApp = lazy(() => import("./NeuraApp").then((module) => ({ default: module.NeuraApp })));
@@ -47,6 +46,7 @@ type Session = {
   authenticated: boolean;
   csrfToken?: string;
   providers?: Array<"local" | "microsoft">;
+  neura?: { agentId: string };
   user?: {
     id: string;
     email: string;
@@ -103,7 +103,7 @@ function desktopDeviceState(userId: string): DesktopDeviceState | undefined {
   const windows = raw.windows.flatMap((candidate, index): DesktopWindowState[] => {
     if (!candidate || typeof candidate !== "object") return [];
     const value = candidate as Record<string, unknown>;
-    const app = value.app === "user-settings" ? "settings" : value.app;
+    const app = value.app === "user-settings" ? "settings" : value.app === "automations" ? "skills" : value.app;
     if (typeof value.id !== "string" || !DESKTOP_APPS.has(app as DesktopApp)) return [];
     const id = value.id.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 100);
     if (!id) return [];
@@ -225,12 +225,14 @@ export function App() {
   const [clock, setClock] = useState(new Date());
   const [toast, setToast] = useState<string>();
   const [neuraComposeRequest, setNeuraComposeRequest] = useState<{ id: string; targetWindowId: string; text: string }>();
+  const [skillsLaunchRequest, setSkillsLaunchRequest] = useState<{ id: string; targetWindowId: string; section: "mine" | "automations" }>();
   const [initialSettingsLaunch] = useState(settingsLaunch);
   const toastTimer = useRef<number | undefined>(undefined);
   const popoutTargetsRef = useRef(popoutTargets);
   const settingsLaunchHandled = useRef(false);
   const editorDocumentsRef = useRef(editorDocuments);
   const openingEditorPaths = useRef(new Set<string>());
+  const builderEditorBindings = useRef(new Map<string, { change: (content: string) => void; read: () => string; unsubscribe?: () => void }>());
   editorDocumentsRef.current = editorDocuments;
   popoutTargetsRef.current = popoutTargets;
   const editorPathSignature = editorDocuments.map((document) => document.path).join("\n");
@@ -321,20 +323,18 @@ export function App() {
       if (document.visibilityState === "visible" && navigator.onLine) void refreshRuntime();
     };
 
-    gateway.start();
     void fetchJson<Session>("/api/session").then((payload) => {
       if (!payload.authenticated) window.location.assign("/login?error=Please+log+in");
       else {
+        if (payload.neura?.agentId) gateway.setAgentId(payload.neura.agentId);
+        gateway.start();
         const userId = payload.user?.id;
         if (userId) {
           const restored = desktopDeviceState(userId);
           setFontScale(appearanceDeviceState(userId).fontScale);
           if (restored) {
             const allowedWindows = restored.windows.filter((window) => window.app !== "automations" || payload.user?.role === "admin");
-            const startupTerminal = allowedWindows.filter((window) => window.app === "terminal").sort((left, right) => right.order - left.order)[0];
-            setWindows(startupTerminal
-              ? raiseWindow(allowedWindows, startupTerminal.id)
-              : [...allowedWindows, { id: freshWindowId("terminal"), app: "terminal", visibility: "open", order: allowedWindows.length + 1 }]);
+            setWindows(allowedWindows);
             setPendingEditorRestore({ paths: restored.editorPaths, activeId: restored.activeEditorId });
           } else {
             setWindows([{ id: freshWindowId("terminal"), app: "terminal", visibility: "open", order: 1 }]);
@@ -363,7 +363,7 @@ export function App() {
     if (pendingEditorRestore) return;
     writeDeviceState(persistenceUserId, "desktop", {
       windows: windows.map((window) => window.visibility === "popped-out" ? { ...window, visibility: "open" as const } : window),
-      editorPaths: editorDocuments.map((document) => document.path),
+      editorPaths: editorDocuments.filter((document) => !document.id.startsWith("builder:")).map((document) => document.path),
       activeEditorId,
     } satisfies DesktopDeviceState);
   }, [activeEditorId, editorPathSignature, pendingEditorRestore, persistenceUserId, session, windows]);
@@ -385,6 +385,11 @@ export function App() {
       document.removeEventListener("click", closeMenu);
       window.removeEventListener("keydown", closeMenuWithKeyboard);
     };
+  }, []);
+
+  useEffect(() => () => {
+    for (const binding of builderEditorBindings.current.values()) binding.unsubscribe?.();
+    builderEditorBindings.current.clear();
   }, []);
 
   const logout = async () => {
@@ -587,6 +592,13 @@ export function App() {
   }, [pendingEditorRestore]);
 
   const saveEditorDocument = useCallback(async (document: EditorDocument, content: string) => {
+    const builderBinding = builderEditorBindings.current.get(document.id);
+    if (builderBinding) {
+      builderBinding.change(content);
+      setEditorDocuments((current) => current.map((item) => item.id === document.id ? { ...item, content, savedContent: content } : item));
+      notify(`${document.name} is autosaved in the builder draft.`);
+      return;
+    }
     if (!document.version) throw new Error("Reload this file before saving it.");
     const saved = toEditorDocument(await saveWorkspaceTextFile(document.path, content, document.version));
     setEditorDocuments((current) => {
@@ -598,6 +610,13 @@ export function App() {
   }, [notify]);
 
   const reloadEditorDocument = useCallback(async (document: EditorDocument) => {
+    const builderBinding = builderEditorBindings.current.get(document.id);
+    if (builderBinding) {
+      const content = builderBinding.read();
+      const reloaded = { ...document, content, savedContent: content };
+      setEditorDocuments((current) => current.map((item) => item.id === document.id ? reloaded : item));
+      return reloaded;
+    }
     const reloaded = toEditorDocument(await readWorkspaceTextFile(document.path));
     setEditorDocuments((current) => {
       const next = current.map((item) => item.id === reloaded.id ? reloaded : item);
@@ -608,6 +627,7 @@ export function App() {
   }, []);
 
   const changeEditorDocument = useCallback((document: EditorDocument, content: string) => {
+    builderEditorBindings.current.get(document.id)?.change(content);
     setEditorDocuments((current) => {
       const next = current.map((item) => item.id === document.id ? { ...item, content } : item);
       editorDocumentsRef.current = next;
@@ -633,10 +653,44 @@ export function App() {
     setNeuraComposeRequest({ id: crypto.randomUUID(), targetWindowId, text });
   }, [notify, windows]);
 
+  const openBuilderDocument = useCallback((draftId: string, draftTitle: string, filePath: string, content: string, binding: { change: (content: string) => void; read: () => string; subscribe: (listener: () => void) => () => void }) => {
+    const id = `builder:${draftId}:${filePath}`;
+    const existingWindow = windows.filter((window) => window.app === "editor").sort((left, right) => right.order - left.order)[0];
+    if (!existingWindow && windows.length >= 24) { notify("Close a window before opening the Editor."); return; }
+    builderEditorBindings.current.get(id)?.unsubscribe?.();
+    const updateFromBuilder = () => {
+      const nextContent = binding.read();
+      setEditorDocuments((current) => current.map((item) => item.id === id && (item.content !== nextContent || item.savedContent !== nextContent) ? { ...item, content: nextContent, savedContent: nextContent } : item));
+    };
+    builderEditorBindings.current.set(id, { change: binding.change, read: binding.read, unsubscribe: binding.subscribe(updateFromBuilder) });
+    const document: EditorDocument = { id, name: filePath.split("/").at(-1) ?? filePath, path: `Skill drafts/${draftTitle}/${filePath}`, language: editorLanguage(filePath), accent: editorAccent(filePath), content, savedContent: content, version: "builder-draft" };
+    setEditorDocuments((current) => {
+      const next = current.some((item) => item.id === id) ? current.map((item) => item.id === id ? document : item) : [...current, document];
+      editorDocumentsRef.current = next;
+      return next;
+    });
+    setActiveEditorId(id);
+    if (existingWindow?.visibility === "popped-out") popoutTargetsRef.current.get(existingWindow.id)?.browserWindow.focus();
+    setWindows((current) => existingWindow ? raiseWindow(current, existingWindow.id) : [...current, { id: freshWindowId("editor"), app: "editor", visibility: "open", order: current.length + 1 }]);
+  }, [notify, windows]);
+
+  const openSkillsSection = useCallback((section: "mine" | "automations") => {
+    const existing = windows.filter((window) => window.app === "skills" || window.app === "automations").sort((left, right) => right.order - left.order)[0];
+    if (!existing && windows.length >= 24) { notify("Close a window before opening Skills."); return; }
+    const targetWindowId = existing?.id ?? freshWindowId("skills");
+    setWindows((current) => {
+      const normalized = current.map((window) => window.id === targetWindowId && window.app === "automations" ? { ...window, app: "skills" as const } : window);
+      return existing ? raiseWindow(normalized, targetWindowId) : [...normalized, { id: targetWindowId, app: "skills", visibility: "open", order: normalized.length + 1 }];
+    });
+    setSkillsLaunchRequest({ id: crypto.randomUUID(), targetWindowId, section });
+    if (existing?.visibility === "popped-out") popoutTargetsRef.current.get(existing.id)?.browserWindow.focus();
+    setDockMenu(undefined);
+  }, [notify, windows]);
+
   const openWindows = windows.filter((window) => window.visibility === "open").sort((left, right) => left.order - right.order);
   // Live socket-backed apps remain mounted while minimized so their session,
   // transcript, scroll position, and embedded browser state survive restore.
-  const mountedWindows = windows.filter((window) => window.visibility === "open" || window.visibility === "popped-out" || window.app === "neura" || window.app === "terminal" || window.app === "vscode").sort((left, right) => left.order - right.order);
+  const mountedWindows = windows.filter((window) => window.visibility === "open" || window.visibility === "popped-out" || window.app === "neura" || window.app === "terminal" || window.app === "vscode" || window.app === "skills" || window.app === "automations").sort((left, right) => left.order - right.order);
   const activeWindowId = openWindows.at(-1)?.id;
   const focusMode = Boolean(activeWindowId && maximizedWindowIds.has(activeWindowId));
   const windowCount = (app: DesktopApp) => windows.filter((window) => window.app === app).length;
@@ -712,8 +766,7 @@ export function App() {
                 {desktopWindow.app === "settings" && session?.user && session.csrfToken && <SettingsApp administrator={session.user.role === "admin"} csrfToken={session.csrfToken} currentUserId={session.user.id} user={session.user} providers={session.providers ?? []} initialNotice={initialSettingsLaunch.notice} initialSection={initialSettingsLaunch.open ? "personalization" : undefined} fontScale={fontScale} onFontScaleChange={setFontScale} onLogout={() => void logout()} storageNamespace={persistenceUserId} storageArea={`settings.${desktopWindow.id}`} />}
                 {desktopWindow.app === "terminal" && <TerminalApp workspaceName="Workspace" notify={notify} storageNamespace={persistenceUserId} storageArea={`terminal.${desktopWindow.id}`} fontScale={fontScale} onFontScaleChange={setFontScale} />}
                 {desktopWindow.app === "vscode" && <VsCodeApp />}
-                {desktopWindow.app === "automations" && session?.user?.role === "admin" && <AutomationsLiveApp gateway={automationsGateway} notify={notify} workspaceName="Workspace" />}
-                {desktopWindow.app === "skills" && <SkillsLiveApp reader={gateway} administrator={session?.user?.role === "admin" ? automationsGateway : undefined} canManage={session?.user?.role === "admin"} currentUserName={session?.user?.displayName ?? "You"} notify={notify} onComposeInNeura={composeInNeura} workspaceName="Workspace" />}
+                {(desktopWindow.app === "skills" || desktopWindow.app === "automations") && session?.user && <SkillsLiveApp reader={gateway} administrator={session.user.role === "admin" ? automationsGateway : undefined} canManage={session.user.role === "admin"} currentUser={{ id: session.user.id, displayName: session.user.displayName, role: session.user.role }} initialSection={skillsLaunchRequest?.targetWindowId === desktopWindow.id ? skillsLaunchRequest.section : "mine"} sectionRequestId={skillsLaunchRequest?.targetWindowId === desktopWindow.id ? skillsLaunchRequest.id : undefined} notify={notify} onComposeInNeura={composeInNeura} onOpenBuilderDocument={openBuilderDocument} workspaceName="Workspace" />}
               </Suspense>
             </DesktopWindow>
           );
@@ -729,8 +782,8 @@ export function App() {
         <DockButton name="VS Code" active={windowCount("vscode") > 0} count={windowCount("vscode")} onClick={() => toggleDockApp("vscode")} onContextMenu={(event) => openDockMenu("vscode", event)}><Code2 /></DockButton>
         <DockButton name="Terminal" active={windowCount("terminal") > 0} count={windowCount("terminal")} onClick={() => toggleDockApp("terminal")} onContextMenu={(event) => openDockMenu("terminal", event)}><TerminalSquare /></DockButton>
         <span className="dock-separator" aria-hidden="true" />
-        {role === "admin" && <DockButton name="Automations" active={windowCount("automations") > 0} count={windowCount("automations")} onClick={() => toggleDockApp("automations")} onContextMenu={(event) => openDockMenu("automations", event)}><CalendarClock /></DockButton>}
-        <DockButton name="Skills" active={windowCount("skills") > 0} count={windowCount("skills")} onClick={() => toggleDockApp("skills")} onContextMenu={(event) => openDockMenu("skills", event)}><Bot /></DockButton>
+        <DockButton name="Automations" active={windowCount("skills") > 0} count={windowCount("skills")} onClick={() => openSkillsSection("automations")}><CalendarClock /></DockButton>
+        <DockButton name="Skills" active={windowCount("skills") > 0} count={windowCount("skills")} onClick={() => openSkillsSection("mine")} onContextMenu={(event) => openDockMenu("skills", event)}><Bot /></DockButton>
         <DockButton name="Settings" active={windowCount("settings") > 0} count={windowCount("settings")} onClick={() => toggleDockApp("settings")} onContextMenu={(event) => openDockMenu("settings", event)}><Settings /></DockButton>
       </nav>
       {dockMenu && <div className="dock-context-menu" role="menu" aria-label={`${dockMenu.app} actions`} style={{ left: dockMenu.x, top: dockMenu.y }} onClick={(event) => event.stopPropagation()}>

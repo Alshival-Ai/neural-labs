@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("./openclaw", () => ({
   NeuraGateway: class {
     start() {}
+    setAgentId() {}
   },
 }));
 
@@ -13,6 +14,10 @@ vi.mock("./TerminalApp", () => ({
 
 vi.mock("./NeuraApp", () => ({
   NeuraApp: () => <div data-testid="neura-live-view">Live Neura view</div>,
+}));
+
+vi.mock("./SkillsLiveApp", () => ({
+  SkillsLiveApp: ({ initialSection }: { initialSection?: string }) => <div data-testid="skills-live-view">Skills section: {initialSection}</div>,
 }));
 
 import { App } from "./App";
@@ -27,6 +32,7 @@ function session(role: "admin" | "user") {
     authenticated: true,
     csrfToken: "csrf-token",
     providers: ["local"],
+    neura: { agentId: `nl-${role}id` },
     user: { id: `${role}-id`, email: `${role}@example.org`, displayName: role, role, status: "active" },
   };
 }
@@ -149,6 +155,19 @@ describe("desktop admin navigation", () => {
 
     expect(terminalWindow).not.toHaveAttribute("hidden");
     expect(await within(terminalWindow).findByTestId("terminal-live-view")).toBeInTheDocument();
+  });
+
+  it("does not reopen Terminal when the saved desktop has no Terminal window", async () => {
+    localStorage.setItem(deviceStateKey("user-id", "desktop"), JSON.stringify({
+      windows: [{ id: "files-saved", app: "files", visibility: "open", order: 1 }],
+      editorPaths: [],
+    }));
+
+    renderDesktop("user");
+
+    expect(await screen.findByLabelText("Files application")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Terminal application")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Terminal" })).not.toHaveClass("is-active");
   });
 
   it("moves a live app into a browser window and pops the same view back into the desktop", async () => {
@@ -284,11 +303,20 @@ describe("desktop admin navigation", () => {
     expect(window.location.search).toBe("");
   });
 
-  it("exposes the Settings cog but not administrator apps to regular users", async () => {
+  it("exposes Settings and read-only Automations to regular users", async () => {
     renderDesktop("user");
     expect(await screen.findByText("Workspace ready")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Settings" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Automations" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Automations" })).toBeInTheDocument();
+  });
+
+  it("routes the Automations dock icon into the canonical Skills window", async () => {
+    renderDesktop("user");
+    await screen.findByText("Workspace ready");
+    fireEvent.click(screen.getByRole("button", { name: "Automations" }));
+    const skillsWindow = await screen.findByLabelText("Skills application");
+    expect(await within(skillsWindow).findByTestId("skills-live-view")).toHaveTextContent("Skills section: automations");
+    expect(screen.queryByLabelText("Automations application")).not.toBeInTheDocument();
   });
 
   it("opens and saves a shared file through Files and the Editor window", async () => {

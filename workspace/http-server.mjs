@@ -3,6 +3,7 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import path from "node:path";
 
+import { BuilderError, attachBuilderWebSocket, createBuilderManager } from "./builder-manager.mjs";
 import { createWorkspaceFileEvents } from "./file-events.mjs";
 import { WorkspaceFileError, createFileManager } from "./file-manager.mjs";
 import { WorkspaceSkillError, createSkillsManager, workspaceSkillActor } from "./skills-manager.mjs";
@@ -105,6 +106,15 @@ function skillApiError(response, error, method) {
   }
   console.error("Workspace skill API error", error instanceof Error ? error.message : error);
   sendJson(response, 500, { error: { code: "internal_error", message: "The skill operation failed" } }, method);
+}
+
+function builderApiError(response, error, method) {
+  if (error instanceof BuilderError || error instanceof WorkspaceSkillError) {
+    sendJson(response, error.status, { error: { code: error.code, message: error.message } }, method);
+    return;
+  }
+  console.error("Workspace builder API error", error instanceof Error ? error.message : error);
+  sendJson(response, 500, { error: { code: "internal_error", message: "The builder operation failed" } }, method);
 }
 
 function validControlToken(request, expected) {
@@ -318,6 +328,7 @@ export function createWorkspaceHttpServer({
   providerAuthenticated,
   openclawModelReady,
   providerAuth,
+  personalOpenAI,
   workspaceControlToken,
   openclawVersion,
   codexVersion,
@@ -325,11 +336,27 @@ export function createWorkspaceHttpServer({
   maxTextBytes,
   personalSkillsRoot = path.join(path.dirname(workspaceRoot), ".agents", "skills"),
   teamSkillsRoot = path.join(workspaceRoot, "skills"),
+  skillInstructionRoots = [
+    workspaceRoot,
+    personalSkillsRoot,
+    path.join(path.dirname(workspaceRoot), ".openclaw", "skills"),
+    "/app/skills",
+    "/app/extensions",
+  ],
+  builderDraftsRoot = path.join(path.dirname(workspaceRoot), ".local", "state", "neural-labs", "builder-drafts"),
   terminalManager,
   runTeamAgent,
 }) {
   const files = createFileManager({ root: workspaceRoot, maxUploadBytes, maxTextBytes });
-  const skills = createSkillsManager({ personalRoot: personalSkillsRoot, teamRoot: teamSkillsRoot });
+  const skills = createSkillsManager({
+    personalRoot: personalSkillsRoot,
+    teamRoot: teamSkillsRoot,
+    instructionRoots: skillInstructionRoots,
+  });
+  const builder = createBuilderManager({
+    root: builderDraftsRoot,
+    publishSkill: (actor, skillPackage, targetKey) => skills.savePackage(actor, skillPackage, targetKey),
+  });
   const fileEvents = createWorkspaceFileEvents({ root: workspaceRoot });
   const terminals = terminalManager ?? new WorkspaceTerminalManager({ workspaceRoot });
   const server = createServer(async (request, response) => {
@@ -339,6 +366,7 @@ export function createWorkspaceHttpServer({
     const providerRoute = pathname === "/internal/provider-auth/openai";
     const providerStartRoute = pathname === "/internal/provider-auth/openai/start";
     const providerCancelRoute = pathname === "/internal/provider-auth/openai/cancel";
+    const personalProviderMatch = pathname.match(/^\/internal\/provider-auth\/openai\/users\/([^/]+)(?:\/(start|cancel|pause|resume))?$/u);
     const teamAgentRoute = pathname === "/internal/neura/team-run";
     if (teamAgentRoute) {
       if (!runTeamAgent || !workspaceControlToken || !validControlToken(request, workspaceControlToken)) {
@@ -352,11 +380,43 @@ export function createWorkspaceHttpServer({
       }
       try {
         const body = await readJsonBody(request, 2 * 1024 * 1024);
-        const reply = await runTeamAgent({ prompt: body?.prompt, capability: body?.capability });
-        sendJson(response, 200, { reply }, method);
+        const result = await runTeamAgent({ prompt: body?.prompt, capability: body?.capability, userId: body?.userId, runId: body?.runId });
+        sendJson(response, 200, typeof result === "string" ? { reply: result } : result, method);
       } catch (error) {
         console.error("Team Chat agent run failed", error instanceof Error ? error.message : error);
-        sendJson(response, 502, { error: { code: "agent_run_failed", message: "Neura could not complete this Team Chat turn" } }, method);
+        const personalAccountRequired = error?.code === "personal_openai_required";
+        sendJson(response, personalAccountRequired ? 409 : 502, { error: { code: personalAccountRequired ? "personal_openai_required" : "agent_run_failed", message: personalAccountRequired ? error.message : "Neura could not complete this Team Chat turn" } }, method);
+      }
+      return;
+    }
+    if (personalProviderMatch) {
+      if (!personalOpenAI || !workspaceControlToken || !validControlToken(request, workspaceControlToken)) {
+        sendJson(response, 401, { error: { code: "unauthorized", message: "Unauthorized" } }, method);
+        return;
+      }
+      let userId;
+      try {
+        userId = decodeURIComponent(personalProviderMatch[1]);
+      } catch {
+        sendJson(response, 400, { error: { code: "invalid_user", message: "Invalid user identifier" } }, method);
+        return;
+      }
+      const action = personalProviderMatch[2];
+      if ((!action && method !== "GET") || (action && method !== "POST")) {
+        response.setHeader("Allow", action ? "POST" : "GET");
+        sendJson(response, 405, { error: { code: "method_not_allowed", message: "Method not allowed" } }, method);
+        return;
+      }
+      try {
+        const result = !action ? await personalOpenAI.snapshot(userId)
+          : action === "start" ? await personalOpenAI.start(userId)
+          : action === "cancel" ? await personalOpenAI.cancel(userId)
+          : action === "pause" ? await personalOpenAI.pause(userId)
+          : await personalOpenAI.resume(userId);
+        sendJson(response, action === "start" ? 202 : 200, result, method);
+      } catch (error) {
+        console.error("Personal OpenAI account operation failed", error instanceof Error ? error.message : error);
+        sendJson(response, 409, { error: { code: "personal_openai_unavailable", message: error instanceof Error ? error.message : "Personal OpenAI account operation failed" } }, method);
       }
       return;
     }
@@ -457,7 +517,78 @@ export function createWorkspaceHttpServer({
       return;
     }
 
-    if (pathname === "/workspace/api/skills" || /^\/workspace\/api\/skills\/[^/]+$/.test(pathname) || /^\/workspace\/api\/skills\/[^/]+\/scope$/.test(pathname)) {
+    if (pathname === "/workspace/api/builder/drafts" || /^\/workspace\/api\/builder\/drafts\/[^/]+(?:\/(?:collaborators|asset|validate|publish|automation-published|test-snapshot))?$/.test(pathname)) {
+      const actor = workspaceSkillActor(request.headers);
+      if (!actor) {
+        sendJson(response, 401, { error: { code: "unauthorized", message: "Authentication is required" } }, method);
+        return;
+      }
+      const mutation = method !== "GET" && method !== "HEAD";
+      if (mutation && request.headers.origin !== publicOrigin) {
+        sendJson(response, 403, { error: { code: "same_origin_required", message: "A same-origin request is required" } }, method);
+        return;
+      }
+      try {
+        if (pathname === "/workspace/api/builder/drafts" && method === "GET") {
+          sendJson(response, 200, { drafts: await builder.list(actor) }, method);
+          return;
+        }
+        if (pathname === "/workspace/api/builder/drafts" && method === "POST") {
+          sendJson(response, 201, { draft: await builder.create(actor, await readJsonBody(request, 512 * 1024)) }, method);
+          return;
+        }
+        const match = pathname.match(/^\/workspace\/api\/builder\/drafts\/([^/]+)(?:\/(collaborators|asset|validate|publish|automation-published|test-snapshot))?$/);
+        if (!match) throw new BuilderError(404, "draft_not_found", "Builder draft not found");
+        const draftId = decodeURIComponent(match[1]);
+        const action = match[2];
+        if (!action && method === "GET") {
+          sendJson(response, 200, await builder.get(actor, draftId), method);
+          return;
+        }
+        if (!action && method === "DELETE") {
+          await builder.discard(actor, draftId);
+          sendJson(response, 200, { discarded: true }, method);
+          return;
+        }
+        if (action === "collaborators" && method === "PUT") {
+          const body = await readJsonBody(request);
+          sendJson(response, 200, { draft: await builder.collaborators(actor, draftId, body?.userIds) }, method);
+          return;
+        }
+        if (action === "asset" && method === "POST") {
+          sendJson(response, 201, { asset: await builder.saveAsset(actor, draftId, await readJsonBody(request, 36 * 1024 * 1024)) }, method);
+          return;
+        }
+        if (action === "asset" && method === "DELETE") {
+          await builder.removeAsset(actor, draftId, url.searchParams.get("path") ?? "");
+          sendJson(response, 200, { removed: true }, method);
+          return;
+        }
+        if (action === "validate" && method === "POST") {
+          sendJson(response, 200, await builder.validate(actor, draftId), method);
+          return;
+        }
+        if (action === "publish" && method === "POST") {
+          sendJson(response, 200, await builder.publish(actor, draftId), method);
+          return;
+        }
+        if (action === "automation-published" && method === "POST") {
+          sendJson(response, 200, { draft: await builder.finalizeAutomation(actor, draftId, await readJsonBody(request)) }, method);
+          return;
+        }
+        if (action === "test-snapshot" && method === "POST") {
+          sendJson(response, 201, { test: await builder.testSnapshot(actor, draftId, await readJsonBody(request, 64 * 1024)) }, method);
+          return;
+        }
+        response.setHeader("Allow", action ? "POST, PUT, DELETE" : "GET, DELETE");
+        sendJson(response, 405, { error: { code: "method_not_allowed", message: "Method not allowed" } }, method);
+      } catch (error) {
+        builderApiError(response, error, method);
+      }
+      return;
+    }
+
+    if (pathname === "/workspace/api/skills" || /^\/workspace\/api\/skills\/[^/]+$/.test(pathname) || /^\/workspace\/api\/skills\/[^/]+\/scope$/.test(pathname) || /^\/workspace\/api\/skills\/[^/]+\/package$/.test(pathname)) {
       const actor = workspaceSkillActor(request.headers);
       if (!actor) {
         sendJson(response, 401, { error: { code: "unauthorized", message: "Authentication is required" } }, method);
@@ -469,12 +600,21 @@ export function createWorkspaceHttpServer({
         return;
       }
       try {
+        if (pathname === "/workspace/api/skills/instructions" && method === "GET") {
+          sendJson(response, 200, await skills.readInstruction(url.searchParams.get("path") ?? ""), method);
+          return;
+        }
         if (pathname === "/workspace/api/skills" && method === "GET") {
           sendJson(response, 200, { skills: await skills.list(actor) }, method);
           return;
         }
         if (pathname === "/workspace/api/skills" && method === "POST") {
           sendJson(response, 201, { skill: await skills.save(actor, await readJsonBody(request, 256 * 1024)) }, method);
+          return;
+        }
+        const packageMatch = pathname.match(/^\/workspace\/api\/skills\/([^/]+)\/package$/);
+        if (packageMatch && method === "GET") {
+          sendJson(response, 200, await skills.readPackage(actor, decodeURIComponent(packageMatch[1])), method);
           return;
         }
         const scopeMatch = pathname.match(/^\/workspace\/api\/skills\/([^/]+)\/scope$/);
@@ -488,7 +628,7 @@ export function createWorkspaceHttpServer({
           sendJson(response, 200, { skill: await skills.save(actor, await readJsonBody(request, 256 * 1024), decodeURIComponent(skillMatch[1])) }, method);
           return;
         }
-        response.setHeader("Allow", pathname === "/workspace/api/skills" ? "GET, POST" : "PUT");
+        response.setHeader("Allow", pathname === "/workspace/api/skills" ? "GET, POST" : packageMatch ? "GET" : "PUT");
         sendJson(response, 405, { error: { code: "method_not_allowed", message: "Method not allowed" } }, method);
       } catch (error) {
         skillApiError(response, error, method);
@@ -660,6 +800,7 @@ export function createWorkspaceHttpServer({
   });
   const terminalSockets = attachTerminalWebSocket(server, { manager: terminals, publicOrigin });
   const vsCodeSockets = attachVsCodeWebSocketBridge(server, { codeServerOrigin, publicOrigin });
+  const builderSockets = attachBuilderWebSocket(server, { manager: builder, publicOrigin });
   const closeServer = server.close.bind(server);
   let closed = false;
   server.close = (callback) => {
@@ -668,6 +809,8 @@ export function createWorkspaceHttpServer({
       fileEvents.close();
       terminalSockets.close();
       vsCodeSockets.close();
+      builderSockets.close();
+      void builder.close();
       terminals.shutdown();
     }
     return closeServer(callback);

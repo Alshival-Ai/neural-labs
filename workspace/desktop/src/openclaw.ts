@@ -17,6 +17,7 @@ import {
 } from "@openclaw/gateway-protocol/client-info";
 import { PROTOCOL_VERSION } from "@openclaw/gateway-protocol/version";
 
+import { mapAutomationsSnapshot, type AutomationsSnapshot } from "./automationsGateway";
 import type {
   ComposerAttachment,
   ConnectionState,
@@ -32,8 +33,8 @@ import {
   shouldProtectLegacyPrivateSession,
 } from "./sessionVisibility";
 
-const AGENT_ID = "main";
-const CLIENT_VERSION = "0.2.0";
+const DEFAULT_AGENT_ID = "main";
+const CLIENT_VERSION = "0.3.0";
 const IDENTITY_KEY = "neural-labs.neura.device.v1";
 const TOKEN_PREFIX = "neural-labs.neura.token.v1";
 const INSTANCE_KEY = "neural-labs.neura.instance.v1"; // gitleaks:allow -- localStorage key name, not a credential
@@ -172,6 +173,7 @@ export class NeuraGateway {
   private started = false;
   private currentStatus: ConnectionState = "disconnected";
   private currentError?: string;
+  private agentId = DEFAULT_AGENT_ID;
 
   constructor() {
     this.client = new GatewayProtocolClient({
@@ -239,6 +241,15 @@ export class NeuraGateway {
     this.client.start();
   }
 
+  setAgentId(agentId: string) {
+    if (!/^nl-[a-z0-9]{1,60}$/u.test(agentId)) throw new Error("The Neura agent id is invalid");
+    if (this.agentId === agentId) return;
+    const restart = this.started;
+    if (restart) this.stop();
+    this.agentId = agentId;
+    if (restart) this.start();
+  }
+
   stop() {
     this.started = false;
     resetGatewaySessionMessageSubscriptionCoordinator(this.client);
@@ -265,7 +276,7 @@ export class NeuraGateway {
   async listSessions(): Promise<SessionRow[]> {
     const params = {
       limit: 200,
-      agentId: AGENT_ID,
+      agentId: this.agentId,
       archived: "all",
       ownerFirst: true,
       includeDerivedTitles: true,
@@ -277,7 +288,7 @@ export class NeuraGateway {
     void this.client.request("sessions.subscribe", params).catch(() => undefined);
     const rows = isRecord(result) && Array.isArray(result.sessions) ? result.sessions : [];
     return rows.flatMap((value, index): SessionRow[] => {
-      if (!isRecord(value) || !shouldIncludeNeuraSession(value, AGENT_ID)) return [];
+      if (!isRecord(value) || !shouldIncludeNeuraSession(value, this.agentId)) return [];
       const key = stringValue(value.key) ?? stringValue(value.sessionKey);
       if (!key) return [];
       const category = stringValue(value.category);
@@ -310,6 +321,15 @@ export class NeuraGateway {
     });
   }
 
+  async readAutomations(): Promise<AutomationsSnapshot> {
+    const [status, listed, history] = await Promise.all([
+      this.client.request<unknown>("cron.status", {}),
+      this.client.request<unknown>("cron.list", { includeDisabled: true, limit: 200, sortBy: "updatedAtMs", sortDir: "desc" }),
+      this.client.request<unknown>("cron.runs", { scope: "all", limit: 200, sortDir: "desc" }),
+    ]);
+    return mapAutomationsSnapshot(status, listed, history, true);
+  }
+
   async protectLegacyPrivateSessions(sessions: SessionRow[]): Promise<SessionRow[]> {
     const legacyOwnedSessions = sessions.filter(shouldProtectLegacyPrivateSession);
     if (legacyOwnedSessions.length === 0) return sessions;
@@ -317,7 +337,7 @@ export class NeuraGateway {
     const outcomes = await Promise.allSettled(legacyOwnedSessions.map((session) =>
       this.client.request("session.visibility.set", {
         sessionKey: session.key,
-        agentId: AGENT_ID,
+        agentId: this.agentId,
         visibility: "draft",
       })));
     const protectedKeys = new Set(legacyOwnedSessions.flatMap((session, index) =>
@@ -329,7 +349,7 @@ export class NeuraGateway {
 
   subscribeSession(sessionKey: string): Promise<GatewaySessionMessageSubscription> {
     return getGatewaySessionMessageSubscriptionCoordinator(this.client).acquire(sessionKey, {
-      agentId: AGENT_ID,
+      agentId: this.agentId,
       includeApprovals: true,
     });
   }
@@ -342,7 +362,7 @@ export class NeuraGateway {
     const label = "New conversation";
     const result = await this.client.request<unknown>("sessions.create", {
       idempotencyKey: crypto.randomUUID(),
-      agentId: AGENT_ID,
+      agentId: this.agentId,
       ...PRIVATE_NEURA_SESSION,
     });
     if (!isRecord(result) || !stringValue(result.key)) throw new Error("OpenClaw did not return a session key");
@@ -361,7 +381,7 @@ export class NeuraGateway {
   async loadHistory(sessionKey: string): Promise<NeuraMessage[]> {
     const result = await this.client.request<unknown>("chat.history", {
       sessionKey,
-      agentId: AGENT_ID,
+      agentId: this.agentId,
       limit: 250,
     });
     const rows = isRecord(result) && Array.isArray(result.messages) ? result.messages : [];
@@ -377,7 +397,7 @@ export class NeuraGateway {
     return this.client.request<{ runId: string }>("chat.send", {
       sessionKey: session.key,
       sessionId: session.sessionId,
-      agentId: AGENT_ID,
+      agentId: this.agentId,
       message,
       attachments: await Promise.all(attachments.map(fileToGatewayAttachment)),
       queueMode,
@@ -386,20 +406,20 @@ export class NeuraGateway {
   }
 
   abort(sessionKey: string, runId?: string) {
-    return this.client.request("chat.abort", { sessionKey, agentId: AGENT_ID, runId });
+    return this.client.request("chat.abort", { sessionKey, agentId: this.agentId, runId });
   }
 
   patchSession(session: SessionRow, patch: { label?: string; archived?: boolean }) {
     return this.client.request("sessions.patch", {
       key: session.key,
-      agentId: AGENT_ID,
+      agentId: this.agentId,
       expectedSessionId: session.sessionId,
       ...patch,
     });
   }
 
   async deleteSession(session: SessionRow) {
-    const plan = buildSessionDeletionPlan(session);
+    const plan = buildSessionDeletionPlan(session, this.agentId);
     if (plan.archive) await this.client.request("sessions.patch", plan.archive);
     return this.client.request("sessions.delete", plan.remove);
   }
@@ -409,7 +429,7 @@ export class NeuraGateway {
   }
 
   readSkillsStatus() {
-    return this.client.request<unknown>("skills.status", { agentId: AGENT_ID });
+    return this.client.request<unknown>("skills.status", { agentId: this.agentId });
   }
 
   readSkillsCuratorStatus() {
@@ -417,7 +437,7 @@ export class NeuraGateway {
   }
 
   readSkillCard(skillKey: string) {
-    return this.client.request<unknown>("skills.skillCard", { agentId: AGENT_ID, skillKey });
+    return this.client.request<unknown>("skills.skillCard", { agentId: this.agentId, skillKey });
   }
 
   searchSkills(query: string) {
@@ -431,11 +451,11 @@ export class NeuraGateway {
   }
 
   listSkillProposals() {
-    return this.client.request<unknown>("skills.proposals.list", { agentId: AGENT_ID });
+    return this.client.request<unknown>("skills.proposals.list", { agentId: this.agentId });
   }
 
   inspectSkillProposal(proposalId: string) {
-    return this.client.request<unknown>("skills.proposals.inspect", { agentId: AGENT_ID, proposalId });
+    return this.client.request<unknown>("skills.proposals.inspect", { agentId: this.agentId, proposalId });
   }
 }
 

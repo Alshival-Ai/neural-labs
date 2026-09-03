@@ -22,10 +22,12 @@ import {
   hashToken,
   normalizeCertificateCredential,
   normalizeEmail,
+  randomToken,
   verifyPassword,
 } from "./crypto.js";
 import type { Database, SaveSetupInput } from "./database.js";
 import { MicrosoftOidcClient } from "./entra.js";
+import { WebAuthnService, type WebAuthnOperations } from "./passkeys.js";
 import { SessionService } from "./sessions.js";
 import type {
   EffectiveEntraConfig,
@@ -55,6 +57,44 @@ const localAccountSchema = z.object({
 const localLoginSchema = z.object({
   email: z.string().trim().email().max(320),
   password: z.string().min(1).max(128),
+});
+const passkeyTransactionSchema = z.string().regex(/^[A-Za-z0-9_-]{20,200}$/);
+const registrationResponseSchema = z.object({
+  id: z.string().min(1).max(2048),
+  rawId: z.string().min(1).max(2048),
+  type: z.literal("public-key"),
+  response: z.object({
+    clientDataJSON: z.string().min(1).max(131_072),
+    attestationObject: z.string().min(1).max(524_288),
+    transports: z.array(z.string().max(32)).max(16).optional(),
+    publicKeyAlgorithm: z.number().int().optional(),
+    publicKey: z.string().max(131_072).nullable().optional(),
+    authenticatorData: z.string().max(131_072).optional(),
+  }).passthrough(),
+  clientExtensionResults: z.record(z.string(), z.unknown()).optional().default({}),
+  authenticatorAttachment: z.enum(["cross-platform", "platform"]).nullable().optional(),
+}).passthrough();
+const authenticationResponseSchema = z.object({
+  id: z.string().min(1).max(2048),
+  rawId: z.string().min(1).max(2048),
+  type: z.literal("public-key"),
+  response: z.object({
+    clientDataJSON: z.string().min(1).max(131_072),
+    authenticatorData: z.string().min(1).max(131_072),
+    signature: z.string().min(1).max(131_072),
+    userHandle: z.string().max(2048).nullable().optional(),
+  }).passthrough(),
+  clientExtensionResults: z.record(z.string(), z.unknown()).optional().default({}),
+  authenticatorAttachment: z.enum(["cross-platform", "platform"]).nullable().optional(),
+}).passthrough();
+const finishPasskeyRegistrationSchema = z.object({
+  transaction: passkeyTransactionSchema,
+  name: z.string().trim().min(1).max(80).default("Passkey"),
+  response: registrationResponseSchema,
+});
+const finishPasskeyAuthenticationSchema = z.object({
+  transaction: passkeyTransactionSchema,
+  response: authenticationResponseSchema,
 });
 const userIdSchema = z.string().uuid();
 const userStateSchema = z
@@ -142,6 +182,14 @@ const workspaceProviderAuthSchema = z.object({
   expiresAt: z.string().datetime().nullable(),
   message: z.string().max(500).nullable(),
 });
+const personalOpenAIAuthSchema = workspaceProviderAuthSchema.extend({
+  agentId: z.string().regex(/^nl-[a-z0-9]+$/),
+  paused: z.boolean(),
+});
+
+function personalAgentId(userId: string): string {
+  return `nl-${userId.toLowerCase().replace(/[^a-z0-9]/gu, "")}`.slice(0, 63);
+}
 
 function checked(value: unknown): boolean {
   return value === "on" || value === "true" || value === true;
@@ -166,6 +214,17 @@ function publicUser(user: UserRecord) {
 
 function publicProviders(identities: IdentityRecord[]): Array<IdentityRecord["provider"]> {
   return [...new Set(identities.map((identity) => identity.provider))];
+}
+
+function publicPasskey(passkey: Awaited<ReturnType<Database["listPasskeys"]>>[number]) {
+  return {
+    id: passkey.id,
+    name: passkey.displayName,
+    deviceType: passkey.deviceType,
+    backedUp: passkey.backedUp,
+    createdAt: passkey.createdAt.toISOString(),
+    lastUsedAt: passkey.lastUsedAt?.toISOString() ?? null,
+  };
 }
 
 function jsonError(
@@ -235,6 +294,7 @@ export function createApplication(input: {
   oidc?: MicrosoftOidcClient;
   workspaceFetch?: typeof fetch;
   collaboration?: CollaborationStore;
+  webauthn?: WebAuthnOperations;
   onCollaborationEvent?: (event: CollaborationEvent) => void;
   onAgentRun?: (run: TeamAgentRun & { capability: string }) => void;
 }): ControlPlaneApplication {
@@ -244,6 +304,7 @@ export function createApplication(input: {
   const sessions = new SessionService(database, config);
   const collaboration = input.collaboration ?? new CollaborationStore(database.pool);
   const oidc = input.oidc ?? new MicrosoftOidcClient();
+  const webauthn = input.webauthn ?? new WebAuthnService();
   const workspaceFetch = input.workspaceFetch ?? fetch;
   const app = express();
   const publish = (event: CollaborationEvent) => input.onCollaborationEvent?.(event);
@@ -497,6 +558,24 @@ export function createApplication(input: {
     return workspaceProviderAuthSchema.parse(await runtimeResponse.json());
   };
 
+  const personalOpenAIData = async (userId: string, action?: "start" | "cancel" | "pause" | "resume") => {
+    const url = new URL(config.workspace.personalAuthUrl);
+    url.pathname = `${url.pathname.replace(/\/$/u, "")}/${encodeURIComponent(userId)}${action ? `/${action}` : ""}`;
+    const runtimeResponse = await workspaceFetch(url, {
+      method: action ? "POST" : "GET",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${config.workspace.controlToken}`,
+      },
+      signal: AbortSignal.timeout(action === "start" ? 15_000 : 8_000),
+    });
+    const payload = await runtimeResponse.json().catch(() => undefined) as { error?: { message?: string } } | undefined;
+    if (!runtimeResponse.ok) {
+      throw new Error(payload?.error?.message ?? `Workspace personal provider control returned ${runtimeResponse.status}`);
+    }
+    return personalOpenAIAuthSchema.parse(payload);
+  };
+
   app.get("/healthz", async (_request, response) => {
     try {
       await database.ping();
@@ -634,6 +713,89 @@ export function createApplication(input: {
     response.json(await authConfiguration.providers());
   });
 
+  app.post("/api/auth/passkey/options", sameOrigin, async (request, response) => {
+    const providers = await authConfiguration.providers();
+    if (!providers.passkey.enabled) {
+      jsonError(response, 404, "passkey_unavailable", "Passkey login is unavailable.");
+      return;
+    }
+    const allowed = await database.consumeRateLimit(`passkey-options:${request.ip}`, 30, 15 * 60);
+    if (!allowed) {
+      jsonError(response, 429, "rate_limited", "Too many passkey attempts. Try again later.");
+      return;
+    }
+    const stored = await authConfiguration.getStored();
+    const origin = authConfiguration.effectivePublicOrigin(stored);
+    if (!origin) {
+      jsonError(response, 503, "passkey_unavailable", "Passkey login is unavailable.");
+      return;
+    }
+    const options = await webauthn.authenticationOptions(origin);
+    const transaction = randomToken();
+    await database.savePasskeyChallenge({
+      tokenHash: hashToken(transaction),
+      challenge: options.challenge,
+      kind: "authentication",
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+    });
+    response.json({ transaction, options });
+  });
+
+  app.post("/api/auth/passkey/verify", sameOrigin, async (request, response) => {
+    const parsed = finishPasskeyAuthenticationSchema.safeParse(request.body);
+    if (!parsed.success) {
+      jsonError(response, 401, "passkey_invalid", "Passkey sign-in could not be verified.");
+      return;
+    }
+    const challenge = await database.consumePasskeyChallenge(
+      hashToken(parsed.data.transaction),
+      "authentication",
+    );
+    if (!challenge) {
+      jsonError(response, 401, "passkey_expired", "This passkey request expired. Try again.");
+      return;
+    }
+    const allowed = await database.consumeRateLimit(
+      `passkey:${request.ip}:${hashToken(parsed.data.response.id)}`,
+      10,
+      15 * 60,
+    );
+    if (!allowed) {
+      jsonError(response, 429, "rate_limited", "Too many passkey attempts. Try again later.");
+      return;
+    }
+    const match = await database.findPasskeyByCredentialId(parsed.data.response.id);
+    if (!match || match.user.status === "rejected" || match.user.status === "disabled") {
+      jsonError(response, 401, "passkey_invalid", "Passkey sign-in could not be verified.");
+      return;
+    }
+    const stored = await authConfiguration.getStored();
+    const origin = authConfiguration.effectivePublicOrigin(stored);
+    if (!origin) {
+      jsonError(response, 503, "passkey_unavailable", "Passkey login is unavailable.");
+      return;
+    }
+    try {
+      const verification = await webauthn.verifyAuthentication(
+        origin,
+        parsed.data.response as unknown as Parameters<WebAuthnOperations["verifyAuthentication"]>[1],
+        challenge.challenge,
+        match.passkey,
+      );
+      if (!verification) {
+        jsonError(response, 401, "passkey_invalid", "Passkey sign-in could not be verified.");
+        return;
+      }
+      await database.updatePasskeyUsage(match.passkey.id, verification.newCounter, verification.backedUp);
+      await database.audit(match.user.id, "auth.passkey_succeeded", match.user.id, { passkeyId: match.passkey.id });
+      await sessions.create(response, match.user.id);
+      response.json({ user: publicUser(match.user), redirectTo: redirectForUser(match.user) });
+    } catch (error) {
+      console.warn("Passkey authentication failed", error instanceof Error ? error.message : error);
+      jsonError(response, 401, "passkey_invalid", "Passkey sign-in could not be verified.");
+    }
+  });
+
   app.get("/api/session", async (request, response) => {
     const actor = await sessions.actor(request);
     if (!actor) {
@@ -651,6 +813,7 @@ export function createApplication(input: {
       user: publicUser(actor.user),
       providers: publicProviders(actor.identities),
       csrfToken,
+      neura: { agentId: personalAgentId(actor.user.id) },
     });
   });
 
@@ -678,6 +841,148 @@ export function createApplication(input: {
       throw error;
     }
   });
+
+  app.get("/api/account/passkeys", async (request, response) => {
+    const actor = await requireActiveJson(request, response);
+    if (!actor) return;
+    const passkeys = await database.listPasskeys(actor.user.id);
+    response.json({
+      eligible: actor.identities.some((identity) => identity.provider === "microsoft"),
+      passkeys: passkeys.map(publicPasskey),
+    });
+  });
+
+  app.post("/api/account/passkeys/registration/options", sameOrigin, async (request, response) => {
+    const actor = await requireActiveJson(request, response);
+    if (!actor || !requireCsrfJson(request, response, actor)) return;
+    if (!actor.identities.some((identity) => identity.provider === "microsoft")) {
+      jsonError(response, 403, "microsoft_required", "Sign in with Microsoft before creating a passkey.");
+      return;
+    }
+    const stored = await authConfiguration.getStored();
+    const origin = authConfiguration.effectivePublicOrigin(stored);
+    if (!origin) {
+      jsonError(response, 503, "passkey_unavailable", "Passkey enrollment is unavailable.");
+      return;
+    }
+    const existing = await database.listPasskeys(actor.user.id);
+    const { options } = await webauthn.registrationOptions(origin, actor.user, existing);
+    const transaction = randomToken();
+    await database.savePasskeyChallenge({
+      tokenHash: hashToken(transaction),
+      challenge: options.challenge,
+      kind: "registration",
+      userId: actor.user.id,
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+    });
+    response.json({ transaction, options });
+  });
+
+  app.post("/api/account/passkeys/registration/verify", sameOrigin, async (request, response) => {
+    const actor = await requireActiveJson(request, response);
+    if (!actor || !requireCsrfJson(request, response, actor)) return;
+    if (!actor.identities.some((identity) => identity.provider === "microsoft")) {
+      jsonError(response, 403, "microsoft_required", "Sign in with Microsoft before creating a passkey.");
+      return;
+    }
+    const parsed = finishPasskeyRegistrationSchema.safeParse(request.body);
+    if (!parsed.success) {
+      jsonError(response, 422, "passkey_invalid", "The passkey response is invalid.");
+      return;
+    }
+    const challenge = await database.consumePasskeyChallenge(
+      hashToken(parsed.data.transaction),
+      "registration",
+      actor.user.id,
+    );
+    if (!challenge) {
+      jsonError(response, 410, "passkey_expired", "This passkey request expired. Try again.");
+      return;
+    }
+    const stored = await authConfiguration.getStored();
+    const origin = authConfiguration.effectivePublicOrigin(stored);
+    if (!origin) {
+      jsonError(response, 503, "passkey_unavailable", "Passkey enrollment is unavailable.");
+      return;
+    }
+    try {
+      const registration = await webauthn.verifyRegistration(
+        origin,
+        parsed.data.response as unknown as Parameters<WebAuthnOperations["verifyRegistration"]>[1],
+        challenge.challenge,
+      );
+      if (!registration) {
+        jsonError(response, 422, "passkey_invalid", "The passkey could not be verified.");
+        return;
+      }
+      const passkey = await database.createPasskey({
+        userId: actor.user.id,
+        credentialId: registration.credentialId,
+        webauthnUserId: Buffer.from(actor.user.id, "utf8").toString("base64url"),
+        publicKey: registration.publicKey,
+        counter: registration.counter,
+        deviceType: registration.deviceType,
+        backedUp: registration.backedUp,
+        transports: registration.transports,
+        displayName: parsed.data.name,
+      });
+      await database.audit(actor.user.id, "passkey.created", actor.user.id, {
+        passkeyId: passkey.id,
+        deviceType: passkey.deviceType,
+        backedUp: passkey.backedUp,
+      });
+      response.status(201).json({ passkey: publicPasskey(passkey) });
+    } catch (error) {
+      console.warn("Passkey registration failed", error instanceof Error ? error.message : error);
+      const duplicate = (error as { code?: string }).code === "23505";
+      jsonError(
+        response,
+        duplicate ? 409 : 422,
+        duplicate ? "passkey_exists" : "passkey_invalid",
+        duplicate ? "That passkey is already registered." : "The passkey could not be verified.",
+      );
+    }
+  });
+
+  app.delete("/api/account/passkeys/:passkeyId", sameOrigin, async (request, response) => {
+    const actor = await requireActiveJson(request, response);
+    if (!actor || !requireCsrfJson(request, response, actor)) return;
+    const id = userIdSchema.safeParse(request.params.passkeyId);
+    if (!id.success || !(await database.deletePasskey(actor.user.id, id.data))) {
+      jsonError(response, 404, "passkey_not_found", "Passkey not found.");
+      return;
+    }
+    await database.audit(actor.user.id, "passkey.deleted", actor.user.id, { passkeyId: id.data });
+    response.status(204).end();
+  });
+
+  app.get("/api/account/openai", async (request, response) => {
+    const actor = await requireActiveJson(request, response);
+    if (!actor) return;
+    try {
+      response.json(await personalOpenAIData(actor.user.id));
+    } catch (error) {
+      jsonError(response, 503, "personal_openai_unavailable", error instanceof Error ? error.message : "Personal OpenAI setup is unavailable.");
+    }
+  });
+
+  for (const action of ["connect", "cancel", "pause", "resume"] as const) {
+    app.post(`/api/account/openai/${action}`, sameOrigin, async (request, response) => {
+      const actor = await requireActiveJson(request, response);
+      if (!actor || !requireCsrfJson(request, response, actor)) return;
+      const workspaceAction = action === "connect" ? "start" : action;
+      await database.audit(actor.user.id, `account.openai.${action}_requested`, actor.user.id, {
+        provider: "openai",
+        authMethod: "chatgpt",
+      });
+      try {
+        const result = await personalOpenAIData(actor.user.id, workspaceAction);
+        response.status(action === "connect" ? 202 : 200).json(result);
+      } catch (error) {
+        jsonError(response, 409, "personal_openai_unavailable", error instanceof Error ? error.message : "Personal OpenAI setup is unavailable.");
+      }
+    });
+  }
 
   app.get("/api/team/directory", async (request, response) => {
     const actor = await requireActiveJson(request, response);
@@ -1242,6 +1547,9 @@ export function createApplication(input: {
         jsonError(response, 404, "user_not_found", "User not found.");
         return;
       }
+      if (inputState.data.status && inputState.data.status !== "active") {
+        await personalOpenAIData(updated.id, "pause").catch(() => undefined);
+      }
       response.json({ user: publicUser(updated) });
     } catch (error) {
       if (error instanceof Error && error.message.includes("active administrator")) {
@@ -1483,7 +1791,7 @@ export function createApplication(input: {
         result({
           protocolVersion: protocolVersion.success ? protocolVersion.data.protocolVersion : "2025-06-18",
           capabilities: { tools: { listChanged: false } },
-          serverInfo: { name: "neural-labs-team", version: "0.2.0" },
+          serverInfo: { name: "neural-labs-team", version: "0.3.0" },
           instructions: "These tools are capability-scoped to the Team Chat that invoked Neura. They cannot access another channel.",
         });
         return;

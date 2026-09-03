@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { once } from "node:events";
 import { WebSocket } from "ws";
 
 import { createWorkspaceHttpServer } from "./http-server.mjs";
@@ -19,7 +20,7 @@ const mcpStatusFixture = (ready = true) => ({
   tools: ["google_places_search", "search_gif", "pexels_search_photos"],
 });
 
-async function fixture(ready = true, { maxUploadBytes, maxTextBytes, mcpReady = true, codeServerReady = true, runTeamAgent } = {}) {
+async function fixture(ready = true, { maxUploadBytes, maxTextBytes, mcpReady = true, codeServerReady = true, runTeamAgent, personalOpenAI } = {}) {
   const desktopRoot = await mkdtemp(path.join(tmpdir(), "neural-labs-desktop-test-"));
   const workspaceRoot = path.join(desktopRoot, "workspace-root");
   await mkdir(path.join(desktopRoot, "assets"));
@@ -49,6 +50,7 @@ async function fixture(ready = true, { maxUploadBytes, maxTextBytes, mcpReady = 
       start: () => ({ provider: "openai", state: "starting" }),
       cancel: () => ({ provider: "openai", state: "disconnected" }),
     },
+    personalOpenAI,
     workspaceControlToken: "workspace-control-token-at-least-thirty-two-characters",
     openclawVersion: "2026.8.2",
     codexVersion: "0.152.0",
@@ -118,6 +120,39 @@ const workspaceMutationHeaders = {
   Origin: "https://neural-labs.example.com",
 };
 
+test("serves authenticated SKILL.md instructions only from approved skill roots", async () => {
+  const app = await fixture();
+  const skillDirectory = path.join(app.workspaceRoot, "skills", "built-in-test");
+  const instructionPath = path.join(skillDirectory, "SKILL.md");
+  const outsideDirectory = path.join(path.dirname(app.workspaceRoot), "private-skill");
+  const outsidePath = path.join(outsideDirectory, "SKILL.md");
+  try {
+    await mkdir(skillDirectory, { recursive: true });
+    await writeFile(instructionPath, "---\nname: built-in-test\n---\n\n# Built in test\n\nFollow the live instructions.\n");
+    await mkdir(outsideDirectory, { recursive: true });
+    await writeFile(outsidePath, "# Must stay private\n");
+
+    const endpoint = `${app.origin}/workspace/api/skills/instructions?path=${encodeURIComponent(instructionPath)}`;
+    assert.equal((await fetch(endpoint)).status, 401);
+    const response = await fetch(endpoint, { headers: workspaceHeaders });
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.path, instructionPath);
+    assert.match(payload.content, /Follow the live instructions/);
+
+    const outside = await fetch(`${app.origin}/workspace/api/skills/instructions?path=${encodeURIComponent(outsidePath)}`, { headers: workspaceHeaders });
+    assert.equal(outside.status, 403);
+    assert.equal(JSON.stringify(await outside.json()).includes("Must stay private"), false);
+
+    const linkedPath = path.join(skillDirectory, "linked", "SKILL.md");
+    await mkdir(path.dirname(linkedPath), { recursive: true });
+    await symlink(outsidePath, linkedPath);
+    assert.equal((await fetch(`${app.origin}/workspace/api/skills/instructions?path=${encodeURIComponent(linkedPath)}`, { headers: workspaceHeaders })).status, 400);
+  } finally {
+    await app.close();
+  }
+});
+
 test("saves personal skills directly and enforces owner-only sharing", async () => {
   const app = await fixture();
   const mayaHeaders = {
@@ -177,6 +212,54 @@ test("saves personal skills directly and enforces owner-only sharing", async () 
   }
 });
 
+test("serves authorized builder drafts and same-origin collaborative sockets", async () => {
+  const app = await fixture();
+  const mayaHeaders = {
+    "X-Forwarded-User": "maya-id",
+    "X-Neural-Labs-Email": "maya@example.org",
+    Origin: "https://neural-labs.example.com",
+    "Content-Type": "application/json",
+  };
+  try {
+    assert.equal((await fetch(`${app.origin}/workspace/api/builder/drafts`, {
+      method: "POST",
+      headers: { ...mayaHeaders, Origin: "https://wrong.example.com" },
+      body: JSON.stringify({ kind: "skill" }),
+    })).status, 403);
+
+    const response = await fetch(`${app.origin}/workspace/api/builder/drafts`, {
+      method: "POST",
+      headers: mayaHeaders,
+      body: JSON.stringify({ kind: "skill", initial: { name: "Socket skill", description: "Exercises collaboration." } }),
+    });
+    assert.equal(response.status, 201);
+    const { draft } = await response.json();
+
+    const collaboratorDenied = await fetch(`${app.origin}/workspace/api/builder/drafts/${draft.id}`, { headers: { "X-Forwarded-User": "owen-id" } });
+    assert.equal(collaboratorDenied.status, 403);
+    const adminListing = await fetch(`${app.origin}/workspace/api/builder/drafts`, { headers: { "X-Forwarded-User": "admin-id", "X-Neural-Labs-Role": "admin" } });
+    assert.equal((await adminListing.json()).drafts.some((item) => item.id === draft.id), true);
+
+    const socketOrigin = app.origin.replace(/^http/, "ws");
+    const socket = new WebSocket(`${socketOrigin}/workspace/builder/socket?draftId=${encodeURIComponent(draft.id)}`, "neural-labs-builder-v1", {
+      origin: "https://neural-labs.example.com",
+      headers: { "X-Forwarded-User": "maya-id", "X-Neural-Labs-Email": "maya@example.org" },
+    });
+    const messagePromise = once(socket, "message");
+    await once(socket, "open");
+    const [message] = await messagePromise;
+    const sync = JSON.parse(message.toString());
+    assert.equal(sync.type, "sync");
+    assert.equal(sync.draft.id, draft.id);
+    assert.equal(typeof sync.update, "string");
+    const closePromise = once(socket, "close");
+    socket.close();
+    await closePromise;
+  } finally {
+    await app.close();
+  }
+});
+
 test("protects the internal Team Chat Neura runner with the workspace control token", async () => {
   const calls = [];
   const app = await fixture(true, {
@@ -189,6 +272,8 @@ test("protects the internal Team Chat Neura runner with the workspace control to
     const body = JSON.stringify({
       prompt: "Help the release room",
       capability: "channel-capability-at-least-thirty-two-characters",
+      userId: "11111111-1111-4111-8111-111111111111",
+      runId: "22222222-2222-4222-8222-222222222222",
     });
     assert.equal((await fetch(`${app.origin}/internal/neura/team-run`, {
       method: "POST",
@@ -209,7 +294,32 @@ test("protects the internal Team Chat Neura runner with the workspace control to
     assert.deepEqual(calls, [{
       prompt: "Help the release room",
       capability: "channel-capability-at-least-thirty-two-characters",
+      userId: "11111111-1111-4111-8111-111111111111",
+      runId: "22222222-2222-4222-8222-222222222222",
     }]);
+  } finally {
+    await app.close();
+  }
+});
+
+test("protects personal OpenAI account control and routes only the selected user", async () => {
+  const calls = [];
+  const personalOpenAI = {
+    snapshot: async (userId) => { calls.push(["snapshot", userId]); return { provider: "openai", state: "disconnected", agentId: "nl-user", paused: true }; },
+    start: async (userId) => { calls.push(["start", userId]); return { provider: "openai", state: "starting", agentId: "nl-user", paused: false }; },
+    cancel: async () => ({}), pause: async () => ({}), resume: async () => ({}),
+  };
+  const app = await fixture(true, { personalOpenAI });
+  try {
+    const path = "/internal/provider-auth/openai/users/11111111-1111-4111-8111-111111111111";
+    assert.equal((await fetch(`${app.origin}${path}`)).status, 401);
+    const headers = { Authorization: "Bearer workspace-control-token-at-least-thirty-two-characters" };
+    assert.equal((await fetch(`${app.origin}${path}`, { headers })).status, 200);
+    assert.equal((await fetch(`${app.origin}${path}/start`, { method: "POST", headers })).status, 202);
+    assert.deepEqual(calls, [
+      ["snapshot", "11111111-1111-4111-8111-111111111111"],
+      ["start", "11111111-1111-4111-8111-111111111111"],
+    ]);
   } finally {
     await app.close();
   }

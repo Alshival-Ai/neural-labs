@@ -8,6 +8,8 @@ import type {
   McpRuntimeConfig,
   MicrosoftClaims,
   OidcTransaction,
+  PasskeyChallenge,
+  PasskeyRecord,
   SessionActor,
   SessionRecord,
   StoredInstanceConfig,
@@ -54,6 +56,32 @@ interface InstanceRow extends QueryResultRow {
   updated_at: Date;
 }
 
+interface PasskeyRow extends QueryResultRow {
+  id: string;
+  user_id: string;
+  credential_id: string;
+  webauthn_user_id: string;
+  public_key: Buffer;
+  signature_counter: string;
+  device_type: "singleDevice" | "multiDevice";
+  backed_up: boolean;
+  transports: string[];
+  display_name: string;
+  created_at: Date;
+  last_used_at: Date | null;
+}
+
+interface PasskeyWithUserRow extends PasskeyRow {
+  user_record_id: string;
+  email: string;
+  handle: string;
+  user_display_name: string;
+  role: UserRole;
+  status: UserStatus;
+  user_created_at: Date;
+  user_updated_at: Date;
+}
+
 function mapUser(row: UserRow): UserRecord {
   return {
     id: row.id,
@@ -96,6 +124,23 @@ function mapInstance(row: InstanceRow): StoredInstanceConfig {
     configVersion: Number(row.config_version),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function mapPasskey(row: PasskeyRow): PasskeyRecord {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    credentialId: row.credential_id,
+    webauthnUserId: row.webauthn_user_id,
+    publicKey: new Uint8Array(row.public_key),
+    counter: Number(row.signature_counter),
+    deviceType: row.device_type,
+    backedUp: row.backed_up,
+    transports: row.transports,
+    displayName: row.display_name,
+    createdAt: row.created_at,
+    ...(row.last_used_at ? { lastUsedAt: row.last_used_at } : {}),
   };
 }
 
@@ -430,6 +475,114 @@ export class Database {
       [randomUUID(), userId, normalizeEmail(email), passwordHash],
     );
     await this.audit(userId, "identity.linked", userId, { provider: "local" });
+  }
+
+  async listPasskeys(userId: string): Promise<PasskeyRecord[]> {
+    const result = await this.pool.query<PasskeyRow>(
+      "SELECT * FROM passkeys WHERE user_id = $1 ORDER BY created_at, id",
+      [userId],
+    );
+    return result.rows.map(mapPasskey);
+  }
+
+  async findPasskeyByCredentialId(credentialId: string): Promise<{ passkey: PasskeyRecord; user: UserRecord } | undefined> {
+    const result = await this.pool.query<PasskeyWithUserRow>(
+      `SELECT p.*,
+              u.id AS user_record_id,
+              u.email,
+              u.handle,
+              u.display_name AS user_display_name,
+              u.role,
+              u.status,
+              u.created_at AS user_created_at,
+              u.updated_at AS user_updated_at
+       FROM passkeys p
+       JOIN users u ON u.id = p.user_id
+       WHERE p.credential_id = $1`,
+      [credentialId],
+    );
+    const row = result.rows[0];
+    if (!row) return undefined;
+    return {
+      passkey: mapPasskey(row),
+      user: mapUser({
+        id: row.user_record_id,
+        email: row.email,
+        handle: row.handle,
+        display_name: row.user_display_name,
+        role: row.role,
+        status: row.status,
+        created_at: row.user_created_at,
+        updated_at: row.user_updated_at,
+      }),
+    };
+  }
+
+  async createPasskey(input: Omit<PasskeyRecord, "id" | "createdAt" | "lastUsedAt">): Promise<PasskeyRecord> {
+    const result = await this.pool.query<PasskeyRow>(
+      `INSERT INTO passkeys(
+         id, user_id, credential_id, webauthn_user_id, public_key, signature_counter,
+         device_type, backed_up, transports, display_name
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       RETURNING *`,
+      [
+        randomUUID(), input.userId, input.credentialId, input.webauthnUserId,
+        Buffer.from(input.publicKey), input.counter, input.deviceType, input.backedUp,
+        input.transports, input.displayName,
+      ],
+    );
+    return mapPasskey(result.rows[0]!);
+  }
+
+  async updatePasskeyUsage(id: string, counter: number, backedUp: boolean): Promise<void> {
+    await this.pool.query(
+      `UPDATE passkeys
+       SET signature_counter = GREATEST(signature_counter, $2), backed_up = backed_up OR $3, last_used_at = now()
+       WHERE id = $1`,
+      [id, counter, backedUp],
+    );
+  }
+
+  async deletePasskey(userId: string, id: string): Promise<boolean> {
+    const result = await this.pool.query("DELETE FROM passkeys WHERE id = $1 AND user_id = $2", [id, userId]);
+    return result.rowCount === 1;
+  }
+
+  async savePasskeyChallenge(challenge: PasskeyChallenge): Promise<void> {
+    await this.pool.query("DELETE FROM passkey_challenges WHERE expires_at <= now()");
+    await this.pool.query(
+      `INSERT INTO passkey_challenges(token_hash, challenge, kind, user_id, expires_at)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [challenge.tokenHash, challenge.challenge, challenge.kind, challenge.userId ?? null, challenge.expiresAt],
+    );
+  }
+
+  async consumePasskeyChallenge(
+    tokenHash: string,
+    kind: PasskeyChallenge["kind"],
+    userId?: string,
+  ): Promise<PasskeyChallenge | undefined> {
+    const result = await this.pool.query<QueryResultRow & {
+      token_hash: string;
+      challenge: string;
+      kind: PasskeyChallenge["kind"];
+      user_id: string | null;
+      expires_at: Date;
+    }>(
+      `DELETE FROM passkey_challenges
+       WHERE token_hash = $1 AND kind = $2 AND user_id IS NOT DISTINCT FROM $3 AND expires_at > now()
+       RETURNING *`,
+      [tokenHash, kind, userId ?? null],
+    );
+    const row = result.rows[0];
+    if (!row) return undefined;
+    return {
+      tokenHash: row.token_hash,
+      challenge: row.challenge,
+      kind: row.kind,
+      ...(row.user_id ? { userId: row.user_id } : {}),
+      expiresAt: row.expires_at,
+    };
   }
 
   async createSession(input: {

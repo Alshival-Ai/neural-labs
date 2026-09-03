@@ -1,6 +1,6 @@
 # Neura desktop app
 
-Neura is the Neural Labs desktop interface for the shared OpenClaw `main`
+Neura is the Neural Labs desktop interface for each user's personal OpenClaw
 agent. It runs in the workspace image and connects directly to the version-
 matched OpenClaw Gateway browser protocol through the authenticated same-origin
 WebSocket at `/workspace/neura/socket`.
@@ -24,14 +24,15 @@ position. Minimizing Neura also keeps the live app mounted.
 
 ## Conversation model
 
-New Neura conversations are private to their creator. Neural Labs creates them
-as OpenClaw `draft` sessions, so the Gateway—not only the desktop sidebar—hides
-their roster entries, transcripts, subscriptions, and mutations from other
-users. The ordinary developer role also sets `sessions.others` to `none`, so
-legacy shared metadata cannot bypass the private default. During the V1
-privacy migration, creator-owned legacy Neura sessions
-that predate this rule are converted from `shared` to `draft` when their owner
-connects.
+Neural Labs provisions one OpenClaw agent and one agent auth directory from the
+immutable Neural Labs user ID. New conversations belong to that agent and are
+also created as OpenClaw `draft` sessions. A named Gateway role allowlists only
+that agent and sets `sessions.others` to `none`, so the Gateway—not only the
+desktop sidebar—rejects another user's roster, transcript, subscription, or
+mutation request. The default role has an empty agent allowlist until the user
+connects a personal account. Legacy `main`-agent private Neura sessions are
+deleted once during the development migration to avoid retaining interactive
+history under the system account.
 
 The sidebar separates **Your chats** from **Team chats**. Team chats are an
 explicit sharing mode and must never be inferred merely because two approved
@@ -46,12 +47,28 @@ approved Neural Labs user can:
 - attach files or images up to 15 MB each; and
 - approve or deny agent actions exposed by OpenClaw.
 
-The app filters the history to the configured `main` agent and excludes child,
+The app filters history to the signed-in user's personal agent and excludes child,
 cron, heartbeat, and automation sessions. New private conversations use the
 `neura-private` category and `draft` visibility. Team channels are durable
 control-plane records rather than shared OpenClaw sessions. A user can
 explicitly copy a private conversation into a restricted or Everyone channel,
-and `$Neura` invokes the OpenClaw agent only for that channel turn.
+and `$Neura` invokes the message author's personal OpenClaw agent only for that
+channel turn.
+
+## Personal OpenAI connection
+
+Open **Settings → Personalization → Your ChatGPT account** to connect through
+OpenClaw's device-code flow. The UI shows only the verification URL, one-time
+code, expiry, and safe connection status. OpenClaw stores OAuth material in the
+personal agent's persistent auth directory; the control plane and browser do
+not store the token. Pause removes the Gateway role but retains the credential,
+and Resume restores access without a new sign-in while that credential remains
+valid.
+
+Private Neura and Team Chat `$Neura` turns fail closed when this connection is
+missing, paused, expired, or not model-ready. They never fall back to the
+workspace service credential. The separate Workspace connection continues to
+run automations, heartbeats, and other background work.
 
 ## Run controls
 
@@ -90,13 +107,23 @@ explicit commentary intended for display. OpenClaw approval events render
 inline with only their allowed decisions. Assistant text is rendered as
 Markdown without raw HTML.
 
+Team Chat uses the same timeline. After the author's personal run completes,
+the workspace reconstructs bounded work details from the run history, redacts
+credential-shaped values, stores the safe projection with the Team Chat run,
+and includes it in later shared transcript handoffs. The author-specific private
+session remains inaccessible through the Team Chat API.
+
 ## Gateway boundary
 
 The browser uses WebCrypto Ed25519 device identity and stores its device key and
 issued device token in browser-local storage. Nginx first authenticates the
 Neural Labs session, then overwrites trusted-proxy identity headers. OpenClaw
 auto-approves a device only through that trusted proxy and grants the desktop
-the operator read, write, approvals, and questions scopes for `main`.
+the operator read, write, approvals, and questions scopes. The user's named role
+then limits those operations to the user's personal agent. A runtime-generated
+password is used only by a loopback administrative client for role assignment
+and completed-run history projection; it is never returned to the browser or
+placed in the repository.
 
 The OpenClaw Control UI is disabled and `/workspace/openclaw/` is retired. The
 Gateway continues to bind inside the workspace bridge and its published host

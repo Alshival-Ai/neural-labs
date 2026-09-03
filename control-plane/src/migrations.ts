@@ -224,4 +224,42 @@ export const migrations: Migration[] = [
         CHECK (char_length(body) BETWEEN 1 AND 131072);
     `,
   },
+  {
+    version: 5,
+    sql: `
+      ALTER TABLE team_agent_runs
+        ADD COLUMN IF NOT EXISTS activities jsonb NOT NULL DEFAULT '[]'::jsonb;
+    `,
+  },
+  {
+    version: 6,
+    sql: `
+      CREATE TABLE IF NOT EXISTS passkeys (
+        id uuid PRIMARY KEY,
+        user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        credential_id text NOT NULL UNIQUE CHECK (char_length(credential_id) BETWEEN 1 AND 1024),
+        webauthn_user_id text NOT NULL CHECK (char_length(webauthn_user_id) BETWEEN 1 AND 128),
+        public_key bytea NOT NULL,
+        signature_counter bigint NOT NULL DEFAULT 0 CHECK (signature_counter >= 0),
+        device_type text NOT NULL CHECK (device_type IN ('singleDevice', 'multiDevice')),
+        backed_up boolean NOT NULL DEFAULT false,
+        transports text[] NOT NULL DEFAULT '{}',
+        display_name text NOT NULL CHECK (char_length(display_name) BETWEEN 1 AND 80),
+        created_at timestamptz NOT NULL DEFAULT now(),
+        last_used_at timestamptz
+      );
+      CREATE INDEX IF NOT EXISTS passkeys_user_id_idx ON passkeys(user_id, created_at);
+
+      CREATE TABLE IF NOT EXISTS passkey_challenges (
+        token_hash text PRIMARY KEY,
+        challenge text NOT NULL,
+        kind text NOT NULL CHECK (kind IN ('registration', 'authentication')),
+        user_id uuid REFERENCES users(id) ON DELETE CASCADE,
+        expires_at timestamptz NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        CHECK ((kind = 'registration' AND user_id IS NOT NULL) OR kind = 'authentication')
+      );
+      CREATE INDEX IF NOT EXISTS passkey_challenges_expiry_idx ON passkey_challenges(expires_at);
+    `,
+  },
 ];

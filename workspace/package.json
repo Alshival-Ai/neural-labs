@@ -1,6 +1,6 @@
 {
   "name": "@neural-labs/workspace-runtime",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -10,8 +10,12 @@
     "test": "node --test ./*.test.mjs"
   },
   "dependencies": {
+    "@openclaw/gateway-client": "2026.8.2",
+    "@openclaw/gateway-protocol": "2026.8.2",
     "node-pty": "1.1.0",
-    "ws": "8.21.3"
+    "ws": "8.21.3",
+    "y-protocols": "1.0.7",
+    "yjs": "13.6.32"
   },
   "allowScripts": {
     "node-pty@1.1.0": true

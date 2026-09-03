@@ -1,11 +1,13 @@
 # Neural Labs wiki
 
+- [v0.3.0 release record](releases/v0.3.0.md)
 - [v0.2.0 release record](releases/v0.2.0.md)
 - [Container deployment and onboarding](container-deployment.md)
 - [Authentication and administrator model](authentication.md)
 - [Administrator settings](desktop-settings.md)
 - [Shared developer workspace](shared-workspace.md)
 - [Desktop windows and device state](desktop-state.md)
+- [Passkey login](passkeys.md)
 - [Files desktop app](files.md)
 - [Editor desktop app](editor.md)
 - [Terminal desktop app](terminal.md)
@@ -30,3 +32,6 @@
 - [ADR 0009: Workspace-local provider MCP](adr/0009-workspace-local-provider-mcp.md)
 - [ADR 0010: Embedded VS Code](adr/0010-embedded-vscode.md)
 - [ADR 0011: Direct personal and team skills](adr/0011-direct-personal-and-team-skills.md)
+- [ADR 0012: Collaborative Skill Builder and automation read model](adr/0012-collaborative-skill-builder-and-automation-read-model.md)
+- [ADR 0013: Personal Neura OpenAI accounts](adr/0013-personal-neura-openai-accounts.md)
+- [ADR 0014: Microsoft-bootstrapped passkeys](adr/0014-microsoft-bootstrapped-passkeys.md)

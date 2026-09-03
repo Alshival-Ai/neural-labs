@@ -5,8 +5,7 @@ import type { UserStatus } from "./types";
 export function Brand() {
   return (
     <a className="brand" href="/" aria-label="Neural Labs landing page">
-      <img src="/assets/brand/neural-labs-mark.webp" alt="" />
-      <span>Neural Labs</span>
+      <span className="brand-wordmark">Neural Labs</span>
     </a>
   );
 }
@@ -16,12 +15,34 @@ export function AuthShell({ children }: PropsWithChildren) {
     <div className="site-shell">
       <header className="auth-topbar">
         <Brand />
-        <a href="https://github.com/Alshival-Ai/neural-labs" target="_blank" rel="noreferrer">
-          GitHub <span aria-hidden="true">↗</span>
-        </a>
+        <a href="/">Back to home</a>
       </header>
       {children}
+      <footer className="auth-footer">
+        <span>Neural Labs by <a href="https://alshival.ai/">Alshival.Ai</a></span>
+        <span className="auth-footer-status"><i aria-hidden="true" /> Private workspace access</span>
+      </footer>
     </div>
+  );
+}
+
+export function AuthIntro({
+  eyebrow,
+  title,
+  accent,
+  children,
+}: PropsWithChildren<{ eyebrow: string; title: string; accent: string }>) {
+  return (
+    <section className="auth-copy">
+      <div className="auth-brain-art" aria-hidden="true">
+        <span />
+        <img src="/assets/brand/neural-labs-logo.webp" alt="" />
+      </div>
+      <p className="eyebrow">{eyebrow}</p>
+      <h1>{title}<br /><span className="spectrum-text">{accent}</span></h1>
+      <p>{children}</p>
+      <div className="auth-trust-note"><i aria-hidden="true" /><span>Authentication stays on <strong>neural-labs.ai</strong>.</span></div>
+    </section>
   );
 }
 
@@ -43,7 +64,6 @@ export function Notice({
 export function LoadingScreen({ label = "Loading Neural Labs" }: { label?: string }) {
   return (
     <div className="loading-screen" role="status">
-      <span className="spinner" aria-hidden="true" />
       <span>{label}</span>
     </div>
   );

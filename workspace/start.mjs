@@ -1,4 +1,5 @@
 import { execFile, spawn, spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { constants } from "node:fs";
 import { copyFile } from "node:fs/promises";
 import path from "node:path";
@@ -6,6 +7,7 @@ import { promisify } from "node:util";
 
 import { createWorkspaceHttpServer } from "/usr/local/lib/neural-labs/http-server.mjs";
 import { createProviderAuthController } from "/usr/local/lib/neural-labs/provider-auth.mjs";
+import { createGatewayAdminRequest, PersonalOpenAIManager } from "/usr/local/lib/neural-labs/personal-openai.mjs";
 import { runTeamAgent } from "/usr/local/lib/neural-labs/team-agent.mjs";
 
 const gatewayPort = parsePort(process.env.OPENCLAW_GATEWAY_PORT, 18789);
@@ -20,6 +22,7 @@ const trustedProxy = process.env.NEURAL_LABS_WORKSPACE_PROXY_IP?.trim() || "172.
 const desktopRoot = "/usr/local/share/neural-labs/desktop";
 const workspaceRoot = process.env.OPENCLAW_WORKSPACE_DIR ?? "/home/node/workspace";
 const personalSkillsRoot = path.join(process.env.HOME || "/home/node", ".agents", "skills");
+const builderDraftsRoot = path.join(process.env.HOME || "/home/node", ".local", "state", "neural-labs", "builder-drafts");
 const maxUploadBytes = parsePositiveInteger(
   process.env.NEURAL_LABS_WORKSPACE_MAX_UPLOAD_BYTES,
   2 * 1024 * 1024 * 1024,
@@ -36,6 +39,7 @@ if (!workspaceControlToken || workspaceControlToken.length < 32) {
 // The always-on Gateway must therefore have a harmless value even though only
 // an isolated Team Chat agent process receives a real, short-lived capability.
 process.env.NEURAL_LABS_TEAM_CAPABILITY ||= "inactive-team-capability-not-authorized-00000000";
+const internalGatewayPassword = randomBytes(48).toString("base64url");
 
 function parsePort(value, fallback) {
   const parsed = Number(value ?? fallback);
@@ -94,8 +98,10 @@ function runOpenClaw(args, options = {}) {
 }
 
 function configureGateway() {
-  // Trusted-proxy mode rejects mixed shared-token configuration. Unset old
-  // values when a persistent volume is reused from another deployment mode.
+  // Public traffic continues to use trusted-proxy auth. A random password,
+  // regenerated on every container start, is passed only to the Gateway child
+  // and this process's loopback role-management client. It is not persisted in
+  // config or exposed to a browser, shell, or agent-run child process.
   runOpenClaw(["config", "unset", "gateway.auth.token"], { quiet: true });
   runOpenClaw(["config", "unset", "gateway.auth.password"], { quiet: true });
   runOpenClaw(["config", "unset", "gateway.controlUi.basePath"], { quiet: true });
@@ -149,7 +155,15 @@ function configureGateway() {
     { path: "gateway.controlUi.allowedOrigins", value: [publicOrigin] },
     { path: "gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback", value: false },
     { path: "gateway.terminal.enabled", value: false },
-    { path: "gateway.roles.default", value: "maintainer" },
+    { path: "gateway.roles.default", value: "unlinked" },
+    {
+      path: "gateway.roles.definitions.unlinked",
+      value: {
+        sessions: { others: "none" },
+        agents: [],
+        scopes: ["operator.read", "operator.write", "operator.approvals", "operator.questions", "operator.admin"],
+      },
+    },
     {
       path: "gateway.roles.definitions.maintainer",
       value: {
@@ -306,8 +320,20 @@ const providerAuth = createProviderAuthController({
 const gateway = spawn(
   "openclaw",
   ["gateway", "run", "--bind", "lan", "--port", String(gatewayPort)],
-  { stdio: "inherit" },
+  {
+    stdio: "inherit",
+    env: { ...process.env, OPENCLAW_GATEWAY_PASSWORD: internalGatewayPassword },
+  },
 );
+const gatewayAdminRequest = createGatewayAdminRequest({
+  url: `ws://127.0.0.1:${gatewayPort}`,
+  password: internalGatewayPassword,
+});
+const personalOpenAI = new PersonalOpenAIManager({
+  workspaceRoot,
+  stateRoot: process.env.OPENCLAW_STATE_DIR ?? "/home/node/.openclaw",
+  gatewayRequest: gatewayAdminRequest,
+});
 const workspaceMcp = spawn(
   process.execPath,
   ["/usr/local/lib/neural-labs/mcp/dist/local.js"],
@@ -339,23 +365,42 @@ const workspaceServer = createWorkspaceHttpServer({
   providerAuthenticated,
   openclawModelReady,
   providerAuth,
+  personalOpenAI,
   workspaceControlToken,
   openclawVersion: process.env.NEURAL_LABS_OPENCLAW_VERSION ?? "unknown",
   codexVersion: process.env.NEURAL_LABS_CODEX_VERSION ?? "unknown",
   maxUploadBytes,
   personalSkillsRoot,
-  runTeamAgent: (input) => runTeamAgent({ ...input, workspaceRoot }),
+  builderDraftsRoot,
+  runTeamAgent: async (input) => {
+    const agentId = await personalOpenAI.prepareRun(input.userId);
+    return runTeamAgent({ ...input, agentId, workspaceRoot, gatewayRequest: gatewayAdminRequest });
+  },
 });
 
 workspaceServer.listen(statusPort, "0.0.0.0", () => {
   console.log(`Neural Labs desktop and status listening on 0.0.0.0:${statusPort}`);
 });
 
+async function reconcilePersonalAccess() {
+  try {
+    await personalOpenAI.restrictKnownProfiles();
+    await personalOpenAI.assignRole("neural-labs-automations-admin", "maintainer").catch(() => undefined);
+    await personalOpenAI.purgeLegacyNeuraSessions();
+  } catch (error) {
+    console.warn("Personal Neura access reconciliation is waiting for the Gateway", error instanceof Error ? error.message : error);
+  }
+}
+setTimeout(() => void reconcilePersonalAccess(), 2_000).unref();
+const personalAccessTimer = setInterval(() => void reconcilePersonalAccess(), 30_000);
+personalAccessTimer.unref();
+
 let stopping = false;
 function stop(signal) {
   if (stopping) return;
   stopping = true;
   clearInterval(providerStatusTimer);
+  clearInterval(personalAccessTimer);
   providerAuth.cancel();
   workspaceServer.close();
   gateway.kill(signal);

@@ -284,7 +284,7 @@ describe("Neura realtime conversation", () => {
     expect(screen.queryByText("disabled-skill")).not.toBeInTheDocument();
 
     fireEvent.keyDown(composer, { key: "Enter" });
-    expect(composer).toHaveValue("$local_business_website_builder ");
+    expect(composer).toHaveValue("$local-business-website-builder ");
     expect(screen.queryByRole("listbox", { name: "Available skills" })).not.toBeInTheDocument();
   });
 

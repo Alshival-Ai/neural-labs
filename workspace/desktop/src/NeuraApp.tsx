@@ -92,7 +92,7 @@ function skillTriggerAt(value: string, caret: number): SkillTrigger | null {
 }
 
 function skillCommand(skill: SkillSuggestion): string {
-  return `$${skill.key.replaceAll("-", "_")}`;
+  return `$${skill.key}`;
 }
 
 function neuraDeviceState(storageNamespace: string | undefined, storageArea: string): NeuraDeviceState {
@@ -229,6 +229,7 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
   const [teamMembers, setTeamMembers] = useState<TeamDirectoryUser[]>([]);
   const [teamConnection, setTeamConnection] = useState<ConnectionState>("connecting");
   const [teamAgentBusy, setTeamAgentBusy] = useState(false);
+  const [teamAgentError, setTeamAgentError] = useState<string>();
   const [teamTyping, setTeamTyping] = useState<TeamDirectoryUser[]>([]);
   const [teamDraft, setTeamDraft] = useState("");
   const [teamAttachments, setTeamAttachments] = useState<TeamAttachment[]>([]);
@@ -433,12 +434,16 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
             setTeamMessages(value.messages as TeamMessage[]);
           } else if (value.type === "message.created" && value.channelId === selectedChannelRef.current && value.message) {
             const message = value.message as TeamMessage;
-            setTeamMessages((current) => current.some((item) => item.id === message.id) ? current : [...current, message]);
+            setTeamMessages((current) => current.some((item) => item.id === message.id)
+              ? current.map((item) => item.id === message.id ? message : item)
+              : [...current, message]);
           } else if (value.type === "channels.changed") {
             void refreshTeamChannels();
           } else if (value.type === "agent.status" && value.channelId === selectedChannelRef.current) {
-            const run = value.run as { status?: string } | undefined;
+            const run = value.run as { status?: string; error?: string } | undefined;
             setTeamAgentBusy(run?.status === "queued" || run?.status === "running");
+            if (run?.status === "queued" || run?.status === "running" || run?.status === "completed") setTeamAgentError(undefined);
+            if (run?.status === "failed") setTeamAgentError(run.error ?? "Neura could not complete that Team Chat turn.");
           } else if (value.type === "typing" && value.channelId === selectedChannelRef.current && value.user) {
             const user = value.user as TeamDirectoryUser;
             setTeamTyping((current) => value.active === true
@@ -1206,8 +1211,9 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
         <div className="message-stage">
         <div ref={messageScroll} className="message-scroll" aria-live="polite" onScroll={handleTranscriptScroll}>
           <div ref={messageContent} className="message-content">
-          {!selectedChannel && connection === "error" && <div className="connection-error"><strong>Neura is unavailable</strong><p>{connectionError ?? "The Gateway connection could not be established."}</p></div>}
+          {!selectedChannel && connection === "error" && <div className="connection-error"><strong>Neura is unavailable</strong><p>{connectionError ?? "The Gateway connection could not be established."} If this is your first visit, connect your ChatGPT account in Settings → Personalization.</p></div>}
           {selectedChannel && teamConnection === "error" && <div className="connection-error"><strong>Team Chat is reconnecting</strong><p>Messages remain safely stored. Live updates will resume automatically.</p></div>}
+          {selectedChannel && teamAgentError && <div className="connection-error"><strong>Neura could not join this turn</strong><p>{teamAgentError}</p></div>}
           {!selected && !selectedChannel && connection === "connected" && (
             <div className="neura-welcome">
               <div className="neura-orb">N</div>
@@ -1252,6 +1258,7 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
                 <span className="message-author">{author}{message.author && <small>@{message.author.handle}</small>}</span>
                 {message.attachments.length > 0 && <div className="team-message-attachments">{message.attachments.map((attachment) => <a key={attachment.path} href={workspaceDownloadUrl(attachment.path)} download><Paperclip />{attachment.name}<small>{attachment.size ? `${Math.max(1, Math.round(attachment.size / 1024))} KB` : "Workspace file"}</small></a>)}</div>}
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.body}</ReactMarkdown>
+                {(message.activities?.length ?? 0) > 0 && <NeuraActivityTimeline activities={message.activities!.map((activity, index) => ({ ...activity, id: `${message.id}:${index}`, sessionKey: `team:${message.channelId}`, runId: message.agentRunId }))} />}
                 <time dateTime={message.createdAt}>{new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(message.createdAt))}</time>
               </div>
             </article>;

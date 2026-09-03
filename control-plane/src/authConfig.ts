@@ -46,6 +46,10 @@ export class AuthConfigurationService {
     return {
       setupComplete: stored.setupComplete,
       local: { available: true, enabled: stored.setupComplete && stored.localAuthEnabled },
+      passkey: {
+        available: true,
+        enabled: stored.setupComplete && Boolean(this.effectivePublicOrigin(stored)),
+      },
       microsoft: {
         available: Boolean(entra),
         enabled: stored.setupComplete && stored.microsoftAuthEnabled && Boolean(entra),

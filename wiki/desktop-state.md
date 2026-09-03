@@ -32,6 +32,11 @@ can each retain a layout suited to that screen. Clearing site data resets the
 local layout without deleting workspace files, conversations, terminal
 processes, or server state.
 
+A browser profile with no saved desktop state starts with Terminal open. After
+that first load, the saved window list is authoritative: closing Terminal and
+refreshing the desktop does not reopen it, and a saved minimized Terminal stays
+minimized.
+
 ## Window and dock behavior
 
 Clicking a visible window brings it to the front. The active window has a

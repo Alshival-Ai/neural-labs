@@ -10,7 +10,7 @@ import {
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from "react-router-dom";
 
 import { api } from "./api";
-import { AuthShell, Card, LoadingScreen } from "./components";
+import { AuthShell, Card } from "./components";
 import { PendingPage } from "./pages/AccountPages";
 import { LoginPage, SignupPage } from "./pages/AuthPages";
 import { WorkspacePage } from "./pages/WorkspacePage";
@@ -106,7 +106,7 @@ export default function App() {
       </AuthShell>
     );
   }
-  if (!context) return <LoadingScreen />;
+  if (!context) return <span className="sr-only" role="status">Loading Neural Labs</span>;
 
   return (
     <SessionContext.Provider value={context}>

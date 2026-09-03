@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { api, mutationHeaders } from "../api";
 import { useSession } from "../App";
-import { AuthShell, Button, Card, Notice, StatusPill } from "../components";
+import { AuthIntro, AuthShell, Button, Card, Notice, StatusPill } from "../components";
 
 async function logout(csrfToken: string) {
   const result = await api<{ redirectTo: string }>("/api/auth/logout", {
@@ -36,11 +36,9 @@ export function PendingPage() {
   return (
     <AuthShell>
       <main className="auth-layout">
-        <section className="auth-copy">
-          <p className="eyebrow">Access requested</p>
-          <h1>You’re in the queue.</h1>
-          <p>An administrator needs to approve this account before Neural Labs workspace access becomes available.</p>
-        </section>
+        <AuthIntro eyebrow="Access requested" title="Request received." accent="Approval pending.">
+          An administrator needs to approve this identity before the shared Neural Labs workspace becomes available.
+        </AuthIntro>
         <Card className="auth-card stack">
           <div className="identity-heading">
             <div className="avatar" aria-hidden="true">{session.user.displayName.slice(0, 1).toUpperCase()}</div>

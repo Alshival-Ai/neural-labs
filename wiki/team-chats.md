@@ -15,9 +15,10 @@ Open Neura and use the **Team chats** section in the conversation sidebar.
   approved later.
 - Use `@handle` to mention a channel member. Each user can edit their unique
   handle in Settings → Personalization.
-- Use `$Neura` in a message to ask the shared OpenClaw `main` agent to join the
-  channel turn. An ordinary mention such as `@salvador` does not invoke the
-  agent.
+- Use `$Neura` in a message to ask Neura to join the channel turn through the
+  message author's personal OpenAI account. The author first connects that
+  account in Settings → Personalization. An ordinary mention such as
+  `@salvador` does not invoke the agent.
 - Attachments are uploaded into the shared workspace under `team-uploads/` and
   the channel message stores a reference to the file. The shared Files app can
   therefore also see these files; channel membership is not a file ACL in V1.
@@ -51,15 +52,21 @@ the archive. A source conversation can be shared only once by its creator.
 capability. Only a hash of that capability is stored in PostgreSQL. The control
 plane sends the recent channel transcript and the run capability to the
 workspace's authenticated internal runner. The runner starts a headless
-OpenClaw agent execution in the shared workspace.
+OpenClaw execution on the message author's personal agent in the shared
+workspace. A missing, paused, or expired personal account fails the turn rather
+than falling back to the automation service account.
 
 For that process only, OpenClaw receives an MCP server configuration whose
 authorization header comes from the run capability. The built-in MCP surface
 can inspect channel metadata, read the current channel, and post as Neura. It
 cannot select or access another channel. Neura receives up to 250 recent
-messages and up to 1 MiB of transcript context. The capability expires when the run
-finishes or after 20 minutes. Two Team Chat Neura turns may execute concurrently;
-additional turns remain queued.
+messages plus bounded, redacted plans, commands, file operations, and tool
+results from earlier Neura turns as handoff context. The same public work
+details are stored with the run and shown in a collapsed timeline below the
+Team Chat answer. Raw model reasoning is not included. The complete
+orchestration prompt remains capped at 1 MiB. The capability expires when the
+run finishes or after 20 minutes. Two Team Chat Neura turns may execute
+concurrently; additional turns remain queued.
 
 The dedicated-appliance defaults allow 128 KiB messages, 100 attachments per
 message, 500 messages per history page, 2,000 members or imported messages per

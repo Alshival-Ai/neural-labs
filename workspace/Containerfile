@@ -77,11 +77,13 @@ RUN npm ci --omit=dev --prefix /usr/local/lib/neural-labs \
 COPY workspace/sudoers-neural-labs /etc/sudoers.d/neural-labs-workspace
 COPY workspace/start.mjs /usr/local/lib/neural-labs/start.mjs
 COPY workspace/http-server.mjs /usr/local/lib/neural-labs/http-server.mjs
+COPY workspace/builder-manager.mjs /usr/local/lib/neural-labs/builder-manager.mjs
 COPY workspace/vscode-proxy.mjs /usr/local/lib/neural-labs/vscode-proxy.mjs
 COPY workspace/file-manager.mjs /usr/local/lib/neural-labs/file-manager.mjs
 COPY workspace/skills-manager.mjs /usr/local/lib/neural-labs/skills-manager.mjs
 COPY workspace/file-events.mjs /usr/local/lib/neural-labs/file-events.mjs
 COPY workspace/provider-auth.mjs /usr/local/lib/neural-labs/provider-auth.mjs
+COPY workspace/personal-openai.mjs /usr/local/lib/neural-labs/personal-openai.mjs
 COPY workspace/team-agent.mjs /usr/local/lib/neural-labs/team-agent.mjs
 COPY workspace/terminal-manager.mjs /usr/local/lib/neural-labs/terminal-manager.mjs
 COPY workspace/shell /usr/local/share/neural-labs/shell

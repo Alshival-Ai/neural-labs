@@ -1,4 +1,12 @@
 @font-face {
+  font-family: "Public Sans";
+  src: url("/assets/fonts/public-sans-variable.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
   font-family: "Lato";
   src: url("/assets/fonts/lato-heavy.ttf") format("truetype");
   font-style: normal;
@@ -21,7 +29,7 @@
   --coral: #ff6548;
   --amber: #ffb80f;
   --green: #4dcc86;
-  --display: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --display: "Public Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   --gutter: clamp(1.2rem, 4vw, 4.5rem);
   --max: 94rem;
@@ -170,8 +178,10 @@ a {
   color: white;
   background: var(--ink);
   text-decoration: none;
+  font-family: var(--display);
   font-size: 0.76rem;
   font-weight: 780;
+  letter-spacing: -0.015em;
   transition: color 160ms ease, background 160ms ease, transform 160ms ease;
 }
 
@@ -264,7 +274,7 @@ a {
 .hero h1,
 .section-intro h2,
 .flow-heading h2,
-.principles-copy h2,
+.principles-heading h2,
 .closing-copy h2,
 .setup-pending-card h1 {
   text-wrap: balance;
@@ -273,7 +283,7 @@ a {
 .hero h1 {
   margin: 0;
   font-size: clamp(5rem, 10.3vw, 10rem);
-  font-weight: 760;
+  font-weight: 700;
   line-height: 0.88;
   letter-spacing: -0.085em;
 }
@@ -283,6 +293,14 @@ a {
   background: linear-gradient(92deg, var(--cyan) 5%, var(--blue) 27%, var(--violet) 48%, var(--pink) 70%, var(--coral) 88%, var(--amber));
   background-clip: text;
   -webkit-background-clip: text;
+}
+
+.brand-wordmark {
+  font-family: "Lato", var(--display);
+  font-weight: 900;
+  letter-spacing: -0.035em;
+  font-kerning: normal;
+  font-feature-settings: "kern" 1;
 }
 
 .hero-lede {
@@ -310,8 +328,10 @@ a {
   border: 1px solid transparent;
   border-radius: 0.8rem;
   text-decoration: none;
+  font-family: var(--display);
   font-size: 0.88rem;
   font-weight: 780;
+  letter-spacing: -0.015em;
   transition: transform 160ms ease, box-shadow 160ms ease, color 160ms ease, background 160ms ease;
 }
 
@@ -423,7 +443,7 @@ a {
   border-radius: 0.35rem;
   color: var(--ink);
   background: var(--amber);
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .window-dots {
@@ -859,7 +879,7 @@ a {
   max-width: 12ch;
   margin: 0;
   font-size: clamp(3.1rem, 5.8vw, 6.5rem);
-  font-weight: 730;
+  font-weight: 700;
   line-height: 0.94;
   letter-spacing: -0.07em;
 }
@@ -1058,11 +1078,11 @@ a {
 
 .section-intro h2,
 .flow-heading h2,
-.principles-copy h2,
+.principles-heading h2,
 .closing-copy h2 {
   margin: 0;
   font-size: clamp(2.7rem, 5.5vw, 6.2rem);
-  font-weight: 730;
+  font-weight: 700;
   line-height: 0.97;
   letter-spacing: -0.065em;
 }
@@ -1128,7 +1148,7 @@ a {
   background: var(--feature);
   font-size: 1rem;
   font-style: normal;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .feature-card h3 {
@@ -1318,120 +1338,111 @@ a {
 .principles-section {
   position: relative;
   display: grid;
-  grid-template-columns: 0.82fr 1.18fr;
-  align-items: center;
-  gap: clamp(3rem, 9vw, 10rem);
-  width: min(calc(100% - 2 * var(--gutter)), calc(var(--max) - 2 * var(--gutter)));
-  min-height: 45rem;
-  margin: 0 auto clamp(2rem, 5vw, 5rem);
-  overflow: hidden;
-  padding: clamp(3rem, 7vw, 7rem);
-  border-radius: clamp(1.5rem, 3vw, 3rem);
-  color: white;
-  background: var(--ink);
+  grid-template-columns: minmax(0, 1.2fr) minmax(18rem, 0.62fr);
+  align-items: end;
+  gap: clamp(3rem, 9vw, 9rem);
+  width: min(100%, var(--max));
+  margin: 0 auto;
+  padding: clamp(6rem, 11vw, 11rem) var(--gutter);
+  border-top: 1px solid var(--line);
 }
 
-.principles-section::after {
+.principles-section::before {
   position: absolute;
-  right: -10%;
-  bottom: -45%;
-  width: 60%;
-  aspect-ratio: 1;
-  border-radius: 50%;
+  top: -1px;
+  left: var(--gutter);
+  width: clamp(5.5rem, 10vw, 9rem);
+  height: 3px;
   content: "";
-  opacity: 0.28;
-  background: conic-gradient(var(--cyan), var(--violet), var(--pink), var(--coral), var(--amber), var(--cyan));
-  filter: blur(4rem);
+  background: linear-gradient(90deg, var(--cyan), var(--blue), var(--violet), var(--pink), var(--coral), var(--amber));
 }
 
-.principles-art {
-  position: relative;
-  display: grid;
-  place-items: center;
-  aspect-ratio: 1;
+.principles-heading .section-label {
+  margin-bottom: 1.5rem;
 }
 
-.principles-art::before {
-  position: absolute;
-  width: 62%;
-  aspect-ratio: 1;
-  border-radius: 50%;
-  content: "";
-  background: conic-gradient(from 60deg, var(--cyan), var(--violet), var(--pink), var(--coral), var(--amber), var(--cyan));
-  filter: blur(2.5rem);
-  opacity: 0.55;
+.principles-heading h2 {
+  margin: 0;
+  max-width: 12ch;
 }
 
-.principles-art img {
-  position: relative;
-  z-index: 2;
-  width: 62%;
-  height: auto;
-  filter: drop-shadow(0 1rem 2.5rem rgba(0, 0, 0, 0.45));
+.principles-summary {
+  padding-bottom: 0.45rem;
 }
 
-.orbit {
-  position: absolute;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 50%;
-}
-
-.orbit-one { inset: 8%; }
-.orbit-two { inset: 22%; border-style: dashed; }
-
-.principles-copy {
-  position: relative;
-  z-index: 2;
-}
-
-.section-label-light { color: rgba(255, 255, 255, 0.48); }
-
-.principles-copy h2 {
-  margin-top: 1.6rem;
-}
-
-.principles-copy h2 span {
-  color: transparent;
-  background: linear-gradient(90deg, var(--cyan), var(--violet), var(--pink), var(--coral), var(--amber));
-  background-clip: text;
-  -webkit-background-clip: text;
-}
-
-.principles-copy > p:not(.section-label) {
-  max-width: 37rem;
-  margin: 1.8rem 0 0;
-  color: rgba(255, 255, 255, 0.62);
+.principles-summary > p {
+  max-width: 35rem;
+  margin: 0;
+  color: var(--muted);
   font-size: 1rem;
   line-height: 1.7;
 }
 
-.principle-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.55rem;
-  margin-top: 2rem;
+.principles-list {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin: clamp(3.5rem, 7vw, 6rem) 0 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  list-style: none;
 }
 
-.principle-tags span {
-  padding: 0.55rem 0.72rem;
-  border: 1px solid rgba(255, 255, 255, 0.17);
-  border-radius: 999px;
-  color: rgba(255, 255, 255, 0.74);
+.principles-list li {
+  min-height: 13rem;
+  padding: 1.7rem clamp(1.2rem, 2.5vw, 2.3rem) 2rem;
+  border-right: 1px solid var(--line);
+}
+
+.principles-list li:first-child { padding-left: 0; }
+.principles-list li:last-child { border-right: 0; }
+
+.principles-list li > span {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: #8a8b91;
   font-family: var(--mono);
   font-size: 0.58rem;
-  text-transform: uppercase;
+}
+
+.principles-list li > span::before {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 50%;
+  content: "";
+  background: var(--cyan);
+}
+
+.principles-list li:nth-child(2) > span::before { background: var(--violet); }
+.principles-list li:nth-child(3) > span::before { background: var(--pink); }
+.principles-list li:nth-child(4) > span::before { background: var(--amber); }
+
+.principles-list h3 {
+  margin: 2.7rem 0 0;
+  font-size: clamp(1.25rem, 2vw, 1.8rem);
+  letter-spacing: -0.04em;
+}
+
+.principles-list p {
+  max-width: 16rem;
+  margin: 0.65rem 0 0;
+  color: #73747a;
+  font-size: 0.82rem;
+  line-height: 1.55;
 }
 
 .text-action {
   display: inline-flex;
   align-items: center;
   gap: 1rem;
-  margin-top: 2.5rem;
-  color: white;
+  margin-top: 2rem;
+  color: var(--ink);
   text-decoration-color: var(--pink);
   text-decoration-thickness: 2px;
   text-underline-offset: 0.4rem;
-  font-weight: 750;
+  font-weight: 700;
 }
 
 .maker-section {
@@ -1476,13 +1487,6 @@ a {
   letter-spacing: -0.065em;
 }
 
-.maker-copy h2 span {
-  color: transparent;
-  background: linear-gradient(92deg, var(--cyan), var(--violet), var(--pink), var(--coral));
-  background-clip: text;
-  -webkit-background-clip: text;
-}
-
 .maker-copy > p:last-child {
   max-width: 39rem;
   margin: 1.15rem 0 0;
@@ -1501,8 +1505,10 @@ a {
   color: white;
   background: var(--ink);
   text-decoration: none;
+  font-family: var(--display);
   font-size: 0.82rem;
-  font-weight: 760;
+  font-weight: 780;
+  letter-spacing: -0.015em;
   white-space: nowrap;
   transition: color 160ms ease, background 160ms ease, transform 160ms ease;
 }
@@ -1688,9 +1694,14 @@ footer > div a { text-underline-offset: 0.3rem; }
   }
 
   .principles-section {
-    grid-template-columns: 0.7fr 1.3fr;
-    min-height: 38rem;
+    grid-template-columns: minmax(0, 1fr) minmax(17rem, 0.65fr);
+    gap: clamp(2.5rem, 6vw, 5rem);
   }
+
+  .principles-list { grid-template-columns: repeat(2, 1fr); }
+  .principles-list li:nth-child(2) { border-right: 0; }
+  .principles-list li:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+  .principles-list li:nth-child(3) { padding-left: 0; }
 
   .maker-section {
     grid-template-columns: 1fr auto;
@@ -1777,14 +1788,22 @@ footer > div a { text-underline-offset: 0.3rem; }
 
   .principles-section {
     grid-template-columns: 1fr;
-    min-height: auto;
-    padding-block: 4rem;
+    gap: 2rem;
   }
 
-  .principles-art {
-    width: min(100%, 22rem);
-    margin: 0 auto;
+  .principles-heading h2 { max-width: 11ch; }
+  .principles-summary { max-width: 36rem; }
+  .principles-list { grid-template-columns: 1fr; }
+  .principles-list li,
+  .principles-list li:first-child,
+  .principles-list li:nth-child(3) {
+    min-height: auto;
+    padding: 1.5rem 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
   }
+  .principles-list li:last-child { border-bottom: 0; }
+  .principles-list h3 { margin-top: 1.5rem; }
 
   footer {
     grid-template-columns: 1fr auto;
@@ -1826,13 +1845,12 @@ footer > div a { text-underline-offset: 0.3rem; }
   .openclaw-flow { grid-template-columns: 1fr; }
   .section-intro h2,
   .flow-heading h2,
-  .principles-copy h2,
+  .principles-heading h2,
   .closing-copy h2 { font-size: clamp(2.55rem, 13vw, 4rem); }
   .feature-card h3 { font-size: 2.5rem; }
   .flow-list li { grid-template-columns: 1.5rem 1fr auto; }
   .flow-list li > i { width: 2.5rem; height: 2.5rem; }
   .flow-list p { display: none; }
-  .principles-section { width: calc(100% - 2 * var(--gutter)); }
   footer > div a:not(:last-child) { display: none; }
 }
 

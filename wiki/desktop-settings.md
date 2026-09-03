@@ -6,7 +6,8 @@ small and contains only the sign-out action.
 
 Members open a personal version of Settings with one **Personalization** area.
 It controls their device-local desktop font size, shows their account identity,
-and lets them link available sign-in methods. Administrators receive the same
+lets them link available sign-in methods, and connects or pauses the personal
+ChatGPT account used by interactive Neura. Administrators receive the same
 Personalization area plus the control-plane areas below.
 
 The old `/admin` console is retired. Requests to `/admin` or any nested legacy
@@ -16,7 +17,7 @@ path redirect active users to `/workspace`.
 
 | Area | Purpose |
 |---|---|
-| Personalization | Per-user desktop font size, account identity, linked sign-in methods, and sign out |
+| Personalization | Per-user desktop font size, account identity, linked sign-in methods, personal Neura ChatGPT connection, and sign out |
 | Overview | Account counts, authentication state, MCP state, runtime health, and recent audit events |
 | Users | User approval, rejection, activation, disabling, and Admin/User role assignment |
 | Authentication | Local and Microsoft login enablement plus Entra secret or certificate rotation |
@@ -52,6 +53,15 @@ local provider inventory before it classifies the result. This prevents a
 best-effort Gateway refresh failure or stale cached status from hiding a newly
 persisted OAuth profile. The CLI is not granted trusted-proxy access over
 container loopback.
+
+Personalization uses a parallel device-code controller scoped to the signed-in
+user's dedicated OpenClaw agent. The control plane forwards only that immutable
+user ID to an internal token-authenticated endpoint. It stores no OAuth token;
+Settings polls only safe state, URL, code, expiry, model-readiness, and pause
+metadata. Pause removes the user's Gateway access while retaining the OpenClaw
+credential, and Resume restores it. Interactive Neura fails closed when the
+personal account is unavailable. The Workspace pairing remains the independent
+service identity for automations and background work.
 
 The MCP area is read-only in V1. It reports the loopback provider service that
 the workspace attaches globally to shared OpenClaw agents as

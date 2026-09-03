@@ -23,6 +23,12 @@ export type CustomSkillDraft = {
   scope: CustomSkillScope;
 };
 
+export type SkillInstructionDocument = {
+  path: string;
+  sizeBytes: number;
+  content: string;
+};
+
 async function requestJson<T>(url: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
@@ -41,6 +47,11 @@ async function requestJson<T>(url: string, init: RequestInit = {}): Promise<T> {
 
 export async function listCustomSkills(signal?: AbortSignal): Promise<CustomSkill[]> {
   return (await requestJson<{ skills: CustomSkill[] }>("/workspace/api/skills", { signal })).skills;
+}
+
+export async function readSkillInstructions(path: string, signal?: AbortSignal): Promise<SkillInstructionDocument> {
+  const query = new URLSearchParams({ path });
+  return requestJson<SkillInstructionDocument>(`/workspace/api/skills/instructions?${query}`, { signal });
 }
 
 export async function createCustomSkill(draft: CustomSkillDraft): Promise<CustomSkill> {

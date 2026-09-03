@@ -7,7 +7,16 @@ function buildPrompt(context: NonNullable<Awaited<ReturnType<CollaborationStore[
     const speaker = message.authorKind === "neura" || message.authorKind === "imported_neura"
       ? "Neura"
       : message.author ? `@${message.author.handle}` : "System";
-    return `[${message.createdAt}] ${speaker}: ${message.body}`;
+    const work = message.activities.length
+      ? `\n  Neura work details:\n${message.activities.map((activity) => [
+          `  - ${activity.title} (${activity.state})`,
+          activity.command ? `command: ${activity.command}` : "",
+          activity.output ? `output: ${activity.output}` : "",
+          activity.path ? `path: ${activity.path}` : "",
+          activity.detail ? `detail: ${activity.detail}` : "",
+        ].filter(Boolean).join(" · ")).join("\n")}`
+      : "";
+    return `[${message.createdAt}] ${speaker}: ${message.body}${work}`;
   }).join("\n");
   return [
     `You are Neura in the Neural Labs Team Chat channel “${context.channel.name}”.`,
@@ -55,6 +64,7 @@ export class TeamAgentProcessor {
       await this.publish({ type: "agent.status", channelId: run.channelId, run: claimed });
       const context = await this.store.runContext(run.id);
       if (!context?.trigger) throw new Error("The triggering Team Chat message is unavailable");
+      if (!run.requestedBy) throw new Error("The Team Chat message author is unavailable");
       const response = await this.fetchFn(this.config.workspace.teamAgentUrl, {
         method: "POST",
         headers: {
@@ -62,18 +72,19 @@ export class TeamAgentProcessor {
           "Content-Type": "application/json",
           Authorization: `Bearer ${this.config.workspace.controlToken}`,
         },
-        body: JSON.stringify({ prompt: buildPrompt(context), capability: run.capability }),
+        body: JSON.stringify({ prompt: buildPrompt(context), capability: run.capability, userId: run.requestedBy, runId: run.id }),
         signal: AbortSignal.timeout(10 * 60 * 1000),
       });
-      const payload = await response.json().catch(() => undefined) as { reply?: unknown } | undefined;
+      const payload = await response.json().catch(() => undefined) as { reply?: unknown; activities?: unknown; error?: { message?: unknown } } | undefined;
       if (!response.ok || typeof payload?.reply !== "string" || !payload.reply.trim()) {
-        throw new Error(`Workspace Neura runner returned HTTP ${response.status}`);
+        throw new Error(typeof payload?.error?.message === "string" ? payload.error.message : `Workspace Neura runner returned HTTP ${response.status}`);
       }
-      if (!(await this.store.agentPosted(run.id))) {
-        const message = await this.store.postAgentMessage(run.capability, payload.reply);
-        await this.publish({ type: "message.created", channelId: run.channelId, message });
-        await this.publish({ type: "channels.changed", channelId: run.channelId });
-      }
+      await this.store.saveRunActivities(run.id, payload.activities);
+      const message = await this.store.agentPosted(run.id)
+        ? await this.store.agentMessage(run.id)
+        : await this.store.postAgentMessage(run.capability, payload.reply);
+      if (message) await this.publish({ type: "message.created", channelId: run.channelId, message });
+      await this.publish({ type: "channels.changed", channelId: run.channelId });
       const completed = await this.store.finishRun(run.id);
       if (completed) await this.publish({ type: "agent.status", channelId: run.channelId, run: completed });
     } catch (error) {

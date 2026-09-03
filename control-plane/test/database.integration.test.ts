@@ -105,6 +105,45 @@ integration("PostgreSQL account state", () => {
     expect(await database.getSessionActor("session-hash")).toBeUndefined();
   });
 
+  it("stores passkey public material and consumes registration challenges once", async () => {
+    const user = (await database.listUsers())[0]!;
+    const created = await database.createPasskey({
+      userId: user.id,
+      credentialId: "integration-credential",
+      webauthnUserId: "integration-user",
+      publicKey: new Uint8Array([1, 2, 3, 4]),
+      counter: 0,
+      deviceType: "multiDevice",
+      backedUp: true,
+      transports: ["internal", "hybrid"],
+      displayName: "Integration passkey",
+    });
+    expect((await database.listPasskeys(user.id))[0]).toMatchObject({
+      credentialId: "integration-credential",
+      displayName: "Integration passkey",
+      backedUp: true,
+    });
+    expect((await database.findPasskeyByCredentialId("integration-credential"))?.user.id).toBe(user.id);
+
+    await database.savePasskeyChallenge({
+      tokenHash: "passkey-challenge-hash",
+      challenge: "passkey-challenge",
+      kind: "registration",
+      userId: user.id,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    expect(await database.consumePasskeyChallenge("passkey-challenge-hash", "registration", user.id)).toMatchObject({
+      challenge: "passkey-challenge",
+      userId: user.id,
+    });
+    expect(await database.consumePasskeyChallenge("passkey-challenge-hash", "registration", user.id)).toBeUndefined();
+
+    await database.updatePasskeyUsage(created.id, 2, true);
+    expect((await database.listPasskeys(user.id))[0]).toMatchObject({ counter: 2 });
+    expect(await database.deletePasskey(user.id, created.id)).toBe(true);
+    expect(await database.findPasskeyByCredentialId("integration-credential")).toBeUndefined();
+  });
+
   it("enforces Team Chat membership and scopes Neura capabilities to one channel", async () => {
     const collaborationSchema = `collaboration_${randomUUID().replaceAll("-", "")}`;
     await adminPool.query(`CREATE SCHEMA ${collaborationSchema}`);
@@ -159,6 +198,12 @@ integration("PostgreSQL account state", () => {
       expect((await store.channelForCapability(capability)).id).toBe(created.channel.id);
       const response = await store.postAgentMessage(capability, "The release looks ready.");
       expect(response).toMatchObject({ channelId: created.channel.id, authorKind: "neura" });
+      await store.saveRunActivities(posted.run!.id, [{
+        kind: "command", title: "Command completed", command: "release-check", output: "token=must-not-leak", state: "done",
+      }]);
+      expect(await store.agentMessage(posted.run!.id)).toMatchObject({
+        activities: [{ kind: "command", command: "release-check", output: "token=[redacted]", state: "done" }],
+      });
       await store.finishRun(posted.run!.id);
       await expect(store.channelForCapability(capability)).rejects.toMatchObject({
         status: 403,

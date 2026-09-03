@@ -2,7 +2,7 @@ import type { SessionRow } from "./types";
 
 type SessionTarget = {
   key: string;
-  agentId: "main";
+  agentId: string;
   expectedSessionId?: string;
 };
 
@@ -11,10 +11,10 @@ export type SessionDeletionPlan = {
   remove: SessionTarget & { deleteTranscript: true; archivedOnly: true };
 };
 
-export function buildSessionDeletionPlan(session: SessionRow): SessionDeletionPlan {
+export function buildSessionDeletionPlan(session: SessionRow, agentId = "main"): SessionDeletionPlan {
   const target: SessionTarget = {
     key: session.key,
-    agentId: "main",
+    agentId,
     ...(session.sessionId ? { expectedSessionId: session.sessionId } : {}),
   };
 

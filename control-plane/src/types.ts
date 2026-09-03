@@ -76,6 +76,7 @@ export interface EffectiveEntraConfig {
 export interface ProviderAvailability {
   setupComplete: boolean;
   local: { available: true; enabled: boolean };
+  passkey: { available: true; enabled: boolean };
   microsoft: {
     available: boolean;
     enabled: boolean;
@@ -98,6 +99,29 @@ export interface OidcTransaction {
   codeVerifier: string;
   intent: "login" | "link";
   sessionUserId?: string;
+  expiresAt: Date;
+}
+
+export interface PasskeyRecord {
+  id: string;
+  userId: string;
+  credentialId: string;
+  webauthnUserId: string;
+  publicKey: Uint8Array;
+  counter: number;
+  deviceType: "singleDevice" | "multiDevice";
+  backedUp: boolean;
+  transports: string[];
+  displayName: string;
+  createdAt: Date;
+  lastUsedAt?: Date;
+}
+
+export interface PasskeyChallenge {
+  tokenHash: string;
+  challenge: string;
+  kind: "registration" | "authentication";
+  userId?: string;
   expiresAt: Date;
 }
 

@@ -3,6 +3,11 @@
 - Status: Accepted
 - Date: 2026-09-01
 
+The single-container trust decision remains current. ADR 0013 supersedes the
+same-agent and same-interactive-credential details: Neura now uses one logical
+OpenClaw agent and auth directory per user, while files, root access,
+automations, and the operating-system trust domain remain shared.
+
 ## Context
 
 V1 originally considered one long-running container per developer. OpenClaw

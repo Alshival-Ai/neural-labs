@@ -219,7 +219,21 @@
 .automation-detail-list code { color: var(--automation-violet); font-family: "SFMono-Regular", Consolas, monospace; font-size: var(--desktop-font-caption, 11px); }
 .automation-payload-copy { margin-top: .72rem; padding: .58rem; border: 1px solid rgba(123, 77, 255, .1); border-radius: 9px; background: #12131a; }
 .automation-payload-copy span { color: #9f87e6; font-family: "SFMono-Regular", Consolas, monospace; font-size: var(--desktop-font-caption, 11px); text-transform: uppercase; }
-.automation-payload-copy p { display: -webkit-box; overflow: hidden; margin: .28rem 0 0; color: #d6d7dd; -webkit-box-orient: vertical; -webkit-line-clamp: 3; font-family: "SFMono-Regular", Consolas, monospace; font-size: var(--desktop-font-small, 12px); line-height: 1.55; }
+.automation-payload-scroll { max-height: 14rem; overflow: auto; margin-top: .35rem; padding: .05rem .25rem .2rem 0; color: #d6d7dd; font-size: var(--desktop-font-small, 12px); line-height: 1.55; scrollbar-color: rgba(255, 255, 255, .16) transparent; }
+.automation-payload-scroll > :first-child { margin-top: 0; }
+.automation-payload-scroll > :last-child { margin-bottom: 0; }
+.automation-payload-scroll p,
+.automation-payload-scroll ul,
+.automation-payload-scroll ol,
+.automation-payload-scroll blockquote { margin: .45rem 0; color: #d6d7dd; }
+.automation-payload-scroll ul,
+.automation-payload-scroll ol { padding-left: 1.2rem; }
+.automation-payload-scroll h1,
+.automation-payload-scroll h2,
+.automation-payload-scroll h3 { margin: .7rem 0 .3rem; color: #fff; font-size: 1em; }
+.automation-payload-scroll pre { margin: 0; white-space: pre-wrap; font-family: "SFMono-Regular", Consolas, monospace; }
+.automation-payload-scroll code { font-family: "SFMono-Regular", Consolas, monospace; color: #d8cefa; }
+.automation-payload-scroll blockquote { padding-left: .55rem; border-left: 2px solid #7254ce; }
 .automation-route-card,
 .automation-recent-card { grid-column: 1 / -1; }
 .automation-route { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; align-items: center; gap: .45rem; margin-top: .65rem; }

@@ -347,14 +347,14 @@ export function EditorApp({
     setContents((current) => {
       const next = { ...current };
       for (const document of documents) {
-        if (!(document.id in next)) next[document.id] = document.content;
+        next[document.id] = document.content;
       }
       return next;
     });
     setSavedContents((current) => {
       const next = { ...current };
       for (const document of documents) {
-        if (!(document.id in next)) next[document.id] = document.savedContent ?? document.content;
+        next[document.id] = document.savedContent ?? document.content;
       }
       return next;
     });

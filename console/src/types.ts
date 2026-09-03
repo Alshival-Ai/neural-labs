@@ -25,6 +25,7 @@ export type SessionResponse =
 export interface ProviderAvailability {
   setupComplete: boolean;
   local: { available: true; enabled: boolean };
+  passkey: { available: true; enabled: boolean };
   microsoft: {
     available: boolean;
     enabled: boolean;

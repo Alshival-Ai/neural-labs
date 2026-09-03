@@ -6,6 +6,15 @@ import { SkillsApp } from "./SkillsApp";
 afterEach(cleanup);
 
 describe("Skills app", () => {
+  it("renders SKILL.md instructions as Markdown in a document viewport", () => {
+    render(<SkillsApp />);
+
+    const instructions = within(screen.getByRole("region", { name: "Customer handoff Markdown instructions" }));
+    expect(instructions.getByRole("heading", { name: "Customer handoff" })).toBeInTheDocument();
+    expect(instructions.getByText(/Capture the impact/)).toBeInTheDocument();
+    expect(instructions.getByText("SKILL.md")).toBeInTheDocument();
+  });
+
   it("organizes skills into personal, team, and OpenClaw libraries", () => {
     render(<SkillsApp />);
 
@@ -62,5 +71,21 @@ describe("Skills app", () => {
     expect(detail.getAllByText("Needs setup").length).toBeGreaterThan(0);
     expect(detail.getByText("IMAGE_PROVIDER_API_KEY")).toBeInTheDocument();
     expect(detail.queryByRole("checkbox")).not.toBeInTheDocument();
+  });
+
+  it("opens graphical drafts and keeps automation creation administrator-driven", () => {
+    const onCreateSkill = vi.fn();
+    const onCreateAutomation = vi.fn();
+    const onOpenDraft = vi.fn();
+    render(<SkillsApp onCreateSkill={onCreateSkill} onCreateAutomation={onCreateAutomation} onOpenDraft={onOpenDraft} drafts={[{ id: "draft-1", kind: "skill", title: "Support workflow", ownerDisplayName: "Maya", updatedAt: "2026-09-03T00:00:00.000Z" }]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Skill" }));
+    fireEvent.click(screen.getByRole("button", { name: "Automation" }));
+    expect(onCreateSkill).toHaveBeenCalledOnce();
+    expect(onCreateAutomation).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Drafts/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Support workflow/ }));
+    expect(onOpenDraft).toHaveBeenCalledWith(expect.objectContaining({ id: "draft-1" }));
   });
 });

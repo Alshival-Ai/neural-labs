@@ -4,7 +4,9 @@ Automations is the Neural Labs desktop client for OpenClaw's built-in scheduler.
 It reads and writes the same durable jobs and run history as the
 `openclaw automations` CLI. There is no second Neural Labs scheduler or database.
 
-The dock launcher is visible only to Neural Labs administrators. The app can:
+The dock launcher is visible to every workspace user and routes to the
+Automations section inside the canonical Skills app. Every user can inspect
+redacted operational state; administrators additionally can:
 
 - show scheduler connectivity, enabled/running/error counts, and live job state;
 - search and filter jobs;
@@ -18,6 +20,13 @@ OpenClaw remains authoritative for schema validation, permissions, execution,
 delivery, auto-disable behavior, and tool-policy ceilings. Command and script
 payloads, condition scripts, and stream commands are unattended code execution;
 the warning in the form is explanatory and is not the security boundary.
+
+The regular-user presentation removes raw commands, scripts, agent payloads,
+condition scripts, working directories, agent/model/tool settings, delivery
+targets, run errors, and token usage. It keeps names, schedules, enablement,
+running/error counts, and summarized run outcomes. This is a presentation and
+API-authorization boundary inside a shared developer environment, not a host
+filesystem confidentiality guarantee.
 
 ## Administrator connection
 

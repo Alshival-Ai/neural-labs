@@ -1,7 +1,14 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { PersonalizationPanel } from "./UserSettingsApp";
+vi.mock("@simplewebauthn/browser", () => ({
+  browserSupportsWebAuthn: () => true,
+  startRegistration: vi.fn(),
+}));
+
+import { startRegistration } from "@simplewebauthn/browser";
+
+import { PersonalizationPanel, type PersonalOpenAIAuth } from "./UserSettingsApp";
 
 const user = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -16,11 +23,54 @@ function json(value: unknown, status = 200) {
   return new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json" } });
 }
 
+const openAI: PersonalOpenAIAuth = {
+  provider: "openai",
+  authMethod: "chatgpt",
+  state: "disconnected",
+  authenticated: false,
+  modelReady: false,
+  verificationUrl: null,
+  userCode: null,
+  expiresAt: null,
+  message: null,
+  agentId: "nl-11111111111141118111111111111111",
+  paused: true,
+};
+
 beforeEach(() => {
+  let currentOpenAI = { ...openAI };
+  vi.mocked(startRegistration).mockResolvedValue({
+    id: "credential-id",
+    rawId: "credential-id",
+    type: "public-key",
+    response: { clientDataJSON: "client-data", attestationObject: "attestation", transports: ["internal"] },
+    clientExtensionResults: {},
+    authenticatorAttachment: "platform",
+  });
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = String(input);
     if (url === "/api/auth/providers") {
       return json({ local: { enabled: true }, microsoft: { available: true, enabled: true } });
+    }
+    if (url === "/api/account/openai" && !init?.method) return json(currentOpenAI);
+    if (url === "/api/account/passkeys" && !init?.method) return json({ eligible: true, passkeys: [] });
+    if (url === "/api/account/passkeys/registration/options" && init?.method === "POST") return json({
+      transaction: "passkey-transaction-token",
+      options: { challenge: "challenge", rp: { name: "Neural Labs", id: "example.org" }, user: { id: "user-id", name: user.email, displayName: user.displayName }, pubKeyCredParams: [], timeout: 300000 },
+    });
+    if (url === "/api/account/passkeys/registration/verify" && init?.method === "POST") return json({
+      passkey: { id: "44444444-4444-4444-8444-444444444444", name: "My passkey", deviceType: "multiDevice", backedUp: true, createdAt: "2026-09-03T12:00:00.000Z", lastUsedAt: null },
+    }, 201);
+    if (url === "/api/account/openai/connect" && init?.method === "POST") {
+      currentOpenAI = {
+      ...currentOpenAI,
+      state: "awaiting_user",
+      paused: false,
+      verificationUrl: "https://auth.openai.com/codex/device",
+      userCode: "ABCD-EFGH",
+      expiresAt: "2026-09-03T01:00:00.000Z",
+      };
+      return json(currentOpenAI, 202);
     }
     if (url === "/api/account/identities/local" && init?.method === "POST") return json({ provider: "local" }, 201);
     return json({ error: { message: "Unexpected request" } }, 500);
@@ -58,6 +108,20 @@ describe("Settings personalization panel", () => {
     expect(screen.getByText("Email & password").closest("article")).toHaveTextContent("Linked");
   });
 
+  it("creates a passkey only for a Microsoft-linked account and sends CSRF on both steps", async () => {
+    render(<PersonalizationPanel user={user} providers={["microsoft"]} csrfToken="csrf-token" fontScale={100} onFontScaleChange={vi.fn()} onLogout={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Create passkey" }));
+
+    expect(await screen.findByText("My passkey is ready for Neural Labs sign-in.")).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Your passkeys" })).toHaveTextContent("Synced passkey");
+    expect(startRegistration).toHaveBeenCalledOnce();
+    for (const path of ["/api/account/passkeys/registration/options", "/api/account/passkeys/registration/verify"]) {
+      const call = vi.mocked(fetch).mock.calls.find(([input]) => input === path);
+      expect(new Headers(call?.[1]?.headers).get("X-CSRF-Token")).toBe("csrf-token");
+    }
+  });
+
   it("changes and resets the desktop-wide font size", () => {
     const onFontScaleChange = vi.fn();
     const view = render(<PersonalizationPanel user={user} providers={["local"]} csrfToken="csrf-token" fontScale={120} onFontScaleChange={onFontScaleChange} onLogout={vi.fn()} />);
@@ -72,5 +136,15 @@ describe("Settings personalization panel", () => {
     expect(screen.getByRole("button", { name: "Increase font size" })).toBeDisabled();
     view.rerender(<PersonalizationPanel user={user} providers={["local"]} csrfToken="csrf-token" fontScale={90} onFontScaleChange={onFontScaleChange} onLogout={vi.fn()} />);
     expect(screen.getByRole("button", { name: "Decrease font size" })).toBeDisabled();
+  });
+
+  it("starts a personal ChatGPT device-code connection", async () => {
+    render(<PersonalizationPanel user={user} providers={["local"]} csrfToken="csrf-token" fontScale={100} onFontScaleChange={vi.fn()} onLogout={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Connect ChatGPT" }));
+
+    expect(await screen.findByText("ABCD-EFGH")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open OpenAI sign-in/ })).toHaveAttribute("href", "https://auth.openai.com/codex/device");
+    const request = vi.mocked(fetch).mock.calls.find(([path]) => path === "/api/account/openai/connect");
+    expect(new Headers(request?.[1]?.headers).get("X-CSRF-Token")).toBe("csrf-token");
   });
 });

@@ -6,6 +6,13 @@ import { AutomationsApp } from "./AutomationsApp";
 afterEach(cleanup);
 
 describe("Automations app prototype", () => {
+  it("shows the complete automation instruction in a scrollable document region", () => {
+    render(<AutomationsApp />);
+
+    const instructions = within(screen.getByRole("region", { name: "Morning team brief instructions" }));
+    expect(instructions.getByText(/Summarize overnight workspace changes/)).toBeInTheDocument();
+  });
+
   it("filters jobs needing attention and exposes enable state changes", () => {
     const onToggle = vi.fn();
     render(<AutomationsApp onToggle={onToggle} />);

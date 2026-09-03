@@ -35,6 +35,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import "./automations-app.css";
 
@@ -146,6 +148,8 @@ export type AutomationsAppProps = {
   onRun?: (job: AutomationJob, mode: AutomationRunMode) => void | Promise<void>;
   onDelete?: (job: AutomationJob) => void | Promise<void>;
   onInspectRun?: (job: AutomationJob, run: AutomationRun) => void;
+  onCreateDraft?: () => void;
+  onEditDraft?: (job: AutomationJob) => void;
 };
 
 // Prototype-only records modeled after OpenClaw's current automation schema.
@@ -383,6 +387,8 @@ export function AutomationsApp({
   onRun,
   onDelete,
   onInspectRun,
+  onCreateDraft,
+  onEditDraft,
 }: AutomationsAppProps) {
   const [localJobs, setLocalJobs] = useState<AutomationJob[]>(() => jobs.map(cloneJob));
   const [selectedId, setSelectedId] = useState(() => jobs[0]?.id ?? "");
@@ -472,12 +478,14 @@ export function AutomationsApp({
   };
 
   const openCreate = () => {
+    if (onCreateDraft) { onCreateDraft(); return; }
     setEditingId(undefined);
     setDraft({ ...EMPTY_DRAFT });
     setComposerOpen(true);
   };
 
   const openEdit = (job: AutomationJob) => {
+    if (onEditDraft) { onEditDraft(job); return; }
     setEditingId(job.id);
     setDraft(draftFromJob(job));
     setComposerOpen(true);
@@ -586,7 +594,7 @@ export function AutomationsApp({
         {loading ? <LoaderCircle className="is-spinning" /> : error ? <TriangleAlert /> : <CalendarClock />}
         <strong>{loading ? "Connecting to OpenClaw" : error ? "Automations are unavailable" : "No automations yet"}</strong>
         <p>{loading ? "Loading the shared scheduler and durable run history…" : error ?? `Schedule the first shared workflow for ${workspaceName}.`}</p>
-        {error ? <button type="button" onClick={() => void refreshJobs()} disabled={pendingAction === "refresh"}><RefreshCw />Try again</button> : !loading && <button type="button" onClick={openCreate}><Plus />New automation</button>}
+        {error ? <button type="button" onClick={() => void refreshJobs()} disabled={pendingAction === "refresh"}><RefreshCw />Try again</button> : !loading && (onCreate || onCreateDraft) && <button type="button" onClick={openCreate}><Plus />New automation</button>}
         {composerOpen && <AutomationComposer draft={draft} editing={false} onChange={setDraft} onClose={() => setComposerOpen(false)} onSubmit={submitDraft} />}
       </section>
     );
@@ -604,7 +612,7 @@ export function AutomationsApp({
         </div>
         <div className="automations-toolbar__actions">
           <button type="button" aria-label="Refresh automations" disabled={pendingAction === "refresh"} onClick={() => void refreshJobs()}><RefreshCw className={pendingAction === "refresh" ? "is-spinning" : undefined} /></button>
-          <button type="button" onClick={openCreate}><Plus />New automation</button>
+          {(onCreate || onCreateDraft) && <button type="button" onClick={openCreate}><Plus />New automation</button>}
         </div>
       </header>
 
@@ -625,7 +633,7 @@ export function AutomationsApp({
             {(["all", "active", "paused", "issues"] as const).map((value) => <button type="button" key={value} aria-pressed={filter === value} onClick={() => setFilter(value)}>{value}</button>)}
           </div>
           <div className="automations-job-list">
-            {visibleJobs.map((job) => <AutomationJobCard key={job.id} job={job} selected={selected.id === job.id} onSelect={() => chooseJob(job)} onRun={() => void runJob(job, "force")} />)}
+            {visibleJobs.map((job) => <AutomationJobCard key={job.id} job={job} selected={selected.id === job.id} onSelect={() => chooseJob(job)} onRun={onRun ? () => void runJob(job, "force") : undefined} />)}
             {visibleJobs.length === 0 && <div className="automations-list__empty"><Search /><strong>No matching jobs</strong><span>Try another name or filter.</span></div>}
           </div>
           <footer className="automations-list__footer"><Activity /><span>History retained by OpenClaw</span><button type="button" onClick={() => void refreshJobs()}>Refresh</button></footer>
@@ -642,24 +650,24 @@ export function AutomationsApp({
             </div>
             <label className="automation-toggle">
               <span>{selected.systemOwned ? "Managed" : selected.enabled ? "Enabled" : "Paused"}</span>
-              <input type="checkbox" checked={selected.enabled} disabled={selected.systemOwned || pendingAction === `toggle:${selected.id}`} onChange={() => void toggleJob(selected)} aria-label={`${selected.enabled ? "Disable" : "Enable"} ${selected.name}`} />
+              <input type="checkbox" checked={selected.enabled} disabled={!onToggle || selected.systemOwned || pendingAction === `toggle:${selected.id}`} onChange={() => void toggleJob(selected)} aria-label={`${selected.enabled ? "Disable" : "Enable"} ${selected.name}`} />
               <i />
             </label>
             <div className="automation-detail-header__actions">
-              <div className="automation-run-control">
+              {onRun && <div className="automation-run-control">
                 <button type="button" onClick={() => void runJob(selected, "force")} disabled={selected.running || pendingAction === `run:${selected.id}`}><Play />{selected.running || pendingAction === `run:${selected.id}` ? "Running" : "Run now"}</button>
                 <button type="button" aria-label="Choose run mode" aria-expanded={runMenuId === selected.id} onClick={() => setRunMenuId((id) => id === selected.id ? undefined : selected.id)}><ChevronDown /></button>
                 {runMenuId === selected.id && <div className="automation-run-menu"><button type="button" onClick={() => void runJob(selected, "force")}><Zap /><span><strong>Force run now</strong><small>Run regardless of schedule</small></span></button><button type="button" onClick={() => void runJob(selected, "due")}><Clock3 /><span><strong>Run only if due</strong><small>Respect the pending schedule</small></span></button><button type="button" onClick={() => void runJob(selected, "if-enabled")}><CircleCheck /><span><strong>Run if enabled</strong><small>Preserve an operator pause</small></span></button></div>}
-              </div>
-              <button type="button" onClick={() => openEdit(selected)} disabled={selected.systemOwned}><Settings2 />Edit</button>
-              <div className="automation-more-control">
+              </div>}
+              {(onUpdate || onEditDraft) && <button type="button" onClick={() => openEdit(selected)} disabled={selected.systemOwned}><Settings2 />Edit</button>}
+              {onDelete && <div className="automation-more-control">
                 <button type="button" aria-label="More automation actions" aria-expanded={actionMenuId === selected.id} onClick={() => setActionMenuId((id) => id === selected.id ? undefined : selected.id)}><MoreHorizontal /></button>
                 {actionMenuId === selected.id && <div className="automation-more-menu"><button type="button" disabled={selected.systemOwned || pendingAction === `delete:${selected.id}`} onClick={() => void deleteJob(selected)}><Trash2 /><span><strong>Remove automation</strong><small>Delete the job from OpenClaw</small></span></button></div>}
-              </div>
+              </div>}
             </div>
           </header>
 
-          {selected.autoDisabled && <div className="automation-warning"><ShieldAlert /><div><strong>Auto-disabled after {selected.autoDisabled.consecutiveErrors} failures</strong><span>OpenClaw stopped this recurring job as a safety backstop. Fix the cause, then enable it to clear the failure streak.</span></div><button type="button" onClick={() => void toggleJob(selected)}>Review and enable</button></div>}
+          {selected.autoDisabled && <div className="automation-warning"><ShieldAlert /><div><strong>Auto-disabled after {selected.autoDisabled.consecutiveErrors} failures</strong><span>OpenClaw stopped this recurring job as a safety backstop. Fix the cause, then enable it to clear the failure streak.</span></div>{onToggle && <button type="button" onClick={() => void toggleJob(selected)}>Review and enable</button>}</div>}
 
           <nav className="automation-detail-tabs" aria-label="Automation details">
             <button type="button" aria-current={detailTab === "overview" ? "page" : undefined} onClick={() => setDetailTab("overview")}>Overview</button>
@@ -687,7 +695,7 @@ function AutomationIcon({ kind }: { kind: AutomationScheduleKind }) {
   return <Icon />;
 }
 
-function AutomationJobCard({ job, selected, onSelect, onRun }: { job: AutomationJob; selected: boolean; onSelect: () => void; onRun: () => void }) {
+function AutomationJobCard({ job, selected, onSelect, onRun }: { job: AutomationJob; selected: boolean; onSelect: () => void; onRun?: () => void }) {
   return (
     <article className={`automation-job is-${job.accent}${selected ? " is-selected" : ""}${!job.enabled ? " is-paused" : ""}`}>
       <button type="button" className="automation-job__select" aria-label={job.name} aria-pressed={selected} onClick={onSelect}>
@@ -698,7 +706,7 @@ function AutomationJobCard({ job, selected, onSelect, onRun }: { job: Automation
           <small>{job.nextRun}</small>
         </span>
       </button>
-      <button type="button" className="automation-job__run" aria-label={`Run ${job.name} now`} disabled={job.running} onClick={onRun}><Play /></button>
+      {onRun && <button type="button" className="automation-job__run" aria-label={`Run ${job.name} now`} disabled={job.running} onClick={onRun}><Play /></button>}
     </article>
   );
 }
@@ -724,7 +732,7 @@ function AutomationOverview({ job, onShowRuns, onCopy }: { job: AutomationJob; o
 
       <section className="automation-payload-card">
         <div className="automation-card-heading"><div><span>Action</span><h2>{job.payload.label}</h2><p>{job.sessionTarget === "isolated" ? "Runs unattended in a dedicated session." : `Runs in ${job.sessionTarget.replace("session:", "session ")}.`}</p></div><div className={`automation-kind-mark is-${job.accent}`}><PayloadIcon kind={job.payload.kind} /></div></div>
-        <div className="automation-payload-copy"><span>{payloadLabel(job.payload.kind)}</span><p>{job.payload.content}</p></div>
+        <div className="automation-payload-copy"><span>{payloadLabel(job.payload.kind)}</span><div className="automation-payload-scroll" role="region" aria-label={`${job.name} instructions`}>{job.payload.kind === "command" || job.payload.kind === "script" ? <pre>{job.payload.content}</pre> : <ReactMarkdown remarkPlugins={[remarkGfm]}>{job.payload.content}</ReactMarkdown>}</div></div>
         <dl className="automation-detail-list is-grid">
           <div><dt>Agent</dt><dd>{job.agent}</dd></div>
           <div><dt>Session</dt><dd>{job.sessionTarget}</dd></div>

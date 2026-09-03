@@ -1,60 +1,97 @@
-# Skills desktop app
+# Skills and graphical builder
 
-Skills gives each approved developer a small, direct library for teaching
-Neura reusable ways of working. The app has three sections:
+Skills is the canonical desktop app for reusable Neura workflows and the
+automations that run them. It has five sections:
 
-- **My Skills** are created by the signed-in developer and appear in that
-  developer's Neura `$` picker. They save immediately and do not enter an
-  approval queue.
-- **Team Skills** are available to everyone using the shared workspace. A skill
-  owner can move a personal skill here, or make it personal again, in one step.
-- **OpenClaw** shows the bundled, plugin, managed, and node-hosted skills already
-  available to Neura. It also searches ClawHub.
+- **My Skills** contains managed skills owned by the signed-in developer.
+- **Team Skills** contains skills available to everyone in the workspace.
+- **Drafts** contains autosaved skill and automation work in progress.
+- **Automations** shows the OpenClaw scheduler and durable run history.
+- **OpenClaw** shows bundled, plugin, managed, and node-hosted skills and
+  provides ClawHub discovery.
 
-Creating or editing a Neural Labs skill writes its `SKILL.md` immediately.
-Personal skills set `disable-model-invocation: true`, so they are explicit-use
-skills and are removed from other users' Neura pickers. Team Skills set it to
-`false` and are part of the shared agent catalog.
+The Automations dock icon is retained as a shortcut. It focuses the existing
+Skills window and selects Automations; it does not open a separate app.
 
-## Shared-development boundary
+## Graphical skill builder
 
-This deployment intentionally has one shared tenant home and one shared Neura
-runtime. A personal skill is a usability and default-attachment boundary, not
-a filesystem confidentiality boundary. Another approved developer can inspect
-its files using the shared terminal or runtime access. They cannot edit or
-promote it through the Skills API unless they own it or are an administrator.
+Choose **+ Skill** to open a dedicated full-window builder. The metadata form
+and raw package source are two views of the same collaborative document.
+`SKILL.md` remains canonical. The package browser supports:
 
-Personal skills live in `/home/node/.agents/skills`, inside the persistent
-tenant home. Team Skills live in `/home/node/workspace/skills`. Neural Labs
-stores a small `.neural-labs.json` ownership record beside each skill it
-creates. Unmanaged OpenClaw skills remain sourced from `skills.status`.
+- `SKILL.md` instructions and frontmatter;
+- `agents/openai.yaml` display metadata, icons, default prompt, invocation
+  policy, and MCP dependency declarations;
+- text files below `references/` and `scripts/`; and
+- uploaded binary files below `assets/`.
 
+Choose **Open in Editor** from any source file to work on the same live Yjs
+document in the desktop Editor. Builder and Editor changes remain synchronized
+and autosaved; opening the Editor does not create a second copy.
+
+Changes autosave to server-side draft state. They do not affect the live skill
+catalog until an authorized user chooses **Publish**. Validation checks the
+frontmatter, canonical name, default prompt, package paths and sizes, and
+common credential shapes before publication.
+
+The only generated shortcut form is `$skill-name`. It uses the lowercase,
+hyphenated package slug. Once published, that slug cannot be renamed; duplicate
+the skill to create a differently named package.
+
+Owners can edit Neural Labs-managed skills directly. A read-only, unmanaged,
+system, or other-owner skill offers **Duplicate to My Skills**, creating an
+independent personal draft.
+
+## Collaboration and testing
+
+The draft owner selects up to 50 collaborators. Collaborators receive
+character-level Yjs updates, live presence, current-file selection, and shared
+test history over the authenticated builder WebSocket. Every administrator can
+inspect all drafts so operational work cannot be hidden from workspace
+administration.
+
+The owner or an administrator can publish a skill. Only an administrator can
+publish an automation.
+
+**Test in Neura** validates the current draft, takes an immutable snapshot, and
+runs that snapshot in a new private Neura session without installing it. The
+test panel shares compact thinking/tool/command steps and the final result with
+draft collaborators. Only the initiating developer can resolve that test's
+approval prompt or stop it.
+
+## Automation builder
+
+Administrators can choose **+ Automation** from Skills. Automation drafts use
+the same autosave, collaboration, validation, and explicit-publish lifecycle as
+skills. The action picker includes **Run a skill**: selecting `release-notes`
+creates an agent-turn payload beginning with `$release-notes`, followed by the
+optional prompt.
+
+Every active user can read operational automation names, schedules, enabled or
+running state, and run outcomes. The regular-user view removes commands,
+scripts, payloads, conditions, working directories, tool/model settings,
+delivery targets, errors, and usage details. Administrator reads and every
+scheduler mutation continue through the administrator-only Gateway connection.
+
+## Storage and trust boundary
+
+Published personal skills live under `/home/node/.agents/skills`; Team Skills
+live under `/home/node/workspace/skills`. Drafts live under
+`/home/node/.local/state/neural-labs/builder-drafts`. These paths are inside the
+persistent tenant home and should be included in normal tenant backups.
+
+“Personal” and draft collaboration are default-attachment and API
+authorization boundaries, not confidentiality boundaries. Approved developers
+share the tenant filesystem and may inspect files with the shared terminal.
 Never put tenant credentials, provider keys, customer secrets, certificates,
-or private keys in a skill. The API rejects several obvious credential forms,
-but that check is only a backstop.
+or private keys in a skill or automation. Credential scanning is a backstop,
+not a secret-management system.
 
-## Authorization
+Requests derive their actor from the identity asserted by the control plane
+through Nginx. Writes require the configured same origin. The builder socket
+also requires the dedicated WebSocket subprotocol and draft authorization.
+There is no new public port.
 
-Any active, authenticated workspace developer can create and edit their own
-skills and share them with the team. Requests use the identity asserted by the
-control plane through Nginx; client-supplied ownership is ignored. Writes also
-require the configured same origin.
-
-ClawHub installation remains administrator-only through the existing
-administrator Gateway connection. Third-party installation crosses an
-instruction supply-chain boundary and OpenClaw requires `operator.admin`.
-Regular users can still search and inspect ClawHub results.
-
-See [ADR 0011](adr/0011-direct-personal-and-team-skills.md) for the trust-boundary
-decision. [ADR 0006](adr/0006-skills-permission-split.md) documents the previous
-Workshop-first UI and remains useful history.
-
-## Refresh behavior
-
-The app combines the live OpenClaw catalog with the Neural Labs ownership
-records. Skill events trigger a refresh and a 30-second reconciliation poll
-catches filesystem changes. Newly saved skills are shown from the local record
-even before OpenClaw's watcher has refreshed its effective catalog.
-
-New Neura turns receive refreshed skills. Already-running turns keep the skill
-snapshot they started with.
+See [ADR 0012](adr/0012-collaborative-skill-builder-and-automation-read-model.md)
+for the collaboration and automation-read decision and [ADR 0011](adr/0011-direct-personal-and-team-skills.md)
+for the published-skill ownership model.

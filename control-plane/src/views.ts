@@ -28,7 +28,7 @@ function layout(title: string, body: string, options: { actor?: UserRecord } = {
   <body>
     <div class="shell">
       <header class="topbar">
-        <a class="brand" href="/"><img src="/assets/brand/neural-labs-mark.webp" alt=""><span>Neural Labs</span></a>
+        <a class="brand" href="/"><span class="brand-wordmark">Neural Labs</span></a>
         <nav>
           <a href="https://github.com/Alshival-Ai/neural-labs" target="_blank" rel="noreferrer">GitHub ↗</a>
           ${options.actor ? `<a href="/account">${escapeHtml(options.actor.displayName)}</a>` : ""}

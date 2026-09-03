@@ -25,7 +25,8 @@ It never deletes or expires older backups.
 
 Encrypt and move the resulting recovery set to the operator's backup system.
 Never commit it. The dump contains user emails, identity identifiers, password
-hashes, sessions, audit data, and the encrypted Entra credential.
+hashes, passkey public credentials and counters, sessions, audit data, and the
+encrypted Entra credential. Passkey private keys never enter Neural Labs.
 
 Test restoration on an isolated host or isolated Compose project. A backup that
 has not been restored is not a verified backup.

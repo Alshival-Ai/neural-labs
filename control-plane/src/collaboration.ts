@@ -54,7 +54,20 @@ export type TeamMessage = {
   attachments: ChannelAttachment[];
   mentions: string[];
   agentRunId?: string;
+  activities: TeamRunActivity[];
   createdAt: string;
+};
+
+export type TeamRunActivity = {
+  kind: "thinking" | "command" | "plan" | "tool" | "file" | "operation";
+  title: string;
+  detail?: string;
+  command?: string;
+  output?: string;
+  path?: string;
+  exitCode?: number;
+  durationMs?: number;
+  state: "running" | "done" | "error";
 };
 
 export type TeamAgentRun = {
@@ -62,6 +75,8 @@ export type TeamAgentRun = {
   channelId: string;
   triggerMessageId: string;
   status: "queued" | "running" | "completed" | "failed";
+  requestedBy?: string;
+  activities: TeamRunActivity[];
   error?: string;
   createdAt: string;
 };
@@ -92,6 +107,7 @@ interface MessageRow extends QueryResultRow {
   display_name: string | null;
   role: "admin" | "user" | null;
   mentions: string[] | null;
+  activities: unknown;
 }
 
 interface RunRow extends QueryResultRow {
@@ -104,6 +120,7 @@ interface RunRow extends QueryResultRow {
   error: string | null;
   expires_at: Date;
   created_at: Date;
+  activities: unknown;
 }
 
 export class CollaborationError extends Error {
@@ -131,6 +148,47 @@ function attachments(value: unknown): ChannelAttachment[] {
   });
 }
 
+const ACTIVITY_KINDS = new Set<TeamRunActivity["kind"]>(["thinking", "command", "plan", "tool", "file", "operation"]);
+const ACTIVITY_STATES = new Set<TeamRunActivity["state"]>(["running", "done", "error"]);
+const ACTIVITY_SECRET = /\b(api[_-]?key|access[_-]?token|auth[_-]?token|token|password|passwd|secret|authorization)\b(\s*[:=]\s*)([^\s,;]+)/giu;
+const ACTIVITY_BEARER = /\bBearer\s+[A-Za-z0-9._~+\/-]+/giu;
+const ACTIVITY_OPENAI_KEY = /\bsk-[A-Za-z0-9_-]{12,}\b/gu;
+
+function activityText(value: unknown, limit: number): string | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  return value.replace(ACTIVITY_BEARER, "Bearer [redacted]")
+    .replace(ACTIVITY_OPENAI_KEY, "[redacted]")
+    .replace(ACTIVITY_SECRET, (_match, name: string, separator: string) => `${name}${separator}[redacted]`)
+    .trim().slice(0, limit);
+}
+
+export function teamRunActivities(value: unknown): TeamRunActivity[] {
+  if (!Array.isArray(value)) return [];
+  return value.slice(-80).flatMap((candidate): TeamRunActivity[] => {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return [];
+    const row = candidate as Record<string, unknown>;
+    if (!ACTIVITY_KINDS.has(row.kind as TeamRunActivity["kind"]) || !ACTIVITY_STATES.has(row.state as TeamRunActivity["state"])) return [];
+    const title = activityText(row.title, 240);
+    if (!title) return [];
+    const detail = activityText(row.detail, 2_400);
+    const command = activityText(row.command, 4_000);
+    const output = activityText(row.output, 12_000);
+    const path = activityText(row.path, 600);
+    const activity: TeamRunActivity = {
+      kind: row.kind as TeamRunActivity["kind"],
+      title,
+      state: row.state as TeamRunActivity["state"],
+    };
+    if (detail) activity.detail = detail;
+    if (command) activity.command = command;
+    if (output) activity.output = output;
+    if (path) activity.path = path;
+    if (typeof row.exitCode === "number" && Number.isInteger(row.exitCode)) activity.exitCode = row.exitCode;
+    if (typeof row.durationMs === "number" && Number.isFinite(row.durationMs) && row.durationMs >= 0) activity.durationMs = row.durationMs;
+    return [activity];
+  });
+}
+
 function mapMessage(row: MessageRow): TeamMessage {
   return {
     id: row.id,
@@ -144,6 +202,7 @@ function mapMessage(row: MessageRow): TeamMessage {
     attachments: attachments(row.attachments),
     mentions: row.mentions ?? [],
     ...(row.agent_run_id ? { agentRunId: row.agent_run_id } : {}),
+    activities: teamRunActivities(row.activities),
     createdAt: row.created_at.toISOString(),
   };
 }
@@ -154,6 +213,8 @@ function mapRun(row: RunRow): TeamAgentRun {
     channelId: row.channel_id,
     triggerMessageId: row.trigger_message_id,
     status: row.status,
+    ...(row.requested_by ? { requestedBy: row.requested_by } : {}),
+    activities: teamRunActivities(row.activities),
     ...(row.error ? { error: row.error } : {}),
     createdAt: row.created_at.toISOString(),
   };
@@ -178,7 +239,8 @@ function assertAttachments(input: ChannelAttachment[]): ChannelAttachment[] {
 
 const MESSAGE_SELECT = `
   SELECT m.*, u.handle, u.display_name, u.role,
-    COALESCE(array_agg(mm.user_id::text) FILTER (WHERE mm.user_id IS NOT NULL), '{}') AS mentions
+    COALESCE(array_agg(mm.user_id::text) FILTER (WHERE mm.user_id IS NOT NULL), '{}') AS mentions,
+    COALESCE((SELECT r.activities FROM team_agent_runs r WHERE r.id = m.agent_run_id), '[]'::jsonb) AS activities
   FROM team_messages m
   LEFT JOIN users u ON u.id = m.author_user_id
   LEFT JOIN team_message_mentions mm ON mm.message_id = m.id
@@ -543,7 +605,7 @@ export class CollaborationStore {
     const result = await client.query<MessageRow>(
       `INSERT INTO team_messages(id, channel_id, author_kind, author_user_id, body, attachments, client_request_id, agent_run_id, created_at)
        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, COALESCE($9::timestamptz, now()))
-       RETURNING *, NULL::text AS handle, NULL::text AS display_name, NULL::text AS role, '{}'::text[] AS mentions`,
+       RETURNING *, NULL::text AS handle, NULL::text AS display_name, NULL::text AS role, '{}'::text[] AS mentions, '[]'::jsonb AS activities`,
       [id, input.channelId, input.authorKind, input.authorUserId ?? null, input.body, JSON.stringify(input.attachments), input.clientRequestId ?? null, input.agentRunId ?? null, input.createdAt ?? null],
     );
     const row = result.rows[0]!;
@@ -658,6 +720,7 @@ export class CollaborationStore {
       attachments: [],
       agentRunId: run.id,
     });
+    message.activities = teamRunActivities(run.activities);
     await this.pool.query("UPDATE team_channels SET updated_at = now() WHERE id = $1", [run.channel_id]);
     return message;
   }
@@ -711,6 +774,24 @@ export class CollaborationStore {
   async agentPosted(runId: string): Promise<boolean> {
     const result = await this.pool.query<{ exists: boolean }>("SELECT EXISTS(SELECT 1 FROM team_messages WHERE agent_run_id = $1 AND author_kind = 'neura') AS exists", [runId]);
     return result.rows[0]?.exists ?? false;
+  }
+
+  async agentMessage(runId: string): Promise<TeamMessage | undefined> {
+    const result = await this.pool.query<MessageRow>(
+      `${MESSAGE_SELECT} WHERE m.agent_run_id = $1 AND m.author_kind = 'neura'
+       GROUP BY m.sequence, m.id, u.id ORDER BY m.sequence DESC LIMIT 1`,
+      [runId],
+    );
+    return result.rows[0] ? mapMessage(result.rows[0]) : undefined;
+  }
+
+  async saveRunActivities(runId: string, value: unknown): Promise<TeamRunActivity[]> {
+    const safe = teamRunActivities(value);
+    await this.pool.query(
+      "UPDATE team_agent_runs SET activities = $2::jsonb WHERE id = $1 AND status = 'running'",
+      [runId, JSON.stringify(safe)],
+    );
+    return safe;
   }
 
   async finishRun(runId: string, error?: string): Promise<TeamAgentRun | undefined> {

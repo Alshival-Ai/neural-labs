@@ -3,8 +3,8 @@
 Neural Labs is an open-source, self-hosted control plane and shared developer
 workspace. This repository contains:
 
-Current release: **v0.2.0**. See the [changelog](CHANGELOG.md) and
-[detailed release record](wiki/releases/v0.2.0.md).
+Current release: **v0.3.0**. See the [changelog](CHANGELOG.md) and
+[detailed release record](wiki/releases/v0.3.0.md).
 
 - `web/`: the public landing page;
 - `console/`: the React account, login, signup, and approval interface;
@@ -33,20 +33,25 @@ backups, and shutdown. Compose remains the deployment source of truth.
 
 Approved users share one persistent, always-on workspace. After the stack is
 started, an administrator opens the dock's **Settings** app and connects the
-shared OpenClaw runtime to a ChatGPT/Codex subscription from its Workspace
-section; see the [workspace guide](wiki/shared-workspace.md). The
+workspace service account from its Workspace section for automations and
+background work. Each teammate connects their own ChatGPT account from
+Personalization for private Neura and the Team Chat turns they author; see the
+[workspace guide](wiki/shared-workspace.md). The
 [administrator settings guide](wiki/desktop-settings.md) covers access,
-authentication, MCP, and audit controls.
+authentication, MCP, and audit controls. The [passkey guide](wiki/passkeys.md)
+covers Microsoft-bootstrapped enrollment, passwordless login, credential
+removal, and hostname requirements.
 The [workspace provider MCP guide](wiki/workspace-provider-mcp.md) documents
 Google Places, Geocoding, KLIPY, and Pexels tools available to the shared agent.
 The [Files guide](wiki/files.md) documents browser uploads, folder management,
 downloads, deletion, and the shared-filesystem boundary. The
 [Editor guide](wiki/editor.md) covers shared text-file creation, editing,
 version-aware saves, and conflict handling.
-The [Automations guide](wiki/automations.md) covers the administrator-only
-OpenClaw scheduler app and its dedicated trusted-proxy boundary.
-The [Skills guide](wiki/skills.md) covers direct personal and team skills,
-Neura picker visibility, and OpenClaw/ClawHub discovery.
+The [Automations guide](wiki/automations.md) covers shared operational status,
+administrator-only scheduler mutation, and the dedicated trusted-proxy boundary.
+The [Skills guide](wiki/skills.md) covers the graphical collaborative builder,
+direct personal and team skills, automation drafts, Neura testing, and
+OpenClaw/ClawHub discovery.
 
 Never place tenant credentials, certificates, deployment secrets, or database
 backups in the repository.

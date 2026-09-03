@@ -3,6 +3,10 @@
 - Status: Accepted
 - Date: 2026-09-01
 
+The channel and capability decision remains current. ADR 0013 changes only the
+OpenClaw execution owner: a `$Neura` turn now uses the message author's personal
+agent instead of the shared `main` agent.
+
 ## Context
 
 Private Neura conversations are creator-only OpenClaw sessions. Neural Labs

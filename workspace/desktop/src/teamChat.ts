@@ -23,6 +23,17 @@ export type TeamChannel = {
 };
 
 export type TeamAttachment = { path: string; name: string; type?: string; size?: number };
+export type TeamRunActivity = {
+  kind: "thinking" | "command" | "plan" | "tool" | "file" | "operation";
+  title: string;
+  detail?: string;
+  command?: string;
+  output?: string;
+  path?: string;
+  exitCode?: number;
+  durationMs?: number;
+  state: "running" | "done" | "error";
+};
 
 export type TeamMessage = {
   id: string;
@@ -34,6 +45,7 @@ export type TeamMessage = {
   attachments: TeamAttachment[];
   mentions: string[];
   agentRunId?: string;
+  activities?: TeamRunActivity[];
   createdAt: string;
 };
 

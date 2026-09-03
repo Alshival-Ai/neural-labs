@@ -21,7 +21,8 @@
     <title>Neural Labs — One workspace. Every mode.</title>
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="icon" href="/assets/brand/neural-labs-favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/styles.css?v=5d3e1b2a">
+    <link rel="preload" href="/assets/fonts/public-sans-variable.ttf" as="font" type="font/ttf" crossorigin>
+    <link rel="stylesheet" href="/styles.css?v=20260903a">
     <script src="/app.js?v=91ea48c4" defer></script>
   </head>
   <body>
@@ -179,27 +180,27 @@
       </section>
 
       <section class="principles-section" id="principles" aria-labelledby="principles-title">
-        <div class="principles-art" aria-hidden="true">
-          <span class="orbit orbit-one"></span>
-          <span class="orbit orbit-two"></span>
-          <img src="/assets/brand/neural-labs-mark.webp" alt="" width="147" height="159">
+        <div class="principles-heading" data-reveal>
+          <p class="section-label">Designed for ownership</p>
+          <h2 id="principles-title">Your work.<br><span class="spectrum-text">Your infrastructure.</span></h2>
         </div>
-        <div class="principles-copy" data-reveal>
-          <p class="section-label section-label-light">The principles</p>
-          <h2 id="principles-title">Private by position.<br><span>Colorful by nature.</span></h2>
-          <p>Neural Labs is open source and designed to be self-hosted. The interface can feel alive without turning your work into a spectacle.</p>
-          <div class="principle-tags" aria-label="Product principles">
-            <span>Self-hosted</span><span>Open source</span><span>Focused</span><span>Extensible</span>
-          </div>
+        <div class="principles-summary" data-reveal>
+          <p>Neural Labs is open source and built to run where you choose. Keep projects, providers, and working context inside systems your team controls.</p>
           <a class="text-action" href="https://github.com/Alshival-Ai/neural-labs" target="_blank" rel="noreferrer">Explore the source <span aria-hidden="true">↗</span></a>
         </div>
+        <ol class="principles-list" aria-label="Product principles">
+          <li data-reveal><span>01</span><div><h3>Self-hosted</h3><p>Deploy on infrastructure you control.</p></div></li>
+          <li data-reveal><span>02</span><div><h3>Open source</h3><p>Inspect, adapt, and contribute to the code.</p></div></li>
+          <li data-reveal><span>03</span><div><h3>Focused</h3><p>One working surface without attention theater.</p></div></li>
+          <li data-reveal><span>04</span><div><h3>Extensible</h3><p>Bring the tools and providers your team already uses.</p></div></li>
+        </ol>
       </section>
 
       <section class="maker-section" aria-labelledby="maker-title" data-reveal>
         <p class="maker-index">Neural Labs / 01</p>
         <div class="maker-copy">
           <p class="section-label">The team behind the platform</p>
-          <h2 id="maker-title">Built by <span>Alshival.Ai.</span></h2>
+          <h2 id="maker-title">Built by <span class="brand-wordmark spectrum-text">Alshival.Ai</span>.</h2>
           <p>A Texas-based AI, data science, and automation team turning ambitious ideas into useful intelligence.</p>
         </div>
         <a class="maker-link" href="https://alshival.ai/" target="_blank" rel="noreferrer">
@@ -221,8 +222,7 @@
 
     <footer>
       <a class="brand footer-brand" href="#top" aria-label="Back to the top">
-        <span class="brand-mark"><img src="/assets/brand/neural-labs-mark.webp" alt="" width="44" height="48"></span>
-        <span>Neural Labs</span>
+        <span class="spectrum-text">Neural Labs</span>
       </a>
       <p>One private working surface.</p>
       <div><a href="https://alshival.ai/" target="_blank" rel="noreferrer">Alshival.Ai ↗</a><a href="https://github.com/Alshival-Ai/neural-labs" target="_blank" rel="noreferrer">GitHub ↗</a><a href="#top">Top ↑</a></div>

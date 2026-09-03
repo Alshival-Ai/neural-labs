@@ -152,7 +152,7 @@ export function mapSkillsStatus(status: unknown, curator: unknown, proposals: un
       eligibilityNote: eligibilityNote(candidate, eligibility, requirements),
       userInvocable: candidate.userInvocable !== false,
       modelInvocable: candidate.modelVisible === true,
-      command: candidate.commandVisible === true || candidate.userInvocable !== false ? `$${key.replaceAll("-", "_")}` : undefined,
+      command: candidate.commandVisible === true || candidate.userInvocable !== false ? `$${key}` : undefined,
       writable: owned,
       workshopOwned: owned,
       shared: scope === "workspace" || scope === "team" || scope === "system",
@@ -161,20 +161,23 @@ export function mapSkillsStatus(status: unknown, curator: unknown, proposals: un
       useCount: numberValue(usage?.useCount) ?? 0,
       lastUsed: usage?.lastUsedAtMs === null ? "Never" : relativeDate(numberValue(usage?.lastUsedAtMs)),
       requirements,
-      files: [{ name: "SKILL.md", size: "Load card", kind: "instruction" }],
+      files: [{ name: "SKILL.md", size: "Load file", kind: "instruction" }],
       revisions: [],
-      instructions: "Select this skill to load its current OpenClaw Skill Card.",
+      instructions: "",
+      instructionsState: "idle",
     }];
   });
 }
 
-export function mergeSkillCard(skill: SkillRecord, payload: unknown): SkillRecord {
+export function mergeSkillInstructions(skill: SkillRecord, payload: unknown): SkillRecord {
   if (!isRecord(payload)) return skill;
   const content = stringValue(payload.content);
   return {
     ...skill,
     path: stringValue(payload.path) ?? skill.path,
     instructions: content ?? skill.instructions,
+    instructionsState: content ? "loaded" : "error",
+    instructionsError: content ? undefined : "The SKILL.md file was empty.",
     files: [{ name: "SKILL.md", size: numberValue(payload.sizeBytes) === undefined ? "Live" : formatBytes(numberValue(payload.sizeBytes)!), kind: "instruction" }],
   };
 }

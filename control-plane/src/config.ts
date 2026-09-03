@@ -24,6 +24,7 @@ export interface ControlPlaneConfig {
   workspace: {
     statusUrl: URL;
     controlUrl: URL;
+    personalAuthUrl: URL;
     teamAgentUrl: URL;
     controlToken: string;
     openclawVersion: string;
@@ -201,6 +202,13 @@ export async function loadConfig(env: NodeJS.ProcessEnv = process.env): Promise<
   if (!new Set(["http:", "https:"]).has(workspaceTeamAgentUrl.protocol)) {
     throw new Error("CONTROL_PLANE_WORKSPACE_TEAM_AGENT_URL must use HTTP or HTTPS");
   }
+  const workspacePersonalAuthUrl = new URL(
+    env.CONTROL_PLANE_WORKSPACE_PERSONAL_AUTH_URL?.trim() ||
+      "http://workspace:18790/internal/provider-auth/openai/users",
+  );
+  if (!new Set(["http:", "https:"]).has(workspacePersonalAuthUrl.protocol)) {
+    throw new Error("CONTROL_PLANE_WORKSPACE_PERSONAL_AUTH_URL must use HTTP or HTTPS");
+  }
   const setupDefaults = {
     localAuthEnabled: parseBoolean(
       env.CONTROL_PLANE_DEFAULT_LOCAL_AUTH_ENABLED,
@@ -256,6 +264,7 @@ export async function loadConfig(env: NodeJS.ProcessEnv = process.env): Promise<
     workspace: {
       statusUrl: workspaceStatusUrl,
       controlUrl: workspaceControlUrl,
+      personalAuthUrl: workspacePersonalAuthUrl,
       teamAgentUrl: workspaceTeamAgentUrl,
       controlToken: workspaceControlToken,
       openclawVersion: env.CONTROL_PLANE_WORKSPACE_OPENCLAW_VERSION?.trim() || "2026.8.2",

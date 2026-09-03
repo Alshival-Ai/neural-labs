@@ -4,6 +4,10 @@
 - Date: 2026-09-02
 - Supersedes: ADR 0006 for first-party skill authoring
 
+ADR 0013 later adds a dedicated OpenClaw agent for each user's interactive
+Neura sessions. This ADR's skill storage, ownership, publication, and
+non-confidentiality decisions remain current.
+
 ## Context
 
 The Workshop-first Skills UI required administrators to create, evaluate, and
@@ -13,8 +17,9 @@ to understand. Neural Labs already operates as one trusted, shared developer
 environment in which approved users can edit workspace files and run shells.
 
 OpenClaw 2026.8 exposes agent-scoped catalog reads but no user- or
-session-scoped skill install target. Personal behavior therefore cannot be
-implemented by pretending each web account has a separate OpenClaw agent.
+session-scoped skill install target. A per-user agent therefore does not by
+itself create a private skill filesystem or publication boundary; Neural Labs
+continues to own those rules explicitly.
 
 ## Decision
 

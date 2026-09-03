@@ -1,9 +1,14 @@
+import {
+  browserSupportsWebAuthn,
+  startAuthentication,
+  type PublicKeyCredentialRequestOptionsJSON,
+} from "@simplewebauthn/browser";
 import { type FormEvent, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import { api, ApiError } from "../api";
-import { AuthShell, Button, Card, Field, Notice } from "../components";
 import { useSession } from "../App";
+import { AuthIntro, AuthShell, Button, Card, Field, Notice } from "../components";
 import type { PublicUser } from "../types";
 
 interface AuthResponse {
@@ -20,17 +25,39 @@ function completeAuthentication(redirectTo: string) {
   window.location.assign(redirectTo);
 }
 
+function MicrosoftButton() {
+  return (
+    <div className="auth-provider-row">
+      <a className="microsoft-button" href="/auth/microsoft" aria-label="Sign in with Microsoft">
+        <img src="/assets/icons/ms-symbollockup_signin_light_short.svg" alt="" />
+      </a>
+    </div>
+  );
+}
+
 export function LoginPage() {
   const { providers } = useSession();
   const query = useQueryNotices();
   const [error, setError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
+  const [passkeySubmitting, setPasskeySubmitting] = useState(false);
+  const [email, setEmail] = useState("");
+  const [step, setStep] = useState<"email" | "methods" | "password">(
+    providers.local.enabled ? "email" : "methods",
+  );
+  const passkeyAvailable = providers.passkey?.enabled === true && browserSupportsWebAuthn();
 
   useEffect(() => {
-    document.title = "Log in · Neural Labs";
+    document.title = "Sign in · Neural Labs";
   }, []);
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
+  function continueWithEmail(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(undefined);
+    setStep(passkeyAvailable ? "methods" : "password");
+  }
+
+  async function submitPassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(undefined);
     setSubmitting(true);
@@ -38,50 +65,128 @@ export function LoginPage() {
     try {
       const result = await api<AuthResponse>("/api/auth/local/login", {
         method: "POST",
-        body: JSON.stringify({ email: form.get("email"), password: form.get("password") }),
+        body: JSON.stringify({ email, password: form.get("password") }),
       });
       completeAuthentication(result.redirectTo);
     } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : "Login could not be completed.");
+      setError(caught instanceof ApiError ? caught.message : "Sign-in could not be completed.");
       setSubmitting(false);
+    }
+  }
+
+  async function usePasskey() {
+    setError(undefined);
+    setPasskeySubmitting(true);
+    try {
+      const ceremony = await api<{ transaction: string; options: PublicKeyCredentialRequestOptionsJSON }>(
+        "/api/auth/passkey/options",
+        { method: "POST", body: "{}" },
+      );
+      const credential = await startAuthentication({ optionsJSON: ceremony.options });
+      const result = await api<AuthResponse>("/api/auth/passkey/verify", {
+        method: "POST",
+        body: JSON.stringify({ transaction: ceremony.transaction, response: credential }),
+      });
+      completeAuthentication(result.redirectTo);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : "Passkey sign-in was cancelled or could not be completed.");
+      setPasskeySubmitting(false);
     }
   }
 
   return (
     <AuthShell>
       <main className="auth-layout">
-        <section className="auth-copy">
-          <p className="eyebrow">Private AI workspace</p>
-          <h1>Welcome back.</h1>
-          <p>Sign in with a provider enabled by your Neural Labs administrator.</p>
-        </section>
+        <AuthIntro eyebrow="Private AI workspace" title="Welcome back." accent="Neural Labs">
+          Return to the shared workspace, tools, and working context your team keeps together.
+        </AuthIntro>
+
         <Card className="auth-card stack">
-          <div>
-            <p className="section-kicker">Secure access</p>
-            <h2>Log in</h2>
-            <p>Continue to this Neural Labs deployment.</p>
+          <div className="auth-card-heading">
+            <p className="section-kicker">Neural Labs account</p>
+            <h2>Sign in</h2>
+            <p>Choose how you access this workspace.</p>
           </div>
+
           {error || query.error ? <Notice>{error ?? query.error}</Notice> : null}
           {query.success ? <Notice tone="success">{query.success}</Notice> : null}
-          {providers.local.enabled ? (
-            <form className="stack" onSubmit={submit}>
-              <Field label="Email"><input name="email" type="email" autoComplete="username" required /></Field>
-              <Field label="Password"><input name="password" type="password" autoComplete="current-password" required /></Field>
-              <Button variant="primary" type="submit" disabled={submitting}>{submitting ? "Logging in…" : "Log in"}</Button>
-              <p className="form-footnote">Need an account? <Link to="/signup">Request access</Link>.</p>
+
+          {providers.local.enabled && step === "email" ? (
+            <form className="auth-email-entry" onSubmit={continueWithEmail}>
+              <Field label="Email address">
+                <input
+                  name="email"
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.currentTarget.value)}
+                  autoComplete="username"
+                  required
+                  autoFocus
+                />
+              </Field>
+              <Button variant="primary" type="submit">Continue <span aria-hidden="true">→</span></Button>
             </form>
           ) : null}
+
+          {providers.local.enabled && step !== "email" ? (
+            <div className="auth-method-step">
+              <div className="auth-email-summary">
+                <div><span>Continue as</span><strong>{email}</strong></div>
+                <button type="button" onClick={() => { setStep("email"); setError(undefined); }}>Change</button>
+              </div>
+
+              {step === "methods" ? (
+                <div className="auth-method-list">
+                  <p className="auth-method-label">Choose a sign-in method</p>
+                  {passkeyAvailable ? (
+                    <Button
+                      className="auth-method-button auth-method-primary"
+                      variant="primary"
+                      type="button"
+                      disabled={passkeySubmitting}
+                      onClick={() => void usePasskey()}
+                    >
+                      <span><i aria-hidden="true">◇</i><strong>{passkeySubmitting ? "Checking passkey…" : "Use a passkey"}</strong></span>
+                      <b aria-hidden="true">→</b>
+                    </Button>
+                  ) : null}
+                  <Button className="auth-method-button" variant="secondary" type="button" onClick={() => setStep("password")}>
+                    <span><i aria-hidden="true">●</i><strong>Use your password</strong></span>
+                    <b aria-hidden="true">→</b>
+                  </Button>
+                </div>
+              ) : (
+                <form className="auth-password-form" onSubmit={submitPassword}>
+                  <Field label="Password">
+                    <input name="password" type="password" autoComplete="current-password" required autoFocus />
+                  </Field>
+                  <Button variant="primary" type="submit" disabled={submitting}>
+                    {submitting ? "Signing in…" : <>Sign in <span aria-hidden="true">→</span></>}
+                  </Button>
+                  {passkeyAvailable ? <button className="auth-text-button" type="button" onClick={() => setStep("methods")}>Choose another method</button> : null}
+                </form>
+              )}
+            </div>
+          ) : null}
+
+          {!providers.local.enabled && passkeyAvailable ? (
+            <Button className="passkey-button" variant="primary" type="button" disabled={passkeySubmitting} onClick={() => void usePasskey()}>
+              <span aria-hidden="true">◇</span>{passkeySubmitting ? "Checking passkey…" : "Use a passkey"}
+            </Button>
+          ) : null}
+
           {providers.microsoft.enabled ? (
             <>
-              {providers.local.enabled ? <div className="divider"><span>or</span></div> : null}
-              <a className="microsoft-button" href="/auth/microsoft" aria-label="Sign in with Microsoft">
-                <img src="/assets/icons/ms-symbollockup_signin_light_short.svg" alt="Sign in with Microsoft" />
-              </a>
+              {providers.local.enabled || passkeyAvailable ? <div className="divider"><span>or use a connected identity</span></div> : null}
+              <MicrosoftButton />
             </>
           ) : null}
-          {!providers.local.enabled && !providers.microsoft.enabled ? (
+
+          {!providers.local.enabled && !providers.microsoft.enabled && !passkeyAvailable ? (
             <Notice>No authentication provider is currently available.</Notice>
           ) : null}
+
+          {providers.local.enabled ? <p className="form-footnote">New to Neural Labs? <Link to="/signup">Request access</Link>.</p> : null}
         </Card>
       </main>
     </AuthShell>
@@ -103,6 +208,11 @@ export function SignupPage() {
     setError(undefined);
     setSubmitting(true);
     const form = new FormData(event.currentTarget);
+    if (form.get("password") !== form.get("password_confirm")) {
+      setError("Passwords do not match.");
+      setSubmitting(false);
+      return;
+    }
     try {
       const result = await api<AuthResponse>("/api/auth/local/signup", {
         method: "POST",
@@ -121,26 +231,38 @@ export function SignupPage() {
 
   return (
     <AuthShell>
-      <main className="auth-layout">
-        <section className="auth-copy">
-          <p className="eyebrow">Join this deployment</p>
-          <h1>Request access.</h1>
-          <p>Your administrator reviews every new account before workspace access is granted.</p>
-        </section>
+      <main className="auth-layout auth-layout-signup">
+        <AuthIntro eyebrow="Join this deployment" title="Your workspace." accent="By invitation.">
+          Create an identity for this Neural Labs deployment. An administrator approves access before the workspace opens.
+        </AuthIntro>
+
         <Card className="auth-card stack">
-          <div><p className="section-kicker">Local account</p><h2>Create your account</h2></div>
+          <div className="auth-card-heading">
+            <p className="section-kicker">Neural Labs account</p>
+            <h2>Request access</h2>
+            <p>Register locally or use your organization identity.</p>
+          </div>
           {error || query.error ? <Notice>{error ?? query.error}</Notice> : null}
           {!providers.local.enabled ? (
-            <Notice>Local account registration is disabled. Return to login and use Microsoft.</Notice>
+            <Notice tone="info">Local registration is disabled. Use the Microsoft identity connected to this deployment.</Notice>
           ) : (
-            <form className="stack" onSubmit={submit}>
+            <form className="auth-signup-form" onSubmit={submit}>
               <Field label="Display name"><input name="display_name" type="text" maxLength={120} autoComplete="name" required /></Field>
-              <Field label="Email"><input name="email" type="email" maxLength={320} autoComplete="username" required /></Field>
-              <Field label="Password" hint="Use at least 12 characters."><input name="password" type="password" minLength={12} maxLength={128} autoComplete="new-password" required /></Field>
+              <Field label="Email address"><input name="email" type="email" maxLength={320} autoComplete="username" required /></Field>
+              <div className="auth-field-pair">
+                <Field label="Password" hint="At least 12 characters."><input name="password" type="password" minLength={12} maxLength={128} autoComplete="new-password" required /></Field>
+                <Field label="Confirm password"><input name="password_confirm" type="password" minLength={12} maxLength={128} autoComplete="new-password" required /></Field>
+              </div>
               <Button variant="primary" type="submit" disabled={submitting}>{submitting ? "Creating account…" : "Request access"}</Button>
             </form>
           )}
-          <p className="form-footnote"><Link to="/login">Return to login</Link></p>
+          {providers.microsoft.enabled ? (
+            <>
+              <div className="divider"><span>or use a connected identity</span></div>
+              <MicrosoftButton />
+            </>
+          ) : null}
+          <p className="form-footnote"><Link to="/login">Already have access? Sign in</Link></p>
         </Card>
       </main>
     </AuthShell>

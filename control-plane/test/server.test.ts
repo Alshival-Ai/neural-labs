@@ -5,7 +5,8 @@ import type { ControlPlaneConfig } from "../src/config.js";
 import { hashToken } from "../src/crypto.js";
 import type { Database } from "../src/database.js";
 import { createApplication } from "../src/server.js";
-import type { SessionActor, StoredInstanceConfig, UserRecord } from "../src/types.js";
+import type { WebAuthnOperations } from "../src/passkeys.js";
+import type { PasskeyRecord, SessionActor, StoredInstanceConfig, UserRecord } from "../src/types.js";
 
 const now = new Date("2026-09-01T12:00:00.000Z");
 const admin: UserRecord = {
@@ -54,6 +55,7 @@ const config: ControlPlaneConfig = {
   workspace: {
     statusUrl: new URL("http://workspace:18790/status"),
     controlUrl: new URL("http://workspace:18790/internal/provider-auth/openai"),
+    personalAuthUrl: new URL("http://workspace:18790/internal/provider-auth/openai/users"),
     teamAgentUrl: new URL("http://workspace:18790/internal/neura/team-run"),
     controlToken: "workspace-control-token-at-least-thirty-two-characters",
     openclawVersion: "2026.8.2",
@@ -69,7 +71,7 @@ const config: ControlPlaneConfig = {
   secureCookies: true,
 };
 
-function actorFor(user: UserRecord): SessionActor {
+function actorFor(user: UserRecord, microsoftLinked = false): SessionActor {
   return {
     user,
     session: {
@@ -84,23 +86,38 @@ function actorFor(user: UserRecord): SessionActor {
     identities: [{
       id: "33333333-3333-4333-8333-333333333333",
       userId: user.id,
-      provider: "local",
-      subject: user.email,
-      passwordHash: "must-never-be-serialized",
+      provider: microsoftLinked ? "microsoft" : "local",
+      subject: microsoftLinked ? `tenant:${user.id}` : user.email,
+      ...(microsoftLinked ? { tenantId: "tenant" } : { passwordHash: "must-never-be-serialized" }),
       createdAt: now,
     }],
   };
 }
 
-function application(user?: UserRecord) {
+const passkey: PasskeyRecord = {
+  id: "44444444-4444-4444-8444-444444444444",
+  userId: regular.id,
+  credentialId: "credential-id",
+  webauthnUserId: "webauthn-user-id",
+  publicKey: new Uint8Array([1, 2, 3]),
+  counter: 1,
+  deviceType: "multiDevice",
+  backedUp: true,
+  transports: ["internal"],
+  displayName: "Laptop passkey",
+  createdAt: now,
+};
+
+function application(user?: UserRecord, microsoftLinked = false) {
   const setUserState = vi.fn(async (_actorId: string, _targetId: string, input: { role?: "admin" | "user"; status?: "pending" | "active" | "rejected" | "disabled" }) => ({
     ...regular,
     ...input,
     updatedAt: now,
   }));
   const database = {
-    getSessionActor: vi.fn(async () => user ? actorFor(user) : undefined),
+    getSessionActor: vi.fn(async () => user ? actorFor(user, microsoftLinked) : undefined),
     touchSession: vi.fn(async () => undefined),
+    createSession: vi.fn(async () => undefined),
     getInstanceConfig: vi.fn(async () => stored),
     listUsers: vi.fn(async () => [
       { ...admin, identities: actorFor(admin).identities },
@@ -110,7 +127,46 @@ function application(user?: UserRecord) {
     getMcpRuntimeConfig: vi.fn(async () => undefined),
     setUserState,
     audit: vi.fn(async () => undefined),
+    consumeRateLimit: vi.fn(async () => true),
+    listPasskeys: vi.fn(async () => []),
+    savePasskeyChallenge: vi.fn(async () => undefined),
+    consumePasskeyChallenge: vi.fn(async () => ({
+      tokenHash: "challenge-token-hash",
+      challenge: "expected-challenge",
+      kind: "authentication" as const,
+      expiresAt: new Date(now.getTime() + 300_000),
+    })),
+    findPasskeyByCredentialId: vi.fn(async (credentialId: string) => credentialId === passkey.credentialId ? { passkey, user: regular } : undefined),
+    createPasskey: vi.fn(async (input: Omit<PasskeyRecord, "id" | "createdAt" | "lastUsedAt">) => ({ ...input, id: passkey.id, createdAt: now })),
+    updatePasskeyUsage: vi.fn(async () => undefined),
+    deletePasskey: vi.fn(async () => true),
   } as unknown as Database;
+  const webauthn = {
+    registrationOptions: vi.fn(async () => ({
+      options: {
+        challenge: "registration-challenge",
+        rp: { name: "Neural Labs", id: "neural-labs.example.org" },
+        user: { id: "webauthn-user-id", name: regular.email, displayName: regular.displayName },
+        pubKeyCredParams: [],
+      },
+      webauthnUserId: "webauthn-user-id",
+    })),
+    verifyRegistration: vi.fn(async () => ({
+      credentialId: passkey.credentialId,
+      publicKey: passkey.publicKey,
+      counter: passkey.counter,
+      deviceType: passkey.deviceType,
+      backedUp: passkey.backedUp,
+      transports: passkey.transports,
+    })),
+    authenticationOptions: vi.fn(async () => ({
+      challenge: "authentication-challenge",
+      rpId: "neural-labs.example.org",
+      allowCredentials: [],
+      userVerification: "required" as const,
+    })),
+    verifyAuthentication: vi.fn(async () => ({ newCounter: 2, backedUp: true })),
+  } as unknown as WebAuthnOperations;
   const workspaceFetch = vi.fn(async (input: string | URL | Request, _init?: RequestInit) => {
     const url = String(input);
     const payload = url.includes("/internal/provider-auth/openai")
@@ -124,6 +180,7 @@ function application(user?: UserRecord) {
           userCode: null,
           expiresAt: null,
           message: null,
+          ...(url.includes("/users/") ? { agentId: `nl-${regular.id.replaceAll("-", "")}`, paused: false } : {}),
         }
       : {
           status: "ready",
@@ -150,7 +207,9 @@ function application(user?: UserRecord) {
     });
   });
   return {
-    app: createApplication({ database, config, workspaceFetch }).app,
+    app: createApplication({ database, config, workspaceFetch, webauthn }).app,
+    database,
+    webauthn,
     setUserState,
     workspaceFetch,
   };
@@ -172,6 +231,7 @@ describe("control-plane JSON and role routing", () => {
       user: { email: admin.email, role: "admin", status: "active" },
       providers: ["local"],
       csrfToken: "csrf-token",
+      neura: { agentId: `nl-${admin.id.replaceAll("-", "")}` },
     });
     const users = await request(app).get("/api/admin/users").set("Cookie", cookies).expect(200);
     expect(users.text).not.toContain("must-never-be-serialized");
@@ -195,6 +255,23 @@ describe("control-plane JSON and role routing", () => {
       .send({ status: "active" })
       .expect(200);
     expect(setUserState).toHaveBeenCalledOnce();
+  });
+
+  it("scopes personal OpenAI device login to the authenticated user", async () => {
+    const instance = application(regular);
+    const status = await request(instance.app).get("/api/account/openai").set("Cookie", cookies).expect(200);
+    expect(status.body).toMatchObject({ provider: "openai", agentId: `nl-${regular.id.replaceAll("-", "")}` });
+
+    await request(instance.app).post("/api/account/openai/connect").set("Cookie", cookies).expect(403);
+    await request(instance.app)
+      .post("/api/account/openai/connect")
+      .set("Cookie", cookies)
+      .set("X-CSRF-Token", "csrf-token")
+      .expect(202);
+    const personalCalls = instance.workspaceFetch.mock.calls.filter(([input]) => String(input).includes("/users/"));
+    expect(String(personalCalls[0]?.[0])).toContain(`/users/${regular.id}`);
+    expect(String(personalCalls[1]?.[0])).toContain(`/users/${regular.id}/start`);
+    expect(new Headers(personalCalls[1]?.[1]?.headers).get("Authorization")).toBe(`Bearer ${config.workspace.controlToken}`);
   });
 
   it("keeps administrator data unavailable to regular workspace users", async () => {
@@ -322,5 +399,112 @@ describe("control-plane JSON and role routing", () => {
       .set("Cookie", cookies)
       .expect(303)
       .expect("Location", "/account/pending");
+  });
+
+  it("requires a linked Microsoft identity and CSRF before passkey enrollment", async () => {
+    const localOnly = application(regular);
+    await request(localOnly.app)
+      .post("/api/account/passkeys/registration/options")
+      .set("Cookie", cookies)
+      .set("X-CSRF-Token", "csrf-token")
+      .send({})
+      .expect(403, { error: { code: "microsoft_required", message: "Sign in with Microsoft before creating a passkey." } });
+    expect(localOnly.webauthn.registrationOptions).not.toHaveBeenCalled();
+
+    const microsoft = application(regular, true);
+    await request(microsoft.app)
+      .post("/api/account/passkeys/registration/options")
+      .set("Cookie", cookies)
+      .send({})
+      .expect(403);
+    await request(microsoft.app)
+      .post("/api/account/passkeys/registration/options")
+      .set("Cookie", cookies)
+      .set("X-CSRF-Token", "csrf-token")
+      .send({})
+      .expect(200);
+    expect(microsoft.webauthn.registrationOptions).toHaveBeenCalledWith(
+      new URL("https://neural-labs.example.org"),
+      regular,
+      [],
+    );
+  });
+
+  it("stores a verified passkey for the Microsoft-bootstrapped account", async () => {
+    const instance = application(regular, true);
+    const response = await request(instance.app)
+      .post("/api/account/passkeys/registration/verify")
+      .set("Cookie", cookies)
+      .set("X-CSRF-Token", "csrf-token")
+      .send({
+        transaction: "valid-passkey-transaction-token",
+        name: "Laptop passkey",
+        response: {
+          id: "credential-id",
+          rawId: "credential-id",
+          type: "public-key",
+          response: { clientDataJSON: "client-data", attestationObject: "attestation", transports: ["internal"] },
+          clientExtensionResults: {},
+          authenticatorAttachment: "platform",
+        },
+      })
+      .expect(201);
+
+    expect(response.body.passkey).toMatchObject({ name: "Laptop passkey", backedUp: true });
+    expect(response.text).not.toContain("publicKey");
+    expect(response.text).not.toContain("credential-id");
+    expect(instance.database.consumePasskeyChallenge).toHaveBeenCalledWith(
+      hashToken("valid-passkey-transaction-token"),
+      "registration",
+      regular.id,
+    );
+    expect(instance.database.createPasskey).toHaveBeenCalledWith(expect.objectContaining({
+      userId: regular.id,
+      credentialId: "credential-id",
+      displayName: "Laptop passkey",
+    }));
+  });
+
+  it("authenticates a discoverable passkey with a consumed one-use challenge", async () => {
+    const instance = application();
+    const options = await request(instance.app)
+      .post("/api/auth/passkey/options")
+      .send({})
+      .expect(200);
+    expect(options.body.options).toMatchObject({ challenge: "authentication-challenge", allowCredentials: [] });
+
+    const login = await request(instance.app)
+      .post("/api/auth/passkey/verify")
+      .send({
+        transaction: "valid-passkey-transaction-token",
+        response: {
+          id: "credential-id",
+          rawId: "credential-id",
+          type: "public-key",
+          response: {
+            clientDataJSON: "client-data",
+            authenticatorData: "authenticator-data",
+            signature: "signature",
+            userHandle: "webauthn-user-id",
+          },
+          clientExtensionResults: {},
+          authenticatorAttachment: "platform",
+        },
+      })
+      .expect(200);
+
+    expect(login.body).toMatchObject({ user: { id: regular.id }, redirectTo: "/workspace" });
+    expect(instance.database.consumePasskeyChallenge).toHaveBeenCalledWith(
+      hashToken("valid-passkey-transaction-token"),
+      "authentication",
+    );
+    expect(instance.webauthn.verifyAuthentication).toHaveBeenCalledWith(
+      new URL("https://neural-labs.example.org"),
+      expect.objectContaining({ id: "credential-id" }),
+      "expected-challenge",
+      passkey,
+    );
+    expect(instance.database.updatePasskeyUsage).toHaveBeenCalledWith(passkey.id, 2, true);
+    expect(instance.database.createSession).toHaveBeenCalledOnce();
   });
 });

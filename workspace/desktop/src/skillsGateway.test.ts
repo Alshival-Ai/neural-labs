@@ -5,7 +5,7 @@ import {
   mapSkillSearch,
   mapSkillsStatus,
   mergeProposalInspection,
-  mergeSkillCard,
+  mergeSkillInstructions,
   mergeSkillDetail,
 } from "./skillsGateway";
 
@@ -35,7 +35,7 @@ describe("OpenClaw Skills mapping", () => {
       eligibility: "needs-setup",
       writable: true,
       useCount: 7,
-      command: "$release_notes",
+      command: "$release-notes",
     });
     expect(skills[0].requirements).toEqual(expect.arrayContaining([
       expect.objectContaining({ value: "git", state: "met" }),
@@ -45,8 +45,9 @@ describe("OpenClaw Skills mapping", () => {
 
   it("hydrates exact skill cards and Workshop proposal revisions", () => {
     const base = mapSkillsStatus({ skills: [{ name: "Deploy", skillKey: "deploy", source: "openclaw-bundled", eligible: true }] }, {}, {})[0];
-    const card = mergeSkillCard(base, { path: "/app/skills/deploy/SKILL.md", sizeBytes: 2048, content: "# Deploy\n\nVerify first." });
+    const card = mergeSkillInstructions(base, { path: "/app/skills/deploy/SKILL.md", sizeBytes: 2048, content: "# Deploy\n\nVerify first." });
     expect(card).toMatchObject({ path: "/app/skills/deploy/SKILL.md", instructions: "# Deploy\n\nVerify first." });
+    expect(card.instructionsState).toBe("loaded");
     expect(card.files[0].size).toBe("2.0 KB");
 
     const proposal = mapSkillProposals({ proposals: [{

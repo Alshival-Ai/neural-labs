@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-09-01
+- Presentation amended by: ADR 0012
 
 ## Context
 
@@ -44,9 +45,11 @@ contract is the control-plane administrator check and fixed
 `operator.read,operator.admin` ceiling. Reuse does not grant admin scope to the
 ordinary Neura connection.
 
-Show the Automations launcher only to users whose control-plane session says
-they are administrators. This is a usability gate only; the control-plane
-subrequest remains the authoritative server-side authorization check.
+The original release showed the Automations launcher only to users whose
+control-plane session said they were administrators. ADR 0012 later makes the
+launcher available for a redacted `operator.read` view while retaining this
+administrator ingress as the authoritative boundary for unredacted reads and
+every mutation.
 
 ## Consequences
 

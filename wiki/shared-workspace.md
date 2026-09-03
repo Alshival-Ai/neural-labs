@@ -2,8 +2,10 @@
 
 Neural Labs V1 provides one continuously running OpenClaw environment shared by
 every approved user. It is a trusted collaboration cell, not a security boundary
-between developers. Files, agent state, automations, and model credentials are
-shared.
+between developers. Files, terminals, skills, and automations are shared by
+design. Interactive Neura credentials and histories are separated by OpenClaw
+agent and app authorization, but workspace-root users remain inside the same
+operating-system trust domain.
 
 The workspace remains a container so its passwordless `sudo` cannot administer
 the host, PostgreSQL, Nginx, Docker, or the control-plane secrets. It has no
@@ -41,6 +43,14 @@ account**. Neural Labs requests an OpenAI device code from
 OpenClaw inside the workspace container. Open the displayed OpenAI URL, sign
 in, and enter the one-time code. Keep the administrator page open until it
 reports **Connected**.
+
+That Workspace connection is the service account for automations and other
+background work. Each teammate separately opens **Settings → Personalization →
+Your ChatGPT account** and completes the same supported device-code flow for
+their personal Neura agent. Interactive private chats and a Team Chat `$Neura`
+turn use the initiating human's account. They fail closed when that account is
+not connected or is paused; Neural Labs never silently charges interactive work
+to the workspace service account.
 
 Device-code login may first need to be enabled in the ChatGPT account or
 workspace security settings. The OAuth access and refresh tokens are written by
@@ -89,8 +99,8 @@ bodies, or file bodies. Static hashed bundles and responsive wallpaper assets
 use browser caching appropriate to their update model. See [Desktop windows and
 device state](desktop-state.md).
 
-Neura is the first desktop app. It is the product identity for OpenClaw's
-`main` agent and provides shared chat history, streamed responses, compact tool
+Neura is the first desktop app. Each approved user receives a dedicated
+OpenClaw agent and private conversation roster. Neura provides streamed responses, compact tool
 activity timelines, inline approvals, file/image attachments, and run steering.
 The transcript follows live WebSocket updates at the bottom without overriding
 an intentional upward scroll. The window is a singleton with drag,
@@ -120,8 +130,9 @@ authentication. Editor settings and extensions are shared in the persistent
 home volume. See the [VS Code guide](vscode.md) for routing, framing, persistence,
 and trusted-origin details.
 
-All approved users can create, switch, rename, archive, restore, and delete any
-Neura conversation. Deletion requires a confirmation but is permanent. Press
+Approved users can create, switch, rename, archive, restore, and delete their
+own Neura conversations. Explicit Team Chats provide the shared history.
+Deletion requires a confirmation but is permanent. Press
 Enter to send or steer an active run, Ctrl/Cmd+Enter to queue a follow-up, and
 Shift+Enter to add a line. Active-run steering remains enabled across
 intermediate transcript commits and when a run began before the app opened.
@@ -158,7 +169,8 @@ then invoke the command.
 
 ## Trust warning
 
-Every approved user can influence the same agent and shared files. Commands can
-obtain root inside the workspace through passwordless `sudo`, which means no
-credential stored in this container is private from another approved user. Use
+Every approved user can influence shared files, terminals, skills, and Team
+Chats. Commands can obtain root inside the workspace through passwordless
+`sudo`, which means per-agent OpenAI auth files prevent accidental product-level
+cross-use but are not private from another approved workspace-root user. Use
 separate containers or virtual machines if users are not mutually trusted.
