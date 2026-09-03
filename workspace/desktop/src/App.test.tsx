@@ -1,10 +1,12 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const gatewayMocks = vi.hoisted(() => ({ start: vi.fn(), setAgentId: vi.fn() }));
+
 vi.mock("./openclaw", () => ({
   NeuraGateway: class {
-    start() {}
-    setAgentId() {}
+    start() { gatewayMocks.start(); }
+    setAgentId(agentId: string) { gatewayMocks.setAgentId(agentId); }
   },
 }));
 
@@ -37,11 +39,12 @@ function session(role: "admin" | "user") {
   };
 }
 
-function renderDesktop(role: "admin" | "user") {
+function renderDesktop(role: "admin" | "user", { accountAuthenticated = true, accountPaused = false } = {}) {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = String(input);
     const method = init?.method ?? "GET";
     if (url === "/api/session") return json(session(role));
+    if (url === "/api/account/openai") return json({ agentId: session(role).neura.agentId, authenticated: accountAuthenticated, paused: accountPaused });
     if (url === "/api/workspace") return json({ status: "ready" });
     if (url === "/api/auth/providers") return json({ local: { enabled: true }, microsoft: { available: true, enabled: true } });
     if (url === "/api/admin/overview") return json({
@@ -117,6 +120,7 @@ function createPopupWindow() {
 afterEach(() => {
   cleanup();
   localStorage.clear();
+  vi.clearAllMocks();
   vi.restoreAllMocks();
 });
 
@@ -126,6 +130,7 @@ describe("desktop admin navigation", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
       if (url === "/api/session") return json(session("user"));
+      if (url === "/api/account/openai") return json({ agentId: session("user").neura.agentId, authenticated: true, paused: false });
       if (url === "/api/workspace") {
         workspaceRequests += 1;
         if (workspaceRequests === 1) throw new Error("workspace restarting");
@@ -155,6 +160,33 @@ describe("desktop admin navigation", () => {
 
     expect(terminalWindow).not.toHaveAttribute("hidden");
     expect(await within(terminalWindow).findByTestId("terminal-live-view")).toBeInTheDocument();
+  });
+
+  it("provisions the personal agent before starting the Neura Gateway", async () => {
+    renderDesktop("user");
+
+    await waitFor(() => expect(gatewayMocks.setAgentId).toHaveBeenCalledWith("nl-userid"));
+    expect(gatewayMocks.start).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenCalledWith("/api/account/openai", expect.objectContaining({ credentials: "same-origin" }));
+    expect(gatewayMocks.setAgentId.mock.invocationCallOrder[0]).toBeLessThan(gatewayMocks.start.mock.invocationCallOrder[0]);
+  });
+
+  it("prompts disconnected users to open ChatGPT account personalization", async () => {
+    renderDesktop("admin", { accountAuthenticated: false });
+
+    const prompt = await screen.findByRole("button", { name: "Open ChatGPT account settings in Personalization" });
+    expect(prompt).toHaveTextContent("Connect your ChatGPT account to start using Neura.");
+    fireEvent.click(prompt);
+
+    const settingsWindow = await screen.findByLabelText("Settings application");
+    expect(await within(settingsWindow).findByRole("heading", { name: "Personalization" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open ChatGPT account settings in Personalization" })).not.toBeInTheDocument();
+  });
+
+  it("guides users with a paused ChatGPT connection to Personalization", async () => {
+    renderDesktop("user", { accountPaused: true });
+
+    expect(await screen.findByRole("button", { name: "Open ChatGPT account settings in Personalization" })).toHaveTextContent("Resume your ChatGPT account to start using Neura.");
   });
 
   it("does not reopen Terminal when the saved desktop has no Terminal window", async () => {
@@ -314,7 +346,7 @@ describe("desktop admin navigation", () => {
     renderDesktop("user");
     await screen.findByText("Workspace ready");
     fireEvent.click(screen.getByRole("button", { name: "Automations" }));
-    const skillsWindow = await screen.findByLabelText("Skills application");
+    const skillsWindow = await screen.findByLabelText("Skills & Automations application");
     expect(await within(skillsWindow).findByTestId("skills-live-view")).toHaveTextContent("Skills section: automations");
     expect(screen.queryByLabelText("Automations application")).not.toBeInTheDocument();
   });

@@ -16,7 +16,7 @@ import type {
 import type { ConnectionState } from "./types";
 import type { ClawHubResult, SkillProposal, SkillProposalAction, SkillProposalDraft, SkillRecord } from "./SkillsApp";
 
-const CLIENT_VERSION = "0.3.0";
+const CLIENT_VERSION = "0.3.1";
 const INSTANCE_KEY = "neural-labs.automations.instance.v1";
 // This client intentionally has no browser device identity or reusable token.
 // Nginx authenticates an active Neural Labs administrator, overwrites the

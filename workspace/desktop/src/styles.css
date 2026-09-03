@@ -257,6 +257,12 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, summary:focus-vis
 .dock-context-menu > button.is-danger { margin-top: .2rem; border-top: 1px solid rgba(255, 255, 255, .08); border-radius: 4px 4px 8px 8px; color: #ffaaa0; }
 .dock-context-menu > button.is-danger svg { color: var(--coral); }
 .toast { position: fixed; z-index: 300; left: 50%; bottom: 6.2rem; max-width: min(28rem, calc(100vw - 2rem)); padding: .72rem .92rem; border: 1px solid rgba(255, 255, 255, .15); border-radius: 14px; color: rgba(255, 255, 255, .92); background: rgba(18, 14, 23, .94); box-shadow: var(--shadow); transform: translateX(-50%); backdrop-filter: blur(24px); font-size: var(--desktop-font-subheading, 16px); }
+.toast--action { width: min(30rem, calc(100vw - 2rem)); padding: 0; overflow: hidden; border-color: rgba(156, 126, 255, .34); }
+.toast-action { width: 100%; padding: .78rem .9rem; border: 0; color: inherit; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 1rem; text-align: left; font: inherit; transition: background .16s ease, border-color .16s ease; }
+.toast-action:hover, .toast-action:focus-visible { background: rgba(156, 126, 255, .13); outline: none; }
+.toast-action > span { line-height: 1.35; }
+.toast-action strong { flex: 0 0 auto; display: inline-flex; align-items: center; gap: .2rem; color: #d8cfff; font-size: .82em; white-space: nowrap; }
+.toast-action svg { width: 1rem; height: 1rem; }
 
 .desktop-window {
   position: absolute;

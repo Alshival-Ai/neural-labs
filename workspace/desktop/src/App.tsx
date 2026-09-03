@@ -1,6 +1,7 @@
 import {
   Bot,
   CalendarClock,
+  ChevronRight,
   Code2,
   CopyPlus,
   FileCode2,
@@ -58,6 +59,8 @@ type Session = {
 };
 
 type Runtime = { status: string };
+type PersonalOpenAIBootstrap = { agentId: string; authenticated: boolean; paused: boolean };
+type ToastNotice = { message: string; action?: "open-personalization" };
 type DesktopApp = "neura" | "files" | "editor" | "preview" | "settings" | "terminal" | "vscode" | "automations" | "skills";
 type WindowVisibility = "open" | "minimized" | "popped-out";
 type DesktopWindowState = { id: string; app: DesktopApp; visibility: WindowVisibility; order: number; preview?: WorkspacePreviewFile };
@@ -150,7 +153,7 @@ function desktopWindowTitle(window: DesktopWindowState): string {
   if (window.app === "preview") return `Preview — ${window.preview?.name ?? "File"}`;
   if (window.app === "settings") return "Settings";
   if (window.app === "automations") return "Automations";
-  if (window.app === "skills") return "Skills";
+  if (window.app === "skills") return "Skills & Automations";
   if (window.app === "vscode") return "VS Code";
   return "Terminal";
 }
@@ -223,9 +226,10 @@ export function App() {
   const [activeEditorId, setActiveEditorId] = useState<string>();
   const [pendingEditorRestore, setPendingEditorRestore] = useState<{ paths: string[]; activeId?: string }>();
   const [clock, setClock] = useState(new Date());
-  const [toast, setToast] = useState<string>();
+  const [toast, setToast] = useState<ToastNotice>();
   const [neuraComposeRequest, setNeuraComposeRequest] = useState<{ id: string; targetWindowId: string; text: string }>();
   const [skillsLaunchRequest, setSkillsLaunchRequest] = useState<{ id: string; targetWindowId: string; section: "mine" | "automations" }>();
+  const [settingsLaunchRequest, setSettingsLaunchRequest] = useState<{ id: string; targetWindowId: string; section: "personalization" }>();
   const [initialSettingsLaunch] = useState(settingsLaunch);
   const toastTimer = useRef<number | undefined>(undefined);
   const popoutTargetsRef = useRef(popoutTargets);
@@ -237,10 +241,10 @@ export function App() {
   popoutTargetsRef.current = popoutTargets;
   const editorPathSignature = editorDocuments.map((document) => document.path).join("\n");
 
-  const notify = useCallback((message: string) => {
+  const notify = useCallback((message: string, action?: ToastNotice["action"]) => {
     window.clearTimeout(toastTimer.current);
-    setToast(message);
-    toastTimer.current = window.setTimeout(() => setToast(undefined), 3200);
+    setToast({ message, action });
+    toastTimer.current = window.setTimeout(() => setToast(undefined), action ? 12_000 : 3_200);
   }, []);
 
   const takePopout = useCallback((windowId: string): ManagedPopout | undefined => {
@@ -307,6 +311,10 @@ export function App() {
   useEffect(() => {
     let stopped = false;
     let runtimeRequestPending = false;
+    let neuraBootstrapPending = false;
+    let connectionToastShown = false;
+    let expectedNeuraAgentId: string | undefined;
+    let neuraBootstrapTimer: number | undefined;
     const refreshRuntime = async () => {
       if (stopped || runtimeRequestPending) return;
       runtimeRequestPending = true;
@@ -319,15 +327,42 @@ export function App() {
         runtimeRequestPending = false;
       }
     };
+    const bootstrapNeura = async () => {
+      if (stopped || neuraBootstrapPending || !expectedNeuraAgentId) return;
+      window.clearTimeout(neuraBootstrapTimer);
+      neuraBootstrapTimer = undefined;
+      neuraBootstrapPending = true;
+      try {
+        const account = await fetchJson<PersonalOpenAIBootstrap>("/api/account/openai");
+        if (account.agentId !== expectedNeuraAgentId) throw new Error("The personal Neura agent does not match this session");
+        if (!stopped) {
+          gateway.setAgentId(account.agentId);
+          gateway.start();
+          if ((!account.authenticated || account.paused) && !connectionToastShown) {
+            connectionToastShown = true;
+            notify(account.authenticated
+              ? "Resume your ChatGPT account to start using Neura."
+              : "Connect your ChatGPT account to start using Neura.", "open-personalization");
+          }
+        }
+      } catch {
+        if (!stopped) neuraBootstrapTimer = window.setTimeout(() => void bootstrapNeura(), 4_000);
+      } finally {
+        neuraBootstrapPending = false;
+      }
+    };
     const refreshRuntimeWhenAvailable = () => {
-      if (document.visibilityState === "visible" && navigator.onLine) void refreshRuntime();
+      if (document.visibilityState === "visible" && navigator.onLine) {
+        void refreshRuntime();
+        void bootstrapNeura();
+      }
     };
 
     void fetchJson<Session>("/api/session").then((payload) => {
       if (!payload.authenticated) window.location.assign("/login?error=Please+log+in");
       else {
-        if (payload.neura?.agentId) gateway.setAgentId(payload.neura.agentId);
-        gateway.start();
+        expectedNeuraAgentId = payload.neura?.agentId;
+        void bootstrapNeura();
         const userId = payload.user?.id;
         if (userId) {
           const restored = desktopDeviceState(userId);
@@ -351,12 +386,13 @@ export function App() {
     document.addEventListener("visibilitychange", refreshRuntimeWhenAvailable);
     return () => {
       stopped = true;
+      window.clearTimeout(neuraBootstrapTimer);
       window.clearInterval(runtimeInterval);
       window.clearInterval(clockInterval);
       window.removeEventListener("online", refreshRuntimeWhenAvailable);
       document.removeEventListener("visibilitychange", refreshRuntimeWhenAvailable);
     };
-  }, []);
+  }, [notify]);
 
   useEffect(() => {
     if (!persistenceUserId || session?.user?.id !== persistenceUserId) return;
@@ -687,6 +723,19 @@ export function App() {
     setDockMenu(undefined);
   }, [notify, windows]);
 
+  const openPersonalizationSettings = useCallback(() => {
+    const existing = windows.filter((window) => window.app === "settings").sort((left, right) => right.order - left.order)[0];
+    if (!existing && windows.length >= 24) { notify("Close a window before opening Settings."); return; }
+    const targetWindowId = existing?.id ?? freshWindowId("settings");
+    setWindows((current) => existing
+      ? raiseWindow(current, targetWindowId)
+      : [...current, { id: targetWindowId, app: "settings", visibility: "open", order: current.length + 1 }]);
+    setSettingsLaunchRequest({ id: crypto.randomUUID(), targetWindowId, section: "personalization" });
+    if (existing?.visibility === "popped-out") popoutTargetsRef.current.get(existing.id)?.browserWindow.focus();
+    window.clearTimeout(toastTimer.current);
+    setToast(undefined);
+  }, [notify, windows]);
+
   const openWindows = windows.filter((window) => window.visibility === "open").sort((left, right) => left.order - right.order);
   // Live socket-backed apps remain mounted while minimized so their session,
   // transcript, scroll position, and embedded browser state survive restore.
@@ -763,7 +812,7 @@ export function App() {
                 {desktopWindow.app === "files" && <FilesApp notify={notify} onOpenFile={(path) => void openEditorFile(path)} onPreviewFile={openPreviewFile} storageNamespace={persistenceUserId} storageArea={`files.${desktopWindow.id}`} />}
                 {desktopWindow.app === "editor" && (pendingEditorRestore ? <div className="app-loading">Restoring editor tabs…</div> : <EditorApp documents={editorDocuments} activeDocumentId={activeEditorId} workspaceName="Workspace" onChange={changeEditorDocument} onOpenFile={() => chooseFileFromEditor(desktopWindow.id)} onReload={reloadEditorDocument} onSave={saveEditorDocument} storageNamespace={persistenceUserId} storageArea={`editor.${desktopWindow.id}`} />)}
                 {desktopWindow.app === "preview" && desktopWindow.preview && <PreviewApp file={desktopWindow.preview} />}
-                {desktopWindow.app === "settings" && session?.user && session.csrfToken && <SettingsApp administrator={session.user.role === "admin"} csrfToken={session.csrfToken} currentUserId={session.user.id} user={session.user} providers={session.providers ?? []} initialNotice={initialSettingsLaunch.notice} initialSection={initialSettingsLaunch.open ? "personalization" : undefined} fontScale={fontScale} onFontScaleChange={setFontScale} onLogout={() => void logout()} storageNamespace={persistenceUserId} storageArea={`settings.${desktopWindow.id}`} />}
+                {desktopWindow.app === "settings" && session?.user && session.csrfToken && <SettingsApp administrator={session.user.role === "admin"} csrfToken={session.csrfToken} currentUserId={session.user.id} user={session.user} providers={session.providers ?? []} initialNotice={initialSettingsLaunch.notice} initialSection={initialSettingsLaunch.open ? "personalization" : undefined} sectionRequest={settingsLaunchRequest?.targetWindowId === desktopWindow.id ? settingsLaunchRequest : undefined} fontScale={fontScale} onFontScaleChange={setFontScale} onLogout={() => void logout()} storageNamespace={persistenceUserId} storageArea={`settings.${desktopWindow.id}`} />}
                 {desktopWindow.app === "terminal" && <TerminalApp workspaceName="Workspace" notify={notify} storageNamespace={persistenceUserId} storageArea={`terminal.${desktopWindow.id}`} fontScale={fontScale} onFontScaleChange={setFontScale} />}
                 {desktopWindow.app === "vscode" && <VsCodeApp />}
                 {(desktopWindow.app === "skills" || desktopWindow.app === "automations") && session?.user && <SkillsLiveApp reader={gateway} administrator={session.user.role === "admin" ? automationsGateway : undefined} canManage={session.user.role === "admin"} currentUser={{ id: session.user.id, displayName: session.user.displayName, role: session.user.role }} initialSection={skillsLaunchRequest?.targetWindowId === desktopWindow.id ? skillsLaunchRequest.section : "mine"} sectionRequestId={skillsLaunchRequest?.targetWindowId === desktopWindow.id ? skillsLaunchRequest.id : undefined} notify={notify} onComposeInNeura={composeInNeura} onOpenBuilderDocument={openBuilderDocument} workspaceName="Workspace" />}
@@ -793,7 +842,11 @@ export function App() {
         {windowCount(dockMenu.app) > 0 && <button type="button" role="menuitem" onClick={() => visibleWindowCount(dockMenu.app) > 0 ? minimizeApp(dockMenu.app) : revealApp(dockMenu.app)}>{visibleWindowCount(dockMenu.app) > 0 ? <Minimize2 /> : poppedOutWindowCount(dockMenu.app) > 0 ? <PictureInPicture2 /> : <Minimize2 />}{visibleWindowCount(dockMenu.app) > 0 ? "Minimize" : poppedOutWindowCount(dockMenu.app) > 0 ? "Focus pop-out" : "Restore"}</button>}
         {windowCount(dockMenu.app) > 0 && <button type="button" role="menuitem" className="is-danger" onClick={() => closeApp(dockMenu.app)}><X />Close {windowCount(dockMenu.app) > 1 ? "all windows" : "window"}</button>}
       </div>}
-      {toast && <div className="toast" role="status">{toast}</div>}
+      {toast && <div className={`toast${toast.action ? " toast--action" : ""}`} role="status">
+        {toast.action === "open-personalization"
+          ? <button type="button" className="toast-action" onClick={openPersonalizationSettings} aria-label="Open ChatGPT account settings in Personalization"><span>{toast.message}</span><strong>Open Personalization <ChevronRight /></strong></button>
+          : toast.message}
+      </div>}
     </div>
   );
 }

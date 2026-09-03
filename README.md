@@ -3,8 +3,8 @@
 Neural Labs is an open-source, self-hosted control plane and shared developer
 workspace. This repository contains:
 
-Current release: **v0.3.0**. See the [changelog](CHANGELOG.md) and
-[detailed release record](wiki/releases/v0.3.0.md).
+Current release: **v0.3.1**. See the [changelog](CHANGELOG.md) and
+[detailed release record](wiki/releases/v0.3.1.md).
 
 - `web/`: the public landing page;
 - `console/`: the React account, login, signup, and approval interface;

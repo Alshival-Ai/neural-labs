@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -30,6 +31,7 @@ test("provisions isolated auth, assigns only the matching profile, and preserves
   };
   const gatewayRequest = async (method, params) => {
     gatewayCalls.push([method, params]);
+    if (method === "agents.list") return { agents: [{ id: agentId }] };
     if (method === "users.list") return { profiles: [{ id: "profile-user", emails: [userId], role }] };
     if (method === "users.setRole") { role = params.role; return {}; }
     return {};
@@ -43,6 +45,8 @@ test("provisions isolated auth, assigns only the matching profile, and preserves
     assert.equal(snapshot.agentId, agentId);
     assert.equal(executeCalls.some((args) => args.includes(path.join(stateRoot, "agents", agentId, "agent"))), true);
     assert.equal(executeCalls.some((args) => args[0] === "config" && args.includes(`gateway.roles.definitions.personal-${agentId}`)), true);
+    assert.equal(executeCalls.some((args) => args[0] === "config" && args.includes("--strict-json")), true);
+    assert.equal(executeCalls.some((args) => args.includes("--json-strict")), false);
 
     const paused = await manager.pause(userId);
     assert.equal(paused.paused, true);
@@ -55,6 +59,46 @@ test("provisions isolated auth, assigns only the matching profile, and preserves
   } finally {
     await rm(stateRoot, { recursive: true, force: true });
   }
+});
+
+test("starts personal ChatGPT login before a Gateway browser profile exists", async () => {
+  const child = new EventEmitter();
+  child.pid = 98765;
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  let loginStarts = 0;
+  const gatewayCalls = [];
+  const execute = async (_command, args) => {
+    if (args[0] === "agents" && args[1] === "list") return { stdout: JSON.stringify({ agents: [{ id: agentId }] }) };
+    if (args[0] === "models" && args[1] === "auth") return { stdout: JSON.stringify({ profiles: [] }) };
+    if (args[0] === "models" && args[1] === "status") {
+      return { stdout: JSON.stringify({ auth: { missingProvidersInUse: ["openai"], modelRouteIssues: [] } }) };
+    }
+    return { stdout: "" };
+  };
+  const manager = new PersonalOpenAIManager({
+    workspaceRoot: "/workspace",
+    stateRoot: "/state",
+    execute,
+    gatewayRequest: async (method, params) => {
+      gatewayCalls.push([method, params]);
+      if (method === "agents.list") return { agents: [{ id: agentId }] };
+      if (method === "users.list") return { profiles: [] };
+      return {};
+    },
+    spawnLogin: () => {
+      loginStarts += 1;
+      return child;
+    },
+  });
+
+  const started = await manager.start(userId);
+
+  assert.equal(started.state, "starting");
+  assert.equal(started.agentId, agentId);
+  assert.equal(started.paused, false);
+  assert.equal(loginStarts, 1);
+  assert.equal(gatewayCalls.some(([method]) => method === "users.setRole"), false);
 });
 
 test("reconciliation leaves service and personal profiles intact while restricting unknown Neural users", async () => {

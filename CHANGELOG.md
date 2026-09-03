@@ -5,6 +5,53 @@ Versioning and Git tags in the form `vMAJOR.MINOR.PATCH`.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-03
+
+### Changed
+
+- Renamed the canonical Skills desktop window to **Skills & Automations** so
+  its title reflects both dock entry points and the combined workflow surface.
+- The desktop now provisions and verifies the signed-in user's personal agent
+  through the authenticated account endpoint before starting the shared Neura
+  Gateway client. Transient bootstrap failures retry when the page is visible,
+  online, or the retry timer expires.
+- A disconnected or paused personal account now produces a long-lived, actionable
+  desktop toast. Selecting it opens or focuses Settings directly on
+  Personalization, including for administrators whose Settings window was
+  previously showing another section.
+
+### Fixed
+
+- Fixed personal agent provisioning failing on OpenClaw 2026.8.2 because the
+  configuration command used the unsupported `--json-strict` option. Neural
+  Labs now uses OpenClaw's supported `--strict-json` option.
+- Fixed `unknown agent id` races by waiting until the live Gateway reports the
+  provisioned personal agent before returning account bootstrap state.
+- Fixed first-time ChatGPT connection requiring a Gateway browser profile to
+  exist before the device-code flow could start. Role assignment now happens
+  immediately for an existing authenticated account or after successful login;
+  unauthenticated users can request their first device code without circular
+  setup steps.
+- Removed the Neura client's implicit `main` agent default. Socket startup and
+  agent-scoped requests now fail closed until the verified personal agent ID is
+  available, so interactive work cannot race onto the workspace automation
+  identity.
+
+### Security and operations
+
+- No credential, device code, provider token, tenant state, host address, or
+  new public listener is introduced. The browser still receives only safe
+  personal-account status and its own stable non-secret agent ID.
+- The existing exact per-user agent allowlist, `sessions.others = none`,
+  loopback Gateway administration, and no-fallback automation boundary remain
+  unchanged.
+- Rebuild and recreate the workspace container after upgrading. Existing
+  personal OAuth state, shared files, skill drafts, terminals' persistent
+  metadata, and code-server data remain in their existing volumes.
+- Diagnosis, compatibility notes, validation coverage, upgrade steps, and
+  rollback guidance are recorded in
+  [the v0.3.1 release record](wiki/releases/v0.3.1.md).
+
 ## [0.3.0] - 2026-09-03
 
 ### Added

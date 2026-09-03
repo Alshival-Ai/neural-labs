@@ -10,6 +10,10 @@ lets them link available sign-in methods, and connects or pauses the personal
 ChatGPT account used by interactive Neura. Administrators receive the same
 Personalization area plus the control-plane areas below.
 
+When that personal ChatGPT account is disconnected or paused, the desktop shows a
+clickable onboarding toast after account bootstrap. Selecting it opens or
+focuses Settings and switches directly to Personalization.
+
 The old `/admin` console is retired. Requests to `/admin` or any nested legacy
 path redirect active users to `/workspace`.
 

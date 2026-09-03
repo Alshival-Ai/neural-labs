@@ -57,6 +57,7 @@ export type SettingsAppProps = {
   providers?: PersonalizationIdentityProvider[];
   initialNotice?: PersonalizationNotice;
   initialSection?: SettingsSection;
+  sectionRequest?: { id: string; section: SettingsSection };
   fontScale?: number;
   onFontScaleChange?: (value: number) => void;
   onLogout?: () => void;
@@ -109,7 +110,7 @@ function initials(value: string): string {
   return (parts.length > 1 ? `${parts[0][0]}${parts[parts.length - 1][0]}` : value.slice(0, 2)).toUpperCase();
 }
 
-export function SettingsApp({ administrator = true, csrfToken, currentUserId, user, providers = [], initialNotice, initialSection, fontScale = 100, onFontScaleChange = () => undefined, onLogout = () => undefined, storageNamespace, storageArea = "settings" }: SettingsAppProps) {
+export function SettingsApp({ administrator = true, csrfToken, currentUserId, user, providers = [], initialNotice, initialSection, sectionRequest, fontScale = 100, onFontScaleChange = () => undefined, onLogout = () => undefined, storageNamespace, storageArea = "settings" }: SettingsAppProps) {
   const navigation = administrator ? [PERSONALIZATION_NAVIGATION, ...ADMIN_NAVIGATION] : [PERSONALIZATION_NAVIGATION];
   const allowedSections = new Set(navigation.map((item) => item.id));
   const fallbackSection: SettingsSection = administrator ? "overview" : "personalization";
@@ -132,6 +133,12 @@ export function SettingsApp({ administrator = true, csrfToken, currentUserId, us
   useEffect(() => {
     writeDeviceState(storageNamespace, storageArea, { section } satisfies SettingsDeviceState);
   }, [section, storageArea, storageNamespace]);
+
+  useEffect(() => {
+    if (!sectionRequest || !allowedSections.has(sectionRequest.section)) return;
+    setSection(sectionRequest.section);
+    setMobileNavigation(false);
+  }, [sectionRequest?.id, sectionRequest?.section]);
 
   const refreshOverview = useCallback(async () => {
     try {
@@ -574,7 +581,7 @@ function AboutPanel({ overview }: { overview?: OverviewData }) {
     <div className="settings-panel">
       <SectionHeader eyebrow="Product and runtime" title="About" description="The people, platform, and open tools behind this shared workspace." icon={Info} />
       <section className="settings-about-hero"><div className="settings-about-hero__mark"><span>N</span></div><div><span>Neural Labs</span><h2>A colorful place to build together.</h2><p>Shared workflows, skills, files, and agent context—powered by OpenClaw and shaped for teams.</p><div><a href="https://alshival.ai" target="_blank" rel="noreferrer">Developed by Alshival.Ai <ExternalLink /></a><a href="https://github.com/Alshival-Ai/neural-labs" target="_blank" rel="noreferrer">Source code <ExternalLink /></a></div></div></section>
-      <div className="settings-about-grid"><section className="settings-card"><div className="settings-card__heading"><div><span>Versions</span><h2>Runtime stack</h2><p>Components running in this shared environment.</p></div><Gauge /></div><dl className="settings-detail-list"><div><dt>Neural Labs</dt><dd><code>v0.3.0</code></dd></div><div><dt>OpenClaw</dt><dd><code>{overview?.workspace.openclawVersion ?? "Checking"}</code></dd></div><div><dt>Codex CLI</dt><dd><code>{overview?.workspace.codexVersion ?? "Checking"}</code></dd></div><div><dt>Theme</dt><dd>Spectrum Paper</dd></div></dl></section><section className="settings-card"><div className="settings-card__heading"><div><span>System</span><h2>Service health</h2><p>Live state reported by the control plane.</p></div><ShieldCheck /></div><div className="settings-system-list"><ServiceRow label="Workspace" ready={overview?.workspace.status === "ready"} value={overview?.workspace.status ?? "Checking"} /><ServiceRow label="OpenClaw model" ready={overview?.workspace.openclawModelReady === true} value={overview?.workspace.openclawModelReady ? "Ready" : "Setup required"} /><ServiceRow label="Workspace MCP" ready={overview?.mcp.ready === true} value={overview?.mcp.ready ? "Ready" : "Offline"} /></div></section></div>
+      <div className="settings-about-grid"><section className="settings-card"><div className="settings-card__heading"><div><span>Versions</span><h2>Runtime stack</h2><p>Components running in this shared environment.</p></div><Gauge /></div><dl className="settings-detail-list"><div><dt>Neural Labs</dt><dd><code>v0.3.1</code></dd></div><div><dt>OpenClaw</dt><dd><code>{overview?.workspace.openclawVersion ?? "Checking"}</code></dd></div><div><dt>Codex CLI</dt><dd><code>{overview?.workspace.codexVersion ?? "Checking"}</code></dd></div><div><dt>Theme</dt><dd>Spectrum Paper</dd></div></dl></section><section className="settings-card"><div className="settings-card__heading"><div><span>System</span><h2>Service health</h2><p>Live state reported by the control plane.</p></div><ShieldCheck /></div><div className="settings-system-list"><ServiceRow label="Workspace" ready={overview?.workspace.status === "ready"} value={overview?.workspace.status ?? "Checking"} /><ServiceRow label="OpenClaw model" ready={overview?.workspace.openclawModelReady === true} value={overview?.workspace.openclawModelReady ? "Ready" : "Setup required"} /><ServiceRow label="Workspace MCP" ready={overview?.mcp.ready === true} value={overview?.mcp.ready ? "Ready" : "Offline"} /></div></section></div>
       <section className="settings-card settings-about-links"><a href="https://github.com/Alshival-Ai/neural-labs/tree/main/wiki" target="_blank" rel="noreferrer"><FileText /><span><strong>Documentation</strong><small>Architecture, operations, and guides</small></span><ExternalLink /></a><a href="https://github.com/Alshival-Ai/neural-labs/blob/main/wiki/adr/0003-shared-developer-workspace.md" target="_blank" rel="noreferrer"><KeyRound /><span><strong>Security notes</strong><small>Trust boundaries and shared access</small></span><ExternalLink /></a><a href="https://openclaw.ai" target="_blank" rel="noreferrer"><Bot /><span><strong>OpenClaw</strong><small>The agent runtime underneath Neura</small></span><ExternalLink /></a></section>
       <p className="settings-about-footer">Neural Labs · Built with care by Alshival.Ai</p>
     </div>

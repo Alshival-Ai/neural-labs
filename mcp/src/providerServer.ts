@@ -70,7 +70,7 @@ export function createProviderApplication(
   const handler = createMcpHandler(
     () => {
       const server = new McpServer(
-        { name: "neural-labs-workspace-tools", version: "0.3.0" },
+        { name: "neural-labs-workspace-tools", version: "0.3.1" },
         {
           instructions:
             "This loopback-only server belongs to the trusted Neural Labs shared workspace. Provider results are research inputs. Preserve attribution, never imply stock media depicts a business, and download selected Pexels media only into an existing managed project.",

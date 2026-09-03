@@ -65,6 +65,12 @@ not store the token. Pause removes the Gateway role but retains the credential,
 and Resume restores access without a new sign-in while that credential remains
 valid.
 
+On page load, Neural Labs provisions and verifies the personal agent before it
+starts the Neura WebSocket. If the safe account status is disconnected or paused, an
+actionable desktop toast opens Settings directly on Personalization. The login
+flow can begin before a Gateway browser profile exists; after successful OpenAI
+authentication, Neural Labs assigns the matching personal role.
+
 Private Neura and Team Chat `$Neura` turns fail closed when this connection is
 missing, paused, expired, or not model-ready. They never fall back to the
 workspace service credential. The separate Workspace connection continues to

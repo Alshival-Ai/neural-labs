@@ -164,11 +164,28 @@ export class PersonalOpenAIManager {
       await this.execute("openclaw", [
         "config", "set", `gateway.roles.definitions.${account.roleId}`,
         JSON.stringify({ sessions: { others: "none" }, agents: [account.agentId], scopes: USER_SCOPES }),
-        "--json-strict",
+        "--strict-json",
       ], { encoding: "utf8", timeout: 120_000, maxBuffer: 1024 * 1024 });
+      await this.waitForGatewayAgent(account.agentId);
       account.provisioned = true;
     });
     return account;
+  }
+
+  async waitForGatewayAgent(agentId) {
+    let lastError;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      try {
+        const listed = await this.gatewayRequest("agents.list", {});
+        const agents = Array.isArray(listed) ? listed : Array.isArray(listed?.agents) ? listed.agents : [];
+        if (agents.some((agent) => agent?.id === agentId)) return;
+        lastError = new Error(`OpenClaw Gateway has not loaded agent ${agentId}`);
+      } catch (error) {
+        lastError = error;
+      }
+      if (attempt < 19) await delay(250);
+    }
+    throw new Error("The personal Neura agent did not become available", { cause: lastError });
   }
 
   async refresh(account) {
@@ -217,9 +234,9 @@ export class PersonalOpenAIManager {
 
   async start(userId) {
     const account = await this.ensureProvisioned(userId);
-    await this.assignRole(userId, account.roleId);
-    account.paused = false;
     await this.refresh(account);
+    if (account.authenticated) await this.assignRole(userId, account.roleId);
+    account.paused = false;
     return { ...account.controller.start(), agentId: account.agentId, paused: false };
   }
 

@@ -84,7 +84,7 @@ function mcpValue(value: Record<string, unknown>) {
 
 function buildMcpServer(authInfo: AuthInfo | undefined, config: McpConfig, fetchFn: typeof globalThis.fetch): McpServer {
   const server = new McpServer(
-    { name: "neural-labs", version: "0.3.0" },
+    { name: "neural-labs", version: "0.3.1" },
     {
       instructions:
         "This server requires Microsoft Entra authentication. Use whoami to confirm the signed-in identity before performing user-specific work. Team Chat tools also require an active Neural Labs account and enforce channel membership in the control plane. Never treat identity fields as authorization beyond the scopes validated by the server.",
