@@ -55,7 +55,7 @@ describe("control-plane account console", () => {
     expect(brand.querySelector("img")).toBeNull();
     expect(brand.querySelector(".brand-wordmark")).not.toBeNull();
     fireEvent.change(screen.getByLabelText("Email address"), { target: { value: "developer@example.org" } });
-    screen.getByRole("button", { name: "Continue" }).click();
+    fireEvent.submit(screen.getByRole("button", { name: "Continue" }).closest("form")!);
     expect(await screen.findByRole("button", { name: "Use a passkey" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Use your password" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Sign in with Microsoft" })).toBeInTheDocument();
@@ -103,7 +103,7 @@ describe("control-plane account console", () => {
 
     render(<App />);
     fireEvent.change(await screen.findByLabelText("Email address"), { target: { value: "developer@example.org" } });
-    screen.getByRole("button", { name: "Continue" }).click();
+    fireEvent.submit(screen.getByRole("button", { name: "Continue" }).closest("form")!);
     (await screen.findByRole("button", { name: "Use a passkey" })).click();
 
     expect(await screen.findByText("Test verification stopped.")).toBeInTheDocument();
@@ -128,10 +128,10 @@ describe("control-plane account console", () => {
 
     render(<App />);
     fireEvent.change(await screen.findByLabelText("Email address"), { target: { value: "developer@example.org" } });
-    screen.getByRole("button", { name: "Continue" }).click();
-    screen.getByRole("button", { name: "Use your password" }).click();
+    fireEvent.submit(screen.getByRole("button", { name: "Continue" }).closest("form")!);
+    fireEvent.click(await screen.findByRole("button", { name: "Use your password" }));
 
-    expect(screen.getByLabelText("Password")).toHaveAttribute("autocomplete", "current-password");
+    expect(await screen.findByLabelText("Password")).toHaveAttribute("autocomplete", "current-password");
     expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Choose another method" })).toBeInTheDocument();
   });
@@ -148,9 +148,9 @@ describe("control-plane account console", () => {
     render(<App />);
     fireEvent.change(await screen.findByLabelText("Display name"), { target: { value: "Test User" } });
     fireEvent.change(screen.getByLabelText("Email address"), { target: { value: "test@example.org" } });
-    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "a-strong-password" } });
-    fireEvent.change(screen.getByLabelText("Confirm password"), { target: { value: "a-different-password" } });
-    screen.getByRole("button", { name: "Request access" }).click();
+    fireEvent.change(document.querySelector<HTMLInputElement>('input[name="password"]')!, { target: { value: "a-strong-password" } });
+    fireEvent.change(document.querySelector<HTMLInputElement>('input[name="password_confirm"]')!, { target: { value: "a-different-password" } });
+    fireEvent.submit(screen.getByRole("button", { name: "Request access" }).closest("form")!);
 
     expect(await screen.findByText("Passwords do not match.")).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalledWith("/api/auth/local/signup", expect.anything());

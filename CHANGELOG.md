@@ -28,6 +28,8 @@ Versioning and Git tags in the form `vMAJOR.MINOR.PATCH`.
 
 ### Changed
 
+- Refreshed the sign-in, signup, pending-access, setup, and administrator
+  surfaces with one responsive light paper-and-spectrum account experience.
 - Skills is now the canonical reusable-workflow app. The Automations dock icon
   focuses its Automations section rather than opening a second app instance.
 - Regular users can inspect redacted operational automation state and history;

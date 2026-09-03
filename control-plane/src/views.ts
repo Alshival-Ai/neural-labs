@@ -35,6 +35,10 @@ function layout(title: string, body: string, options: { actor?: UserRecord } = {
         </nav>
       </header>
       ${body}
+      <footer class="auth-footer">
+        <span>Neural Labs by <a href="https://alshival.ai/">Alshival.Ai</a></span>
+        <span class="auth-footer-status"><i aria-hidden="true"></i> Private workspace access</span>
+      </footer>
     </div>
   </body>
 </html>`;
