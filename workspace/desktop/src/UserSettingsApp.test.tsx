@@ -37,8 +37,18 @@ const openAI: PersonalOpenAIAuth = {
   paused: true,
 };
 
+const createdPasskey = {
+  id: "44444444-4444-4444-8444-444444444444",
+  name: "My passkey",
+  deviceType: "multiDevice",
+  backedUp: true,
+  createdAt: "2026-09-03T12:00:00.000Z",
+  lastUsedAt: null,
+};
+
 beforeEach(() => {
   let currentOpenAI = { ...openAI };
+  let passkeys: typeof createdPasskey[] = [];
   vi.mocked(startRegistration).mockResolvedValue({
     id: "credential-id",
     rawId: "credential-id",
@@ -53,14 +63,15 @@ beforeEach(() => {
       return json({ local: { enabled: true }, microsoft: { available: true, enabled: true } });
     }
     if (url === "/api/account/openai" && !init?.method) return json(currentOpenAI);
-    if (url === "/api/account/passkeys" && !init?.method) return json({ eligible: true, passkeys: [] });
+    if (url === "/api/account/passkeys" && !init?.method) return json({ eligible: true, passkeys });
     if (url === "/api/account/passkeys/registration/options" && init?.method === "POST") return json({
       transaction: "passkey-transaction-token",
       options: { challenge: "challenge", rp: { name: "Neural Labs", id: "example.org" }, user: { id: "user-id", name: user.email, displayName: user.displayName }, pubKeyCredParams: [], timeout: 300000 },
     });
-    if (url === "/api/account/passkeys/registration/verify" && init?.method === "POST") return json({
-      passkey: { id: "44444444-4444-4444-8444-444444444444", name: "My passkey", deviceType: "multiDevice", backedUp: true, createdAt: "2026-09-03T12:00:00.000Z", lastUsedAt: null },
-    }, 201);
+    if (url === "/api/account/passkeys/registration/verify" && init?.method === "POST") {
+      passkeys = [createdPasskey];
+      return json({ passkey: createdPasskey }, 201);
+    }
     if (url === "/api/account/openai/connect" && init?.method === "POST") {
       currentOpenAI = {
       ...currentOpenAI,
@@ -114,7 +125,11 @@ describe("Settings personalization panel", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Create passkey" }));
 
     expect(await screen.findByText("My passkey is ready for Neural Labs sign-in.")).toBeInTheDocument();
-    expect(screen.getByRole("list", { name: "Your passkeys" })).toHaveTextContent("Synced passkey");
+    const passkeyList = screen.getByRole("list", { name: "Your passkeys" });
+    expect(passkeyList).toHaveTextContent("Synced passkey");
+    expect(passkeyList).toHaveTextContent(new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(createdPasskey.createdAt)));
+    expect(vi.mocked(fetch).mock.calls.filter(([input]) => input === "/api/account/passkeys")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Add passkey" })).toBeInTheDocument();
     expect(startRegistration).toHaveBeenCalledOnce();
     for (const path of ["/api/account/passkeys/registration/options", "/api/account/passkeys/registration/verify"]) {
       const call = vi.mocked(fetch).mock.calls.find(([input]) => input === path);

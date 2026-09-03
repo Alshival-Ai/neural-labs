@@ -1,5 +1,6 @@
 # Neural Labs wiki
 
+- [v0.3.2 release record](releases/v0.3.2.md)
 - [v0.3.1 release record](releases/v0.3.1.md)
 - [v0.3.0 release record](releases/v0.3.0.md)
 - [v0.2.0 release record](releases/v0.2.0.md)

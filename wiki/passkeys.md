@@ -14,6 +14,11 @@ account, or change a role.
 3. Complete the browser or operating-system prompt using the device unlock,
    fingerprint, face, PIN, security key, or cross-device flow it offers.
 
+After verification succeeds, Personalization immediately adds the passkey to
+the list, shows its localized creation date and time, and reconciles the list
+with the server. Other open Personalization windows in the same desktop update
+from the same account-change signal. A manual browser refresh is not required.
+
 On later visits, select **Use a passkey** on the Neural Labs login page. The
 passkey is discoverable, so an email address is not required first.
 

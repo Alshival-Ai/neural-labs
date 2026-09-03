@@ -5,6 +5,52 @@ Versioning and Git tags in the form `vMAJOR.MINOR.PATCH`.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-09-03
+
+### Changed
+
+- Newly registered passkeys now appear immediately in Personalization and are
+  reconciled against the authoritative no-cache account list without requiring
+  a page refresh.
+- Passkey creation and removal broadcast a browser-local account change so
+  every open Personalization view in the current desktop refreshes together.
+- Passkey rows now show the localized creation date and time. After the first
+  credential is registered, the enrollment form clearly changes to **Add
+  another passkey**.
+- Neura now presents an animated, centered readiness state while a new private
+  conversation is created, subscribed over the live Gateway connection, and
+  reconciled with its recent history.
+- Explicit assistant commentary is now grouped with plans, commands, tools,
+  and file activity inside the collapsed **Work details** timeline. Only the
+  terminal answer remains as ordinary assistant text in the chat.
+
+### Fixed
+
+- Fixed successful passkey enrollment leaving the UI on **My passkey** and
+  **Create passkey** until Settings or the browser was manually refreshed.
+- Preserved the successful registration response optimistically if the
+  follow-up list request fails, while later successful synchronization remains
+  authoritative.
+- Removed the synthetic **starting model / Neura is working through the
+  request / Done** step produced by routine Gateway status frames. Status still
+  drives the live run and queue controls without being presented as work.
+- Fixed durable commentary appearing as separate assistant chat bubbles after
+  a live event or history reload. Legacy unphased pre-tool updates are folded
+  once later same-turn activity proves they were not the terminal answer.
+
+### Security and operations
+
+- The synchronization carries only the existing public passkey metadata. It
+  does not expose WebAuthn private keys, credential material, challenges, or
+  transaction tokens and adds no network listener or trust-boundary change.
+- Neura's progress projection uses OpenClaw's explicit `commentary` phase and
+  same-turn supersession; raw model reasoning remains excluded and
+  credential-shaped command output remains redacted.
+- Rebuild and recreate the workspace service to deploy the updated desktop.
+  No database migration is required.
+- Implementation, test, upgrade, rollback, and security details are recorded in
+  [the v0.3.2 release record](wiki/releases/v0.3.2.md).
+
 ## [0.3.1] - 2026-09-03
 
 ### Changed

@@ -261,6 +261,8 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
   const transcriptPinnedToBottom = useRef(true);
   const transcriptFollowFrame = useRef<number | undefined>(undefined);
   const activitiesRef = useRef<NeuraActivity[]>([]);
+  const pendingAssistantText = useRef(new Map<string, string>());
+  const progressSequence = useRef(0);
   const runIdRef = useRef(runId);
   const fileInput = useRef<HTMLInputElement>(null);
   const composerInput = useRef<HTMLTextAreaElement>(null);
@@ -300,6 +302,25 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
       next = [...next.filter((item) => item.id !== activity.id), { ...previous, ...activity }].slice(-80);
     }
     replaceActivities(next);
+  };
+
+  const foldPendingAssistantText = (sessionKey: string, activityRunId: string | undefined, incoming: NeuraActivity[]): NeuraActivity[] => {
+    if (!activityRunId || !incoming.length) return incoming;
+    const text = pendingAssistantText.current.get(activityRunId)?.trim();
+    if (!text) return incoming;
+    pendingAssistantText.current.delete(activityRunId);
+    setMessages((current) => current.filter((message) => message.id !== `run:${activityRunId}`));
+    if (incoming.some((activity) => activity.title === "Progress update" && activity.detail?.trim() === text)) return incoming;
+    progressSequence.current += 1;
+    return [{
+      id: `thinking:preamble:${activityRunId}:${progressSequence.current}`,
+      sessionKey,
+      runId: activityRunId,
+      kind: "thinking",
+      title: "Progress update",
+      detail: text.slice(0, 2_400),
+      state: "done",
+    }, ...incoming];
   };
 
   const finishRunActivities = (completedRunId: string, failed = false): NeuraActivity[] => {
@@ -538,6 +559,7 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
     setSessionReady(false);
     setMessages([]);
     replaceActivities([]);
+    pendingAssistantText.current.clear();
     runIdRef.current = undefined;
     setRunId(undefined);
   }, [selectedChannelId, selectedKey]);
@@ -629,8 +651,29 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
     if (event.event === "session.message") {
       const persisted = messagesFromSessionEvent(event);
       if (!persisted || persisted.sessionKey !== selectedKeyRef.current && persisted.sessionKey !== subscribedKeyRef.current) return;
+      if (persisted.messagePhase === "commentary") {
+        if (persisted.runId) {
+          runIdRef.current = persisted.runId;
+          setRunId(persisted.runId);
+          pendingAssistantText.current.delete(persisted.runId);
+          setMessages((current) => current.filter((message) => message.id !== `run:${persisted.runId}`));
+        }
+        updateActivities(persisted.messages.flatMap((message): NeuraActivity[] => message.role === "assistant" && message.text.trim()
+          ? [{
+              id: `thinking:${message.id}`,
+              sessionKey: persisted.sessionKey,
+              runId: persisted.runId,
+              kind: "thinking",
+              title: "Progress update",
+              detail: message.text.trim().slice(0, 2_400),
+              state: "done",
+            }]
+          : []));
+        return;
+      }
       if (persisted.runId && persisted.messages.some((message) => message.role === "user")) promoteQueuedPrompt(persisted.runId);
       const runFinished = Boolean(persisted.runId && ["end", "error"].includes(persisted.phase ?? ""));
+      if (runFinished) pendingAssistantText.current.delete(persisted.runId!);
       const completedActivities = runFinished ? finishRunActivities(persisted.runId!, persisted.phase === "error") : [];
       const finalAssistantIndex = persisted.messages.findLastIndex((message) => message.role === "assistant");
       for (const [index, message] of persisted.messages.entries()) {
@@ -661,11 +704,7 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
       if (state === "status") {
         runIdRef.current = eventRunId;
         setRunId(eventRunId);
-        const phase = (recordString(payload, "phase") ?? "Starting Neura").replaceAll("_", " ");
         if (activitiesRef.current.some((activity) => activity.runId && activity.runId !== eventRunId)) replaceActivities([]);
-        updateActivities([{
-          id: `status:${eventRunId}`, sessionKey, runId: eventRunId, kind: "thinking", title: phase, detail: "Neura is working through the request", state: "running",
-        }]);
       }
       if (state === "delta") {
         runIdRef.current = eventRunId;
@@ -675,10 +714,12 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
           const id = `run:${eventRunId}`;
           const existing = current.find((message) => message.id === id);
           const text = payload.replace === true ? delta : `${existing?.text ?? ""}${delta}`;
+          pendingAssistantText.current.set(eventRunId, text);
           return [...current.filter((message) => message.id !== id), { ...existing, id, role: "assistant", text, pending: true }];
         });
       }
       if (["final", "aborted", "error"].includes(state ?? "")) {
+        pendingAssistantText.current.delete(eventRunId);
         if (runIdRef.current === eventRunId) runIdRef.current = undefined;
         setRunId((current) => current === eventRunId ? undefined : current);
         const finalText = eventText(payload.message);
@@ -714,7 +755,8 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
       return;
     }
     if (event.event === "session.tool" || event.event === "session.operation" || event.event === "agent") {
-      updateActivities(activitiesFromGatewayEvent(explicitSessionKey ? event : { ...event, payload: { ...payload, sessionKey } }));
+      const incoming = activitiesFromGatewayEvent(explicitSessionKey ? event : { ...event, payload: { ...payload, sessionKey } });
+      updateActivities(foldPendingAssistantText(sessionKey, payloadRunId, incoming));
     }
   }
 
@@ -1198,9 +1240,11 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
             {window.innerWidth <= 760 ? <Menu /> : <PanelLeftOpen />}
           </button>
           <div>
-            <strong>{selectedChannel ? `# ${selectedChannel.name}` : selected?.title ?? "Neura"}</strong>
+            <strong>{creatingSession ? "New conversation" : selectedChannel ? `# ${selectedChannel.name}` : selected?.title ?? "Neura"}</strong>
             <span className={`connection connection-${selectedChannel ? teamConnection : connection}`}>
-              {selectedChannel
+              {creatingSession
+                ? "Creating a private session"
+                : selectedChannel
                 ? teamConnection === "connected" ? `${selectedChannel.memberCount} members · live` : teamConnection
                 : connection === "connected" ? selected && !sessionReady ? "Syncing conversation" : "Connected through OpenClaw" : connection}
             </span>
@@ -1211,6 +1255,7 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
         <div className="message-stage">
         <div ref={messageScroll} className="message-scroll" aria-live="polite" onScroll={handleTranscriptScroll}>
           <div ref={messageContent} className="message-content">
+          {creatingSession ? <NeuraSessionLoader stage="creating" /> : <>
           {!selectedChannel && connection === "error" && <div className="connection-error"><strong>Neura is unavailable</strong><p>{connectionError ?? "The Gateway connection could not be established."} If this is your first visit, connect your ChatGPT account in Settings → Personalization.</p></div>}
           {selectedChannel && teamConnection === "error" && <div className="connection-error"><strong>Team Chat is reconnecting</strong><p>Messages remain safely stored. Live updates will resume automatically.</p></div>}
           {selectedChannel && teamAgentError && <div className="connection-error"><strong>Neura could not join this turn</strong><p>{teamAgentError}</p></div>}
@@ -1219,10 +1264,11 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
               <div className="neura-orb">N</div>
               <h1>Work with Neura</h1>
               <p>Neura is your OpenClaw agent. New conversations are private to your account.</p>
-              <button type="button" disabled={creatingSession} aria-busy={creatingSession} onClick={() => void createConversation()}><MessageSquarePlus /> {creatingSession ? "Creating…" : "Start a conversation"}</button>
+              <button type="button" onClick={() => void createConversation()}><MessageSquarePlus />Start a conversation</button>
             </div>
           )}
-          {selected && !selectedChannel && messages.length === 0 && (
+          {selected && !selectedChannel && messages.length === 0 && !sessionReady && <NeuraSessionLoader stage="connecting" />}
+          {selected && !selectedChannel && messages.length === 0 && sessionReady && (
             <div className="neura-welcome compact"><div className="neura-orb">N</div><h1>What should we work on?</h1><p>{selected.visibility === "draft" ? "Only you can see and write in this conversation." : "This conversation is shared with your team."}</p></div>
           )}
           {!selectedChannel && messages.map((message) => (
@@ -1264,12 +1310,13 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
             </article>;
           })}
           {!selectedChannel && activities.length > 0 && <NeuraActivityTimeline activities={activities} live={agentBusy} />}
+          </>}
           </div>
         </div>
         {showJumpToLatest && <button type="button" className="jump-to-latest" onClick={() => scrollToLatest("smooth")}><ChevronDown />Latest</button>}
         </div>
 
-        {selectedChannel && (
+        {!creatingSession && selectedChannel && (
           <footer className="neura-composer-area team-composer-area">
             {(teamAgentBusy || teamTyping.length > 0) && <div className="team-presence" role="status">
               {teamAgentBusy && <span><span className="activity-spinner" />Neura is working…</span>}
@@ -1294,7 +1341,7 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
           </footer>
         )}
 
-        {selected && !selectedChannel && (
+        {!creatingSession && selected && !selectedChannel && (
           <footer className="neura-composer-area">
             {approvals.filter((approval) => !approval.sessionKey || approval.sessionKey === selected.key).map((approval) => (
               <div className="approval-card" key={approval.id}>
@@ -1400,6 +1447,18 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
       />}
     </div>
   );
+}
+
+function NeuraSessionLoader({ stage }: { stage: "creating" | "connecting" }) {
+  return <div className="neura-welcome compact neura-session-loader" role="status" aria-label="Preparing Neura conversation">
+    <div className="neura-ready-orb" aria-hidden="true"><span>N</span><i /><i /><i /></div>
+    <h1>{stage === "creating" ? "Starting a new chat" : "Getting Neura ready"}</h1>
+    <p>{stage === "creating" ? "Creating your private conversation." : "Opening the live OpenClaw session and loading recent context."}</p>
+    <div className="neura-ready-progress" aria-hidden="true">
+      <span><Check />{stage === "creating" ? "Private session" : "Session created"}</span>
+      <span><i />{stage === "creating" ? "Connecting to OpenClaw" : "Opening live connection"}</span>
+    </div>
+  </div>;
 }
 
 function NeuraActivityTimeline({ activities, live = false }: { activities: NeuraActivity[]; live?: boolean }) {

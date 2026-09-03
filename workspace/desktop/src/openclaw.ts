@@ -33,7 +33,7 @@ import {
   shouldProtectLegacyPrivateSession,
 } from "./sessionVisibility";
 
-const CLIENT_VERSION = "0.3.1";
+const CLIENT_VERSION = "0.3.2";
 const IDENTITY_KEY = "neural-labs.neura.device.v1";
 const TOKEN_PREFIX = "neural-labs.neura.token.v1";
 const INSTANCE_KEY = "neural-labs.neura.instance.v1"; // gitleaks:allow -- localStorage key name, not a credential
@@ -594,6 +594,46 @@ function mergeActivity(list: NeuraActivity[], activity: NeuraActivity): NeuraAct
   return [...list.filter((item) => item.id !== activity.id), { ...previous, ...activity }].slice(-80);
 }
 
+function foldAssistantProgress(messages: NeuraMessage[], sessionKey: string): NeuraMessage[] {
+  const folded: NeuraMessage[] = [];
+  for (let index = 0; index < messages.length;) {
+    if (messages[index].role !== "assistant") {
+      folded.push(messages[index]);
+      index += 1;
+      continue;
+    }
+    const group: NeuraMessage[] = [];
+    while (index < messages.length && messages[index].role === "assistant") {
+      group.push(messages[index]);
+      index += 1;
+    }
+    if (group.length === 1) {
+      folded.push(group[0]);
+      continue;
+    }
+    const answerIndex = group.findLastIndex((message) => Boolean(message.text.trim()));
+    const answer = group[Math.max(0, answerIndex)];
+    const activities: NeuraActivity[] = [];
+    for (const [groupIndex, message] of group.entries()) {
+      for (const activity of message.activities ?? []) activities.push(activity);
+      if (groupIndex !== answerIndex && message.text.trim()) activities.push({
+        id: `thinking:${message.id}`,
+        sessionKey,
+        kind: "thinking",
+        title: "Progress update",
+        detail: safeActivityText(message.text, 2_400),
+        state: "done",
+      });
+    }
+    folded.push({
+      ...answer,
+      ...(answerIndex < 0 ? { text: "" } : {}),
+      ...(activities.length ? { activities } : {}),
+    });
+  }
+  return folded;
+}
+
 export function activitiesFromGatewayEvent(event: GatewayEvent): NeuraActivity[] {
   const payload = eventRecord(event);
   if (!payload) return [];
@@ -663,6 +703,13 @@ function normalizeMessage(value: unknown, fallbackId: string): NeuraMessage[] {
   }];
 }
 
+function normalizedMessagePhase(value: unknown): "commentary" | "final_answer" | undefined {
+  if (!isRecord(value)) return undefined;
+  const nested = isRecord(value.message) ? value.message : value;
+  const phase = (stringValue(nested.phase) ?? stringValue(value.phase))?.toLowerCase().replaceAll("-", "_");
+  return phase === "commentary" || phase === "final_answer" ? phase : undefined;
+}
+
 function normalizedHistoryRole(value: RecordValue): string {
   return (stringValue(value.role) ?? (isRecord(value.message) ? stringValue(value.message.role) : undefined) ?? "")
     .toLowerCase().replaceAll(/[_-]+/g, "");
@@ -721,6 +768,19 @@ export function normalizeNeuraHistory(rows: unknown[], sessionKey: string): Neur
     }
 
     const normalized = normalizeMessage(candidate, `${sessionKey}:${index}`);
+    if (role === "assistant" && normalizedMessagePhase(candidate) === "commentary") {
+      for (const message of normalized) {
+        pending = mergeActivity(pending, {
+          id: `thinking:${message.id}`,
+          sessionKey,
+          kind: "thinking",
+          title: "Progress update",
+          detail: safeActivityText(message.text, 2_400),
+          state: "done",
+        });
+      }
+      return;
+    }
     for (const message of normalized) {
       const hasToolCall = blocks.some((block) => ["toolcall", "tooluse", "functioncall"].includes(historyBlockType(block)));
       if (message.role === "assistant" && !hasToolCall && pending.length) {
@@ -731,7 +791,7 @@ export function normalizeNeuraHistory(rows: unknown[], sessionKey: string): Neur
     }
   });
   flushPending();
-  return messages;
+  return foldAssistantProgress(messages, sessionKey);
 }
 
 async function fileToGatewayAttachment(attachment: ComposerAttachment) {
@@ -766,6 +826,7 @@ export function messagesFromSessionEvent(event: GatewayEvent) {
     sessionKey,
     runId,
     phase: stringValue(payload.phase),
+    messagePhase: normalizedMessagePhase(payload.message),
     messages: normalizeMessage(payload.message, fallbackId),
   };
 }

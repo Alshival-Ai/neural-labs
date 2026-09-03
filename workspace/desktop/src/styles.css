@@ -482,6 +482,18 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, summary:focus-vis
 .neura-welcome { width: min(31rem, 100%); min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; margin: auto; padding: 2rem 1rem 5rem; text-align: center; }
 .neura-welcome.compact { min-height: 85%; }
 .neura-orb { width: 3.35rem; height: 3.35rem; display: grid; place-items: center; margin-bottom: .9rem; border: 3px solid transparent; border-radius: 17px; color: #fff; background: linear-gradient(var(--ink), var(--ink)) padding-box, linear-gradient(135deg, var(--cyan), var(--accent), var(--pink), var(--coral), var(--amber)) border-box; box-shadow: 0 17px 38px rgba(22, 23, 31, .14); font-size: var(--desktop-font-title, 20px); font-weight: 850; }
+.neura-session-loader { gap: .08rem; }
+.neura-ready-orb { position: relative; width: 4.1rem; height: 4.1rem; display: grid; place-items: center; margin: 0 0 1.2rem; border-radius: 20px; color: #fff; background: var(--ink); box-shadow: 0 18px 42px rgba(22, 23, 31, .16); }
+.neura-ready-orb span { position: relative; z-index: 2; font-size: var(--desktop-font-title, 20px); font-weight: 850; }
+.neura-ready-orb > i { position: absolute; inset: -.38rem; border: 2px solid transparent; border-top-color: var(--cyan); border-right-color: var(--accent); border-radius: 24px; animation: spin 1.35s linear infinite; }
+.neura-ready-orb > i:nth-of-type(2) { inset: -.72rem; border-width: 1px; border-top-color: transparent; border-right-color: var(--pink); border-bottom-color: var(--amber); border-radius: 27px; animation-direction: reverse; animation-duration: 2.2s; }
+.neura-ready-orb > i:nth-of-type(3) { inset: -.25rem auto auto 50%; width: .48rem; height: .48rem; border: 0; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 0 .25rem rgba(8, 169, 239, .12); animation: neura-ready-pulse 1.15s ease-in-out infinite; }
+.neura-session-loader p { margin-bottom: .72rem; }
+.neura-ready-progress { display: flex; flex-wrap: wrap; justify-content: center; gap: .4rem; }
+.neura-ready-progress > span { min-height: 1.7rem; display: inline-flex; align-items: center; gap: .34rem; padding: .28rem .52rem; border: 1px solid rgba(36, 37, 43, .09); border-radius: 999px; color: #75767d; background: rgba(255, 255, 255, .68); font-size: var(--desktop-font-body, 13px); }
+.neura-ready-progress > span:first-child svg { color: var(--mint); }
+.neura-ready-progress > span:last-child i { width: .38rem; height: .38rem; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 .22rem rgba(123, 77, 255, .1); animation: neura-ready-pulse 1.15s ease-in-out infinite; }
+@keyframes neura-ready-pulse { 50% { opacity: .38; transform: scale(.72); } }
 .neura-welcome h1 { margin: 0; color: var(--ink); font-size: clamp(var(--desktop-font-title, 20px), 3vw, var(--desktop-font-display-lg, 32px)); letter-spacing: -.045em; }
 .neura-welcome p { max-width: 29rem; margin: .65rem 0 1rem; color: #686970; font-size: var(--desktop-font-subheading, 16px); line-height: 1.6; }
 .neura-welcome > button { display: inline-flex; align-items: center; gap: .5rem; padding: .62rem .82rem; border: 1px solid var(--ink); border-radius: 10px; color: #fff; background: var(--ink); box-shadow: 3px 3px 0 var(--amber); cursor: pointer; font-size: var(--desktop-font-subheading, 16px); font-weight: 720; transition: box-shadow 150ms ease, transform 150ms ease; }

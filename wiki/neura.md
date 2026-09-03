@@ -15,6 +15,13 @@ treated as the conversation list. OpenClaw then delivers streaming `chat` events
 projections so a committed final answer replaces its temporary streaming row
 without waiting for a page refresh.
 
+Creating a private conversation has an explicit readiness transition. Neura
+shows **Starting a new chat** while OpenClaw creates the session, then **Getting
+Neura ready** while it acquires the exact message subscription and reconciles
+recent context. The previous composer is hidden during creation, and the new
+composer is enabled only after the subscription and history load both succeed.
+The animated indicator respects reduced-motion preferences.
+
 The transcript follows incoming messages while the reader is within 48 pixels
 of the bottom. Scrolling upward pauses that behavior and reveals a compact
 **Latest** control; using it resumes bottom-follow. WebSocket reconnects keep
@@ -109,9 +116,15 @@ steps can then reveal their bounded command, output, exit code, and duration.
 Durable tool calls and results from `chat.history` are reconstructed into the
 same UI after a reload. Known credential-shaped values are redacted, and raw
 reasoning content is never projected—the UI uses a generic thinking label or
-explicit commentary intended for display. OpenClaw approval events render
-inline with only their allowed decisions. Assistant text is rendered as
-Markdown without raw HTML.
+explicit commentary intended for display. Assistant messages marked with
+OpenClaw's `commentary` phase become **Progress update** steps inside this card,
+both live and after history reload; only the final answer remains in the main
+chat. Older unphased preambles are folded when a later tool, plan, or same-turn
+assistant answer establishes that they were intermediate. Routine transport
+states such as model startup still drive run and queue state but do not appear
+as synthetic completed work. OpenClaw approval events render inline with only
+their allowed decisions. Assistant text is rendered as Markdown without raw
+HTML.
 
 Team Chat uses the same timeline. After the author's personal run completes,
 the workspace reconstructs bounded work details from the run history, redacts

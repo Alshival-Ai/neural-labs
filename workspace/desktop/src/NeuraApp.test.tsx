@@ -20,7 +20,10 @@ const session: SessionRow = {
 class FakeGateway {
   readonly calls: string[] = [];
   readonly sends: Array<{ message: string; queueMode: "steer" | "followup" }> = [];
+  readonly createdSession: SessionRow = { ...session, key: "agent:main:neura:new", sessionId: "session-new", title: "New conversation" };
   sessionActive = false;
+  createGate?: Promise<void>;
+  historyGates = new Map<string, Promise<void>>();
   private sendSequence = 0;
   private eventListener?: (event: GatewayEvent) => void;
   private statusListener?: (state: ConnectionState, error?: string) => void;
@@ -55,7 +58,14 @@ class FakeGateway {
 
   async loadHistory(key: string) {
     this.calls.push(`history:${key}`);
+    await this.historyGates.get(key);
     return [];
+  }
+
+  async createSession() {
+    this.calls.push("sessions.create");
+    await this.createGate;
+    return this.createdSession;
   }
 
   async readSkillsStatus() {
@@ -121,6 +131,31 @@ afterAll(() => {
 afterEach(cleanup);
 
 describe("Neura realtime conversation", () => {
+  it("shows a focused loader until a newly created OpenClaw conversation is ready", async () => {
+    const gateway = new FakeGateway();
+    let releaseCreate: () => void = () => {};
+    let releaseHistory: () => void = () => {};
+    gateway.createGate = new Promise<void>((resolve) => { releaseCreate = resolve; });
+    gateway.historyGates.set(gateway.createdSession.key, new Promise<void>((resolve) => { releaseHistory = resolve; }));
+    const view = render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
+    await waitFor(() => expect(screen.getByPlaceholderText("Message Neura…")).toBeEnabled());
+
+    fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+    const loader = await screen.findByRole("status", { name: "Preparing Neura conversation" });
+    expect(loader).toHaveTextContent("Starting a new chat");
+    expect(view.container.querySelector(".neura-ready-orb")).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("Message Neura…")).not.toBeInTheDocument();
+
+    await act(async () => releaseCreate());
+    await waitFor(() => expect(screen.getByRole("status", { name: "Preparing Neura conversation" })).toHaveTextContent("Getting Neura ready"));
+    expect(screen.getByRole("status", { name: "Preparing Neura conversation" })).toHaveTextContent("Opening live connection");
+
+    await act(async () => releaseHistory());
+    await waitFor(() => expect(screen.getByPlaceholderText("Message Neura…")).toBeEnabled());
+    expect(screen.queryByRole("status", { name: "Preparing Neura conversation" })).not.toBeInTheDocument();
+    expect(screen.getByText("What should we work on?")).toBeInTheDocument();
+  });
+
   it("makes Team Chat creation a labeled, discoverable action", async () => {
     const gateway = new FakeGateway();
     render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
@@ -180,6 +215,9 @@ describe("Neura realtime conversation", () => {
     act(() => gateway.emit({ event: "chat", payload: {
       sessionKey: session.key, runId: "activity-run", state: "status", phase: "working",
     } }));
+    act(() => gateway.emit({ event: "chat", payload: {
+      sessionKey: session.key, runId: "activity-run", state: "delta", deltaText: "I’ll inspect the current setup.",
+    } }));
     act(() => gateway.emit({ event: "session.tool", payload: {
       sessionKey: session.key,
       runId: "activity-run",
@@ -203,8 +241,12 @@ describe("Neura realtime conversation", () => {
     expect(within(timeline).getByText("3 steps")).toBeInTheDocument();
     expect(within(timeline).getAllByText("Plan updated")).toHaveLength(2);
     expect(within(timeline).getByText("Running command")).toBeInTheDocument();
+    expect(timeline).toHaveTextContent("I’ll inspect the current setup.");
+    expect(view.container.querySelectorAll("article.message-assistant")).toHaveLength(0);
     expect(timeline).toHaveTextContent("TOKEN=[redacted] npm test");
     expect(timeline).not.toHaveTextContent("private-value");
+    expect(timeline).not.toHaveTextContent("Neura is working through the request");
+    expect(timeline).not.toHaveTextContent("workingDone");
 
     fireEvent.click(within(timeline).getByText("Neura is working"));
     expect(timeline.open).toBe(true);
@@ -217,6 +259,38 @@ describe("Neura realtime conversation", () => {
     } }));
     expect(await screen.findByText("All checks passed.")).toBeInTheDocument();
     expect(screen.getByText("Work details")).toBeInTheDocument();
+  });
+
+  it("keeps commentary updates inside Work details and leaves only the final answer in chat", async () => {
+    const gateway = new FakeGateway();
+    const view = render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
+    await waitFor(() => expect(screen.getByPlaceholderText("Message Neura…")).toBeEnabled());
+
+    act(() => gateway.emit({ event: "session.message", payload: {
+      sessionKey: session.key,
+      runId: "commentary-run",
+      phase: "stream",
+      messageId: "progress-1",
+      message: { id: "progress-1", role: "assistant", phase: "commentary", content: [{ type: "text", text: "I’ll check the deployment notes." }] },
+    } }));
+    const liveTimeline = view.container.querySelector(".neura-activity-timeline") as HTMLDetailsElement;
+    expect(liveTimeline).toBeInTheDocument();
+    expect(within(liveTimeline).getAllByText("I’ll check the deployment notes.")).toHaveLength(2);
+    expect(within(liveTimeline).getAllByText("Progress update")).toHaveLength(2);
+    expect(view.container.querySelectorAll("article.message")).toHaveLength(0);
+
+    act(() => gateway.emit({ event: "session.message", payload: {
+      sessionKey: session.key,
+      runId: "commentary-run",
+      phase: "end",
+      messageId: "answer-1",
+      message: { id: "answer-1", role: "assistant", phase: "final_answer", content: [{ type: "text", text: "The demo host is ready." }] },
+    } }));
+    const assistantMessages = view.container.querySelectorAll("article.message-assistant");
+    expect(assistantMessages).toHaveLength(1);
+    expect(assistantMessages[0]).toHaveTextContent("The demo host is ready.");
+    expect(within(assistantMessages[0] as HTMLElement).getByText("Work details")).toBeInTheDocument();
+    expect(within(assistantMessages[0] as HTMLElement).getAllByText("I’ll check the deployment notes.")).toHaveLength(2);
   });
 
   it("follows new messages at the bottom but preserves a reader's scroll position", async () => {

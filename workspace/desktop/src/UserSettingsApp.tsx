@@ -18,7 +18,7 @@ import {
   UserRound,
   X,
 } from "lucide-react";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import { FontSizeControl } from "./FontSizeControl";
 import { SettingsApiError, settingsMutationHeaders, settingsRequest } from "./settingsApi";
@@ -76,6 +76,15 @@ type PersonalizationPanelProps = {
   onLogout: () => void;
 };
 
+const PASSKEYS_CHANGED_EVENT = "neural-labs:passkeys-changed";
+
+function passkeyCreatedAt(value: string): string {
+  const createdAt = new Date(value);
+  return Number.isNaN(createdAt.getTime())
+    ? "Unknown time"
+    : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(createdAt);
+}
+
 function friendlyRole(role: PersonalizationUser["role"]): string {
   return role === "admin" ? "Administrator" : "Member";
 }
@@ -95,7 +104,20 @@ export function PersonalizationPanel({ user, providers: initialProviders, csrfTo
   const [passkeyEligible, setPasskeyEligible] = useState<boolean | null>();
   const [passkeyName, setPasskeyName] = useState("My passkey");
   const [passkeyBusy, setPasskeyBusy] = useState(false);
+  const passkeyRefreshVersion = useRef(0);
   const passkeySupported = browserSupportsWebAuthn();
+
+  const refreshPasskeys = useCallback(async (preserveCurrentOnError = false) => {
+    const requestVersion = ++passkeyRefreshVersion.current;
+    try {
+      const result = await settingsRequest<{ eligible: boolean; passkeys: AccountPasskey[] }>("/api/account/passkeys");
+      if (requestVersion !== passkeyRefreshVersion.current) return;
+      setPasskeyEligible(result.eligible);
+      setPasskeys(result.passkeys);
+    } catch {
+      if (requestVersion === passkeyRefreshVersion.current && !preserveCurrentOnError) setPasskeyEligible(null);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -106,16 +128,14 @@ export function PersonalizationPanel({ user, providers: initialProviders, csrfTo
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    void settingsRequest<{ eligible: boolean; passkeys: AccountPasskey[] }>("/api/account/passkeys")
-      .then((result) => {
-        if (cancelled) return;
-        setPasskeyEligible(result.eligible);
-        setPasskeys(result.passkeys);
-      })
-      .catch(() => { if (!cancelled) setPasskeyEligible(null); });
-    return () => { cancelled = true; };
-  }, []);
+    void refreshPasskeys();
+    const handlePasskeysChanged = () => void refreshPasskeys(true);
+    window.addEventListener(PASSKEYS_CHANGED_EVENT, handlePasskeysChanged);
+    return () => {
+      passkeyRefreshVersion.current += 1;
+      window.removeEventListener(PASSKEYS_CHANGED_EVENT, handlePasskeysChanged);
+    };
+  }, [refreshPasskeys]);
 
   useEffect(() => {
     let cancelled = false;
@@ -236,8 +256,12 @@ export function PersonalizationPanel({ user, providers: initialProviders, csrfTo
           body: JSON.stringify({ transaction: ceremony.transaction, name: passkeyName, response: credential }),
         },
       );
-      setPasskeys((current) => [...current, result.passkey]);
+      passkeyRefreshVersion.current += 1;
+      setPasskeyEligible(true);
+      setPasskeys((current) => [...current.filter((passkey) => passkey.id !== result.passkey.id), result.passkey]
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt)));
       setNotice({ tone: "success", message: `${result.passkey.name} is ready for Neural Labs sign-in.` });
+      window.dispatchEvent(new Event(PASSKEYS_CHANGED_EVENT));
     } catch (error) {
       setNotice({
         tone: "error",
@@ -258,6 +282,7 @@ export function PersonalizationPanel({ user, providers: initialProviders, csrfTo
       });
       setPasskeys((current) => current.filter((item) => item.id !== passkey.id));
       setNotice({ tone: "success", message: `${passkey.name} was removed from Neural Labs.` });
+      window.dispatchEvent(new Event(PASSKEYS_CHANGED_EVENT));
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof SettingsApiError ? error.message : "The passkey could not be removed." });
     } finally {
@@ -413,15 +438,15 @@ export function PersonalizationPanel({ user, providers: initialProviders, csrfTo
             <div className="user-settings-passkeys">
               {passkeys.length > 0 && <ul aria-label="Your passkeys">{passkeys.map((passkey) => (
                 <li key={passkey.id}>
-                  <div><strong>{passkey.name}</strong><small>{passkey.backedUp ? "Synced passkey" : "Device-bound passkey"} · added {new Date(passkey.createdAt).toLocaleDateString()}</small></div>
+                  <div><strong>{passkey.name}</strong><small>{passkey.backedUp ? "Synced passkey" : "Device-bound passkey"} · added <time dateTime={passkey.createdAt}>{passkeyCreatedAt(passkey.createdAt)}</time></small></div>
                   <button type="button" disabled={passkeyBusy} onClick={() => void removePasskey(passkey)}>Remove</button>
                 </li>
               ))}</ul>}
               <form className="user-settings-passkey-form" onSubmit={createPasskey}>
-                <label htmlFor="user-settings-passkey-name"><span>Create a passkey</span><small>Microsoft must already be linked to this account.</small></label>
+                <label htmlFor="user-settings-passkey-name"><span>{passkeys.length > 0 ? "Add another passkey" : "Create a passkey"}</span><small>Microsoft must already be linked to this account.</small></label>
                 <div>
                   <input id="user-settings-passkey-name" aria-label="Passkey name" value={passkeyName} minLength={1} maxLength={80} onChange={(event) => setPasskeyName(event.target.value)} required />
-                  <button type="submit" disabled={passkeyBusy}>{passkeyBusy ? "Waiting for device…" : "Create passkey"}</button>
+                  <button type="submit" disabled={passkeyBusy}>{passkeyBusy ? "Waiting for device…" : passkeys.length > 0 ? "Add passkey" : "Create passkey"}</button>
                 </div>
               </form>
             </div>

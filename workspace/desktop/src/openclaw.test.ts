@@ -47,4 +47,22 @@ describe("Neura Gateway projections", () => {
     expect(thinking[0]).toMatchObject({ kind: "thinking", detail: "Reasoning through the request" });
     expect(JSON.stringify(thinking)).not.toContain("raw private chain of thought");
   });
+
+  it("folds durable commentary into the final answer's work details", () => {
+    const history = normalizeNeuraHistory([
+      { role: "user", id: "user-1", content: [{ type: "text", text: "Where is the demo hosted?" }] },
+      { role: "assistant", id: "progress-1", phase: "commentary", content: [{ type: "text", text: "I’ll check the deployment notes." }] },
+      { role: "assistant", id: "progress-2", content: [{ type: "text", text: "I found the current host entry." }] },
+      { role: "assistant", id: "answer-1", phase: "final_answer", content: [{ type: "text", text: "The demo host is online." }] },
+    ], "agent:main:neura:test");
+
+    expect(history).toHaveLength(2);
+    expect(history[1].text).toBe("The demo host is online.");
+    expect(history[1].activities).toHaveLength(2);
+    expect(history[1].activities?.map((activity) => activity.title)).toEqual(["Progress update", "Progress update"]);
+    expect(history[1].activities?.map((activity) => activity.detail)).toEqual([
+      "I’ll check the deployment notes.",
+      "I found the current host entry.",
+    ]);
+  });
 });
