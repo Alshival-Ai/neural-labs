@@ -21,6 +21,7 @@ import type {
   ComposerAttachment,
   ConnectionState,
   GatewayEvent,
+  NeuraActivity,
   NeuraMessage,
   SessionRow,
 } from "./types";
@@ -32,7 +33,7 @@ import {
 } from "./sessionVisibility";
 
 const AGENT_ID = "main";
-const CLIENT_VERSION = "0.1.0";
+const CLIENT_VERSION = "0.2.0";
 const IDENTITY_KEY = "neural-labs.neura.device.v1";
 const TOKEN_PREFIX = "neural-labs.neura.token.v1";
 const INSTANCE_KEY = "neural-labs.neura.instance.v1"; // gitleaks:allow -- localStorage key name, not a credential
@@ -364,7 +365,7 @@ export class NeuraGateway {
       limit: 250,
     });
     const rows = isRecord(result) && Array.isArray(result.messages) ? result.messages : [];
-    return rows.flatMap((message, index) => normalizeMessage(message, `${sessionKey}:${index}`));
+    return normalizeNeuraHistory(rows, sessionKey);
   }
 
   async send(
@@ -373,7 +374,7 @@ export class NeuraGateway {
     attachments: ComposerAttachment[],
     queueMode: "steer" | "followup",
   ) {
-    return this.client.request<{ runId?: string }>("chat.send", {
+    return this.client.request<{ runId: string }>("chat.send", {
       sessionKey: session.key,
       sessionId: session.sessionId,
       agentId: AGENT_ID,
@@ -446,6 +447,149 @@ function numberValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+const ACTIVITY_SECRET_ASSIGNMENT = /\b(api[_-]?key|access[_-]?token|auth[_-]?token|token|password|passwd|secret|authorization)\b(\s*[:=]\s*)([^\s,;]+)/gi;
+const ACTIVITY_BEARER = /\bBearer\s+[A-Za-z0-9._~+\/-]+/gi;
+const ACTIVITY_OPENAI_KEY = /\bsk-[A-Za-z0-9_-]{12,}\b/g;
+
+function safeActivityText(value: unknown, limit: number): string {
+  const text = typeof value === "string" ? value : "";
+  return text
+    .replace(ACTIVITY_BEARER, "Bearer [redacted]")
+    .replace(ACTIVITY_OPENAI_KEY, "[redacted]")
+    .replace(ACTIVITY_SECRET_ASSIGNMENT, (_match, name: string, separator: string) => `${name}${separator}[redacted]`)
+    .trim()
+    .slice(0, limit);
+}
+
+function nestedActivityText(value: unknown, limit: number): string {
+  if (typeof value === "string") return safeActivityText(value, limit);
+  if (Array.isArray(value)) {
+    return safeActivityText(value.map((item) => nestedActivityText(item, limit)).filter(Boolean).join("\n"), limit);
+  }
+  if (!isRecord(value)) return "";
+  return nestedActivityText(value.output ?? value.text ?? value.content ?? value.message, limit);
+}
+
+function activityState(data: RecordValue): NeuraActivity["state"] {
+  const value = (stringValue(data.status) ?? stringValue(data.state) ?? stringValue(data.phase) ?? "running").toLowerCase();
+  if (["error", "failed", "failure"].includes(value) || data.isError === true) return "error";
+  if (["done", "completed", "complete", "result", "end", "success", "succeeded"].includes(value)) return "done";
+  return "running";
+}
+
+function activityArguments(data: RecordValue): RecordValue {
+  for (const value of [data.args, data.arguments, data.input]) {
+    if (isRecord(value)) return value;
+    if (typeof value === "string") {
+      try {
+        const parsed = JSON.parse(value) as unknown;
+        if (isRecord(parsed)) return parsed;
+      } catch {
+        // A plain string is not a structured tool argument object.
+      }
+    }
+  }
+  return {};
+}
+
+function activityCommand(args: RecordValue): string {
+  const value = args.command ?? args.cmd;
+  return safeActivityText(Array.isArray(value) ? value.map(String).join(" ") : value, 4_000);
+}
+
+function activityPlan(data: RecordValue, args: RecordValue): string {
+  const value = Array.isArray(data.plan) ? data.plan : Array.isArray(data.steps) ? data.steps : Array.isArray(args.plan) ? args.plan : Array.isArray(args.steps) ? args.steps : [];
+  const steps = value.slice(0, 20).map((candidate) => {
+    if (typeof candidate === "string") return safeActivityText(candidate, 240);
+    if (!isRecord(candidate)) return "";
+    const text = safeActivityText(candidate.step ?? candidate.title ?? candidate.text, 240);
+    const status = safeActivityText(candidate.status, 40).replaceAll("_", " ");
+    return text ? `${status ? `${status}: ` : ""}${text}` : "";
+  }).filter(Boolean);
+  return safeActivityText(steps.join("\n") || (data.explanation ?? args.explanation), 3_000);
+}
+
+function activityForTool(data: RecordValue, sessionKey: string, runId?: string): NeuraActivity | null {
+  const args = activityArguments(data);
+  const result = isRecord(data.result) ? data.result : {};
+  const resultDetails = isRecord(result.details) ? result.details : {};
+  const name = (stringValue(data.name) ?? stringValue(data.toolName) ?? stringValue(data.tool) ?? "tool").toLowerCase();
+  const toolCallId = stringValue(data.toolCallId) ?? stringValue(data.tool_call_id) ?? stringValue(data.callId) ?? stringValue(data.id);
+  if (!toolCallId) return null;
+  const state = activityState({ ...resultDetails, ...result, ...data });
+  const command = activityCommand(args);
+  const isCommand = Boolean(command) || /(^|[._-])(exec|bash|shell|command|terminal)([._-]|$)/.test(name);
+  const isPlan = name.includes("plan");
+  const isFile = /(apply.?patch|write.?file|edit.?file|create.?file)/.test(name);
+  const output = nestedActivityText(data.output ?? result.output ?? resultDetails.output, 12_000);
+  const detail = safeActivityText(data.summary ?? data.detail ?? data.meta ?? data.toolErrorSummary, 2_400);
+  const path = safeActivityText(args.path ?? args.filePath ?? args.file, 600);
+  const exitCode = numberValue(data.exitCode) ?? numberValue(result.exitCode) ?? numberValue(resultDetails.exitCode);
+  const durationMs = numberValue(data.durationMs) ?? numberValue(result.durationMs) ?? numberValue(resultDetails.durationMs);
+
+  if (isPlan) {
+    return { id: `plan:${toolCallId}`, sessionKey, runId, kind: "plan", title: state === "running" ? "Updating plan" : "Plan updated", detail: activityPlan(data, args) || detail, state };
+  }
+  if (isCommand) {
+    return {
+      id: `command:${toolCallId}`, sessionKey, runId, kind: "command",
+      title: state === "running" ? "Running command" : state === "error" ? "Command failed" : "Command completed",
+      ...(command ? { command } : {}), ...(output ? { output } : {}), ...(detail ? { detail } : {}),
+      ...(exitCode !== undefined ? { exitCode } : {}), ...(durationMs !== undefined ? { durationMs } : {}), state,
+    };
+  }
+  if (isFile) {
+    return { id: `file:${toolCallId}`, sessionKey, runId, kind: "file", title: state === "running" ? "Updating files" : state === "error" ? "File update failed" : "Files updated", ...(path ? { path } : {}), ...(detail ? { detail } : {}), state };
+  }
+  const readableName = name.replace(/^mcp__/, "").replaceAll(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return { id: `tool:${toolCallId}`, sessionKey, runId, kind: "tool", title: readableName || "Agent action", ...(detail ? { detail } : {}), state };
+}
+
+function mergeActivity(list: NeuraActivity[], activity: NeuraActivity): NeuraActivity[] {
+  const previous = list.find((item) => item.id === activity.id);
+  return [...list.filter((item) => item.id !== activity.id), { ...previous, ...activity }].slice(-80);
+}
+
+export function activitiesFromGatewayEvent(event: GatewayEvent): NeuraActivity[] {
+  const payload = eventRecord(event);
+  if (!payload) return [];
+  const sessionKey = stringValue(payload.sessionKey);
+  if (!sessionKey) return [];
+  const runId = stringValue(payload.runId);
+  if (event.event === "session.operation") {
+    const operation = stringValue(payload.operation)?.replaceAll(/[_-]+/g, " ") ?? "conversation maintenance";
+    const state = activityState(payload);
+    return [{
+      id: `operation:${stringValue(payload.operationId) ?? operation}`,
+      sessionKey, runId, kind: "operation",
+      title: `${state === "running" ? "Running" : state === "error" ? "Failed" : "Completed"} ${operation}`,
+      detail: safeActivityText(payload.reason, 2_400), state,
+    }];
+  }
+  if (event.event !== "session.tool" && event.event !== "agent") return [];
+  const stream = (stringValue(payload.stream) ?? "tool").toLowerCase();
+  const data = isRecord(payload.data) ? payload.data : payload;
+  if (stream === "thinking") {
+    return [{ id: `thinking:${runId ?? "active"}`, sessionKey, runId, kind: "thinking", title: "Thinking", detail: "Reasoning through the request", state: activityState(data) }];
+  }
+  if (stream === "assistant" && stringValue(data.phase) === "commentary") {
+    const detail = safeActivityText(data.text ?? data.delta, 2_400);
+    return detail ? [{ id: `thinking:${stringValue(data.itemId) ?? runId ?? "active"}`, sessionKey, runId, kind: "thinking", title: "Progress update", detail, state: activityState(data) }] : [];
+  }
+  if (stream === "plan") {
+    return [{ id: `plan:${runId ?? "active"}`, sessionKey, runId, kind: "plan", title: "Plan updated", detail: activityPlan(data, {}), state: activityState(data) }];
+  }
+  if (stream === "command_output") {
+    const commandActivity = activityForTool({ ...data, name: data.name ?? "exec", status: data.status ?? data.phase }, sessionKey, runId);
+    return commandActivity ? [commandActivity] : [];
+  }
+  if (stream === "tool" || event.event === "session.tool") {
+    const activity = activityForTool(data, sessionKey, runId);
+    return activity ? [activity] : [];
+  }
+  return [];
+}
+
 function textFromContent(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
@@ -453,6 +597,8 @@ function textFromContent(content: unknown): string {
     .map((part) => {
       if (typeof part === "string") return part;
       if (!isRecord(part)) return "";
+      const type = (stringValue(part.type) ?? "").toLowerCase().replaceAll(/[_-]+/g, "");
+      if (["thinking", "reasoning", "toolcall", "tooluse", "functioncall", "toolresult", "tooloutput", "functionresult"].includes(type)) return "";
       return stringValue(part.text) ?? stringValue(part.content) ?? "";
     })
     .filter(Boolean)
@@ -471,6 +617,77 @@ function normalizeMessage(value: unknown, fallbackId: string): NeuraMessage[] {
     role: rawRole as NeuraMessage["role"],
     text,
   }];
+}
+
+function normalizedHistoryRole(value: RecordValue): string {
+  return (stringValue(value.role) ?? (isRecord(value.message) ? stringValue(value.message.role) : undefined) ?? "")
+    .toLowerCase().replaceAll(/[_-]+/g, "");
+}
+
+function historyBlocks(value: RecordValue): unknown[] {
+  const nested = isRecord(value.message) ? value.message : value;
+  return Array.isArray(nested.content) ? nested.content : [];
+}
+
+function historyBlockType(value: unknown): string {
+  return isRecord(value) ? (stringValue(value.type) ?? "").toLowerCase().replaceAll(/[_-]+/g, "") : "";
+}
+
+export function normalizeNeuraHistory(rows: unknown[], sessionKey: string): NeuraMessage[] {
+  const messages: NeuraMessage[] = [];
+  let pending: NeuraActivity[] = [];
+  const toolNames = new Map<string, string>();
+
+  const flushPending = () => {
+    if (!pending.length) return;
+    messages.push({ id: `${sessionKey}:activity:${messages.length}`, role: "assistant", text: "", activities: pending });
+    pending = [];
+  };
+
+  rows.forEach((candidate, index) => {
+    if (!isRecord(candidate)) return;
+    const role = normalizedHistoryRole(candidate);
+    const blocks = historyBlocks(candidate);
+    if (role === "user") flushPending();
+
+    for (const block of blocks) {
+      if (!isRecord(block)) continue;
+      const type = historyBlockType(block);
+      if (["thinking", "reasoning"].includes(type)) {
+        pending = mergeActivity(pending, { id: `thinking:${index}`, sessionKey, kind: "thinking", title: "Thinking", detail: "Reasoned through the request", state: "done" });
+      }
+      if (["toolcall", "tooluse", "functioncall"].includes(type)) {
+        const toolCallId = stringValue(block.toolCallId) ?? stringValue(block.tool_call_id) ?? stringValue(block.callId) ?? stringValue(block.id);
+        const name = stringValue(block.name) ?? stringValue(block.toolName) ?? stringValue(block.tool_name) ?? "tool";
+        if (toolCallId) toolNames.set(toolCallId, name);
+        const activity = activityForTool({ ...block, name, status: "running" }, sessionKey);
+        if (activity) pending = mergeActivity(pending, activity);
+      }
+    }
+
+    if (["tool", "toolresult", "function"].includes(role) || blocks.some((block) => ["toolresult", "tooloutput", "functionresult"].includes(historyBlockType(block)))) {
+      const resultBlock = blocks.find((block) => ["toolresult", "tooloutput", "functionresult"].includes(historyBlockType(block)) && isRecord(block));
+      const source = isRecord(resultBlock) ? resultBlock : candidate;
+      const toolCallId = stringValue(source.toolCallId) ?? stringValue(source.tool_call_id) ?? stringValue(source.callId) ?? stringValue(candidate.toolCallId) ?? stringValue(candidate.tool_call_id);
+      const name = stringValue(source.name) ?? stringValue(source.toolName) ?? (toolCallId ? toolNames.get(toolCallId) : undefined) ?? "tool";
+      const output = nestedActivityText(source.content ?? candidate.content, 12_000);
+      const activity = activityForTool({ ...source, id: toolCallId, name, output, status: candidate.isError === true || source.isError === true ? "error" : "completed" }, sessionKey);
+      if (activity) pending = mergeActivity(pending, activity);
+      return;
+    }
+
+    const normalized = normalizeMessage(candidate, `${sessionKey}:${index}`);
+    for (const message of normalized) {
+      const hasToolCall = blocks.some((block) => ["toolcall", "tooluse", "functioncall"].includes(historyBlockType(block)));
+      if (message.role === "assistant" && !hasToolCall && pending.length) {
+        message.activities = pending.map((activity) => ({ ...activity, state: activity.state === "running" ? "done" : activity.state }));
+        pending = [];
+      }
+      messages.push(message);
+    }
+  });
+  flushPending();
+  return messages;
 }
 
 async function fileToGatewayAttachment(attachment: ComposerAttachment) {

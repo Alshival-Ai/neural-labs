@@ -7,6 +7,7 @@ import {
   Hash,
   Menu,
   LockKeyhole,
+  ListOrdered,
   MessageSquarePlus,
   MoreHorizontal,
   Paperclip,
@@ -20,13 +21,14 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { type ChangeEvent, type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, type KeyboardEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { eventRecord, eventText, messagesFromSessionEvent, NeuraGateway } from "./openclaw";
+import { activitiesFromGatewayEvent, eventRecord, eventText, messagesFromSessionEvent, NeuraGateway } from "./openclaw";
 import { readDeviceState, writeDeviceState } from "./deviceState";
 import { createWorkspaceFolder, uploadWorkspaceFile, workspaceDownloadUrl, workspacePreviewUrl } from "./filesApi";
+import { listCustomSkills } from "./skillsApi";
 import { teamChatApi, teamSocketUrl, type TeamAttachment, type TeamChannel, type TeamDirectoryUser, type TeamMessage } from "./teamChat";
 import type {
   ComposerAttachment,
@@ -51,6 +53,14 @@ type Props = {
 type NeuraDeviceState = { selectedKey?: string; selectedChannelId?: string; sidebarOpen: boolean; showArchived: boolean };
 type SkillSuggestion = { key: string; name: string; description: string };
 type SkillTrigger = { start: number; end: number; query: string };
+type QueuedPrompt = {
+  id: string;
+  sessionKey: string;
+  runId?: string;
+  text: string;
+  attachments: Array<{ name: string; type: string }>;
+  status: "sending" | "queued";
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -185,17 +195,23 @@ function mergeHistoryWithLive(history: NeuraMessage[], live: NeuraMessage[]): Ne
 }
 
 function reconcilePersistedMessage(current: NeuraMessage[], message: NeuraMessage, runId?: string): NeuraMessage[] {
+  const transient = runId && message.role === "assistant" ? current.find((candidate) => candidate.id === `run:${runId}`) : undefined;
+  const persisted = transient?.activities?.length && !message.activities?.length ? { ...message, activities: transient.activities } : message;
   let optimisticUserRemoved = false;
   const next = current.filter((candidate) => {
-    if (candidate.id === message.id) return false;
-    if (runId && message.role === "assistant" && candidate.id === `run:${runId}`) return false;
-    if (!optimisticUserRemoved && message.role === "user" && candidate.role === "user" && candidate.id.startsWith("local:") && candidate.text === message.text) {
+    if (candidate.id === persisted.id) return false;
+    if (runId && persisted.role === "assistant" && candidate.id === `run:${runId}`) return false;
+    if (!optimisticUserRemoved && persisted.role === "user" && candidate.role === "user" && candidate.id.startsWith("local:") && candidate.text === persisted.text) {
       optimisticUserRemoved = true;
       return false;
     }
     return true;
   });
-  return [...next, message];
+  return [...next, persisted];
+}
+
+function isTranscriptAtBottom(element: HTMLElement, threshold = 48): boolean {
+  return element.scrollHeight - element.scrollTop - element.clientHeight <= threshold;
 }
 
 const unavailableTeamUser = { id: "", handle: "user", displayName: "User", role: "user" as const };
@@ -224,6 +240,8 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [runId, setRunId] = useState<string>();
+  const [queuedPrompts, setQueuedPrompts] = useState<QueuedPrompt[]>([]);
+  const [composerSubmitting, setComposerSubmitting] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(initialUiState.sidebarOpen);
   const [mobileDrawer, setMobileDrawer] = useState(false);
   const [showArchived, setShowArchived] = useState(initialUiState.showArchived);
@@ -233,10 +251,16 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
   const [skillsLoaded, setSkillsLoaded] = useState(false);
   const [skillTrigger, setSkillTrigger] = useState<SkillTrigger | null>(null);
   const [skillMenuIndex, setSkillMenuIndex] = useState(0);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const selectedKeyRef = useRef(selectedKey);
   const subscribedKeyRef = useRef<string | undefined>(undefined);
   const sessionsRequestRef = useRef(0);
-  const messagesEnd = useRef<HTMLDivElement>(null);
+  const messageScroll = useRef<HTMLDivElement>(null);
+  const messageContent = useRef<HTMLDivElement>(null);
+  const transcriptPinnedToBottom = useRef(true);
+  const transcriptFollowFrame = useRef<number | undefined>(undefined);
+  const activitiesRef = useRef<NeuraActivity[]>([]);
+  const runIdRef = useRef(runId);
   const fileInput = useRef<HTMLInputElement>(null);
   const composerInput = useRef<HTMLTextAreaElement>(null);
   const teamFileInput = useRef<HTMLInputElement>(null);
@@ -245,11 +269,79 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
   const teamTypingTimer = useRef<number | undefined>(undefined);
   const selectedChannelRef = useRef(selectedChannelId);
   const lastComposeRequest = useRef<string | undefined>(undefined);
+  const queuedPromptsRef = useRef<QueuedPrompt[]>([]);
+  const composerSubmittingRef = useRef(false);
   const selected = sessions.find((session) => session.key === selectedKey);
   const selectedChannel = teamChannels.find((channel) => channel.id === selectedChannelId);
+  const agentBusy = Boolean(runId || selected?.active);
+  const sessionQueue = queuedPrompts.filter((prompt) => prompt.sessionKey === selectedKey);
 
   selectedKeyRef.current = selectedKey;
   selectedChannelRef.current = selectedChannelId;
+  runIdRef.current = runId;
+
+  const updateQueuedPrompts = (update: (current: QueuedPrompt[]) => QueuedPrompt[]) => {
+    const next = update(queuedPromptsRef.current);
+    queuedPromptsRef.current = next;
+    setQueuedPrompts(next);
+  };
+
+  const replaceActivities = (next: NeuraActivity[]) => {
+    activitiesRef.current = next;
+    setActivities(next);
+  };
+
+  const updateActivities = (incoming: NeuraActivity[]) => {
+    if (!incoming.length) return;
+    let next = activitiesRef.current;
+    for (const activity of incoming) {
+      const previous = next.find((item) => item.id === activity.id);
+      next = [...next.filter((item) => item.id !== activity.id), { ...previous, ...activity }].slice(-80);
+    }
+    replaceActivities(next);
+  };
+
+  const finishRunActivities = (completedRunId: string, failed = false): NeuraActivity[] => {
+    const matching = activitiesRef.current.filter((activity) => !activity.runId || activity.runId === completedRunId);
+    const completed = matching.map((activity) => ({
+      ...activity,
+      state: activity.state === "running" ? failed ? "error" as const : "done" as const : activity.state,
+    }));
+    replaceActivities(activitiesRef.current.filter((activity) => activity.runId && activity.runId !== completedRunId));
+    return completed;
+  };
+
+  const scrollToLatest = useCallback((behavior: ScrollBehavior = "auto") => {
+    const element = messageScroll.current;
+    if (!element) return;
+    transcriptPinnedToBottom.current = true;
+    setShowJumpToLatest(false);
+    if (behavior === "smooth" && element.scrollTo) element.scrollTo({ top: element.scrollHeight, behavior });
+    else element.scrollTop = element.scrollHeight;
+  }, []);
+
+  const handleTranscriptScroll = () => {
+    const element = messageScroll.current;
+    if (!element) return;
+    const pinned = isTranscriptAtBottom(element);
+    transcriptPinnedToBottom.current = pinned;
+    setShowJumpToLatest(!pinned && element.scrollHeight > element.clientHeight + 48);
+  };
+
+  const promoteQueuedPrompt = (queuedRunId: string) => {
+    const queued = queuedPromptsRef.current.find((prompt) => prompt.runId === queuedRunId);
+    if (!queued) return;
+    updateQueuedPrompts((current) => current.filter((prompt) => prompt.id !== queued.id));
+    if (queued.sessionKey !== selectedKeyRef.current && queued.sessionKey !== subscribedKeyRef.current) return;
+    setMessages((current) => current.some((message) => message.id === `local:queued:${queued.id}`)
+      ? current
+      : [...current, {
+          id: `local:queued:${queued.id}`,
+          role: "user",
+          text: queued.text || queued.attachments.map((attachment) => attachment.name).join(", "),
+          attachments: queued.attachments,
+        }]);
+  };
 
   useEffect(() => {
     if (!composeRequest || lastComposeRequest.current === composeRequest.id) return;
@@ -267,6 +359,13 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
         .sort((a, b) => b.updatedAt - a.updatedAt);
       if (requestId !== sessionsRequestRef.current) return;
       setSessions(next);
+      const idleSessionKeys = new Set(next.filter((session) => !session.active).map((session) => session.key));
+      updateQueuedPrompts((current) => current.filter((prompt) => !idleSessionKeys.has(prompt.sessionKey)));
+      const currentSession = next.find((session) => session.key === selectedKeyRef.current);
+      if (currentSession && !currentSession.active) {
+        runIdRef.current = undefined;
+        setRunId(undefined);
+      }
       setSelectedKey((current) => selectedChannelRef.current
         ? undefined
         : current && next.some((session) => session.key === current)
@@ -409,10 +508,19 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
     if (connection !== "connected") return;
     let active = true;
     setSkillsLoaded(false);
-    void gateway.readSkillsStatus()
-      .then((status) => {
+    void Promise.all([gateway.readSkillsStatus(), listCustomSkills().catch(() => [])])
+      .then(([status, customSkills]) => {
         if (!active) return;
-        setSkills(skillSuggestionsFromStatus(status));
+        const customByKey = new Map(customSkills.map((skill) => [skill.key, skill]));
+        const visible = skillSuggestionsFromStatus(status).filter((skill) => {
+          const custom = customByKey.get(skill.key);
+          return !custom || custom.scope === "team" || custom.ownedByCurrentUser;
+        });
+        for (const custom of customSkills) {
+          if (custom.scope !== "team" && !custom.ownedByCurrentUser || visible.some((skill) => skill.key === custom.key)) continue;
+          visible.push({ key: custom.key, name: custom.name, description: custom.description });
+        }
+        setSkills(visible.sort((left, right) => left.name.localeCompare(right.name)));
         setSkillsLoaded(true);
       })
       .catch(() => {
@@ -422,15 +530,21 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
   }, [connection, gateway]);
 
   useEffect(() => {
+    setSessionReady(false);
+    setMessages([]);
+    replaceActivities([]);
+    runIdRef.current = undefined;
+    setRunId(undefined);
+  }, [selectedChannelId, selectedKey]);
+
+  useEffect(() => {
     if (!selectedKey || selectedChannelId || connection !== "connected") {
       setSessionReady(false);
-      setMessages([]);
       return;
     }
     let active = true;
     let subscription: Awaited<ReturnType<NeuraGateway["subscribeSession"]>> | undefined;
     setSessionReady(false);
-    setMessages([]);
     void (async () => {
       try {
         const acquired = await gateway.subscribeSession(selectedKey);
@@ -448,7 +562,6 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
         if (active) notify(error instanceof Error ? error.message : "Could not connect this conversation to Neura");
       }
     })();
-    setActivities([]);
     setApprovals((current) => current.filter((approval) => !approval.sessionKey || approval.sessionKey === selectedKey));
     setMobileDrawer(false);
     return () => {
@@ -459,8 +572,33 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
   }, [selectedKey, selectedChannelId, connection]);
 
   useEffect(() => {
-    messagesEnd.current?.scrollIntoView({ block: "end" });
-  }, [messages, teamMessages, activities, approvals]);
+    transcriptPinnedToBottom.current = true;
+    setShowJumpToLatest(false);
+  }, [selectedKey, selectedChannelId]);
+
+  useLayoutEffect(() => {
+    if (!transcriptPinnedToBottom.current) return;
+    scrollToLatest();
+    if (transcriptFollowFrame.current !== undefined) cancelAnimationFrame(transcriptFollowFrame.current);
+    transcriptFollowFrame.current = requestAnimationFrame(() => {
+      transcriptFollowFrame.current = undefined;
+      if (transcriptPinnedToBottom.current) scrollToLatest();
+    });
+  }, [activities, messages, scrollToLatest, selectedChannelId, selectedKey, teamMessages]);
+
+  useEffect(() => {
+    const content = messageContent.current;
+    if (!content || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (transcriptPinnedToBottom.current) scrollToLatest();
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [scrollToLatest, selectedChannelId, selectedKey]);
+
+  useEffect(() => () => {
+    if (transcriptFollowFrame.current !== undefined) cancelAnimationFrame(transcriptFollowFrame.current);
+  }, []);
 
   useEffect(() => {
     writeDeviceState(storageNamespace, storageArea, { selectedKey, selectedChannelId, sidebarOpen, showArchived } satisfies NeuraDeviceState);
@@ -469,6 +607,10 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
   function handleGatewayEvent(event: GatewayEvent) {
     const payload = eventRecord(event);
     if (!payload) return;
+    if (event.event === "chat" && ["status", "delta"].includes(recordString(payload, "state") ?? "")) {
+      const queuedRunId = recordString(payload, "runId");
+      if (queuedRunId) promoteQueuedPrompt(queuedRunId);
+    }
     if (event.event === "sessions.changed") {
       void refreshSessions();
       return;
@@ -482,53 +624,76 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
     if (event.event === "session.message") {
       const persisted = messagesFromSessionEvent(event);
       if (!persisted || persisted.sessionKey !== selectedKeyRef.current && persisted.sessionKey !== subscribedKeyRef.current) return;
-      for (const message of persisted.messages) {
-        setMessages((current) => reconcilePersistedMessage(current, message, persisted.runId));
+      if (persisted.runId && persisted.messages.some((message) => message.role === "user")) promoteQueuedPrompt(persisted.runId);
+      const runFinished = Boolean(persisted.runId && ["end", "error"].includes(persisted.phase ?? ""));
+      const completedActivities = runFinished ? finishRunActivities(persisted.runId!, persisted.phase === "error") : [];
+      const finalAssistantIndex = persisted.messages.findLastIndex((message) => message.role === "assistant");
+      for (const [index, message] of persisted.messages.entries()) {
+        const enriched = index === finalAssistantIndex && completedActivities.length
+          ? { ...message, activities: completedActivities }
+          : message;
+        setMessages((current) => reconcilePersistedMessage(current, enriched, persisted.runId));
       }
-      if ((persisted.runId && persisted.messages.some((message) => message.role === "assistant")) || ["end", "error"].includes(persisted.phase ?? "")) {
-        setRunId((current) => !persisted.runId || current === persisted.runId ? undefined : current);
+      if (runFinished && finalAssistantIndex < 0 && completedActivities.length) {
+        setMessages((current) => [...current, { id: `activity:${persisted.runId}`, role: "assistant", text: "", activities: completedActivities }]);
+      }
+      if (persisted.runId && ["end", "error"].includes(persisted.phase ?? "")) {
+        if (runIdRef.current === persisted.runId) runIdRef.current = undefined;
+        setRunId((current) => current === persisted.runId ? undefined : current);
       }
       void refreshSessions();
       return;
     }
-    const sessionKey = recordString(payload, "sessionKey");
-    if (!sessionKey || sessionKey !== selectedKeyRef.current && sessionKey !== subscribedKeyRef.current) return;
+    const explicitSessionKey = recordString(payload, "sessionKey");
+    const payloadRunId = recordString(payload, "runId");
+    const currentRunEvent = event.event === "agent" && Boolean(payloadRunId && payloadRunId === runIdRef.current);
+    if (explicitSessionKey && explicitSessionKey !== selectedKeyRef.current && explicitSessionKey !== subscribedKeyRef.current || !explicitSessionKey && !currentRunEvent) return;
+    const sessionKey = explicitSessionKey ?? selectedKeyRef.current;
+    if (!sessionKey) return;
     if (event.event === "chat") {
       const state = recordString(payload, "state");
       const eventRunId = recordString(payload, "runId") ?? "active";
       if (state === "status") {
+        runIdRef.current = eventRunId;
         setRunId(eventRunId);
         const phase = (recordString(payload, "phase") ?? "Starting Neura").replaceAll("_", " ");
-        setActivities((current) => [...current.filter((item) => item.id !== `status:${eventRunId}`), {
-          id: `status:${eventRunId}`, sessionKey, title: phase, state: "running",
+        if (activitiesRef.current.some((activity) => activity.runId && activity.runId !== eventRunId)) replaceActivities([]);
+        updateActivities([{
+          id: `status:${eventRunId}`, sessionKey, runId: eventRunId, kind: "thinking", title: phase, detail: "Neura is working through the request", state: "running",
         }]);
       }
       if (state === "delta") {
+        runIdRef.current = eventRunId;
         setRunId(eventRunId);
         const delta = recordString(payload, "deltaText") ?? "";
         setMessages((current) => {
           const id = `run:${eventRunId}`;
           const existing = current.find((message) => message.id === id);
           const text = payload.replace === true ? delta : `${existing?.text ?? ""}${delta}`;
-          return [...current.filter((message) => message.id !== id), { id, role: "assistant", text, pending: true }];
+          return [...current.filter((message) => message.id !== id), { ...existing, id, role: "assistant", text, pending: true }];
         });
       }
       if (["final", "aborted", "error"].includes(state ?? "")) {
-        setRunId(undefined);
+        if (runIdRef.current === eventRunId) runIdRef.current = undefined;
+        setRunId((current) => current === eventRunId ? undefined : current);
         const finalText = eventText(payload.message);
+        const completedActivities = finishRunActivities(eventRunId, state === "error");
         setMessages((current) => {
           const id = `run:${eventRunId}`;
+          if (!current.some((message) => message.id === id) && !finalText && completedActivities.length) {
+            return [...current, { id, role: "assistant", text: state === "aborted" ? "Stopped." : "", pending: false, activities: completedActivities }];
+          }
           if (!current.some((message) => message.id === id) && finalText) {
-            if (current.some((message) => message.role === "assistant" && message.text === finalText)) return current;
-            return [...current, { id, role: "assistant", text: finalText, pending: false }];
+            const duplicate = current.find((message) => message.role === "assistant" && message.text === finalText);
+            if (duplicate) return completedActivities.length
+              ? current.map((message) => message.id === duplicate.id ? { ...message, activities: message.activities?.length ? message.activities : completedActivities } : message)
+              : current;
+            return [...current, { id, role: "assistant", text: finalText, pending: false, ...(completedActivities.length ? { activities: completedActivities } : {}) }];
           }
           return current.map((message) => message.id === id
-            ? { ...message, text: finalText || message.text, pending: false }
+            ? { ...message, text: finalText || message.text, pending: false, ...(completedActivities.length ? { activities: completedActivities } : {}) }
             : message);
         });
-        setActivities((current) => current.map((item) => item.sessionKey === sessionKey && item.state === "running"
-          ? { ...item, state: state === "error" ? "error" : "done" }
-          : item));
         if (state === "error") {
           const rawError = recordString(payload, "errorMessage") ?? "Neura could not finish that request";
           const displayError = /401|missing bearer|authentication/i.test(rawError)
@@ -543,17 +708,8 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
       }
       return;
     }
-    if (event.event === "session.tool" || event.event === "session.operation") {
-      const id = recordString(payload, "id") ?? recordString(payload, "toolCallId") ?? crypto.randomUUID();
-      const stateValue = recordString(payload, "state") ?? recordString(payload, "status") ?? "running";
-      const state = ["error", "failed"].includes(stateValue) ? "error" : ["done", "completed", "result"].includes(stateValue) ? "done" : "running";
-      setActivities((current) => [...current.filter((item) => item.id !== id), {
-        id,
-        sessionKey,
-        title: recordString(payload, "title") ?? recordString(payload, "toolName") ?? recordString(payload, "name") ?? "Working",
-        detail: recordString(payload, "summary") ?? recordString(payload, "detail"),
-        state,
-      }]);
+    if (event.event === "session.tool" || event.event === "session.operation" || event.event === "agent") {
+      updateActivities(activitiesFromGatewayEvent(explicitSessionKey ? event : { ...event, payload: { ...payload, sessionKey } }));
     }
   }
 
@@ -739,6 +895,8 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
       notify("Team Chat is reconnecting. Your draft has been kept.");
       return;
     }
+    transcriptPinnedToBottom.current = true;
+    setShowJumpToLatest(false);
     socket.send(JSON.stringify({
       type: "post",
       channelId: selectedChannel.id,
@@ -782,26 +940,94 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
     });
   };
 
-  const sendMessage = async (queueMode: "steer" | "followup" = "steer") => {
+  const restoreComposer = (message: string, outgoing: ComposerAttachment[]) => {
+    setDraft((current) => current.trim() ? `${message}${message ? "\n" : ""}${current}` : message);
+    setAttachments((current) => [...outgoing, ...current]);
+  };
+
+  const sendMessage = async () => {
     const message = draft.trim();
-    if (!selected || !sessionReady || (!message && attachments.length === 0) || connection !== "connected") return;
+    if (composerSubmittingRef.current || !selected || !sessionReady || (!message && attachments.length === 0) || connection !== "connected") return;
+    const wasBusy = agentBusy;
     const outgoing = attachments;
+    const localId = `local:${crypto.randomUUID()}`;
+    transcriptPinnedToBottom.current = true;
+    setShowJumpToLatest(false);
+    if (!wasBusy) replaceActivities([]);
+    composerSubmittingRef.current = true;
+    setComposerSubmitting(true);
     setDraft("");
     setSkillTrigger(null);
     setAttachments([]);
     setMessages((current) => [...current, {
-      id: `local:${crypto.randomUUID()}`,
+      id: localId,
       role: "user",
       text: message || outgoing.map((attachment) => attachment.file.name).join(", "),
       attachments: outgoing.map((attachment) => ({ name: attachment.file.name, type: attachment.file.type, url: attachment.previewUrl })),
     }]);
     try {
-      const result = await gateway.send(selected, message, outgoing, runId ? queueMode : "steer");
-      if (result.runId) setRunId(result.runId);
+      const result = await gateway.send(selected, message, outgoing, "steer");
+      if (!wasBusy && result.runId) {
+        runIdRef.current = result.runId;
+        setRunId(result.runId);
+      }
+      setSessions((current) => current.map((session) => session.key === selected.key ? { ...session, active: true } : session));
       for (const attachment of outgoing) if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
     } catch (error) {
-      setDraft(message);
+      setMessages((current) => current.filter((item) => item.id !== localId));
+      restoreComposer(message, outgoing);
       notify(error instanceof Error ? error.message : "Neura could not send that message");
+    } finally {
+      composerSubmittingRef.current = false;
+      setComposerSubmitting(false);
+    }
+  };
+
+  const queueMessage = async () => {
+    if (!agentBusy) {
+      await sendMessage();
+      return;
+    }
+    const message = draft.trim();
+    if (composerSubmittingRef.current || !selected || !sessionReady || (!message && attachments.length === 0) || connection !== "connected") return;
+    const outgoing = attachments;
+    const queuedId = crypto.randomUUID();
+    const queued: QueuedPrompt = {
+      id: queuedId,
+      sessionKey: selected.key,
+      text: message,
+      attachments: outgoing.map((attachment) => ({ name: attachment.file.name, type: attachment.file.type })),
+      status: "sending",
+    };
+    composerSubmittingRef.current = true;
+    setComposerSubmitting(true);
+    updateQueuedPrompts((current) => [...current, queued]);
+    setDraft("");
+    setSkillTrigger(null);
+    setAttachments([]);
+    try {
+      const result = await gateway.send(selected, message, outgoing, "followup");
+      updateQueuedPrompts((current) => current.map((prompt) => prompt.id === queuedId
+        ? { ...prompt, runId: result.runId, status: "queued" }
+        : prompt));
+      for (const attachment of outgoing) if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
+    } catch (error) {
+      updateQueuedPrompts((current) => current.filter((prompt) => prompt.id !== queuedId));
+      restoreComposer(message, outgoing);
+      notify(error instanceof Error ? error.message : "Neura could not queue that message");
+    } finally {
+      composerSubmittingRef.current = false;
+      setComposerSubmitting(false);
+    }
+  };
+
+  const removeQueuedPrompt = async (prompt: QueuedPrompt) => {
+    if (!prompt.runId) return;
+    try {
+      await gateway.abort(prompt.sessionKey, prompt.runId);
+      updateQueuedPrompts((current) => current.filter((item) => item.id !== prompt.id));
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Could not remove that queued message");
     }
   };
 
@@ -847,7 +1073,7 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
     }
     if (event.key !== "Enter" || event.shiftKey) return;
     event.preventDefault();
-    void sendMessage(event.ctrlKey || event.metaKey ? "followup" : "steer");
+    void (event.ctrlKey || event.metaKey ? queueMessage() : sendMessage());
   };
 
   const renameSession = async (session: SessionRow) => {
@@ -977,7 +1203,9 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
           {selectedChannel && selectedChannel.canManage && selectedChannel.audience === "restricted" && <button type="button" className="team-members-button" onClick={() => void openMemberManager(selectedChannel)}><Users />{teamMembers.length || selectedChannel.memberCount}</button>}
         </header>
 
-        <div className="message-scroll" aria-live="polite">
+        <div className="message-stage">
+        <div ref={messageScroll} className="message-scroll" aria-live="polite" onScroll={handleTranscriptScroll}>
+          <div ref={messageContent} className="message-content">
           {!selectedChannel && connection === "error" && <div className="connection-error"><strong>Neura is unavailable</strong><p>{connectionError ?? "The Gateway connection could not be established."}</p></div>}
           {selectedChannel && teamConnection === "error" && <div className="connection-error"><strong>Team Chat is reconnecting</strong><p>Messages remain safely stored. Live updates will resume automatically.</p></div>}
           {!selected && !selectedChannel && connection === "connected" && (
@@ -1006,6 +1234,7 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
                     return <a href={target} target="_blank" rel="noreferrer" title={preview ? "Open website preview" : undefined}>{children}</a>;
                   },
                 }}>{message.text}</ReactMarkdown>
+                {message.activities && message.activities.length > 0 && <NeuraActivityTimeline activities={message.activities} />}
                 {message.pending && <span className="typing-cursor" aria-label="Neura is responding" />}
               </div>
             </article>
@@ -1027,7 +1256,10 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
               </div>
             </article>;
           })}
-          <div ref={messagesEnd} />
+          {!selectedChannel && activities.length > 0 && <NeuraActivityTimeline activities={activities} live={agentBusy} />}
+          </div>
+        </div>
+        {showJumpToLatest && <button type="button" className="jump-to-latest" onClick={() => scrollToLatest("smooth")}><ChevronDown />Latest</button>}
         </div>
 
         {selectedChannel && (
@@ -1057,12 +1289,6 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
 
         {selected && !selectedChannel && (
           <footer className="neura-composer-area">
-            {activities.length > 0 && <div className="activity-strip">{activities.slice(-3).map((activity) => (
-              <div key={activity.id} className={`activity activity-${activity.state}`}>
-                {activity.state === "running" ? <span className="activity-spinner" /> : activity.state === "done" ? <Check /> : <X />}
-                <span><strong>{activity.title}</strong>{activity.detail && <small>{activity.detail}</small>}</span>
-              </div>
-            ))}</div>}
             {approvals.filter((approval) => !approval.sessionKey || approval.sessionKey === selected.key).map((approval) => (
               <div className="approval-card" key={approval.id}>
                 <div><strong>{approval.title}</strong><code>{approval.detail}</code></div>
@@ -1073,6 +1299,29 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
                 ))}</div>
               </div>
             ))}
+            {agentBusy && <div className="active-run-banner" role="status">
+              <span className="activity-spinner" />
+              <strong>Neura is working</strong>
+              <span>Enter steers this run now. Ctrl/Cmd+Enter adds work to the queue.</span>
+            </div>}
+            {sessionQueue.length > 0 && <section className="prompt-queue" aria-label="Queued messages">
+              <header>
+                <span><ListOrdered /><strong>{sessionQueue.length} queued</strong></span>
+                <small>Sends automatically, in order, when the current run finishes.</small>
+              </header>
+              <ol>
+                {sessionQueue.map((prompt, index) => (
+                  <li key={prompt.id}>
+                    <span className="queue-position" aria-hidden="true">{index + 1}</span>
+                    <span className="queue-copy">
+                      <strong>{prompt.text || prompt.attachments.map((attachment) => attachment.name).join(", ")}</strong>
+                      <small>{prompt.status === "sending" ? "Adding to queue…" : prompt.attachments.length > 0 ? `${prompt.attachments.length} attachment${prompt.attachments.length === 1 ? "" : "s"}` : "Waiting for Neura"}</small>
+                    </span>
+                    <button type="button" disabled={!prompt.runId} onClick={() => void removeQueuedPrompt(prompt)} aria-label={`Remove queued message ${index + 1}`}><X /></button>
+                  </li>
+                ))}
+              </ol>
+            </section>}
             <div className="composer-shell">
               {skillTrigger && <div className="skill-mention-menu" id="neura-skill-suggestions" role="listbox" aria-label="Available skills">
                 <div className="skill-mention-menu__heading" role="presentation"><strong>Skills</strong><span>Type to filter · Enter to add</span></div>
@@ -1111,20 +1360,20 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
                   onBlur={() => window.setTimeout(() => setSkillTrigger(null), 100)}
                   onKeyDown={handleComposerKey}
                   rows={1}
-                  placeholder={!sessionReady ? "Connecting conversation…" : runId ? "Steer Neura or queue a follow-up…" : "Message Neura…"}
+                  placeholder={!sessionReady ? "Connecting conversation…" : agentBusy ? "Steer Neura now, or queue what comes next…" : "Message Neura…"}
                   aria-autocomplete="list"
                   aria-controls={skillTrigger ? "neura-skill-suggestions" : undefined}
                   aria-expanded={Boolean(skillTrigger)}
                   aria-activedescendant={skillTrigger && matchingSkills.length > 0 ? `neura-skill-option-${skillMenuIndex % matchingSkills.length}` : undefined}
                 />
-                {runId && <button type="button" className="stop-button" onClick={() => void gateway.abort(selected.key, runId)} aria-label="Stop Neura"><Square /></button>}
+                {agentBusy && <button type="button" className="stop-button" onClick={() => void gateway.abort(selected.key, runId)} aria-label="Stop Neura"><Square /></button>}
                 <div className="split-send">
-                  <button type="button" className="send-button" onClick={() => void sendMessage("steer")} disabled={!sessionReady || !draft.trim() && attachments.length === 0} aria-label={runId ? "Steer active run" : "Send message"}><Send /></button>
-                  {runId && <details><summary aria-label="Send options"><ChevronDown /></summary><div><button type="button" onClick={() => void sendMessage("steer")}>Steer active run <kbd>Enter</kbd></button><button type="button" onClick={() => void sendMessage("followup")}>Queue follow-up <kbd>⌘↵</kbd></button></div></details>}
+                  <button type="button" className="send-button" onClick={() => void sendMessage()} disabled={composerSubmitting || !sessionReady || !draft.trim() && attachments.length === 0} aria-label={agentBusy ? "Steer active run" : "Send message"}><Send /></button>
+                  {agentBusy && <details><summary aria-label="Send options"><ChevronDown /></summary><div><button type="button" disabled={composerSubmitting} onClick={() => void sendMessage()}>Steer active run <kbd>Enter</kbd></button><button type="button" disabled={composerSubmitting} onClick={() => void queueMessage()}>Queue after this run <kbd>⌘↵</kbd></button></div></details>}
                 </div>
               </div>
             </div>
-            <p className="composer-hint">Enter to {runId ? "steer" : "send"} · Ctrl/Cmd+Enter to queue · Shift+Enter for a new line</p>
+            <p className="composer-hint">Enter to {agentBusy ? "steer now" : "send"} · Ctrl/Cmd+Enter to {agentBusy ? "queue next" : "send"} · Shift+Enter for a new line</p>
           </footer>
         )}
       </main>
@@ -1144,6 +1393,46 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
       />}
     </div>
   );
+}
+
+function NeuraActivityTimeline({ activities, live = false }: { activities: NeuraActivity[]; live?: boolean }) {
+  const latest = activities.at(-1);
+  const failed = activities.some((activity) => activity.state === "error");
+  return <details className="neura-activity-timeline" data-state={failed ? "error" : live ? "running" : "done"}>
+    <summary>
+      <span className="neura-activity-beacon" aria-hidden="true">{live ? <span className="activity-spinner" /> : failed ? <X /> : <Check />}</span>
+      <span className="neura-activity-summary"><strong>{live ? "Neura is working" : "Work details"}</strong><small>{latest?.title ?? "Agent activity"}</small></span>
+      <span className="neura-activity-count">{activities.length} {activities.length === 1 ? "step" : "steps"}</span>
+      <ChevronDown className="neura-activity-chevron" aria-hidden="true" />
+    </summary>
+    <div className="neura-activity-list">
+      {activities.map((activity) => <NeuraActivityStep activity={activity} key={activity.id} />)}
+    </div>
+  </details>;
+}
+
+function NeuraActivityStep({ activity }: { activity: NeuraActivity }) {
+  const kind = {
+    thinking: "Thinking", command: "Command", plan: "Plan", tool: "Agent action",
+    file: "File change", operation: "Maintenance",
+  }[activity.kind];
+  const symbol = { thinking: "✦", command: ">_", plan: "≡", tool: "◆", file: "±", operation: "↻" }[activity.kind];
+  const preview = activity.command?.replaceAll(/\s+/g, " ").trim() || activity.path || activity.detail?.split("\n", 1)[0];
+  return <details className={`neura-activity-step is-${activity.kind}`} data-state={activity.state}>
+    <summary>
+      <span className="neura-activity-icon" aria-hidden="true">{symbol}</span>
+      <span className="neura-activity-copy"><small>{kind}</small><strong>{activity.title}</strong>{preview && <code>{preview}</code>}</span>
+      <span className="neura-activity-state">{activity.state === "running" ? "Live" : activity.state === "error" ? "Failed" : "Done"}</span>
+      <ChevronDown aria-hidden="true" />
+    </summary>
+    <div className="neura-activity-detail">
+      {activity.detail && <p>{activity.detail}</p>}
+      {activity.command && <section><small>Command</small><pre><code>{activity.command}</code></pre></section>}
+      {activity.output && <section><small>Output</small><pre><code>{activity.output}</code></pre></section>}
+      {activity.path && <section><small>Path</small><code>{activity.path}</code></section>}
+      {(activity.exitCode !== undefined || activity.durationMs !== undefined) && <p className="neura-activity-meta">{activity.exitCode !== undefined ? `exit ${activity.exitCode}` : ""}{activity.exitCode !== undefined && activity.durationMs !== undefined ? " · " : ""}{activity.durationMs !== undefined ? activity.durationMs >= 1_000 ? `${(activity.durationMs / 1_000).toFixed(1)}s` : `${Math.round(activity.durationMs)}ms` : ""}</p>}
+    </div>
+  </details>;
 }
 
 function TeamChannelDialog({ source, users, currentUserId, onClose, onSubmit }: {

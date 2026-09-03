@@ -1,12 +1,15 @@
 import {
   Bot,
   CalendarClock,
+  Code2,
   CopyPlus,
   FileCode2,
   FileSearch2,
   Folder,
   LogOut,
   Minimize2,
+  PanelTopOpen,
+  PictureInPicture2,
   Settings,
   Sparkles,
   TerminalSquare,
@@ -28,6 +31,7 @@ import {
 } from "./filesApi";
 import { NeuraGateway } from "./openclaw";
 import { AutomationsGateway } from "./automationsGateway";
+import { openPopoutSurface, type PopoutSurface } from "./popoutWindow";
 
 const AutomationsLiveApp = lazy(() => import("./AutomationsLiveApp").then((module) => ({ default: module.AutomationsLiveApp })));
 const EditorApp = lazy(() => import("./EditorApp").then((module) => ({ default: module.EditorApp })));
@@ -37,6 +41,7 @@ const PreviewApp = lazy(() => import("./PreviewApp").then((module) => ({ default
 const SettingsApp = lazy(() => import("./SettingsApp").then((module) => ({ default: module.SettingsApp })));
 const SkillsLiveApp = lazy(() => import("./SkillsLiveApp").then((module) => ({ default: module.SkillsLiveApp })));
 const TerminalApp = lazy(() => import("./TerminalApp").then((module) => ({ default: module.TerminalApp })));
+const VsCodeApp = lazy(() => import("./VsCodeApp").then((module) => ({ default: module.VsCodeApp })));
 
 type Session = {
   authenticated: boolean;
@@ -53,9 +58,10 @@ type Session = {
 };
 
 type Runtime = { status: string };
-type DesktopApp = "neura" | "files" | "editor" | "preview" | "settings" | "terminal" | "automations" | "skills";
-type WindowVisibility = "open" | "minimized";
+type DesktopApp = "neura" | "files" | "editor" | "preview" | "settings" | "terminal" | "vscode" | "automations" | "skills";
+type WindowVisibility = "open" | "minimized" | "popped-out";
 type DesktopWindowState = { id: string; app: DesktopApp; visibility: WindowVisibility; order: number; preview?: WorkspacePreviewFile };
+type ManagedPopout = PopoutSurface & { handlePageHide: () => void };
 
 type DesktopDeviceState = {
   windows: DesktopWindowState[];
@@ -67,7 +73,7 @@ type AppearanceDeviceState = {
   fontScale: number;
 };
 
-const DESKTOP_APPS = new Set<DesktopApp>(["neura", "files", "editor", "preview", "settings", "terminal", "automations", "skills"]);
+const DESKTOP_APPS = new Set<DesktopApp>(["neura", "files", "editor", "preview", "settings", "terminal", "vscode", "automations", "skills"]);
 
 function storedPreviewFile(value: unknown): WorkspacePreviewFile | undefined {
   if (!value || typeof value !== "object") return undefined;
@@ -133,8 +139,20 @@ function raiseWindow(windows: DesktopWindowState[], windowId: string): DesktopWi
   const target = ordered.find((window) => window.id === windowId);
   if (!target) return windows;
   if (target.visibility === "open" && ordered.at(-1)?.id === windowId) return windows;
-  return [...ordered.filter((window) => window.id !== windowId), { ...target, visibility: "open" as const }]
+  return [...ordered.filter((window) => window.id !== windowId), { ...target, visibility: target.visibility === "popped-out" ? "popped-out" as const : "open" as const }]
     .map((window, index) => ({ ...window, order: index + 1 }));
+}
+
+function desktopWindowTitle(window: DesktopWindowState): string {
+  if (window.app === "neura") return "Neura";
+  if (window.app === "files") return "Files";
+  if (window.app === "editor") return "Editor";
+  if (window.app === "preview") return `Preview — ${window.preview?.name ?? "File"}`;
+  if (window.app === "settings") return "Settings";
+  if (window.app === "automations") return "Automations";
+  if (window.app === "skills") return "Skills";
+  if (window.app === "vscode") return "VS Code";
+  return "Terminal";
 }
 
 const gateway = new NeuraGateway();
@@ -196,6 +214,7 @@ export function App() {
   const [runtime, setRuntime] = useState<string>("Starting");
   const [menuOpen, setMenuOpen] = useState(false);
   const [windows, setWindows] = useState<DesktopWindowState[]>([]);
+  const [popoutTargets, setPopoutTargets] = useState<Map<string, ManagedPopout>>(() => new Map());
   const [maximizedWindowIds, setMaximizedWindowIds] = useState<Set<string>>(() => new Set());
   const [dockMenu, setDockMenu] = useState<{ app: DesktopApp; x: number; y: number }>();
   const [persistenceUserId, setPersistenceUserId] = useState<string>();
@@ -208,16 +227,79 @@ export function App() {
   const [neuraComposeRequest, setNeuraComposeRequest] = useState<{ id: string; targetWindowId: string; text: string }>();
   const [initialSettingsLaunch] = useState(settingsLaunch);
   const toastTimer = useRef<number | undefined>(undefined);
+  const popoutTargetsRef = useRef(popoutTargets);
   const settingsLaunchHandled = useRef(false);
   const editorDocumentsRef = useRef(editorDocuments);
   const openingEditorPaths = useRef(new Set<string>());
   editorDocumentsRef.current = editorDocuments;
+  popoutTargetsRef.current = popoutTargets;
   const editorPathSignature = editorDocuments.map((document) => document.path).join("\n");
 
   const notify = useCallback((message: string) => {
     window.clearTimeout(toastTimer.current);
     setToast(message);
     toastTimer.current = window.setTimeout(() => setToast(undefined), 3200);
+  }, []);
+
+  const takePopout = useCallback((windowId: string): ManagedPopout | undefined => {
+    const target = popoutTargetsRef.current.get(windowId);
+    if (!target) return undefined;
+    target.browserWindow.removeEventListener("beforeunload", target.handlePageHide);
+    target.browserWindow.removeEventListener("pagehide", target.handlePageHide);
+    const updated = new Map(popoutTargetsRef.current);
+    updated.delete(windowId);
+    popoutTargetsRef.current = updated;
+    setPopoutTargets(updated);
+    return target;
+  }, []);
+
+  const restorePoppedWindow = useCallback((windowId: string, closeBrowserWindow = true) => {
+    const target = takePopout(windowId);
+    setWindows((current) => raiseWindow(current.map((window) => window.id === windowId
+      ? { ...window, visibility: "open" as const }
+      : window), windowId));
+    if (closeBrowserWindow && target && !target.browserWindow.closed) {
+      window.setTimeout(() => target.browserWindow.close(), 0);
+    }
+  }, [takePopout]);
+
+  const popOutWindow = useCallback((desktopWindow: DesktopWindowState) => {
+    const existing = popoutTargetsRef.current.get(desktopWindow.id);
+    if (existing && !existing.browserWindow.closed) {
+      existing.browserWindow.focus();
+      return;
+    }
+    const surface = openPopoutSurface(desktopWindowTitle(desktopWindow), desktopWindow.id);
+    if (!surface) {
+      notify("Your browser blocked the pop-out. Allow pop-ups for Neural Labs and try again.");
+      return;
+    }
+    const handlePageHide = () => restorePoppedWindow(desktopWindow.id, false);
+    const target: ManagedPopout = { ...surface, handlePageHide };
+    surface.browserWindow.addEventListener("beforeunload", handlePageHide, { once: true });
+    surface.browserWindow.addEventListener("pagehide", handlePageHide, { once: true });
+    const updated = new Map(popoutTargetsRef.current).set(desktopWindow.id, target);
+    popoutTargetsRef.current = updated;
+    setPopoutTargets(updated);
+    setWindows((current) => current.map((window) => window.id === desktopWindow.id
+      ? { ...window, visibility: "popped-out" as const }
+      : window));
+  }, [notify, restorePoppedWindow]);
+
+  useEffect(() => {
+    const closePopouts = () => {
+      for (const target of popoutTargetsRef.current.values()) {
+        target.browserWindow.removeEventListener("beforeunload", target.handlePageHide);
+        target.browserWindow.removeEventListener("pagehide", target.handlePageHide);
+        if (!target.browserWindow.closed) target.browserWindow.close();
+      }
+      popoutTargetsRef.current = new Map();
+    };
+    window.addEventListener("beforeunload", closePopouts);
+    return () => {
+      window.removeEventListener("beforeunload", closePopouts);
+      closePopouts();
+    };
   }, []);
 
   useEffect(() => {
@@ -248,8 +330,14 @@ export function App() {
           const restored = desktopDeviceState(userId);
           setFontScale(appearanceDeviceState(userId).fontScale);
           if (restored) {
-            setWindows(restored.windows.filter((window) => window.app !== "automations" || payload.user?.role === "admin"));
+            const allowedWindows = restored.windows.filter((window) => window.app !== "automations" || payload.user?.role === "admin");
+            const startupTerminal = allowedWindows.filter((window) => window.app === "terminal").sort((left, right) => right.order - left.order)[0];
+            setWindows(startupTerminal
+              ? raiseWindow(allowedWindows, startupTerminal.id)
+              : [...allowedWindows, { id: freshWindowId("terminal"), app: "terminal", visibility: "open", order: allowedWindows.length + 1 }]);
             setPendingEditorRestore({ paths: restored.editorPaths, activeId: restored.activeEditorId });
+          } else {
+            setWindows([{ id: freshWindowId("terminal"), app: "terminal", visibility: "open", order: 1 }]);
           }
           setPersistenceUserId(userId);
         }
@@ -274,7 +362,7 @@ export function App() {
     if (!persistenceUserId || session?.user?.id !== persistenceUserId) return;
     if (pendingEditorRestore) return;
     writeDeviceState(persistenceUserId, "desktop", {
-      windows,
+      windows: windows.map((window) => window.visibility === "popped-out" ? { ...window, visibility: "open" as const } : window),
       editorPaths: editorDocuments.map((document) => document.path),
       activeEditorId,
     } satisfies DesktopDeviceState);
@@ -332,13 +420,18 @@ export function App() {
   const revealApp = useCallback((app: DesktopApp) => {
     if (app === "automations" && session?.user?.role !== "admin") return;
     setDockMenu(undefined);
+    const popped = windows.filter((window) => window.app === app && window.visibility === "popped-out").sort((left, right) => right.order - left.order)[0];
+    if (popped) {
+      popoutTargetsRef.current.get(popped.id)?.browserWindow.focus();
+      return;
+    }
     setWindows((current) => {
       const existing = current.filter((window) => window.app === app);
       if (existing.length === 0) return current.length >= 24 ? current : [...current, { id: freshWindowId(app), app, visibility: "open", order: current.length + 1 }];
       const target = existing.sort((left, right) => right.order - left.order)[0];
       return raiseWindow(current, target.id);
     });
-  }, [session?.user?.role]);
+  }, [session?.user?.role, windows]);
 
   useEffect(() => {
     if (!session?.user || !initialSettingsLaunch.open || settingsLaunchHandled.current) return;
@@ -350,17 +443,26 @@ export function App() {
   const toggleDockApp = useCallback((app: DesktopApp) => {
     if (app === "automations" && session?.user?.role !== "admin") return;
     setDockMenu(undefined);
+    const appWindows = windows.filter((window) => window.app === app);
+    const popped = appWindows.filter((window) => window.visibility === "popped-out").sort((left, right) => right.order - left.order)[0];
+    if (popped && !appWindows.some((window) => window.visibility === "open")) {
+      popoutTargetsRef.current.get(popped.id)?.browserWindow.focus();
+      return;
+    }
     setWindows((current) => {
       const existing = current.filter((window) => window.app === app);
       if (existing.length === 0) return current.length >= 24 ? current : [...current, { id: freshWindowId(app), app, visibility: "open", order: current.length + 1 }];
-      if (existing.some((window) => window.visibility === "open")) {
+      const open = existing.filter((window) => window.visibility === "open").sort((left, right) => left.order - right.order);
+      const frontmost = current.filter((window) => window.visibility === "open").sort((left, right) => left.order - right.order).at(-1);
+      if (open.length > 0 && frontmost?.app === app) {
         return current.map((window) => window.app === app && window.visibility === "open" ? { ...window, visibility: "minimized" } : window);
       }
+      if (open.length > 0) return raiseWindow(current, open.at(-1)!.id);
       const restored = current.map((window) => window.app === app ? { ...window, visibility: "open" as const } : window);
       const target = [...existing].sort((left, right) => right.order - left.order)[0];
       return raiseWindow(restored, target.id);
     });
-  }, [session?.user?.role]);
+  }, [session?.user?.role, windows]);
 
   const activateWindow = useCallback((windowId: string) => {
     setWindows((current) => raiseWindow(current, windowId));
@@ -388,12 +490,14 @@ export function App() {
   const closeWindow = useCallback((windowId: string) => {
     const target = windows.find((window) => window.id === windowId);
     if (target) discardWindowState(target);
+    const popout = takePopout(windowId);
+    if (popout && !popout.browserWindow.closed) window.setTimeout(() => popout.browserWindow.close(), 0);
     setWindows((current) => current.filter((window) => window.id !== windowId));
     updateWindowMaximized(windowId, false);
-  }, [discardWindowState, updateWindowMaximized, windows]);
+  }, [discardWindowState, takePopout, updateWindowMaximized, windows]);
 
   const minimizeApp = useCallback((app: DesktopApp) => {
-    setWindows((current) => current.map((window) => window.app === app ? { ...window, visibility: "minimized" } : window));
+    setWindows((current) => current.map((window) => window.app === app && window.visibility === "open" ? { ...window, visibility: "minimized" } : window));
     setDockMenu(undefined);
   }, []);
 
@@ -401,10 +505,19 @@ export function App() {
     for (const window of windows) if (window.app === app) {
       discardWindowState(window);
       updateWindowMaximized(window.id, false);
+      const popout = takePopout(window.id);
+      if (popout && !popout.browserWindow.closed) globalThis.window.setTimeout(() => popout.browserWindow.close(), 0);
     }
     setWindows((current) => current.filter((window) => window.app !== app));
     setDockMenu(undefined);
-  }, [discardWindowState, updateWindowMaximized, windows]);
+  }, [discardWindowState, takePopout, updateWindowMaximized, windows]);
+
+  const restoreAppPopouts = useCallback((app: DesktopApp) => {
+    for (const window of windows) {
+      if (window.app === app && window.visibility === "popped-out") restorePoppedWindow(window.id);
+    }
+    setDockMenu(undefined);
+  }, [restorePoppedWindow, windows]);
 
   const email = session?.user?.email ?? "Loading account…";
   const role = session?.user?.role ?? "member";
@@ -521,13 +634,14 @@ export function App() {
   }, [notify, windows]);
 
   const openWindows = windows.filter((window) => window.visibility === "open").sort((left, right) => left.order - right.order);
-  // Terminal windows remain mounted while minimized so their xterm canvas and
-  // shared WebSocket continue from the same live view when restored.
-  const mountedWindows = windows.filter((window) => window.visibility === "open" || window.app === "terminal").sort((left, right) => left.order - right.order);
+  // Live socket-backed apps remain mounted while minimized so their session,
+  // transcript, scroll position, and embedded browser state survive restore.
+  const mountedWindows = windows.filter((window) => window.visibility === "open" || window.visibility === "popped-out" || window.app === "neura" || window.app === "terminal" || window.app === "vscode").sort((left, right) => left.order - right.order);
   const activeWindowId = openWindows.at(-1)?.id;
   const focusMode = Boolean(activeWindowId && maximizedWindowIds.has(activeWindowId));
   const windowCount = (app: DesktopApp) => windows.filter((window) => window.app === app).length;
   const visibleWindowCount = (app: DesktopApp) => windows.filter((window) => window.app === app && window.visibility === "open").length;
+  const poppedOutWindowCount = (app: DesktopApp) => windows.filter((window) => window.app === app && window.visibility === "popped-out").length;
   const openDockMenu = (app: DesktopApp, event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
@@ -567,8 +681,8 @@ export function App() {
 
       <main id="desktop-canvas" className="desktop-canvas">
         {mountedWindows.map((desktopWindow) => {
-          const title = desktopWindow.app === "neura" ? "Neura" : desktopWindow.app === "files" ? "Files" : desktopWindow.app === "editor" ? "Editor" : desktopWindow.app === "preview" ? `Preview — ${desktopWindow.preview?.name ?? "File"}` : desktopWindow.app === "settings" ? "Settings" : desktopWindow.app === "automations" ? "Automations" : desktopWindow.app === "skills" ? "Skills" : "Terminal";
-          const icon = desktopWindow.app === "neura" ? <WandSparkles /> : desktopWindow.app === "files" ? <Folder /> : desktopWindow.app === "editor" ? <FileCode2 /> : desktopWindow.app === "preview" ? <FileSearch2 /> : desktopWindow.app === "settings" ? <Settings /> : desktopWindow.app === "automations" ? <CalendarClock /> : desktopWindow.app === "skills" ? <Bot /> : <TerminalSquare />;
+          const title = desktopWindowTitle(desktopWindow);
+          const icon = desktopWindow.app === "neura" ? <WandSparkles /> : desktopWindow.app === "files" ? <Folder /> : desktopWindow.app === "editor" ? <FileCode2 /> : desktopWindow.app === "preview" ? <FileSearch2 /> : desktopWindow.app === "settings" ? <Settings /> : desktopWindow.app === "automations" ? <CalendarClock /> : desktopWindow.app === "skills" ? <Bot /> : desktopWindow.app === "vscode" ? <Code2 /> : <TerminalSquare />;
           return (
             <DesktopWindow
               key={desktopWindow.id}
@@ -578,12 +692,16 @@ export function App() {
               storageNamespace={persistenceUserId}
               active={activeWindowId === desktopWindow.id}
               minimized={desktopWindow.visibility === "minimized"}
+              popoutContainer={popoutTargets.get(desktopWindow.id)?.mountNode}
+              surfaceStyle={desktopTypographyStyle(fontScale)}
               zIndex={50 + desktopWindow.order}
               cascadeIndex={desktopWindow.order}
               controls="all"
               onActivate={() => activateWindow(desktopWindow.id)}
               onMaximizedChange={(maximized) => updateWindowMaximized(desktopWindow.id, maximized)}
               onMinimize={() => minimizeWindow(desktopWindow.id)}
+              onPopOut={() => popOutWindow(desktopWindow)}
+              onPopIn={() => restorePoppedWindow(desktopWindow.id)}
               onClose={() => closeWindow(desktopWindow.id)}
             >
               <Suspense fallback={<div className="app-loading">Loading {title.toLowerCase()}…</div>}>
@@ -593,8 +711,9 @@ export function App() {
                 {desktopWindow.app === "preview" && desktopWindow.preview && <PreviewApp file={desktopWindow.preview} />}
                 {desktopWindow.app === "settings" && session?.user && session.csrfToken && <SettingsApp administrator={session.user.role === "admin"} csrfToken={session.csrfToken} currentUserId={session.user.id} user={session.user} providers={session.providers ?? []} initialNotice={initialSettingsLaunch.notice} initialSection={initialSettingsLaunch.open ? "personalization" : undefined} fontScale={fontScale} onFontScaleChange={setFontScale} onLogout={() => void logout()} storageNamespace={persistenceUserId} storageArea={`settings.${desktopWindow.id}`} />}
                 {desktopWindow.app === "terminal" && <TerminalApp workspaceName="Workspace" notify={notify} storageNamespace={persistenceUserId} storageArea={`terminal.${desktopWindow.id}`} fontScale={fontScale} onFontScaleChange={setFontScale} />}
+                {desktopWindow.app === "vscode" && <VsCodeApp />}
                 {desktopWindow.app === "automations" && session?.user?.role === "admin" && <AutomationsLiveApp gateway={automationsGateway} notify={notify} workspaceName="Workspace" />}
-                {desktopWindow.app === "skills" && <SkillsLiveApp reader={gateway} administrator={session?.user?.role === "admin" ? automationsGateway : undefined} canManage={session?.user?.role === "admin"} notify={notify} onComposeInNeura={composeInNeura} workspaceName="Workspace" />}
+                {desktopWindow.app === "skills" && <SkillsLiveApp reader={gateway} administrator={session?.user?.role === "admin" ? automationsGateway : undefined} canManage={session?.user?.role === "admin"} currentUserName={session?.user?.displayName ?? "You"} notify={notify} onComposeInNeura={composeInNeura} workspaceName="Workspace" />}
               </Suspense>
             </DesktopWindow>
           );
@@ -607,6 +726,7 @@ export function App() {
         <DockButton name="Neura" primary active={windowCount("neura") > 0} count={windowCount("neura")} onClick={() => toggleDockApp("neura")} onContextMenu={(event) => openDockMenu("neura", event)}><Sparkles /></DockButton>
         <DockButton name="Files" active={windowCount("files") > 0} count={windowCount("files")} onClick={() => toggleDockApp("files")} onContextMenu={(event) => openDockMenu("files", event)}><Folder /></DockButton>
         <DockButton name="Editor" active={windowCount("editor") > 0} count={windowCount("editor")} onClick={() => toggleDockApp("editor")} onContextMenu={(event) => openDockMenu("editor", event)}><FileCode2 /></DockButton>
+        <DockButton name="VS Code" active={windowCount("vscode") > 0} count={windowCount("vscode")} onClick={() => toggleDockApp("vscode")} onContextMenu={(event) => openDockMenu("vscode", event)}><Code2 /></DockButton>
         <DockButton name="Terminal" active={windowCount("terminal") > 0} count={windowCount("terminal")} onClick={() => toggleDockApp("terminal")} onContextMenu={(event) => openDockMenu("terminal", event)}><TerminalSquare /></DockButton>
         <span className="dock-separator" aria-hidden="true" />
         {role === "admin" && <DockButton name="Automations" active={windowCount("automations") > 0} count={windowCount("automations")} onClick={() => toggleDockApp("automations")} onContextMenu={(event) => openDockMenu("automations", event)}><CalendarClock /></DockButton>}
@@ -614,9 +734,10 @@ export function App() {
         <DockButton name="Settings" active={windowCount("settings") > 0} count={windowCount("settings")} onClick={() => toggleDockApp("settings")} onContextMenu={(event) => openDockMenu("settings", event)}><Settings /></DockButton>
       </nav>
       {dockMenu && <div className="dock-context-menu" role="menu" aria-label={`${dockMenu.app} actions`} style={{ left: dockMenu.x, top: dockMenu.y }} onClick={(event) => event.stopPropagation()}>
-        <strong>{dockMenu.app === "neura" ? "Neura" : dockMenu.app[0].toUpperCase() + dockMenu.app.slice(1)}<small>{windowCount(dockMenu.app)} window{windowCount(dockMenu.app) === 1 ? "" : "s"}</small></strong>
+        <strong>{dockMenu.app === "neura" ? "Neura" : dockMenu.app === "vscode" ? "VS Code" : dockMenu.app[0].toUpperCase() + dockMenu.app.slice(1)}<small>{poppedOutWindowCount(dockMenu.app) > 0 ? `${poppedOutWindowCount(dockMenu.app)} popped out` : `${windowCount(dockMenu.app)} window${windowCount(dockMenu.app) === 1 ? "" : "s"}`}</small></strong>
         <button type="button" role="menuitem" onClick={() => newAppWindow(dockMenu.app)}><CopyPlus />New window</button>
-        {windowCount(dockMenu.app) > 0 && <button type="button" role="menuitem" onClick={() => visibleWindowCount(dockMenu.app) > 0 ? minimizeApp(dockMenu.app) : revealApp(dockMenu.app)}><Minimize2 />{visibleWindowCount(dockMenu.app) > 0 ? "Minimize" : "Restore"}</button>}
+        {poppedOutWindowCount(dockMenu.app) > 0 && <button type="button" role="menuitem" onClick={() => restoreAppPopouts(dockMenu.app)}><PanelTopOpen />Bring {poppedOutWindowCount(dockMenu.app) > 1 ? "pop-outs" : "pop-out"} back</button>}
+        {windowCount(dockMenu.app) > 0 && <button type="button" role="menuitem" onClick={() => visibleWindowCount(dockMenu.app) > 0 ? minimizeApp(dockMenu.app) : revealApp(dockMenu.app)}>{visibleWindowCount(dockMenu.app) > 0 ? <Minimize2 /> : poppedOutWindowCount(dockMenu.app) > 0 ? <PictureInPicture2 /> : <Minimize2 />}{visibleWindowCount(dockMenu.app) > 0 ? "Minimize" : poppedOutWindowCount(dockMenu.app) > 0 ? "Focus pop-out" : "Restore"}</button>}
         {windowCount(dockMenu.app) > 0 && <button type="button" role="menuitem" className="is-danger" onClick={() => closeApp(dockMenu.app)}><X />Close {windowCount(dockMenu.app) > 1 ? "all windows" : "window"}</button>}
       </div>}
       {toast && <div className="toast" role="status">{toast}</div>}
@@ -625,5 +746,6 @@ export function App() {
 }
 
 function DockButton({ name, primary, active, count = 0, onClick, onContextMenu, children }: { name: string; primary?: boolean; active?: boolean; count?: number; onClick: () => void; onContextMenu?: React.MouseEventHandler<HTMLButtonElement>; children: React.ReactNode }) {
-  return <button type="button" className={`dock-button${primary ? " dock-button-primary" : ""}`} aria-label={name} aria-haspopup={onContextMenu ? "menu" : undefined} onClick={onClick} onContextMenu={onContextMenu}>{children}<span>{name}</span>{active && <i />}{count > 1 && <b aria-hidden="true">{count}</b>}</button>;
+  const appClass = name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  return <button type="button" className={`dock-button dock-button--${appClass}${primary ? " dock-button-primary" : ""}`} aria-label={name} aria-haspopup={onContextMenu ? "menu" : undefined} onClick={onClick} onContextMenu={onContextMenu}>{children}<span>{name}</span>{active && <i />}{count > 1 && <b aria-hidden="true">{count}</b>}</button>;
 }

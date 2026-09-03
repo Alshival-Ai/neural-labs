@@ -25,6 +25,9 @@ RUN npm run validate \
 FROM ${OPENCLAW_IMAGE}
 
 ARG CODEX_VERSION=0.152.0
+ARG CODE_SERVER_VERSION=4.133.0
+ARG CODE_SERVER_AMD64_SHA256=a4e0f8f8c76e7de8e7424289f74e507af4c97bfe104c3e8ee272b8cc7b46c6f1
+ARG CODE_SERVER_ARM64_SHA256=d999d8b0256e5537f3b62e6c09f624220026e19107a04a876c0cef62d1c71147
 
 USER root
 
@@ -51,6 +54,22 @@ RUN apt-get update \
     && npm cache clean --force \
     && rm -rf /var/lib/apt/lists/*
 
+RUN set -eu; \
+    case "$(dpkg --print-architecture)" in \
+      amd64) code_server_arch=amd64; code_server_sha="${CODE_SERVER_AMD64_SHA256}" ;; \
+      arm64) code_server_arch=arm64; code_server_sha="${CODE_SERVER_ARM64_SHA256}" ;; \
+      *) echo "Unsupported code-server architecture: $(dpkg --print-architecture)" >&2; exit 1 ;; \
+    esac; \
+    code_server_archive="/tmp/code-server-${CODE_SERVER_VERSION}-${code_server_arch}.tar.gz"; \
+    curl --fail --location --retry 3 \
+      --output "${code_server_archive}" \
+      "https://github.com/coder/code-server/releases/download/v${CODE_SERVER_VERSION}/code-server-${CODE_SERVER_VERSION}-linux-${code_server_arch}.tar.gz"; \
+    echo "${code_server_sha}  ${code_server_archive}" | sha256sum --check --strict; \
+    tar --extract --gzip --file "${code_server_archive}" --directory /usr/local/lib; \
+    mv "/usr/local/lib/code-server-${CODE_SERVER_VERSION}-linux-${code_server_arch}" /usr/local/lib/code-server; \
+    ln -s /usr/local/lib/code-server/bin/code-server /usr/local/bin/code-server; \
+    rm -f "${code_server_archive}"
+
 COPY workspace/package.json workspace/package-lock.json /usr/local/lib/neural-labs/
 RUN npm ci --omit=dev --prefix /usr/local/lib/neural-labs \
     && npm cache clean --force
@@ -58,7 +77,9 @@ RUN npm ci --omit=dev --prefix /usr/local/lib/neural-labs \
 COPY workspace/sudoers-neural-labs /etc/sudoers.d/neural-labs-workspace
 COPY workspace/start.mjs /usr/local/lib/neural-labs/start.mjs
 COPY workspace/http-server.mjs /usr/local/lib/neural-labs/http-server.mjs
+COPY workspace/vscode-proxy.mjs /usr/local/lib/neural-labs/vscode-proxy.mjs
 COPY workspace/file-manager.mjs /usr/local/lib/neural-labs/file-manager.mjs
+COPY workspace/skills-manager.mjs /usr/local/lib/neural-labs/skills-manager.mjs
 COPY workspace/file-events.mjs /usr/local/lib/neural-labs/file-events.mjs
 COPY workspace/provider-auth.mjs /usr/local/lib/neural-labs/provider-auth.mjs
 COPY workspace/team-agent.mjs /usr/local/lib/neural-labs/team-agent.mjs
@@ -89,7 +110,8 @@ ENV HOME=/home/node \
     OPENCLAW_CONFIG_PATH=/home/node/.openclaw/openclaw.json \
     OPENCLAW_WORKSPACE_DIR=/home/node/workspace \
     NEURAL_LABS_OPENCLAW_VERSION=2026.8.2 \
-    NEURAL_LABS_CODEX_VERSION=0.152.0
+    NEURAL_LABS_CODEX_VERSION=0.152.0 \
+    NEURAL_LABS_CODE_SERVER_VERSION=${CODE_SERVER_VERSION}
 
 USER node
 WORKDIR /home/node/workspace

@@ -8,11 +8,18 @@
 *.pem
 *.p12
 *.pfx
+*.crt
+*.cer
+*.ovpn
 secrets/
 **/secrets/
+credentials/
+**/credentials/
 deploy/compose/.env
 id_rsa*
 id_ed25519*
+.ssh/
+**/.ssh/
 tmp/*
 !tmp/neural-labs-spectrum-paper-wallpaper.png
 !tmp/neural-labs-spectrum-paper-tablet.png
@@ -21,6 +28,7 @@ tmp/*
 # Private runtime content. Neural Labs is a public source repository; team
 # skills, agent memory, and OpenClaw state belong only in the workspace volume.
 skills/
+automations/
 memory/
 MEMORY.md
 USER.md
@@ -28,6 +36,8 @@ IDENTITY.md
 SOUL.md
 .openclaw/
 **/.openclaw/
+.codex/
+**/.codex/
 
 # Generated tenant state and recovery material
 state/

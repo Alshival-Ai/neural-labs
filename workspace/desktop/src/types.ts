@@ -18,13 +18,21 @@ export type NeuraMessage = {
   text: string;
   pending?: boolean;
   attachments?: Array<{ name: string; type: string; url?: string }>;
+  activities?: NeuraActivity[];
 };
 
 export type NeuraActivity = {
   id: string;
   sessionKey: string;
+  runId?: string;
+  kind: "thinking" | "command" | "plan" | "tool" | "file" | "operation";
   title: string;
   detail?: string;
+  command?: string;
+  output?: string;
+  path?: string;
+  exitCode?: number;
+  durationMs?: number;
   state: "running" | "done" | "error";
 };
 

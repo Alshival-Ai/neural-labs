@@ -14,13 +14,18 @@ The desktop restores:
 - Neura's selected conversation, sidebar, and archive visibility;
 - Settings navigation; and
 - Terminal's active tab, split session, split direction, and locally hidden Team
-  Terminal tabs.
+  Terminal tabs; and
+- the VS Code window's visibility, stacking, geometry, and maximized state.
 
 Restored Editor files are fetched again from the authenticated workspace API.
 These UI-state records do not include file bodies or unsaved edits, terminal
 output or input, Neura message bodies or drafts, access tokens, credentials,
 WebSocket tickets, or provider state. Authentication subsystems retain only
 their separately documented device identity and session material.
+
+Neura's visible follow-up queue is also excluded from device storage because it
+contains prompt text. Once a follow-up is accepted, OpenClaw owns its execution;
+the browser keeps only the temporary visual projection used by the open app.
 
 This state does not roam between devices. A phone, tablet, and desktop browser
 can each retain a layout suited to that screen. Clearing site data resets the
@@ -30,9 +35,10 @@ processes, or server state.
 ## Window and dock behavior
 
 Clicking a visible window brings it to the front. The active window has a
-slightly brighter frame. Clicking the dock icon for an app with visible windows
-minimizes all of that app's windows; clicking it again restores the most recent
-window and its siblings.
+slightly brighter frame. Clicking the dock icon for a background app raises its
+most recent visible window. Clicking the frontmost app's icon minimizes its
+visible windows; clicking a minimized app restores its most recent window and
+its siblings.
 
 Maximizing the active window expands it edge-to-edge and enters focus mode. The
 desktop topbar and dock slide away while the window expands. Move the pointer to
@@ -45,6 +51,29 @@ restore the app, or close its window set. Each new window has independent
 geometry and app presentation state. Closing a Terminal window detaches its
 browser views but does not terminate its server-side PTYs; the explicit terminal
 tab controls retain their documented end/leave behavior.
+
+Every integrated app window also has a **Pop out** title-bar control. It moves
+the existing live app surface into a dedicated browser window; it does not open
+a second app instance. Use **Pop back into desktop** in the external title bar,
+or right-click the app's dock icon and choose **Bring pop-out back**, to return
+it. Clicking a dock icon when all of that app's windows are popped out focuses
+the most recent external window. Closing an external browser window returns the
+app to the desktop automatically, while the app title bar's close control closes
+the app as usual.
+
+Pop-out placement is intentionally temporary device state. Reloading or closing
+the Neural Labs desktop closes its child browser windows, and the next desktop
+load restores those apps inside the desktop. A browser may require pop-ups to be
+allowed for the Neural Labs origin. The pop-out uses the authenticated,
+same-origin page and does not create another public endpoint or copy credentials
+into its URL.
+
+Minimized Neura, Terminal, and VS Code windows remain mounted. This preserves
+Neura's live transcript subscription and local scroll state, Terminal's socket
+and emulator, and VS Code's iframe connection and unsaved browser-side editor
+state. The desktop stores only the surrounding window presentation.
+code-server owns its shared settings, extensions, and editor state below the
+persistent workspace home.
 
 ## Static asset cache
 

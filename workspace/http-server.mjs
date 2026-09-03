@@ -1,9 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
+import path from "node:path";
 
 import { createWorkspaceFileEvents } from "./file-events.mjs";
 import { WorkspaceFileError, createFileManager } from "./file-manager.mjs";
+import { WorkspaceSkillError, createSkillsManager, workspaceSkillActor } from "./skills-manager.mjs";
 import {
   TERMINAL_SOCKET_PATH,
   TERMINAL_SOCKET_PROTOCOL,
@@ -12,6 +14,11 @@ import {
   attachTerminalWebSocket,
   terminalActor,
 } from "./terminal-manager.mjs";
+import {
+  VSCODE_BASE_PATH,
+  attachVsCodeWebSocketBridge,
+  proxyVsCodeHttp,
+} from "./vscode-proxy.mjs";
 
 const ASSET_TYPES = new Map([
   [".css", "text/css; charset=utf-8"],
@@ -39,6 +46,7 @@ function contentSecurityPolicy(nonce) {
     "base-uri 'none'",
     "connect-src 'self'",
     "form-action 'self'",
+    "frame-src 'self'",
     "frame-ancestors 'none'",
     "img-src 'self' data: blob:",
     "media-src 'self' blob:",
@@ -88,6 +96,15 @@ function sendJson(response, status, value, method = "GET") {
     "application/json; charset=utf-8",
     method,
   );
+}
+
+function skillApiError(response, error, method) {
+  if (error instanceof WorkspaceSkillError) {
+    sendJson(response, error.status, { error: { code: error.code, message: error.message } }, method);
+    return;
+  }
+  console.error("Workspace skill API error", error instanceof Error ? error.message : error);
+  sendJson(response, 500, { error: { code: "internal_error", message: "The skill operation failed" } }, method);
 }
 
 function validControlToken(request, expected) {
@@ -285,6 +302,8 @@ export function createWorkspaceHttpServer({
   workspaceRoot,
   publicOrigin,
   gatewayReady,
+  codeServerOrigin = "http://127.0.0.1:18881",
+  codeServerReady = async () => true,
   mcpStatus = async () => ({
     ready: true,
     mode: "workspace-local",
@@ -304,10 +323,13 @@ export function createWorkspaceHttpServer({
   codexVersion,
   maxUploadBytes,
   maxTextBytes,
+  personalSkillsRoot = path.join(path.dirname(workspaceRoot), ".agents", "skills"),
+  teamSkillsRoot = path.join(workspaceRoot, "skills"),
   terminalManager,
   runTeamAgent,
 }) {
   const files = createFileManager({ root: workspaceRoot, maxUploadBytes, maxTextBytes });
+  const skills = createSkillsManager({ personalRoot: personalSkillsRoot, teamRoot: teamSkillsRoot });
   const fileEvents = createWorkspaceFileEvents({ root: workspaceRoot });
   const terminals = terminalManager ?? new WorkspaceTerminalManager({ workspaceRoot });
   const server = createServer(async (request, response) => {
@@ -357,6 +379,11 @@ export function createWorkspaceHttpServer({
       }
       response.setHeader("Allow", providerRoute ? "GET" : "POST");
       sendJson(response, 405, { error: { code: "method_not_allowed", message: "Method not allowed" } }, method);
+      return;
+    }
+
+    if (pathname === VSCODE_BASE_PATH || pathname.startsWith(`${VSCODE_BASE_PATH}/`)) {
+      proxyVsCodeHttp(request, response, { codeServerOrigin, publicOrigin });
       return;
     }
 
@@ -426,6 +453,45 @@ export function createWorkspaceHttpServer({
         sendJson(response, 405, { error: { code: "method_not_allowed", message: "Method not allowed" } }, method);
       } catch (error) {
         terminalApiError(response, error, method);
+      }
+      return;
+    }
+
+    if (pathname === "/workspace/api/skills" || /^\/workspace\/api\/skills\/[^/]+$/.test(pathname) || /^\/workspace\/api\/skills\/[^/]+\/scope$/.test(pathname)) {
+      const actor = workspaceSkillActor(request.headers);
+      if (!actor) {
+        sendJson(response, 401, { error: { code: "unauthorized", message: "Authentication is required" } }, method);
+        return;
+      }
+      const mutation = method === "POST" || method === "PUT";
+      if (mutation && request.headers.origin !== publicOrigin) {
+        sendJson(response, 403, { error: { code: "same_origin_required", message: "A same-origin request is required" } }, method);
+        return;
+      }
+      try {
+        if (pathname === "/workspace/api/skills" && method === "GET") {
+          sendJson(response, 200, { skills: await skills.list(actor) }, method);
+          return;
+        }
+        if (pathname === "/workspace/api/skills" && method === "POST") {
+          sendJson(response, 201, { skill: await skills.save(actor, await readJsonBody(request, 256 * 1024)) }, method);
+          return;
+        }
+        const scopeMatch = pathname.match(/^\/workspace\/api\/skills\/([^/]+)\/scope$/);
+        if (scopeMatch && method === "PUT") {
+          const body = await readJsonBody(request);
+          sendJson(response, 200, { skill: await skills.share(actor, decodeURIComponent(scopeMatch[1]), body?.scope) }, method);
+          return;
+        }
+        const skillMatch = pathname.match(/^\/workspace\/api\/skills\/([^/]+)$/);
+        if (skillMatch && method === "PUT") {
+          sendJson(response, 200, { skill: await skills.save(actor, await readJsonBody(request, 256 * 1024), decodeURIComponent(skillMatch[1])) }, method);
+          return;
+        }
+        response.setHeader("Allow", pathname === "/workspace/api/skills" ? "GET, POST" : "PUT");
+        sendJson(response, 405, { error: { code: "method_not_allowed", message: "Method not allowed" } }, method);
+      } catch (error) {
+        skillApiError(response, error, method);
       }
       return;
     }
@@ -522,16 +588,18 @@ export function createWorkspaceHttpServer({
     }
 
     if (pathname === "/status" || pathname === "/healthz") {
-      const [gatewayIsReady, mcp] = await Promise.all([
+      const [gatewayIsReady, codeServerIsReady, mcp] = await Promise.all([
         gatewayReady(),
+        codeServerReady(),
         mcpStatus(),
       ]);
       const mcpIsReady = mcp.ready;
-      const ready = gatewayIsReady && mcpIsReady;
+      const ready = gatewayIsReady && codeServerIsReady && mcpIsReady;
       const providerReady = providerAuthenticated();
       const body = JSON.stringify({
         status: ready ? "ready" : "starting",
         gatewayReady: gatewayIsReady,
+        codeServerReady: codeServerIsReady,
         mcpReady: mcpIsReady,
         mcp,
         openclawVersion,
@@ -591,6 +659,7 @@ export function createWorkspaceHttpServer({
     send(response, 404, "Not found\n", "text/plain; charset=utf-8", method);
   });
   const terminalSockets = attachTerminalWebSocket(server, { manager: terminals, publicOrigin });
+  const vsCodeSockets = attachVsCodeWebSocketBridge(server, { codeServerOrigin, publicOrigin });
   const closeServer = server.close.bind(server);
   let closed = false;
   server.close = (callback) => {
@@ -598,6 +667,7 @@ export function createWorkspaceHttpServer({
       closed = true;
       fileEvents.close();
       terminalSockets.close();
+      vsCodeSockets.close();
       terminals.shutdown();
     }
     return closeServer(callback);

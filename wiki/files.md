@@ -15,6 +15,8 @@ to every approved Neural Labs user from the desktop dock.
   pane, or from the context menu;
 - open HTML, common image formats, PDF, CSV, XLSX, audio, and video in a
   dedicated, resizable desktop Preview window;
+- copy a file or folder's shell-ready `~/workspace/...` path from its context
+  menu;
 - download files from the item context menu or details pane; and
 - permanently delete files or folders after confirmation.
 

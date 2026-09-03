@@ -11,6 +11,10 @@ vi.mock("./TerminalApp", () => ({
   TerminalApp: () => <div data-testid="terminal-live-view">Live terminal view</div>,
 }));
 
+vi.mock("./NeuraApp", () => ({
+  NeuraApp: () => <div data-testid="neura-live-view">Live Neura view</div>,
+}));
+
 import { App } from "./App";
 import { deviceStateKey } from "./deviceState";
 
@@ -76,6 +80,34 @@ function renderDesktop(role: "admin" | "user") {
   return render(<App />);
 }
 
+function createPopupWindow() {
+  const popupDocument = document.implementation.createHTMLDocument("Neural Labs pop-out");
+  const events = new EventTarget();
+  let closed = false;
+  const focus = vi.fn();
+  const close = vi.fn(() => { closed = true; });
+  const popup = {
+    document: popupDocument,
+    innerWidth: 1024,
+    innerHeight: 768,
+    focus,
+    close,
+    get closed() { return closed; },
+    addEventListener: events.addEventListener.bind(events),
+    removeEventListener: events.removeEventListener.bind(events),
+  } as unknown as Window;
+  return {
+    popup,
+    popupDocument,
+    focus,
+    close,
+    closeFromBrowser() {
+      closed = true;
+      events.dispatchEvent(new Event("beforeunload"));
+    },
+  };
+}
+
 afterEach(() => {
   cleanup();
   localStorage.clear();
@@ -109,6 +141,99 @@ describe("desktop admin navigation", () => {
     expect(picture).toBeInTheDocument();
     expect(picture?.querySelectorAll("source")).toHaveLength(2);
     expect(picture?.querySelector('img[fetchpriority="high"]')).toHaveAttribute("src", "/workspace/assets/wallpaper.png");
+  });
+
+  it("opens Terminal as the active app on startup", async () => {
+    renderDesktop("user");
+    const terminalWindow = await screen.findByLabelText("Terminal application");
+
+    expect(terminalWindow).not.toHaveAttribute("hidden");
+    expect(await within(terminalWindow).findByTestId("terminal-live-view")).toBeInTheDocument();
+  });
+
+  it("moves a live app into a browser window and pops the same view back into the desktop", async () => {
+    const external = createPopupWindow();
+    const open = vi.spyOn(window, "open").mockReturnValue(external.popup);
+    renderDesktop("user");
+    const terminalWindow = await screen.findByLabelText("Terminal application");
+    const liveView = await within(terminalWindow).findByTestId("terminal-live-view");
+
+    fireEvent.click(within(terminalWindow).getByRole("button", { name: "Pop out Terminal" }));
+
+    await waitFor(() => expect(external.popupDocument.body.querySelector('[aria-label="Terminal application"]')).toBeTruthy());
+    expect(open).toHaveBeenCalledWith("about:blank", expect.stringMatching(/^neural-labs-terminal-/), expect.stringContaining("popup=yes"));
+    expect(external.popupDocument.title).toBe("Terminal — Neural Labs");
+    expect(external.popupDocument.body.querySelector('[data-testid="terminal-live-view"]')).toBe(liveView);
+    expect(document.body.contains(liveView)).toBe(false);
+
+    const popInButton = external.popupDocument.body.querySelector<HTMLButtonElement>('[aria-label="Pop Terminal back into desktop"]');
+    expect(popInButton).toBeTruthy();
+    popInButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    const restored = await screen.findByLabelText("Terminal application");
+    await waitFor(() => expect(within(restored).getByTestId("terminal-live-view")).toBe(liveView));
+    await waitFor(() => expect(external.close).toHaveBeenCalledOnce());
+  });
+
+  it("returns a popped app to the desktop when its browser window is closed", async () => {
+    const external = createPopupWindow();
+    vi.spyOn(window, "open").mockReturnValue(external.popup);
+    renderDesktop("user");
+    const terminalWindow = await screen.findByLabelText("Terminal application");
+    const liveView = within(terminalWindow).getByTestId("terminal-live-view");
+    fireEvent.click(within(terminalWindow).getByRole("button", { name: "Pop out Terminal" }));
+    await waitFor(() => expect(document.body.contains(liveView)).toBe(false));
+
+    external.closeFromBrowser();
+
+    const restored = await screen.findByLabelText("Terminal application");
+    await waitFor(() => expect(within(restored).getByTestId("terminal-live-view")).toBe(liveView));
+  });
+
+  it("brings a pop-out back from the app dock menu", async () => {
+    const external = createPopupWindow();
+    vi.spyOn(window, "open").mockReturnValue(external.popup);
+    renderDesktop("user");
+    const terminalWindow = await screen.findByLabelText("Terminal application");
+    fireEvent.click(within(terminalWindow).getByRole("button", { name: "Pop out Terminal" }));
+    await waitFor(() => expect(screen.queryByLabelText("Terminal application")).not.toBeInTheDocument());
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Terminal" }), { clientX: 200, clientY: 700 });
+    const menu = screen.getByRole("menu", { name: "terminal actions" });
+    expect(within(menu).getByText("1 popped out")).toBeInTheDocument();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Bring pop-out back" }));
+
+    expect(await screen.findByLabelText("Terminal application")).toBeInTheDocument();
+    await waitFor(() => expect(external.close).toHaveBeenCalledOnce());
+  });
+
+  it("explains how to recover when the browser blocks a pop-out", async () => {
+    vi.spyOn(window, "open").mockReturnValue(null);
+    renderDesktop("user");
+    const terminalWindow = await screen.findByLabelText("Terminal application");
+
+    fireEvent.click(within(terminalWindow).getByRole("button", { name: "Pop out Terminal" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Allow pop-ups for Neural Labs");
+    expect(terminalWindow).toBeInTheDocument();
+  });
+
+  it("opens embedded VS Code from the dock and keeps its live frame mounted while minimized", async () => {
+    renderDesktop("user");
+    await screen.findByText("Workspace ready");
+    fireEvent.click(screen.getByRole("button", { name: "VS Code" }));
+
+    const vsCodeWindow = await screen.findByLabelText("VS Code application");
+    const frame = await within(vsCodeWindow).findByTitle("VS Code workspace");
+    expect(frame).toHaveAttribute("src", "/workspace/vscode/?folder=%2Fhome%2Fnode%2Fworkspace");
+    expect(within(vsCodeWindow).getByRole("link", { name: "Open VS Code in a new tab" })).toHaveAttribute("target", "_blank");
+
+    fireEvent.click(screen.getByRole("button", { name: "Minimize VS Code" }));
+    expect(vsCodeWindow).toHaveAttribute("hidden");
+    expect(frame).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "VS Code" }));
+    expect(vsCodeWindow).not.toHaveAttribute("hidden");
+    expect(within(vsCodeWindow).getByTitle("VS Code workspace")).toBe(frame);
   });
 
   it("opens administrator and personal settings from the shared Settings cog", async () => {
@@ -209,6 +334,13 @@ describe("desktop admin navigation", () => {
     const filesWindow = await screen.findByLabelText("Files application");
     const editorWindow = await screen.findByLabelText("Editor application");
     expect(Number(editorWindow.style.zIndex)).toBeGreaterThan(Number(filesWindow.style.zIndex));
+
+    fireEvent.click(screen.getByRole("button", { name: "Files" }));
+    await waitFor(() => expect(Number(filesWindow.style.zIndex)).toBeGreaterThan(Number(editorWindow.style.zIndex)));
+    expect(filesWindow).toBeInTheDocument();
+
+    fireEvent.pointerDown(editorWindow);
+    await waitFor(() => expect(Number(editorWindow.style.zIndex)).toBeGreaterThan(Number(filesWindow.style.zIndex)));
     fireEvent.pointerDown(filesWindow);
     await waitFor(() => expect(Number(filesWindow.style.zIndex)).toBeGreaterThan(Number(editorWindow.style.zIndex)));
 
@@ -230,9 +362,6 @@ describe("desktop admin navigation", () => {
 
   it("keeps a live terminal view mounted while its window is minimized", async () => {
     renderDesktop("user");
-    await screen.findByText("Workspace ready");
-    fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
-
     const terminalWindow = await screen.findByLabelText("Terminal application");
     const liveView = await screen.findByTestId("terminal-live-view");
     fireEvent.click(screen.getByRole("button", { name: "Minimize Terminal" }));
@@ -243,6 +372,22 @@ describe("desktop admin navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
     expect(terminalWindow).not.toHaveAttribute("hidden");
     expect(screen.getByTestId("terminal-live-view")).toBe(liveView);
+  });
+
+  it("keeps the live Neura transcript mounted while its window is minimized", async () => {
+    renderDesktop("user");
+    await screen.findByText("Workspace ready");
+    fireEvent.click(screen.getByRole("button", { name: "Neura" }));
+    const neuraWindow = await screen.findByLabelText("Neura application");
+    const liveView = await within(neuraWindow).findByTestId("neura-live-view");
+
+    fireEvent.click(within(neuraWindow).getByRole("button", { name: "Minimize Neura" }));
+    expect(neuraWindow).toHaveAttribute("hidden");
+    expect(liveView).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Neura" }));
+    expect(neuraWindow).not.toHaveAttribute("hidden");
+    expect(within(neuraWindow).getByTestId("neura-live-view")).toBe(liveView);
   });
 
   it("turns an active maximized window into edge-to-edge focus mode", async () => {

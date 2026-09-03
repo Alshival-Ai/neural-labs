@@ -17,6 +17,8 @@ The initial release pins:
 
 - OpenClaw `2026.8.2` using the official multi-architecture image digest;
 - Codex CLI `0.152.0` as an exact npm package version;
+- code-server `4.133.0` from checksum-verified architecture-specific release
+  archives; and
 - 10 CPUs and 16 GiB of memory for the shared container.
 
 The root `.env` controls the image reference, exact versions, loopback port,
@@ -89,10 +91,12 @@ device state](desktop-state.md).
 
 Neura is the first desktop app. It is the product identity for OpenClaw's
 `main` agent and provides shared chat history, streamed responses, compact tool
-activity, inline approvals, file/image attachments, and run steering. The
-window is a singleton with drag, eight-direction resize, minimize, maximize,
-and close controls; closing it does not stop an agent run. On narrow screens it
-becomes a full-screen app with a history drawer.
+activity timelines, inline approvals, file/image attachments, and run steering.
+The transcript follows live WebSocket updates at the bottom without overriding
+an intentional upward scroll. The window is a singleton with drag,
+eight-direction resize, minimize, maximize, and close controls; minimizing
+keeps its live UI mounted, and closing it does not stop an agent run. On narrow
+screens it becomes a full-screen app with a history drawer.
 
 Files is the desktop browser for `/home/node/workspace`. Approved developers can
 navigate folders, upload files by picker or drag and drop, create folders,
@@ -109,12 +113,22 @@ no idle timeout; they end when explicitly terminated or when the workspace
 container is recreated. See the [Terminal guide](terminal.md) for session,
 collaboration, clipboard, and reconnect behavior.
 
+VS Code runs as code-server inside the same container and opens from the desktop
+dock in an embedded window, with a new-tab fallback. Its listener is loopback
+only and every proxied HTTP and WebSocket request remains behind Neural Labs
+authentication. Editor settings and extensions are shared in the persistent
+home volume. See the [VS Code guide](vscode.md) for routing, framing, persistence,
+and trusted-origin details.
+
 All approved users can create, switch, rename, archive, restore, and delete any
 Neura conversation. Deletion requires a confirmation but is permanent. Press
 Enter to send or steer an active run, Ctrl/Cmd+Enter to queue a follow-up, and
-Shift+Enter to add a line. The raw OpenClaw Control UI is disabled. Nginx exposes
-only the authenticated `/workspace/neura/socket` Gateway WebSocket; navigating
-to `/workspace/openclaw/` returns `404`.
+Shift+Enter to add a line. Active-run steering remains enabled across
+intermediate transcript commits and when a run began before the app opened.
+Queued follow-ups are shown in FIFO order and are owned and advanced by the
+Gateway rather than a browser timer. The raw OpenClaw Control UI is disabled.
+Nginx exposes only the authenticated `/workspace/neura/socket` Gateway WebSocket;
+navigating to `/workspace/openclaw/` returns `404`.
 
 Nginx performs a session subrequest for every desktop, asset, API, and Neura
 WebSocket connection, strips caller-supplied identity headers, and injects the

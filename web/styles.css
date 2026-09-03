@@ -1,3 +1,11 @@
+@font-face {
+  font-family: "Lato";
+  src: url("/assets/fonts/lato-heavy.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+}
+
 :root {
   --paper: #f6f4ef;
   --paper-bright: #fffef9;
@@ -107,28 +115,13 @@ a {
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 0.7rem;
   width: max-content;
   text-decoration: none;
-  font-size: 0.98rem;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-}
-
-.brand-mark {
-  display: grid;
-  place-items: center;
-  width: 2.35rem;
-  height: 2.35rem;
-  overflow: hidden;
-  border-radius: 0.7rem;
-  background: var(--ink);
-}
-
-.brand-mark img {
-  width: 2.1rem;
-  height: 2.25rem;
-  object-fit: contain;
+  font-family: "Lato", var(--display);
+  font-size: 1.28rem;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.035em;
 }
 
 .site-header nav {
@@ -1711,7 +1704,7 @@ footer > div a { text-underline-offset: 0.3rem; }
     min-height: 4.25rem;
   }
 
-  .brand > span:last-child { display: none; }
+  .brand { font-size: 1.08rem; }
   .header-entry { min-height: 2.65rem; }
 
   .hero {

@@ -1,94 +1,60 @@
 # Skills desktop app
 
-Skills is the Neural Labs desktop client for OpenClaw's effective skill catalog,
-Skill Workshop, and ClawHub registry. OpenClaw remains the source of truth;
-Neural Labs does not copy skill state into a second database.
+Skills gives each approved developer a small, direct library for teaching
+Neura reusable ways of working. The app has three sections:
 
-Every approved workspace developer can open Skills and:
+- **My Skills** are created by the signed-in developer and appear in that
+  developer's Neura `$` picker. They save immediately and do not enter an
+  approval queue.
+- **Team Skills** are available to everyone using the shared workspace. A skill
+  owner can move a personal skill here, or make it personal again, in one step.
+- **OpenClaw** shows the bundled, plugin, managed, and node-hosted skills already
+  available to Neura. It also searches ClawHub.
 
-- inspect the main agent's effective catalog, including source precedence,
-  eligibility, missing binaries/environment/configuration, invocation policy,
-  and recorded usage;
-- load the exact current `SKILL.md` card through `skills.skillCard`;
-- inspect pending and historical Skill Workshop proposals;
-- search ClawHub and load registry publisher, release, platform, and changelog
-  detail; and
-- place a skill's stable `$skill_name` reference into the active Neura composer.
+Creating or editing a Neural Labs skill writes its `SKILL.md` immediately.
+Personal skills set `disable-model-invocation: true`, so they are explicit-use
+skills and are removed from other users' Neura pickers. Team Skills set it to
+`false` and are part of the shared agent catalog.
 
-Administrators can additionally:
+## Shared-development boundary
 
-- enable or disable a skill through `skills.update`;
-- create Workshop create/update proposals;
-- run proposal evaluators and apply, reject, or quarantine an exact inspected
-  revision;
-- ask Neura to help revise a proposal;
-- scan earlier sessions for reusable skill ideas; and
-- install a ClawHub result into the shared main-agent workspace.
+This deployment intentionally has one shared tenant home and one shared Neura
+runtime. A personal skill is a usability and default-attachment boundary, not
+a filesystem confidentiality boundary. Another approved developer can inspect
+its files using the shared terminal or runtime access. They cannot edit or
+promote it through the Skills API unless they own it or are an administrator.
 
-Proposal creation never writes a live `SKILL.md`. OpenClaw writes a
-`PROPOSAL.md`, scans it, and requires a separate apply transition. Apply and
-reject use the exact revision hash returned by a fresh
-`skills.proposals.inspect`, so a stale browser cannot silently act on a newer
-draft.
+Personal skills live in `/home/node/.agents/skills`, inside the persistent
+tenant home. Team Skills live in `/home/node/workspace/skills`. Neural Labs
+stores a small `.neural-labs.json` ownership record beside each skill it
+creates. Unmanaged OpenClaw skills remain sourced from `skills.status`.
 
-## Public/private boundary
-
-Team skills live only in `/home/node/workspace/skills` in the persistent
-workspace volume. Do not create them under the public source repository's
-top-level `skills/` directory, copy them into an image build context, or attach
-a Git remote to `/home/node/workspace`.
-
-The runtime workspace carries a deny-by-default `.gitignore` and is not itself
-a Git repository. Source code for a reusable public skill must be developed in
-a deliberately separate public repository and copied in only after review.
-Credentials remain in the root deployment `.env`, provider stores, or another
-approved secret store; a `SKILL.md`, support script, example, fixture, or log
-must never contain a credential.
+Never put tenant credentials, provider keys, customer secrets, certificates,
+or private keys in a skill. The API rejects several obvious credential forms,
+but that check is only a backstop.
 
 ## Authorization
 
-Read operations use the ordinary authenticated `/workspace/neura/socket` and
-its `operator.read` scope. The browser never receives an administrator scope
-because the current account says it is an administrator.
+Any active, authenticated workspace developer can create and edit their own
+skills and share them with the team. Requests use the identity asserted by the
+control plane through Nginx; client-supplied ownership is ignored. Writes also
+require the configured same origin.
 
-Mutations use the existing `/workspace/automations/socket` administrator
-ingress. Despite its historical path name, that ingress is the shared Neural
-Labs desktop administrator channel: Nginx first calls the control plane's
-active-administrator check, then overwrites identity and scope headers with a
-fixed trusted-proxy identity capped at `operator.read,operator.admin`.
-The admin client has no OpenClaw device pairing or reusable browser token;
-OpenClaw, not a React visibility check, enforces the final method scope on the
-live trusted-proxy connection.
+ClawHub installation remains administrator-only through the existing
+administrator Gateway connection. Third-party installation crosses an
+instruction supply-chain boundary and OpenClaw requires `operator.admin`.
+Regular users can still search and inspect ClawHub results.
 
-The admin WebSocket is recycled every five minutes so account disablement or
-demotion is rechecked. Regular users see a view-only catalog and cannot use the
-admin WebSocket directly.
-
-See [ADR 0006](adr/0006-skills-permission-split.md) for this authorization
-split and [ADR 0005](adr/0005-admin-gated-automations-ingress.md) for the
-underlying admin ingress.
+See [ADR 0011](adr/0011-direct-personal-and-team-skills.md) for the trust-boundary
+decision. [ADR 0006](adr/0006-skills-permission-split.md) documents the previous
+Workshop-first UI and remains useful history.
 
 ## Refresh behavior
 
-Skill-related Gateway events trigger a debounced refresh. A 30-second
-reconciliation poll catches filesystem watcher changes and older Gateway
-versions that do not emit a relevant client event. Skill Card and proposal
-body content loads lazily when selected to avoid transferring every bundled
-skill on every refresh.
+The app combines the live OpenClaw catalog with the Neural Labs ownership
+records. Skill events trigger a refresh and a 30-second reconciliation poll
+catches filesystem changes. Newly saved skills are shown from the local record
+even before OpenClaw's watcher has refreshed its effective catalog.
 
-ClawHub results are registry data, not an endorsement. Unscanned sources remain
-marked unscanned, ordinary third-party results require review, and official
-publisher status is shown separately from a security-scan claim. OpenClaw
-still performs its install trust-envelope and policy checks when an
-administrator installs a release.
-
-## Current protocol boundaries
-
-- Gateway installs target the selected agent workspace. The UI therefore does
-  not offer a personal/global install target.
-- OpenClaw exposes the current Skill Card but not arbitrary installed support
-  file reads on this surface.
-- Skill configuration controls enablement. Agent allowlists, credentials,
-  tool permissions, and host shell authorization remain separate boundaries.
-- New sessions receive refreshed skill snapshots; an already-running session
-  retains its pinned snapshot.
+New Neura turns receive refreshed skills. Already-running turns keep the skill
+snapshot they started with.

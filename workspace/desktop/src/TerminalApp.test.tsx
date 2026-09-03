@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { NEURAL_TERMINAL_THEME, TerminalApp, isTerminalCopyShortcut, isTerminalInsertToggle, isTerminalPasteShortcut } from "./TerminalApp";
@@ -58,7 +58,15 @@ class MockWebSocket {
 }
 
 const personal = descriptor({ id: "personal-1", title: "workspace", scope: "personal", owned: true, canTerminate: true });
-const team = descriptor({ id: "team-1", title: "Release room", scope: "team", owned: false, canTerminate: false });
+const team = descriptor({
+  id: "team-1",
+  title: "Release room",
+  scope: "team",
+  owned: false,
+  canTerminate: false,
+  participants: [{ id: "ada", label: "ada", connections: 1 }, { id: "salvador", label: "salvador", connections: 2 }],
+  controller: { id: "ada", label: "ada", connectionId: "ada-connection" },
+});
 let created = 1;
 let unavailableTicketIds = new Set<string>();
 
@@ -130,13 +138,17 @@ afterEach(() => {
 });
 
 describe("Terminal app", () => {
-  it("loads persistent sessions and creates personal split terminals", async () => {
+  it("opens on New Terminal with team sessions, then creates personal split terminals", async () => {
     render(<TerminalApp />);
-    expect(await screen.findByRole("tab", { name: /workspace/ })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tab", { name: /Release room/ })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "New Terminal" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New Terminal" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Open personal terminal workspace" })).not.toHaveAttribute("aria-current");
+    expect(within(screen.getByRole("region", { name: "Team sessions" })).getByRole("button", { name: /Release room/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open team session Release room" })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/interactive terminal/)).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
-    expect(await screen.findByRole("tab", { name: /shell 2/ })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByRole("button", { name: /Personal terminal/ }));
+    expect(await screen.findByRole("button", { name: "Open personal terminal shell 2" })).toHaveAttribute("aria-current", "page");
 
     fireEvent.click(screen.getByRole("button", { name: "Split terminal vertically" }));
     await waitFor(() => expect(screen.getAllByLabelText(/interactive terminal/)).toHaveLength(2));
@@ -145,45 +157,58 @@ describe("Terminal app", () => {
 
   it("leaves a Team Terminal without ending its shared process", async () => {
     render(<TerminalApp />);
-    const teamTab = await screen.findByRole("tab", { name: /Release room/ });
-    fireEvent.click(teamTab);
-    fireEvent.click(screen.getByRole("button", { name: "Leave Release room" }));
-    await waitFor(() => expect(screen.queryByRole("tab", { name: /Release room/ })).not.toBeInTheDocument());
+    const teamSession = await screen.findByRole("button", { name: "Open team session Release room" });
+    fireEvent.click(teamSession);
+    fireEvent.click(screen.getByRole("button", { name: "Close Release room pane" }));
+    await waitFor(() => expect(screen.queryByLabelText("Release room interactive terminal")).not.toBeInTheDocument());
     expect(fetch).not.toHaveBeenCalledWith(expect.stringContaining("team-1"), expect.objectContaining({ method: "DELETE" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Team terminals" }));
-    fireEvent.click(screen.getByRole("button", { name: /Release room/ }));
-    expect(await screen.findByRole("tab", { name: /Release room/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open team session Release room" }));
+    expect(await screen.findByLabelText("Release room interactive terminal")).toBeInTheDocument();
   });
 
   it("creates a named shared Team Terminal", async () => {
     render(<TerminalApp />);
-    await screen.findByRole("tab", { name: /workspace/ });
-    fireEvent.click(screen.getByRole("button", { name: "Team terminals" }));
-    fireEvent.change(screen.getByLabelText("Start a shared shell"), { target: { value: "Incident room" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
-    expect(await screen.findByRole("tab", { name: /Incident room/ })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(await screen.findByRole("button", { name: "+ Team" }));
+    const composer = screen.getByRole("form", { name: "Create a team terminal" });
+    fireEvent.change(within(composer).getByLabelText("Team terminal name"), { target: { value: "Incident room" } });
+    fireEvent.click(within(composer).getByRole("button", { name: "Start Team" }));
+    expect(await screen.findByRole("button", { name: "Open team session Incident room" })).toHaveAttribute("aria-current", "page");
   });
 
-  it("keeps the Team Terminal overlay above the terminal and dismisses it accessibly", async () => {
+  it("keeps team creation on New Terminal and routes the rail shortcut there", async () => {
     render(<TerminalApp />);
-    const teamButton = await screen.findByRole("button", { name: "Team terminals" });
-    fireEvent.click(teamButton);
+    await screen.findByRole("heading", { name: "New Terminal" });
+    expect(screen.queryByRole("button", { name: "Team terminals" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("form", { name: "Create a team terminal" })).not.toBeInTheDocument();
 
-    const popover = screen.getByRole("dialog", { name: "Team terminals" });
-    expect(popover.parentElement).toHaveClass("terminal-app");
-    expect(teamButton).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Create team terminal" }));
+    expect(screen.getByRole("heading", { name: "New Terminal" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "+ Team" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByLabelText("Team terminal name")).toHaveFocus();
 
-    fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.queryByRole("dialog", { name: "Team terminals" })).not.toBeInTheDocument();
-    expect(teamButton).toHaveFocus();
-
-    fireEvent.click(teamButton);
-    fireEvent.pointerDown(document.body);
-    expect(screen.queryByRole("dialog", { name: "Team terminals" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel team terminal creation" }));
+    expect(screen.queryByRole("form", { name: "Create a team terminal" })).not.toBeInTheDocument();
   });
 
-  it("restores the active terminal and split layout from this browser", async () => {
+  it("previews the people in a team session from its social rail icon", async () => {
+    render(<TerminalApp />);
+    const sessionButton = await screen.findByRole("button", { name: "Open team session Release room" });
+
+    fireEvent.mouseEnter(sessionButton);
+    let preview = screen.getByRole("tooltip");
+    expect(within(preview).getByText("ada")).toHaveClass("is-controller");
+    expect(within(preview).getByText("salvador")).toBeInTheDocument();
+    expect(within(preview).getByText("×2")).toBeInTheDocument();
+
+    fireEvent.mouseLeave(sessionButton);
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    fireEvent.focus(sessionButton);
+    preview = screen.getByRole("tooltip");
+    expect(sessionButton).toHaveAttribute("aria-describedby", preview.id);
+  });
+
+  it("starts on New Terminal and restores the saved split when its session is opened", async () => {
     writeDeviceState("user-1", "terminal.window-1", {
       activeId: team.id,
       secondaryId: personal.id,
@@ -194,7 +219,10 @@ describe("Terminal app", () => {
     });
     render(<TerminalApp storageNamespace="user-1" storageArea="terminal.window-1" />);
 
-    expect(await screen.findByRole("tab", { name: /Release room/ })).toHaveAttribute("aria-selected", "true");
+    const teamSession = await screen.findByRole("button", { name: "Open team session Release room" });
+    expect(screen.getByRole("button", { name: "New Terminal" })).toHaveAttribute("aria-current", "page");
+    fireEvent.click(teamSession);
+    expect(teamSession).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("button", { name: "Split terminal horizontally" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getAllByLabelText(/interactive terminal/)).toHaveLength(2);
     await waitFor(() => expect(xtermMocks.instances.every((terminal) => terminal.options.fontSize === 18)).toBe(true));
@@ -202,6 +230,7 @@ describe("Terminal app", () => {
 
   it("sends keystrokes and renders output through the terminal WebSocket", async () => {
     render(<TerminalApp />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open personal terminal workspace" }));
     await waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
     const socket = MockWebSocket.instances[0];
     const terminal = xtermMocks.instances[0];
@@ -220,6 +249,7 @@ describe("Terminal app", () => {
   it("uses the shared desktop font size for terminal chrome and xterm", async () => {
     const onFontScaleChange = vi.fn();
     const view = render(<TerminalApp fontScale={100} onFontScaleChange={onFontScaleChange} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open personal terminal workspace" }));
     expect(await screen.findByRole("button", { name: "Reset font size to 100%" })).toHaveTextContent("100%");
     const terminal = xtermMocks.instances[0];
     expect(terminal.options.fontSize).toBe(18);
@@ -234,10 +264,10 @@ describe("Terminal app", () => {
 
   it("keeps a Team Terminal visible while another participant drives it", async () => {
     render(<TerminalApp />);
-    fireEvent.click(await screen.findByRole("tab", { name: /Release room/ }));
-    await waitFor(() => expect(MockWebSocket.instances).toHaveLength(2));
-    const socket = MockWebSocket.instances[1];
-    const terminal = xtermMocks.instances[1];
+    fireEvent.click(await screen.findByRole("button", { name: "Open team session Release room" }));
+    await waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
+    const socket = MockWebSocket.instances[0];
+    const terminal = xtermMocks.instances[0];
     socket.readyState = MockWebSocket.OPEN;
     const shared = descriptor({
       ...team,
@@ -263,9 +293,9 @@ describe("Terminal app", () => {
 
   it("broadcasts team reactions as brief, oversized terminal overlays", async () => {
     render(<TerminalApp />);
-    fireEvent.click(await screen.findByRole("tab", { name: /Release room/ }));
-    await waitFor(() => expect(MockWebSocket.instances).toHaveLength(2));
-    const socket = MockWebSocket.instances[1];
+    fireEvent.click(await screen.findByRole("button", { name: "Open team session Release room" }));
+    await waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
+    const socket = MockWebSocket.instances[0];
     socket.readyState = MockWebSocket.OPEN;
     socket.onmessage?.({ data: JSON.stringify({ type: "ready", mode: "replay", connectionId: "ada-connection", viewer: { id: "ada", label: "ada" }, session: team }) });
 
@@ -285,27 +315,44 @@ describe("Terminal app", () => {
 
   it("opens a fresh WebSocket when switching away from an exited shell", async () => {
     render(<TerminalApp />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open personal terminal workspace" }));
     await waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
     const firstSocket = MockWebSocket.instances[0];
     firstSocket.readyState = MockWebSocket.OPEN;
     firstSocket.onmessage?.({ data: JSON.stringify({ type: "ready", mode: "replay", connectionId: "connection-1", session: personal }) });
     firstSocket.onmessage?.({ data: JSON.stringify({ type: "exit", exitCode: 0 }) });
 
-    fireEvent.click(screen.getByRole("tab", { name: /Release room/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Open team session Release room" }));
     await waitFor(() => expect(MockWebSocket.instances).toHaveLength(2));
   });
 
   it("replaces a terminal session lost during a workspace restart", async () => {
     unavailableTicketIds.add(personal.id);
     render(<TerminalApp />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open personal terminal workspace" }));
 
     expect(await screen.findByText("The workspace terminal restarted in a fresh shell.")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /workspace/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: "Open personal terminal workspace" })).toHaveAttribute("aria-current", "page");
     expect(fetch).toHaveBeenCalledWith(
       "/workspace/api/terminals",
       expect.objectContaining({ method: "POST" }),
     );
     await waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
+  });
+
+  it("does not create a shell until the user chooses one", async () => {
+    vi.mocked(fetch).mockImplementationOnce(async () => json({ sessions: [] }));
+    render(<TerminalApp />);
+
+    expect(await screen.findByRole("heading", { name: "New Terminal" })).toBeInTheDocument();
+    expect(screen.getByText("No live team sessions")).toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalledWith(
+      "/workspace/api/terminals",
+      expect.objectContaining({ method: "POST" }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Personal terminal/ }));
+    expect(await screen.findByRole("button", { name: "Open personal terminal shell 2" })).toHaveAttribute("aria-current", "page");
   });
 });
 

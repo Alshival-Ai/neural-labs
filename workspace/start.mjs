@@ -11,12 +11,15 @@ import { runTeamAgent } from "/usr/local/lib/neural-labs/team-agent.mjs";
 const gatewayPort = parsePort(process.env.OPENCLAW_GATEWAY_PORT, 18789);
 const statusPort = parsePort(process.env.NEURAL_LABS_WORKSPACE_STATUS_PORT, 18790);
 const mcpPort = parsePort(process.env.NEURAL_LABS_WORKSPACE_MCP_PORT, 8792);
+const codeServerPort = parsePort(process.env.NEURAL_LABS_CODE_SERVER_PORT, 18881);
+const codeServerOrigin = `http://127.0.0.1:${codeServerPort}`;
 const publicOrigin = parsePublicOrigin(
   process.env.NEURAL_LABS_PUBLIC_ORIGIN ?? "https://neural-labs.example.com",
 );
 const trustedProxy = process.env.NEURAL_LABS_WORKSPACE_PROXY_IP?.trim() || "172.30.42.1";
 const desktopRoot = "/usr/local/share/neural-labs/desktop";
 const workspaceRoot = process.env.OPENCLAW_WORKSPACE_DIR ?? "/home/node/workspace";
+const personalSkillsRoot = path.join(process.env.HOME || "/home/node", ".agents", "skills");
 const maxUploadBytes = parsePositiveInteger(
   process.env.NEURAL_LABS_WORKSPACE_MAX_UPLOAD_BYTES,
   2 * 1024 * 1024 * 1024,
@@ -239,6 +242,17 @@ async function gatewayReady() {
   }
 }
 
+async function codeServerReady() {
+  try {
+    const response = await fetch(`${codeServerOrigin}/`, {
+      signal: AbortSignal.timeout(1500),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 const unavailableMcpStatus = () => ({
   ready: false,
   mode: "workspace-local",
@@ -299,12 +313,28 @@ const workspaceMcp = spawn(
   ["/usr/local/lib/neural-labs/mcp/dist/local.js"],
   { stdio: "inherit" },
 );
+const codeServer = spawn(
+  "code-server",
+  [
+    "--bind-addr", `127.0.0.1:${codeServerPort}`,
+    "--auth", "none",
+    "--disable-telemetry",
+    "--disable-update-check",
+    "--user-data-dir", "/home/node/.local/share/code-server",
+    "--extensions-dir", "/home/node/.local/share/code-server/extensions",
+    "--app-name", "VS Code · Neural Labs",
+    workspaceRoot,
+  ],
+  { stdio: "inherit" },
+);
 
 const workspaceServer = createWorkspaceHttpServer({
   desktopRoot,
   workspaceRoot,
   publicOrigin,
   gatewayReady,
+  codeServerOrigin,
+  codeServerReady,
   mcpStatus,
   providerAuthenticated,
   openclawModelReady,
@@ -313,6 +343,7 @@ const workspaceServer = createWorkspaceHttpServer({
   openclawVersion: process.env.NEURAL_LABS_OPENCLAW_VERSION ?? "unknown",
   codexVersion: process.env.NEURAL_LABS_CODEX_VERSION ?? "unknown",
   maxUploadBytes,
+  personalSkillsRoot,
   runTeamAgent: (input) => runTeamAgent({ ...input, workspaceRoot }),
 });
 
@@ -329,8 +360,10 @@ function stop(signal) {
   workspaceServer.close();
   gateway.kill(signal);
   workspaceMcp.kill(signal);
+  codeServer.kill(signal);
   setTimeout(() => gateway.kill("SIGKILL"), 10_000).unref();
   setTimeout(() => workspaceMcp.kill("SIGKILL"), 10_000).unref();
+  setTimeout(() => codeServer.kill("SIGKILL"), 10_000).unref();
 }
 
 process.once("SIGINT", () => stop("SIGINT"));
@@ -339,6 +372,8 @@ process.once("SIGTERM", () => stop("SIGTERM"));
 gateway.once("error", (error) => {
   console.error("OpenClaw Gateway failed to start", error);
   process.exitCode = 1;
+  codeServer.kill("SIGTERM");
+  workspaceMcp.kill("SIGTERM");
   workspaceServer.close();
 });
 
@@ -346,6 +381,15 @@ workspaceMcp.once("error", (error) => {
   console.error("Workspace MCP failed to start", error);
   process.exitCode = 1;
   gateway.kill("SIGTERM");
+  codeServer.kill("SIGTERM");
+  workspaceServer.close();
+});
+
+codeServer.once("error", (error) => {
+  console.error("VS Code failed to start", error);
+  process.exitCode = 1;
+  gateway.kill("SIGTERM");
+  workspaceMcp.kill("SIGTERM");
   workspaceServer.close();
 });
 
@@ -356,10 +400,26 @@ workspaceMcp.once("exit", (code, signal) => {
       (signal ? " after " + signal : " with code " + String(code)),
   );
   gateway.kill("SIGTERM");
+  codeServer.kill("SIGTERM");
+  workspaceServer.close(() => process.exit(code ?? 1));
+});
+
+codeServer.once("exit", (code, signal) => {
+  if (stopping) return;
+  console.error(
+    "VS Code exited unexpectedly" +
+      (signal ? " after " + signal : " with code " + String(code)),
+  );
+  gateway.kill("SIGTERM");
+  workspaceMcp.kill("SIGTERM");
   workspaceServer.close(() => process.exit(code ?? 1));
 });
 
 gateway.once("exit", (code, signal) => {
+  if (!stopping) {
+    workspaceMcp.kill("SIGTERM");
+    codeServer.kill("SIGTERM");
+  }
   workspaceServer.close(() => {
     if (!stopping && signal) console.error(`OpenClaw Gateway exited after ${signal}`);
     process.exit(code ?? (stopping ? 0 : 1));

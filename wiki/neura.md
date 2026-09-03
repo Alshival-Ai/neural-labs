@@ -15,6 +15,13 @@ treated as the conversation list. OpenClaw then delivers streaming `chat` events
 projections so a committed final answer replaces its temporary streaming row
 without waiting for a page refresh.
 
+The transcript follows incoming messages while the reader is within 48 pixels
+of the bottom. Scrolling upward pauses that behavior and reveals a compact
+**Latest** control; using it resumes bottom-follow. WebSocket reconnects keep
+the current keyed transcript mounted while history is reconciled in place, so
+a transient connection change does not clear the chat or reset its scroll
+position. Minimizing Neura also keeps the live app mounted.
+
 ## Conversation model
 
 New Neura conversations are private to their creator. Neural Labs creates them
@@ -50,9 +57,22 @@ and `$Neura` invokes the OpenClaw agent only for that channel turn.
 
 When Neura is idle, Enter sends the draft. While a run is active, Enter steers
 the run and Ctrl/Cmd+Enter queues a follow-up. Shift+Enter inserts a new line.
-The split send control exposes both active-run choices. Stop aborts the current
-run but does not stop the always-on Gateway. Closing or minimizing the desktop
-window also leaves the run active.
+The split send control exposes both active-run choices. Neura also recognizes a
+run reported active by the session roster, including one started before this
+browser opened the app; receiving an intermediate durable assistant message
+does not change the composer back to idle.
+
+Queued prompts appear in a compact, scrollable FIFO panel above the composer.
+Each row shows its queue position and attachment count and can be removed before
+it begins. Neural Labs admits queued prompts immediately with OpenClaw's
+`followup` mode, so the Gateway starts the next prompt when the current run
+finishes; delivery does not depend on a tab timer or on keeping the Neura window
+visible. The queue row becomes an ordinary user transcript message when that
+turn starts. A follow-up admission acknowledgement is not mistaken for the end
+of the original run.
+
+Stop aborts the current run but does not stop the always-on Gateway. Closing or
+minimizing the desktop window also leaves the run active.
 
 Switching conversations releases the old message subscription and acquires one
 for the new conversation. After a transport reconnect, the browser restores
@@ -60,9 +80,15 @@ the roster subscription, restores the selected conversation subscription, and
 then reloads durable history. Sending stays disabled during this short recovery
 window so an answer cannot be started before its live event channel exists.
 
-Tool and operation events appear as compact activity rows. OpenClaw approval
-events render inline with only their allowed decisions. Assistant text is
-rendered as Markdown without raw HTML.
+Tool, plan, safe progress, and operation events appear as a compact collapsed
+timeline in the transcript. Expanding it reveals individual steps; command
+steps can then reveal their bounded command, output, exit code, and duration.
+Durable tool calls and results from `chat.history` are reconstructed into the
+same UI after a reload. Known credential-shaped values are redacted, and raw
+reasoning content is never projected—the UI uses a generic thinking label or
+explicit commentary intended for display. OpenClaw approval events render
+inline with only their allowed decisions. Assistant text is rendered as
+Markdown without raw HTML.
 
 ## Gateway boundary
 

@@ -19,7 +19,7 @@ const mcpStatusFixture = (ready = true) => ({
   tools: ["google_places_search", "search_gif", "pexels_search_photos"],
 });
 
-async function fixture(ready = true, { maxUploadBytes, maxTextBytes, mcpReady = true, runTeamAgent } = {}) {
+async function fixture(ready = true, { maxUploadBytes, maxTextBytes, mcpReady = true, codeServerReady = true, runTeamAgent } = {}) {
   const desktopRoot = await mkdtemp(path.join(tmpdir(), "neural-labs-desktop-test-"));
   const workspaceRoot = path.join(desktopRoot, "workspace-root");
   await mkdir(path.join(desktopRoot, "assets"));
@@ -40,6 +40,7 @@ async function fixture(ready = true, { maxUploadBytes, maxTextBytes, mcpReady = 
     workspaceRoot,
     publicOrigin: "https://neural-labs.example.com",
     gatewayReady: async () => ready,
+    codeServerReady: async () => codeServerReady,
     mcpStatus: async () => mcpStatusFixture(mcpReady),
     providerAuthenticated: () => false,
     openclawModelReady: () => false,
@@ -116,6 +117,65 @@ const workspaceMutationHeaders = {
   ...workspaceHeaders,
   Origin: "https://neural-labs.example.com",
 };
+
+test("saves personal skills directly and enforces owner-only sharing", async () => {
+  const app = await fixture();
+  const mayaHeaders = {
+    "X-Forwarded-User": "maya-id",
+    "X-Neural-Labs-Email": "maya@example.org",
+    Origin: "https://neural-labs.example.com",
+    "Content-Type": "application/json",
+  };
+  const owenHeaders = {
+    "X-Forwarded-User": "owen-id",
+    "X-Neural-Labs-Email": "owen@example.org",
+    Origin: "https://neural-labs.example.com",
+    "Content-Type": "application/json",
+  };
+  try {
+    assert.equal((await fetch(`${app.origin}/workspace/api/skills`)).status, 401);
+    assert.equal((await fetch(`${app.origin}/workspace/api/skills`, {
+      method: "POST",
+      headers: { "X-Forwarded-User": "maya-id", "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "No origin", description: "Rejected", instructions: "# Rejected", scope: "personal" }),
+    })).status, 403);
+
+    const created = await fetch(`${app.origin}/workspace/api/skills`, {
+      method: "POST",
+      headers: mayaHeaders,
+      body: JSON.stringify({
+        name: "Customer Handoff",
+        description: "Prepare a clear customer handoff.",
+        instructions: "# Customer handoff\n\nCapture evidence and an owner.",
+        scope: "personal",
+      }),
+    });
+    assert.equal(created.status, 201);
+    const createdBody = await created.json();
+    assert.equal(createdBody.skill.key, "customer-handoff");
+    assert.equal(createdBody.skill.ownedByCurrentUser, true);
+
+    const coworkerListing = await fetch(`${app.origin}/workspace/api/skills`, { headers: owenHeaders });
+    assert.equal(coworkerListing.status, 200);
+    assert.equal((await coworkerListing.json()).skills[0].ownedByCurrentUser, false);
+
+    assert.equal((await fetch(`${app.origin}/workspace/api/skills/customer-handoff/scope`, {
+      method: "PUT",
+      headers: owenHeaders,
+      body: JSON.stringify({ scope: "team" }),
+    })).status, 403);
+
+    const shared = await fetch(`${app.origin}/workspace/api/skills/customer-handoff/scope`, {
+      method: "PUT",
+      headers: mayaHeaders,
+      body: JSON.stringify({ scope: "team" }),
+    });
+    assert.equal(shared.status, 200);
+    assert.equal((await shared.json()).skill.scope, "team");
+  } finally {
+    await app.close();
+  }
+});
 
 test("protects the internal Team Chat Neura runner with the workspace control token", async () => {
   const calls = [];
@@ -456,6 +516,7 @@ test("reports gateway readiness without exposing arbitrary files", async () => {
     assert.deepEqual(await health.json(), {
       status: "starting",
       gatewayReady: false,
+      codeServerReady: true,
       mcpReady: true,
       mcp: mcpStatusFixture(true),
       openclawVersion: "2026.8.2",
@@ -483,6 +544,7 @@ test("holds workspace readiness while the local MCP is unavailable", async () =>
     assert.deepEqual(await health.json(), {
       status: "starting",
       gatewayReady: true,
+      codeServerReady: true,
       mcpReady: false,
       mcp: mcpStatusFixture(false),
       openclawVersion: "2026.8.2",
@@ -491,6 +553,21 @@ test("holds workspace readiness while the local MCP is unavailable", async () =>
       codexAuthenticated: false,
       openclawModelReady: false,
     });
+  } finally {
+    await app.close();
+  }
+});
+
+test("holds workspace readiness while VS Code is starting", async () => {
+  const app = await fixture(true, { codeServerReady: false });
+  try {
+    const health = await fetch(`${app.origin}/healthz`);
+    assert.equal(health.status, 503);
+    const payload = await health.json();
+    assert.equal(payload.status, "starting");
+    assert.equal(payload.gatewayReady, true);
+    assert.equal(payload.codeServerReady, false);
+    assert.equal(payload.mcpReady, true);
   } finally {
     await app.close();
   }

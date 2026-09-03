@@ -16,10 +16,21 @@
 **/*.pem
 **/*.p12
 **/*.pfx
+**/*.crt
+**/*.cer
+**/*.ovpn
 **/id_rsa*
 **/id_ed25519*
+**/.ssh
+**/.ssh/**
 **/secrets
 **/secrets/**
+**/credentials
+**/credentials/**
+**/skills
+**/skills/**
+**/automations
+**/automations/**
 **/backups
 **/backups/**
 **/state
@@ -28,6 +39,8 @@
 **/generated/**
 **/.openclaw
 **/.openclaw/**
+**/.codex
+**/.codex/**
 **/openclaw.json
 **/tenant.env
 

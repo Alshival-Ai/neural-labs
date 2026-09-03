@@ -118,6 +118,12 @@ state, credentials, tokens, and one-use WebSocket tickets. Restored resources
 are fetched again through their authenticated APIs. Device state is intentionally
 not synchronized between browsers.
 
+The VS Code desktop app extends the same shared container with a loopback-only
+code-server process. Its authenticated reverse proxy and accepted same-origin
+iframe trust are specified separately in
+[ADR 0010](0010-embedded-vscode.md). It does not create a host listener or a
+per-user isolation boundary.
+
 ## Consequences
 
 - The deployment has no per-user allocator, capacity schema, Docker-privileged

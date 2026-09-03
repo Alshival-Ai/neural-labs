@@ -3,6 +3,9 @@
 Neural Labs is an open-source, self-hosted control plane and shared developer
 workspace. This repository contains:
 
+Current release: **v0.2.0**. See the [changelog](CHANGELOG.md) and
+[detailed release record](wiki/releases/v0.2.0.md).
+
 - `web/`: the public landing page;
 - `console/`: the React account, login, signup, and approval interface;
 - `control-plane/`: onboarding, session security, authorization, and console
@@ -42,8 +45,8 @@ downloads, deletion, and the shared-filesystem boundary. The
 version-aware saves, and conflict handling.
 The [Automations guide](wiki/automations.md) covers the administrator-only
 OpenClaw scheduler app and its dedicated trusted-proxy boundary.
-The [Skills guide](wiki/skills.md) covers the live OpenClaw catalog, Skill
-Workshop, ClawHub discovery, and the developer-read/administrator-write split.
+The [Skills guide](wiki/skills.md) covers direct personal and team skills,
+Neura picker visibility, and OpenClaw/ClawHub discovery.
 
 Never place tenant credentials, certificates, deployment secrets, or database
 backups in the repository.

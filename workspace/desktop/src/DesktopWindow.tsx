@@ -1,5 +1,6 @@
-import { Minus, Square, X } from "lucide-react";
-import { type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { Minus, PanelTopOpen, PictureInPicture2, Square, X } from "lucide-react";
+import { type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { readDeviceState, writeDeviceState } from "./deviceState";
 import { clampBounds, initialBounds, moveBounds, resizeBounds, type Bounds, type ResizeEdge } from "./windowGeometry";
@@ -15,6 +16,10 @@ type Props = {
   onClose: () => void;
   onActivate?: () => void;
   onMaximizedChange?: (maximized: boolean) => void;
+  onPopOut?: () => void;
+  onPopIn?: () => void;
+  popoutContainer?: HTMLElement;
+  surfaceStyle?: CSSProperties;
   storageKey: string;
   storageNamespace?: string;
   active?: boolean;
@@ -53,37 +58,55 @@ function loadWindowState(storageNamespace: string | undefined, storageKey: strin
   return { bounds: clampBounds({ ...fallback, x: fallback.x + offset, y: fallback.y + offset }, window.innerWidth, window.innerHeight), maximized: false };
 }
 
-export function DesktopWindow({ title, icon, children, onMinimize, onClose, onActivate, onMaximizedChange, storageKey, storageNamespace, active, minimized = false, zIndex, cascadeIndex = 1, controls = "all" }: Props) {
+export function DesktopWindow({ title, icon, children, onMinimize, onClose, onActivate, onMaximizedChange, onPopOut, onPopIn, popoutContainer, surfaceStyle, storageKey, storageNamespace, active, minimized = false, zIndex, cascadeIndex = 1, controls = "all" }: Props) {
   const [initial] = useState(() => loadWindowState(storageNamespace, storageKey, cascadeIndex));
   const [bounds, setBounds] = useState(initial.bounds);
   const [maximized, setMaximized] = useState(controls === "all" && initial.maximized);
   const [narrow, setNarrow] = useState(() => window.innerWidth <= 760);
+  const [portalHost] = useState(() => {
+    const host = document.createElement("div");
+    host.className = "desktop-window-host";
+    return host;
+  });
+  const inlineContainer = useRef<HTMLDivElement>(null);
   const restoreBounds = useRef(bounds);
   const maximizedChange = useRef(onMaximizedChange);
   maximizedChange.current = onMaximizedChange;
+  const poppedOut = Boolean(popoutContainer);
+
+  useLayoutEffect(() => {
+    const target = popoutContainer ?? inlineContainer.current;
+    if (!target) return;
+    target.append(portalHost);
+    return () => {
+      if (portalHost.parentNode === target) target.removeChild(portalHost);
+    };
+  }, [popoutContainer, portalHost]);
 
   useEffect(() => {
+    const browserWindow = popoutContainer?.ownerDocument.defaultView ?? window;
     const handleResize = () => {
-      setNarrow(window.innerWidth <= 760);
-      setBounds((current) => clampBounds(current, window.innerWidth, window.innerHeight));
+      setNarrow(browserWindow.innerWidth <= 760);
+      if (!popoutContainer) setBounds((current) => clampBounds(current, browserWindow.innerWidth, browserWindow.innerHeight));
     };
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
+    handleResize();
+    browserWindow.addEventListener("resize", handleResize);
+    return () => browserWindow.removeEventListener("resize", handleResize);
+  }, [popoutContainer]);
 
   useEffect(() => {
     if (!narrow) writeDeviceState(storageNamespace, `window.${storageKey}`, { bounds, maximized } satisfies StoredWindowState);
   }, [bounds, maximized, narrow, storageKey, storageNamespace]);
 
   useEffect(() => {
-    maximizedChange.current?.(maximized && !narrow);
-  }, [maximized, narrow]);
+    maximizedChange.current?.(maximized && !narrow && !poppedOut);
+  }, [maximized, narrow, poppedOut]);
 
   const beginPointerOperation = (
     event: ReactPointerEvent,
     operation: "move" | ResizeEdge,
   ) => {
-    if (narrow || maximized || event.button !== 0) return;
+    if (narrow || maximized || poppedOut || event.button !== 0) return;
     event.preventDefault();
     const origin = bounds;
     const originX = event.clientX;
@@ -118,32 +141,36 @@ export function DesktopWindow({ title, icon, children, onMinimize, onClose, onAc
     }
   };
 
-  const boundsStyle = narrow
+  const boundsStyle = poppedOut
+    ? ({ left: 0, top: 0, width: "100vw", height: "100dvh" } satisfies CSSProperties)
+    : narrow
     ? undefined
     : maximized
       ? ({ left: 0, top: 0, width: "100vw", height: "100dvh" } satisfies CSSProperties)
       : ({ left: bounds.x, top: bounds.y, width: bounds.width, height: bounds.height } satisfies CSSProperties);
-  const style = { ...boundsStyle, zIndex } satisfies CSSProperties;
+  const style = { ...surfaceStyle, ...boundsStyle, zIndex } satisfies CSSProperties;
 
-  return (
+  const windowContent = (
     <section
-      className={`desktop-window${maximized ? " is-maximized" : ""}${narrow ? " is-mobile" : ""}${active ? " is-active" : ""}`}
+      className={`desktop-window${maximized ? " is-maximized" : ""}${narrow ? " is-mobile" : ""}${active || poppedOut ? " is-active" : ""}${poppedOut ? " is-popped-out" : ""}`}
       style={style}
       hidden={minimized}
       aria-label={`${title} application`}
       onPointerDownCapture={onActivate}
       onFocusCapture={onActivate}
     >
-      <header className="window-titlebar" onPointerDown={(event) => beginPointerOperation(event, "move")} onDoubleClick={controls === "all" ? toggleMaximize : undefined}>
+      <header className="window-titlebar" onPointerDown={(event) => beginPointerOperation(event, "move")} onDoubleClick={controls === "all" && !poppedOut ? toggleMaximize : undefined}>
         <div className="window-identity">{icon}<strong>{title}</strong></div>
         <div className="window-controls" onPointerDown={(event) => event.stopPropagation()}>
-          {controls === "all" && <button type="button" onClick={onMinimize} aria-label={`Minimize ${title}`}><Minus /></button>}
-          {controls === "all" && <button type="button" onClick={toggleMaximize} aria-label={maximized ? `Restore ${title}` : `Maximize ${title}`}><Square /></button>}
-          <button type="button" className="window-close" onClick={onClose} aria-label={`Close ${title}`}><X /></button>
+          {controls === "all" && !poppedOut && <button type="button" className="window-minimize" onClick={onMinimize} aria-label={`Minimize ${title}`} title="Minimize"><Minus /></button>}
+          {controls === "all" && !poppedOut && <button type="button" className="window-maximize" onClick={toggleMaximize} aria-label={maximized ? `Restore ${title}` : `Maximize ${title}`} title={maximized ? "Restore" : "Maximize"}><Square /></button>}
+          {controls === "all" && !poppedOut && onPopOut && <button type="button" className="window-popout" onClick={onPopOut} aria-label={`Pop out ${title}`} title="Open in a separate browser window"><PictureInPicture2 /></button>}
+          {controls === "all" && poppedOut && onPopIn && <button type="button" className="window-popin" onClick={onPopIn} aria-label={`Pop ${title} back into desktop`} title="Return to Neural Labs desktop"><PanelTopOpen /></button>}
+          <button type="button" className="window-close" onClick={onClose} aria-label={`Close ${title}`} title="Close"><X /></button>
         </div>
       </header>
       <div className="window-content">{children}</div>
-      {!narrow && !maximized && EDGES.map((edge) => (
+      {!narrow && !maximized && !poppedOut && EDGES.map((edge) => (
         <div
           key={edge}
           className={`resize-handle resize-${edge}`}
@@ -152,5 +179,12 @@ export function DesktopWindow({ title, icon, children, onMinimize, onClose, onAc
         />
       ))}
     </section>
+  );
+
+  return (
+    <>
+      <div className="desktop-window-slot" ref={inlineContainer} />
+      {createPortal(windowContent, portalHost)}
+    </>
   );
 }

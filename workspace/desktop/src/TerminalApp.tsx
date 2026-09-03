@@ -3,9 +3,9 @@ import { SearchAddon } from "@xterm/addon-search";
 import { Terminal as XTerm, type ITheme } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import {
+  ArrowRight,
   Braces,
   Check,
-  ChevronDown,
   Clipboard,
   Columns2,
   Copy,
@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import {
   type FormEvent,
+  type SyntheticEvent,
   useCallback,
   useEffect,
   useId,
@@ -97,6 +98,12 @@ export const NEURAL_TERMINAL_THEME: ITheme = {
   brightWhite: "#ffffff",
 };
 
+function sessionInitials(title: string): string {
+  const words = title.trim().split(/\s+/).filter(Boolean);
+  const initials = words.length > 1 ? words.slice(0, 2).map((word) => word[0]).join("") : title.slice(0, 2);
+  return initials.toUpperCase() || "TM";
+}
+
 type TerminalDeviceState = {
   activeId?: string;
   secondaryId?: string;
@@ -163,18 +170,21 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
   const [hiddenTeamIds, setHiddenTeamIds] = useState<Set<string>>(() => new Set(initialUiState.hiddenTeamIds));
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [teamComposerOpen, setTeamComposerOpen] = useState(false);
+  const [launchpadOpen, setLaunchpadOpen] = useState(true);
+  const [teamCreatorOpen, setTeamCreatorOpen] = useState(false);
   const [teamTitle, setTeamTitle] = useState("");
+  const [creatingScope, setCreatingScope] = useState<"personal" | "team">();
+  const [railPreview, setRailPreview] = useState<{ sessionId: string; top: number }>();
   const [notice, setNotice] = useState<string>();
   const [error, setError] = useState<string>();
   const initialized = useRef(false);
   const sessionsRef = useRef<TerminalDescriptor[]>([]);
   const recoveryPending = useRef(false);
-  const teamButtonRef = useRef<HTMLButtonElement>(null);
-  const teamPopoverRef = useRef<HTMLDivElement>(null);
-  const teamPopoverId = useId();
-  const teamPopoverTitleId = useId();
   const teamTitleInputId = useId();
+  const teamCreatorId = useId();
+  const railPreviewId = useId();
+  const stageRef = useRef<HTMLDivElement>(null);
+  const teamTitleInputRef = useRef<HTMLInputElement>(null);
 
   const report = useCallback((message: string) => {
     setNotice(message);
@@ -182,25 +192,8 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
   }, [notify]);
 
   useEffect(() => {
-    if (!teamComposerOpen) return;
-    const closeOnPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (teamButtonRef.current?.contains(target) || teamPopoverRef.current?.contains(target)) return;
-      setTeamComposerOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      setTeamComposerOpen(false);
-      teamButtonRef.current?.focus();
-    };
-    document.addEventListener("pointerdown", closeOnPointerDown);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("pointerdown", closeOnPointerDown);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [teamComposerOpen]);
+    if (teamCreatorOpen) teamTitleInputRef.current?.focus();
+  }, [teamCreatorOpen]);
 
   const mergeSession = useCallback((next: TerminalDescriptor) => {
     setSessions((current) => {
@@ -251,12 +244,6 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
           ? current
           : runningPersonal?.id ?? available.find((session) => session.status === "running" && (session.scope === "personal" || !hiddenTeamIds.has(session.id)))?.id);
         setSecondaryId((current) => available.some((session) => session.id === current) ? current : undefined);
-        if (!runningPersonal) {
-          const created = await createTerminal({ scope: "personal", title: "workspace" });
-          if (cancelled) return;
-          setSessions((current) => [...current, created]);
-          setActiveId((current) => current && available.some((session) => session.id === current && session.status === "running") ? current : created.id);
-        }
       } catch (caught) {
         if (!cancelled) setError(caught instanceof Error ? caught.message : "Terminal sessions could not be loaded.");
       } finally {
@@ -320,7 +307,9 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
   }, [activeId, activeSession]);
 
   const createPersonal = async (asSplit?: TerminalSplitDirection) => {
+    if (creatingScope) return;
     setError(undefined);
+    setCreatingScope("personal");
     try {
       const next = await createTerminal({ scope: "personal" });
       mergeSession(next);
@@ -332,15 +321,20 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
         setActiveId(next.id);
         setActivePane("primary");
       }
+      setLaunchpadOpen(false);
       report(asSplit ? `Opened ${next.title} in a split.` : `Opened ${next.title}.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "The terminal could not be created.");
+    } finally {
+      setCreatingScope(undefined);
     }
   };
 
   const createTeam = async (event: FormEvent) => {
     event.preventDefault();
+    if (creatingScope) return;
     setError(undefined);
+    setCreatingScope("team");
     try {
       const next = await createTerminal({ scope: "team", title: teamTitle.trim() || undefined });
       mergeSession(next);
@@ -351,11 +345,14 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
       });
       setActiveId(next.id);
       setActivePane("primary");
-      setTeamComposerOpen(false);
+      setTeamCreatorOpen(false);
       setTeamTitle("");
+      setLaunchpadOpen(false);
       report(`${next.title} is live for the team.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "The Team Terminal could not be created.");
+    } finally {
+      setCreatingScope(undefined);
     }
   };
 
@@ -367,7 +364,54 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
     });
     setActiveId(session.id);
     setActivePane("primary");
-    setTeamComposerOpen(false);
+    setLaunchpadOpen(false);
+    setRailPreview(undefined);
+    setTeamCreatorOpen(false);
+  };
+
+  const openSession = (session: TerminalDescriptor) => {
+    setActiveId(session.id);
+    setActivePane("primary");
+    setLaunchpadOpen(false);
+    setTeamCreatorOpen(false);
+    setRailPreview(undefined);
+  };
+
+  const openLaunchpad = () => {
+    setLaunchpadOpen(true);
+    setTeamCreatorOpen(false);
+    setSearchOpen(false);
+    setRailPreview(undefined);
+  };
+
+  const openTeamCreator = () => {
+    setLaunchpadOpen(true);
+    setTeamCreatorOpen(true);
+    setSearchOpen(false);
+    setRailPreview(undefined);
+  };
+
+  const previewTeamSession = (event: SyntheticEvent<HTMLButtonElement>, session: TerminalDescriptor) => {
+    const stageBounds = stageRef.current?.getBoundingClientRect();
+    const buttonBounds = event.currentTarget.getBoundingClientRect();
+    const center = buttonBounds.top - (stageBounds?.top ?? 0) + buttonBounds.height / 2;
+    const stageHeight = stageBounds?.height ?? 0;
+    setRailPreview({ sessionId: session.id, top: stageHeight > 0 ? Math.max(68, Math.min(center, stageHeight - 68)) : center });
+  };
+
+  const retryDiscovery = async () => {
+    setLoading(true);
+    setError(undefined);
+    try {
+      const available = await listTerminals();
+      setSessions(available);
+      setActiveId((current) => available.some((session) => session.id === current && session.status === "running") ? current : undefined);
+      setSecondaryId((current) => available.some((session) => session.id === current && session.status === "running") ? current : undefined);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Terminal sessions could not be loaded.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const removeFromLayout = (session: TerminalDescriptor) => {
@@ -412,11 +456,10 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
     if (!secondarySession) void createPersonal(direction);
   };
 
-  if (loading) return <div className="terminal-app terminal-app--empty"><RefreshCw className="terminal-spin" /><strong>Connecting to terminal runtime…</strong></div>;
-
-  if (!activeSession) {
-    return <div className="terminal-app terminal-app--empty"><TerminalSquare /><strong>{error || "No terminal sessions"}</strong><button type="button" onClick={() => void createPersonal()}><Plus />New terminal</button></div>;
-  }
+  const showLaunchpad = launchpadOpen || !activeSession;
+  const runningPersonalSessions = sessions.filter((session) => session.scope === "personal" && session.status === "running");
+  const runningTeamSessions = teamSessions.filter((session) => session.status === "running");
+  const previewedTeamSession = runningTeamSessions.find((session) => session.id === railPreview?.sessionId);
 
   return (
     <section className="terminal-app" aria-label="Developer terminal">
@@ -425,63 +468,104 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
           <span className="terminal-toolbar__mark"><TerminalSquare /></span>
           <span><strong>Terminal</strong><small><i />persistent workspace shells</small></span>
         </div>
-        <div className="terminal-toolbar__context" aria-label="Terminal context"><span>{activeSession.scope === "team" ? "team runtime" : "private runtime"}</span><strong>{activeSession.cwd}</strong></div>
+        <div className="terminal-toolbar__context" aria-label="Terminal context"><span>{showLaunchpad ? "workspace runtime" : activeSession.scope === "team" ? "team runtime" : "private runtime"}</span><strong>{showLaunchpad ? "Choose a shell" : activeSession.cwd}</strong></div>
         <div className="terminal-toolbar__actions">
-          <button type="button" onClick={() => void createPersonal()} aria-label="New terminal" title="New personal terminal"><Plus /><span>New</span></button>
+          <button type="button" onClick={openLaunchpad} aria-label="New terminal" aria-pressed={showLaunchpad} title="Open New Terminal"><Plus /><span>New</span></button>
           <i aria-hidden="true" />
-          <button type="button" onClick={() => split("vertical")} aria-label="Split terminal vertically" aria-pressed={Boolean(secondarySession) && splitDirection === "vertical"} title="Split vertically"><Columns2 /></button>
-          <button type="button" onClick={() => split("horizontal")} aria-label="Split terminal horizontally" aria-pressed={Boolean(secondarySession) && splitDirection === "horizontal"} title="Split horizontally"><Rows2 /></button>
-          <button type="button" onClick={() => setSearchOpen((open) => !open)} aria-label="Search terminal output" aria-pressed={searchOpen} title="Search output"><Search /></button>
-          <div className="terminal-team-menu">
-            <button ref={teamButtonRef} type="button" aria-label="Team terminals" aria-expanded={teamComposerOpen} aria-controls={teamPopoverId} aria-haspopup="dialog" title="Team terminals" onClick={() => setTeamComposerOpen((open) => !open)}><Users /><span>Team</span><ChevronDown /></button>
-          </div>
+          <button type="button" disabled={showLaunchpad || Boolean(creatingScope)} onClick={() => split("vertical")} aria-label="Split terminal vertically" aria-pressed={!showLaunchpad && Boolean(secondarySession) && splitDirection === "vertical"} title="Split vertically"><Columns2 /></button>
+          <button type="button" disabled={showLaunchpad || Boolean(creatingScope)} onClick={() => split("horizontal")} aria-label="Split terminal horizontally" aria-pressed={!showLaunchpad && Boolean(secondarySession) && splitDirection === "horizontal"} title="Split horizontally"><Rows2 /></button>
+          <button type="button" disabled={showLaunchpad} onClick={() => setSearchOpen((open) => !open)} aria-label="Search terminal output" aria-pressed={!showLaunchpad && searchOpen} title="Search output"><Search /></button>
           <button type="button" aria-label="More terminal actions" title="Keyboard shortcuts" onClick={() => report("Copy: Ctrl/Cmd+Shift+C · Paste: Ctrl/Cmd+Shift+V · Ctrl+C interrupts")}><MoreHorizontal /></button>
         </div>
       </header>
 
-      {teamComposerOpen && (
-        <div ref={teamPopoverRef} id={teamPopoverId} className="terminal-team-popover" role="dialog" aria-modal="false" aria-labelledby={teamPopoverTitleId}>
-          <header>
-            <div><Users /><span><strong id={teamPopoverTitleId}>Team terminals</strong><small>{teamSessions.filter((session) => session.status === "running").length} live in this workspace</small></span></div>
-            <button type="button" aria-label="Close Team terminals menu" onClick={() => setTeamComposerOpen(false)}><X /></button>
-          </header>
-          <p>Shared, persistent shells where everyone can see and type.</p>
-          {teamSessions.length > 0 ? (
-            <div className="terminal-team-list">{teamSessions.map((session) => <button type="button" key={session.id} onClick={() => joinTeam(session)}><i className={session.status === "running" ? "is-running" : ""} /><span><strong>{session.title}</strong><small>{session.participants.length} connected · by {session.owner.label}</small></span><small>{hiddenTeamIds.has(session.id) ? "Join" : "Open"}</small></button>)}</div>
-          ) : (
-            <div className="terminal-team-empty"><TerminalSquare /><span><strong>No shared shells yet</strong><small>Create one for your team below.</small></span></div>
-          )}
-          <form onSubmit={(event) => void createTeam(event)}><label htmlFor={teamTitleInputId}>Start a shared shell</label><div><input id={teamTitleInputId} value={teamTitle} onChange={(event) => setTeamTitle(event.target.value)} maxLength={60} placeholder="Release room" /><button type="submit"><Plus />Create</button></div></form>
-        </div>
-      )}
-
-      <div className="terminal-tabs" role="tablist" aria-label="Terminal sessions">
-        {visibleSessions.map((session) => (
-          <div className={`terminal-tab is-${session.scope}${activeSession.id === session.id ? " is-active" : ""}`} key={session.id}>
-            <button type="button" className="terminal-tab__select" role="tab" aria-selected={activeSession.id === session.id} onClick={() => { setActiveId(session.id); setActivePane("primary"); }}><i /><TerminalSquare /><span>{session.title}</span>{session.scope === "team" && <Users />}<small>{session.status}</small></button>
-            <button type="button" className="terminal-tab__close" aria-label={`${session.scope === "team" ? "Leave" : "Close"} ${session.title}`} onClick={() => void closeSession(session)}><X /></button>
-          </div>
-        ))}
-        <button type="button" className="terminal-tabs__new" aria-label="New terminal tab" onClick={() => void createPersonal()}><Plus /></button>
-        <span className="terminal-tabs__spacer" />
-        <span className="terminal-tabs__workspace"><Wifi />{workspaceName} · {sessions.filter((session) => session.status === "running").length} running</span>
-      </div>
-
       <div className="terminal-banners">
-        {searchOpen && <div className="terminal-search"><Search /><label className="terminal-sr-only" htmlFor="terminal-search-input">Search terminal output</label><input id="terminal-search-input" autoFocus value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Find in active terminal" /><span>Live buffer search</span><button type="button" aria-label="Close terminal search" onClick={() => { setSearchOpen(false); setSearchQuery(""); }}><X /></button></div>}
+        {!showLaunchpad && searchOpen && <div className="terminal-search"><Search /><label className="terminal-sr-only" htmlFor="terminal-search-input">Search terminal output</label><input id="terminal-search-input" autoFocus value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Find in active terminal" /><span>Live buffer search</span><button type="button" aria-label="Close terminal search" onClick={() => { setSearchOpen(false); setSearchQuery(""); }}><X /></button></div>}
         {error && <div className="terminal-notice is-error" role="alert"><X /><span>{error}</span><button type="button" aria-label="Dismiss terminal error" onClick={() => setError(undefined)}><X /></button></div>}
         {notice && <div className="terminal-notice" role="status"><Check /><span>{notice}</span><button type="button" aria-label="Dismiss terminal message" onClick={() => setNotice(undefined)}><X /></button></div>}
       </div>
 
-      <main className={`terminal-workspace${secondarySession ? ` is-split is-${splitDirection}` : ""}`}>
-        <LiveTerminalPane session={activeSession} active={activePane === "primary"} fontSize={Math.round(18 * normalizeDesktopFontScale(fontScale) / 100)} searchQuery={activePane === "primary" ? searchQuery : ""} onActivate={() => setActivePane("primary")} onDescriptorChange={mergeSession} onUnavailable={() => handleSessionUnavailable(activeSession)} onEndTeam={() => void terminateTeam(activeSession)} onClose={() => void closeSession(activeSession)} />
-        {secondarySession && <LiveTerminalPane session={secondarySession} active={activePane === "secondary"} fontSize={Math.round(18 * normalizeDesktopFontScale(fontScale) / 100)} searchQuery={activePane === "secondary" ? searchQuery : ""} onActivate={() => setActivePane("secondary")} onDescriptorChange={mergeSession} onUnavailable={() => handleSessionUnavailable(secondarySession)} onEndTeam={() => void terminateTeam(secondarySession)} onClose={() => { setSecondaryId(undefined); setActivePane("primary"); }} />}
-      </main>
+      <div ref={stageRef} className="terminal-stage">
+        <nav className="terminal-session-rail" aria-label="Terminal session switcher">
+          <button type="button" className={`terminal-session-rail__home${showLaunchpad ? " is-active" : ""}`} aria-label="New Terminal" aria-current={showLaunchpad ? "page" : undefined} title="New Terminal" onClick={openLaunchpad}><Plus /></button>
+          <span className="terminal-session-rail__divider" aria-hidden="true" />
+          <div className="terminal-session-rail__scroll" onScroll={() => setRailPreview(undefined)}>
+            {runningPersonalSessions.length > 0 && <div className="terminal-session-rail__group" aria-label="Your terminals">
+              <span className="terminal-sr-only">Your terminals</span>
+              {runningPersonalSessions.map((session) => <button type="button" className={`is-personal${!showLaunchpad && activeSession?.id === session.id ? " is-active" : ""}`} aria-label={`Open personal terminal ${session.title}`} aria-current={!showLaunchpad && activeSession?.id === session.id ? "page" : undefined} title={`${session.title} · private`} key={session.id} onClick={() => openSession(session)}><TerminalSquare /><i /></button>)}
+            </div>}
+            <div className="terminal-session-rail__group is-team" aria-label="Team sessions">
+              <span className="terminal-sr-only">Team sessions</span>
+              {runningTeamSessions.map((session) => <button type="button" className={!showLaunchpad && activeSession?.id === session.id ? "is-active" : ""} aria-label={`Open team session ${session.title}`} aria-current={!showLaunchpad && activeSession?.id === session.id ? "page" : undefined} aria-describedby={railPreview?.sessionId === session.id ? railPreviewId : undefined} key={session.id} onMouseEnter={(event) => previewTeamSession(event, session)} onMouseLeave={(event) => { if (document.activeElement !== event.currentTarget) setRailPreview(undefined); }} onFocus={(event) => previewTeamSession(event, session)} onBlur={() => setRailPreview(undefined)} onClick={() => joinTeam(session)}><span>{sessionInitials(session.title)}</span><i />{session.participants.length > 0 && <small>{session.participants.length}</small>}</button>)}
+              {!loading && runningTeamSessions.length === 0 && <span className="terminal-session-rail__empty" title="No live team sessions"><Users /></span>}
+            </div>
+          </div>
+          <span className="terminal-session-rail__divider" aria-hidden="true" />
+          <button type="button" className="terminal-session-rail__create" aria-label="Create team terminal" title="Create team terminal" onClick={openTeamCreator}><Users /><Plus /></button>
+          <small className="terminal-session-rail__workspace" title={`${workspaceName} · ${sessions.filter((session) => session.status === "running").length} running`}><Wifi /></small>
+        </nav>
 
-      <footer className="terminal-statusbar">
-        <div><span><GitBranch />workspace</span><span className={activeSession.scope === "team" ? "is-team" : ""}><Braces />{activeSession.scope === "team" ? "shared · one driver" : "private"}</span></div>
-        <div><span title="High-contrast ANSI truecolor profile"><Palette />Neural Spectrum</span><span>{activeSession.shell}</span><span>UTF-8</span><span>{activeSession.cols} × {activeSession.rows}</span><span>{activeSession.participants.length} connected</span>{onFontScaleChange && <FontSizeControl className="terminal-statusbar__zoom" value={fontScale} onChange={onFontScaleChange} />}</div>
-      </footer>
+        {previewedTeamSession && <aside id={railPreviewId} className="terminal-session-preview" role="tooltip" style={{ top: railPreview?.top }}>
+          <header><span>{sessionInitials(previewedTeamSession.title)}</span><div><strong>{previewedTeamSession.title}</strong><small>{previewedTeamSession.participants.length} connected</small></div></header>
+          <div>{previewedTeamSession.participants.length > 0 ? previewedTeamSession.participants.map((participant) => <span className={previewedTeamSession.controller?.id === participant.id ? "is-controller" : ""} key={participant.id}>{previewedTeamSession.controller?.id === participant.id && <Crown />}{participant.label}{participant.connections > 1 && <small>×{participant.connections}</small>}</span>) : <em>No one is connected yet</em>}</div>
+        </aside>}
+
+        {showLaunchpad ? (
+        <main className="terminal-launchpad" aria-labelledby="terminal-launchpad-title">
+          <div className="terminal-launchpad__inner">
+            <header className="terminal-launchpad__hero">
+              <span><i />Workspace shell manager</span>
+              <h1 id="terminal-launchpad-title">New Terminal</h1>
+              <p>Start a private shell, resume your work, or join a live session with your team.</p>
+            </header>
+
+            <div className="terminal-launchpad__grid">
+              <section className="terminal-launchpad__start" aria-labelledby="terminal-start-title">
+                <div className="terminal-launchpad__section-heading"><span><TerminalSquare /></span><div><h2 id="terminal-start-title">Start something new</h2><p>Shells open in the shared workspace directory.</p></div></div>
+                <button className="terminal-launchpad__personal" type="button" disabled={Boolean(creatingScope)} onClick={() => void createPersonal()}>
+                  <span><Plus /></span>
+                  <span><strong>{creatingScope === "personal" ? "Starting terminal…" : "Personal terminal"}</strong><small>A private, persistent shell just for you</small></span>
+                  {creatingScope === "personal" ? <RefreshCw className="terminal-spin" /> : <ArrowRight />}
+                </button>
+              </section>
+
+              <section className="terminal-launchpad__teams" aria-labelledby="terminal-team-sessions-title">
+                <div className="terminal-launchpad__section-heading"><span><Users /></span><div><h2 id="terminal-team-sessions-title">Team sessions</h2><p>{loading ? "Checking the workspace…" : `${runningTeamSessions.length} live now`}</p></div><div className="terminal-launchpad__heading-actions"><button type="button" className="terminal-launchpad__add-team" aria-expanded={teamCreatorOpen} aria-controls={teamCreatorId} disabled={Boolean(creatingScope)} onClick={() => teamCreatorOpen ? setTeamCreatorOpen(false) : openTeamCreator()}>+ Team</button><button type="button" className="terminal-launchpad__refresh" aria-label="Refresh terminal sessions" disabled={loading} onClick={() => void retryDiscovery()}><RefreshCw className={loading ? "terminal-spin" : ""} /></button></div></div>
+                {teamCreatorOpen && <form id={teamCreatorId} className="terminal-launchpad__team-composer" aria-label="Create a team terminal" onSubmit={(event) => void createTeam(event)}>
+                  <label htmlFor={teamTitleInputId}>Team terminal name</label>
+                  <p>Everyone in this workspace can join, watch, and take a turn driving.</p>
+                  <div><input ref={teamTitleInputRef} id={teamTitleInputId} value={teamTitle} onChange={(event) => setTeamTitle(event.target.value)} maxLength={60} placeholder="e.g. Release room" /><button type="submit" disabled={Boolean(creatingScope)}>{creatingScope === "team" ? <RefreshCw className="terminal-spin" /> : <Users />}{creatingScope === "team" ? "Starting…" : "Start Team"}</button><button type="button" aria-label="Cancel team terminal creation" disabled={Boolean(creatingScope)} onClick={() => { setTeamCreatorOpen(false); setTeamTitle(""); }}><X /></button></div>
+                </form>}
+                <div className="terminal-launchpad__session-list">
+                  {loading ? <><i className="terminal-launchpad__skeleton" /><i className="terminal-launchpad__skeleton" /></> : runningTeamSessions.length > 0 ? runningTeamSessions.map((session) => (
+                    <button type="button" key={session.id} onClick={() => joinTeam(session)}>
+                      <i className="is-running" />
+                      <span><strong>{session.title}</strong><small>{session.participants.length} connected · started by {session.owner.label}</small></span>
+                      <em>{hiddenTeamIds.has(session.id) ? "Join" : "Open"}<ArrowRight /></em>
+                    </button>
+                  )) : (
+                    <div className="terminal-launchpad__empty"><Users /><strong>No live team sessions</strong><span>Create one here when you are ready to work together.</span></div>
+                  )}
+                </div>
+              </section>
+            </div>
+
+            {runningPersonalSessions.length > 0 && <section className="terminal-launchpad__recent" aria-labelledby="terminal-recent-title"><div><h2 id="terminal-recent-title">Your running terminals</h2><p>Pick up exactly where you left off.</p></div><div>{runningPersonalSessions.map((session) => <button type="button" key={session.id} onClick={() => openSession(session)}><i /><TerminalSquare /><span><strong>{session.title}</strong><small>{session.shell} · {session.cwd}</small></span><ArrowRight /></button>)}</div></section>}
+            <p className="terminal-launchpad__note"><Wifi />Personal and team terminals keep running when this window is minimized.</p>
+          </div>
+        </main>
+        ) : activeSession && (
+        <main className={`terminal-workspace${secondarySession ? ` is-split is-${splitDirection}` : ""}`}>
+          <LiveTerminalPane session={activeSession} active={activePane === "primary"} fontSize={Math.round(18 * normalizeDesktopFontScale(fontScale) / 100)} searchQuery={activePane === "primary" ? searchQuery : ""} onActivate={() => setActivePane("primary")} onDescriptorChange={mergeSession} onUnavailable={() => handleSessionUnavailable(activeSession)} onEndTeam={() => void terminateTeam(activeSession)} onClose={() => void closeSession(activeSession)} />
+          {secondarySession && <LiveTerminalPane session={secondarySession} active={activePane === "secondary"} fontSize={Math.round(18 * normalizeDesktopFontScale(fontScale) / 100)} searchQuery={activePane === "secondary" ? searchQuery : ""} onActivate={() => setActivePane("secondary")} onDescriptorChange={mergeSession} onUnavailable={() => handleSessionUnavailable(secondarySession)} onEndTeam={() => void terminateTeam(secondarySession)} onClose={() => { setSecondaryId(undefined); setActivePane("primary"); }} />}
+        </main>
+        )}
+      </div>
+
+      {!showLaunchpad && activeSession && <footer className="terminal-statusbar">
+        <div className="terminal-statusbar__primary"><span><GitBranch />workspace</span><span className={activeSession.scope === "team" ? "is-team" : ""}><Braces />{activeSession.scope === "team" ? "shared · one driver" : "private"}</span></div>
+        <div className="terminal-statusbar__details"><span title="High-contrast ANSI truecolor profile"><Palette />Neural Spectrum</span><span>{activeSession.shell}</span><span>UTF-8</span><span>{activeSession.cols} × {activeSession.rows}</span><span>{activeSession.participants.length} connected</span>{onFontScaleChange && <FontSizeControl className="terminal-statusbar__zoom" value={fontScale} onChange={onFontScaleChange} />}</div>
+      </footer>}
     </section>
   );
 }

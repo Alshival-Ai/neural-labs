@@ -18,8 +18,10 @@ async function withServer(run) {
   await writeFile(path.join(root, "server.mjs"), "not public");
   await mkdir(path.join(root, "assets", "media"), { recursive: true });
   await mkdir(path.join(root, "assets", "brand"), { recursive: true });
+  await mkdir(path.join(root, "assets", "fonts"), { recursive: true });
   await writeFile(path.join(root, "assets", "media", "sample.mp4"), "0123456789");
   await writeFile(path.join(root, "assets", "brand", "neural-labs-favicon.svg"), '<svg xmlns="http://www.w3.org/2000/svg"/>');
+  await writeFile(path.join(root, "assets", "fonts", "brand.ttf"), "font-data");
 
   const server = createStaticServer({
     root,
@@ -58,6 +60,10 @@ test("serves the landing page and health endpoint", async () => {
     assert.equal(favicon.status, 200);
     assert.equal(favicon.headers.get("content-type"), "image/svg+xml");
     assert.match(await favicon.text(), /<svg/);
+
+    const font = await fetch(`${origin}/assets/fonts/brand.ttf`);
+    assert.equal(font.status, 200);
+    assert.equal(font.headers.get("content-type"), "font/ttf");
   });
 });
 

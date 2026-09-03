@@ -1483,7 +1483,7 @@ export function createApplication(input: {
         result({
           protocolVersion: protocolVersion.success ? protocolVersion.data.protocolVersion : "2025-06-18",
           capabilities: { tools: { listChanged: false } },
-          serverInfo: { name: "neural-labs-team", version: "0.1.0" },
+          serverInfo: { name: "neural-labs-team", version: "0.2.0" },
           instructions: "These tools are capability-scoped to the Team Chat that invoked Neura. They cannot access another channel.",
         });
         return;

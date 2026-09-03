@@ -15,6 +15,7 @@ const contentTypes = new Map([
   [".mp4", "video/mp4"],
   [".png", "image/png"],
   [".svg", "image/svg+xml"],
+  [".ttf", "font/ttf"],
   [".webp", "image/webp"],
 ]);
 

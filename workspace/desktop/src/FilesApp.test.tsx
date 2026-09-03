@@ -146,6 +146,23 @@ describe("Files app", () => {
     expect(onOpenFile).toHaveBeenCalledTimes(2);
   });
 
+  it("copies a file or folder workspace path from the context menu", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { userAgent: navigator.userAgent, clipboard: { writeText } });
+    render(<FilesApp />);
+
+    const notes = await screen.findByRole("button", { name: /notes\.md/i });
+    fireEvent.contextMenu(notes, { clientX: 100, clientY: 120 });
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Copy path" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("~/workspace/notes.md"));
+    expect(screen.getByRole("status")).toHaveTextContent("Copied ~/workspace/notes.md");
+
+    const projects = screen.getByRole("button", { name: /projects, folder/i });
+    fireEvent.contextMenu(projects, { clientX: 100, clientY: 120 });
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Copy path" }));
+    await waitFor(() => expect(writeText).toHaveBeenLastCalledWith("~/workspace/projects"));
+  });
+
   it("opens HTML files in a desktop preview", async () => {
     const onPreviewFile = vi.fn();
     render(<FilesApp onPreviewFile={onPreviewFile} />);

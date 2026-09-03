@@ -9,7 +9,9 @@ validate:
 	node --check web/server.mjs
 	node --check workspace/start.mjs
 	node --check workspace/http-server.mjs
+	node --check workspace/vscode-proxy.mjs
 	node --check workspace/file-manager.mjs
+	node --check workspace/skills-manager.mjs
 	node --check workspace/file-events.mjs
 	node --check workspace/provider-auth.mjs
 	node --check workspace/terminal-manager.mjs

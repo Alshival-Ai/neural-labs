@@ -31,8 +31,8 @@ defaults to 120%, and enlarges both terminal UI labels and xterm glyphs. It is a
 per-browser presentation setting: changing it refits the local canvas but does
 not resize another participant's window or alter their preferred text size.
 
-Terminal never uses Server-Sent Events. As in the original Beast terminal,
-authenticated HTTP creates the PTY and issues its short-lived one-use ticket;
+Terminal never uses Server-Sent Events. Authenticated HTTP creates the PTY and
+issues its short-lived one-use ticket;
 the interactive channel itself is a WebSocket. Input, output, resize, replay,
 presence, and layout messages all use that socket. A connection that upgrades
 but never completes the terminal-ready handshake is closed after ten seconds

@@ -1,6 +1,6 @@
 # ADR 0006: Split Skills reads from administrator mutations
 
-- Status: Accepted
+- Status: Superseded for first-party authoring by ADR 0011; retained for OpenClaw administration
 - Date: 2026-09-01
 
 ## Context

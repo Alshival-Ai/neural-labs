@@ -1,5 +1,6 @@
 # Neural Labs wiki
 
+- [v0.2.0 release record](releases/v0.2.0.md)
 - [Container deployment and onboarding](container-deployment.md)
 - [Authentication and administrator model](authentication.md)
 - [Administrator settings](desktop-settings.md)
@@ -8,6 +9,7 @@
 - [Files desktop app](files.md)
 - [Editor desktop app](editor.md)
 - [Terminal desktop app](terminal.md)
+- [VS Code desktop app](vscode.md)
 - [Neura desktop app](neura.md)
 - [Team Chats](team-chats.md)
 - [Automations desktop app](automations.md)
@@ -26,3 +28,5 @@
 - [ADR 0007: Private Neura sessions](adr/0007-private-neura-sessions.md)
 - [ADR 0008: Explicit Team Chat channels](adr/0008-explicit-team-chat-channels.md)
 - [ADR 0009: Workspace-local provider MCP](adr/0009-workspace-local-provider-mcp.md)
+- [ADR 0010: Embedded VS Code](adr/0010-embedded-vscode.md)
+- [ADR 0011: Direct personal and team skills](adr/0011-direct-personal-and-team-skills.md)

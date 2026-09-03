@@ -1,0 +1,121 @@
+.vscode-app {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  color: #f4f4f4;
+  background: #181818;
+}
+
+.vscode-app__toolbar {
+  position: relative;
+  z-index: 2;
+  min-height: 3.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  padding: .45rem .65rem .45rem .75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, .1);
+  background: linear-gradient(90deg, #181818, #202026);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .18);
+}
+
+.vscode-app__toolbar::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 2px;
+  content: "";
+  background: linear-gradient(90deg, #08a9ef, #2676ff 52%, #7b4dff);
+}
+
+.vscode-app__identity,
+.vscode-app__actions {
+  display: flex;
+  align-items: center;
+}
+
+.vscode-app__identity { min-width: 0; gap: .65rem; }
+.vscode-app__identity > span {
+  width: 2rem;
+  height: 2rem;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 8px;
+  color: #fff;
+  background: #087ec4;
+  box-shadow: 0 5px 14px rgba(0, 122, 204, .3);
+}
+.vscode-app__identity svg { width: 1rem; height: 1rem; }
+.vscode-app__identity > div { min-width: 0; display: grid; gap: .06rem; }
+.vscode-app__identity strong { font-size: var(--desktop-font-control, 14px); font-weight: 690; }
+.vscode-app__identity small { overflow: hidden; color: rgba(255, 255, 255, .5); font-size: var(--desktop-font-body, 13px); text-overflow: ellipsis; white-space: nowrap; }
+
+.vscode-app__actions { flex: 0 0 auto; gap: .4rem; }
+.vscode-app__state {
+  display: inline-flex;
+  align-items: center;
+  gap: .38rem;
+  padding: .35rem .55rem;
+  color: rgba(255, 255, 255, .58);
+  font-size: var(--desktop-font-body, 13px);
+}
+.vscode-app__state i { width: .42rem; height: .42rem; border-radius: 50%; background: #ffb80f; box-shadow: 0 0 0 3px rgba(255, 184, 15, .12); }
+.vscode-app__state.is-loaded i { background: #43c989; box-shadow: 0 0 0 3px rgba(67, 201, 137, .12); }
+.vscode-app__actions button,
+.vscode-app__actions a {
+  min-height: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .38rem;
+  padding: 0 .58rem;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 7px;
+  color: rgba(255, 255, 255, .78);
+  background: rgba(255, 255, 255, .055);
+  cursor: pointer;
+  font-size: var(--desktop-font-body, 13px);
+  text-decoration: none;
+  transition: color 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+.vscode-app__actions button { width: 2rem; padding: 0; }
+.vscode-app__actions button:hover,
+.vscode-app__actions a:hover { color: #fff; border-color: rgba(8, 169, 239, .55); background: rgba(8, 169, 239, .14); }
+.vscode-app__actions svg { width: .86rem; height: .86rem; }
+
+.vscode-app__canvas { position: relative; min-height: 0; overflow: hidden; background: #1e1e1e; }
+.vscode-app__canvas iframe { position: relative; z-index: 1; width: 100%; height: 100%; display: block; border: 0; background: #1e1e1e; }
+.vscode-app__loading {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: .45rem;
+  color: rgba(255, 255, 255, .64);
+  background: radial-gradient(circle at center, rgba(0, 122, 204, .16), transparent 17rem), #181818;
+  text-align: center;
+  pointer-events: none;
+}
+.vscode-app__loading svg { width: 2.2rem; height: 2.2rem; margin-bottom: .25rem; color: #23a8f2; animation: vscode-app-pulse 1.4s ease-in-out infinite; }
+.vscode-app__loading strong { color: #fff; font-size: var(--desktop-font-heading, 18px); }
+.vscode-app__loading span { font-size: var(--desktop-font-control, 14px); }
+
+@keyframes vscode-app-pulse {
+  0%, 100% { opacity: .55; transform: scale(.96); }
+  50% { opacity: 1; transform: scale(1.03); }
+}
+
+@media (max-width: 560px) {
+  .vscode-app__toolbar { min-height: 3rem; padding-inline: .55rem; }
+  .vscode-app__identity small, .vscode-app__state, .vscode-app__actions a span { display: none; }
+  .vscode-app__actions a { width: 2rem; padding: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vscode-app__loading svg { animation: none; }
+}
