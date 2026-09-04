@@ -25,7 +25,7 @@ describe("Team Chat personal Neura runner", () => {
         trigger: { id: run.triggerMessageId },
         messages: [{
           id: run.triggerMessageId, sequence: 1, channelId: run.channelId, authorKind: "user", author: { id: run.requestedBy!, handle: "maya", displayName: "Maya", role: "user" },
-          body: "$Neura summarize this", attachments: [], mentions: [], activities: [], createdAt: "2026-09-03T00:00:00.000Z",
+          body: "@Neura summarize this", attachments: [{ path: "reports/chart.png", name: "chart.png", type: "image/png", size: 2048 }], mentions: [], activities: [], createdAt: "2026-09-03T00:00:00.000Z",
         }],
       })),
       saveRunActivities,
@@ -49,7 +49,9 @@ describe("Team Chat personal Neura runner", () => {
     await vi.waitFor(() => expect(finishRun).toHaveBeenCalled());
 
     expect(requestBody).toMatchObject({ userId: run.requestedBy, runId: run.id, capability: run.capability });
-    expect(String(requestBody?.prompt)).toContain("@maya: $Neura summarize this");
+    expect(String(requestBody?.prompt)).toContain("@maya: @Neura summarize this");
+    expect(String(requestBody?.prompt)).toContain("chart.png (reports/chart.png · image/png)");
+    expect(String(requestBody?.prompt)).toContain("neural_labs_post_channel_message");
     expect(saveRunActivities).toHaveBeenCalledWith(run.id, [{ kind: "plan", title: "Plan updated", state: "done" }]);
   });
 });

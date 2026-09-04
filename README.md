@@ -45,8 +45,8 @@ The [workspace provider MCP guide](wiki/workspace-provider-mcp.md) documents
 Google Places, Geocoding, KLIPY, and Pexels tools available to the shared agent.
 The [Files guide](wiki/files.md) documents browser uploads, folder management,
 downloads, deletion, and the shared-filesystem boundary. The
-[Editor guide](wiki/editor.md) covers shared text-file creation, editing,
-version-aware saves, and conflict handling.
+[VS Code guide](wiki/vscode.md) covers the default source editor and Files
+handoff; the [retired Editor note](wiki/editor.md) documents the transition.
 The [Automations guide](wiki/automations.md) covers shared operational status,
 administrator-only scheduler mutation, and the dedicated trusted-proxy boundary.
 The [Skills guide](wiki/skills.md) covers the graphical collaborative builder,

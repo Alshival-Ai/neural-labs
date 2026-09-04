@@ -12,11 +12,12 @@ server ring.
 
 Personal and Team sessions are server concepts, not cosmetic tab types.
 Personal session enumeration and tickets are restricted to their creator. Team
-sessions are discoverable and attach every participant to the same PTY. Exactly
-one Team connection is the controller and alone sends input and PTY resize
-messages; any participant can take control. Every other connection remains a
-live spectator that receives output, presence, typing activity, control changes,
-and ephemeral emoji reactions over its own WebSocket.
+sessions are discoverable and attach every participant to the same PTY. Every
+connection sends input immediately, and the server writes it in arrival order.
+One invisible layout leader alone sends PTY resize messages so differently sized
+browser windows cannot fight over line wrapping; it changes automatically when
+that connection leaves. Every connection receives output, presence, typing
+activity, layout changes, and ephemeral emoji reactions over its own WebSocket.
 
 The desktop opens directly into Terminal's **New Terminal** launchpad. Discovery
 does not create a shell: the user can deliberately start a personal terminal,
@@ -27,7 +28,7 @@ active shell. Running sessions remain available in the narrow, independently
 scrolling rail to the left of both the launchpad and the terminal canvas. Its
 Team-create shortcut returns to the same inline composer. Team icons expose
 participant counts at rest and a participant badge card on hover or keyboard
-focus; the current controller is identified in that card.
+focus. No participant is presented as a driver or spectator.
 
 Terminal layout regions use explicit grid rows: toolbar, optional banners,
 stage, and the compact status bar. The stage owns the session rail and the

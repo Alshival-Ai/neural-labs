@@ -110,7 +110,7 @@
   50% { opacity: 1; transform: scale(1.03); }
 }
 
-@media (max-width: 560px) {
+@container app-window (max-width: 560px) {
   .vscode-app__toolbar { min-height: 3rem; padding-inline: .55rem; }
   .vscode-app__identity small, .vscode-app__state, .vscode-app__actions a span { display: none; }
   .vscode-app__actions a { width: 2rem; padding: 0; }

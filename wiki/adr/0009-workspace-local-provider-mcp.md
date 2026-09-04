@@ -38,6 +38,10 @@ types, install atomically, and write digest-addressed provenance.
 Return `404` for all public MCP and OAuth paths. Disable the legacy host MCP
 services and the separate Compose MCP service while retaining their code,
 configuration, certificates, and Entra design for a future reviewed release.
+Represent the provider in Settings as the locked, global **Neural Labs Tools**
+system plugin. The authenticated plugin catalog may return its non-secret
+health, attachment, provider-presence, and tool inventory to active workspace
+members, but it exposes no mutation route or credential material.
 
 ## Consequences
 
@@ -48,6 +52,8 @@ configuration, certificates, and Entra design for a future reviewed release.
   are included in the existing backup archive until manually deleted.
 - OpenClaw receives the MCP registration automatically; staff do not configure
   it per account.
+- Every active member can inspect the system plugin, but nobody can edit,
+  disconnect, or remove it through Settings.
 - A future public MCP must re-evaluate tool authorization, rate limits,
   credential isolation, and download-write authority before provider tools are
   exposed.

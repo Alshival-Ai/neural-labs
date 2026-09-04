@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { activitiesFromGatewayEvent, normalizeNeuraHistory } from "./openclaw";
+import { activitiesFromGatewayEvent, normalizeNeuraHistory, workspaceNeuraMediaUrl } from "./openclaw";
 
 describe("Neura Gateway projections", () => {
   it("reconstructs safe command and thinking steps from durable history", () => {
@@ -64,5 +64,82 @@ describe("Neura Gateway projections", () => {
       "I’ll check the deployment notes.",
       "I found the current host entry.",
     ]);
+  });
+
+  it("preserves user files and generated images from durable message history", () => {
+    const history = normalizeNeuraHistory([
+      {
+        role: "user",
+        id: "user-files",
+        content: [{ type: "text", text: "Use these" }],
+        attachments: [{ type: "file", fileName: "brief.pdf", mimeType: "application/pdf", sizeBytes: 4096 }],
+      },
+      {
+        role: "assistant",
+        id: "assistant-image",
+        content: [
+          { type: "text", text: "Here is the mockup." },
+          { type: "image", name: "mockup.png", media_type: "image/png", data: "aGVsbG8=" },
+        ],
+      },
+    ], "agent:main:neura:test");
+
+    expect(history[0].attachments).toEqual([{ name: "brief.pdf", type: "application/pdf", size: 4096 }]);
+    expect(history[1].attachments).toEqual([{ name: "mockup.png", type: "image/png", url: "data:image/png;base64,aGVsbG8=" }]);
+  });
+
+  it("keeps internal generated media private until OpenClaw issues a download ticket", () => {
+    const sessionKey = "agent:nl-user:dashboard:chat";
+    const artifactId = "artifact_managed_image_7ecda889-9f92-4cef-a162-5e6a56ad6abc";
+    const canonical = `/api/chat/media/outgoing/${encodeURIComponent(sessionKey)}/7ecda889-9f92-4cef-a162-5e6a56ad6abc/full`;
+    const history = normalizeNeuraHistory([{
+      role: "assistant",
+      id: "generated-image",
+      content: [{
+        type: "image",
+        artifactId,
+        url: canonical,
+        alt: "restaurant-header.png",
+        mimeType: "image/png",
+        sizeBytes: 2_894_994,
+      }],
+    }], sessionKey);
+
+    expect(history[0].attachments).toEqual([{
+      name: "restaurant-header.png",
+      type: "image/png",
+      artifactId,
+      size: 2_894_994,
+    }]);
+    expect(workspaceNeuraMediaUrl(canonical)).toBeUndefined();
+    expect(workspaceNeuraMediaUrl(`${canonical}?mediaTicket=v1.cGF5bG9hZA.c2lnbmF0dXJl`)).toBe(
+      `/workspace/api/neura/media/outgoing/${encodeURIComponent(sessionKey)}/7ecda889-9f92-4cef-a162-5e6a56ad6abc/full?mediaTicket=v1.cGF5bG9hZA.c2lnbmF0dXJl`,
+    );
+    expect(workspaceNeuraMediaUrl("https://evil.example/api/chat/media/outgoing/a/b/full?mediaTicket=v1.a.b")).toBeUndefined();
+  });
+
+  it("projects OpenClaw's nested generated-file attachment blocks", () => {
+    const history = normalizeNeuraHistory([{
+      role: "assistant",
+      id: "generated-document",
+      content: [{
+        type: "attachment",
+        attachment: {
+          artifactId: "artifact_managed_media_7ecda889-9f92-4cef-a162-5e6a56ad6abc",
+          kind: "document",
+          label: "launch-brief.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 4_096,
+          url: "/api/chat/media/outgoing/agent%3Anl-user%3Adashboard%3Achat/7ecda889-9f92-4cef-a162-5e6a56ad6abc/full",
+        },
+      }],
+    }], "agent:nl-user:dashboard:chat");
+
+    expect(history[0].attachments).toEqual([{
+      name: "launch-brief.pdf",
+      type: "application/pdf",
+      artifactId: "artifact_managed_media_7ecda889-9f92-4cef-a162-5e6a56ad6abc",
+      size: 4_096,
+    }]);
   });
 });

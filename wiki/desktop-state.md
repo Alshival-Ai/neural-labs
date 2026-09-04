@@ -10,15 +10,14 @@ The desktop restores:
 - open and minimized application windows, including multiple windows per app;
 - window stacking order, position, size, and maximized state;
 - Files location, navigation mode, and list/grid preference;
-- Editor file paths, active tab, open tabs, and panel/view choices;
 - Neura's selected conversation, sidebar, and archive visibility;
 - Settings navigation; and
 - Terminal's active tab, split session, split direction, and locally hidden Team
   Terminal tabs; and
 - the VS Code window's visibility, stacking, geometry, and maximized state.
 
-Restored Editor files are fetched again from the authenticated workspace API.
-These UI-state records do not include file bodies or unsaved edits, terminal
+Legacy saved Editor windows are migrated to VS Code windows. These UI-state
+records do not include file bodies or unsaved edits, terminal
 output or input, Neura message bodies or drafts, access tokens, credentials,
 WebSocket tickets, or provider state. Authentication subsystems retain only
 their separately documented device identity and session material.
@@ -44,6 +43,13 @@ slightly brighter frame. Clicking the dock icon for a background app raises its
 most recent visible window. Clicking the frontmost app's icon minimizes its
 visible windows; clicking a minimized app restores its most recent window and
 its siblings.
+
+The stack is normalized from least recently used to most recently used after
+each raise, close, and restore, then persisted in that order. Embedded
+same-origin apps such as VS Code bridge pointer and focus activity from their
+iframe into the same window activation path. Cross-origin preview frames use
+the browser's outer iframe-focus signal. This keeps clicking inside an embedded
+app equivalent to clicking any other desktop window.
 
 Maximizing the active window expands it edge-to-edge and enters focus mode. The
 desktop topbar and dock slide away while the window expands. Move the pointer to
@@ -73,6 +79,23 @@ allowed for the Neural Labs origin. The pop-out uses the authenticated,
 same-origin page and does not create another public endpoint or copy credentials
 into its URL.
 
+## Per-window responsive layouts
+
+App layout is based on the width of the app's own desktop window, not the width
+of the browser. Every `DesktopWindow` is the named `app-window` CSS query
+container and provides the same effective width and `mobile`, `tablet`, or
+`desktop` mode to React components through `appViewport.tsx`. App styles use
+container queries for presentation; JavaScript reads the shared viewport only
+when behavior must change, such as opening Neura history as a drawer.
+
+This keeps an app responsive when its window is resized, maximized, popped into
+a separate browser window, or returned to the desktop. Browser media queries are
+reserved for the outer desktop chrome, accessibility preferences, and available
+height. The minimum freeform window width is 360 pixels so every app can reach
+its mobile layout without making title-bar controls unusable. Individual apps
+may retain additional intermediate breakpoints for dense tables, sidebars, and
+toolbars, but they all query the shared `app-window` boundary.
+
 Minimized Neura, Terminal, and VS Code windows remain mounted. This preserves
 Neura's live transcript subscription and local scroll state, Terminal's socket
 and emulator, and VS Code's iframe connection and unsaved browser-side editor
@@ -86,6 +109,6 @@ Content-hashed JavaScript and CSS bundles use a one-year immutable browser
 cache. A responsive picture source lets the browser fetch only the wallpaper
 matching the current viewport; wallpapers use a one-day freshness lifetime
 with a seven-day stale-while-revalidate window. Desktop apps are separate
-lazy-loaded bundles, so xterm, Editor, Files, Settings, and Neura code is fetched
+lazy-loaded bundles, so xterm, Files, Settings, and Neura code is fetched
 only when that app is first opened. HTML, authenticated APIs, terminal sockets,
 and live workspace data are never included in that static cache policy.

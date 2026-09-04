@@ -1,11 +1,13 @@
 # Shared developer workspace
 
 Neural Labs V1 provides one continuously running OpenClaw environment shared by
-every approved user. It is a trusted collaboration cell, not a security boundary
-between developers. Files, terminals, skills, and automations are shared by
-design. Interactive Neura credentials and histories are separated by OpenClaw
-agent and app authorization, but workspace-root users remain inside the same
-operating-system trust domain.
+every approved user. It is a trusted collaboration cell, not a general
+operating-system security boundary between developers. Files, workspace-wide
+Team Terminals, skills, and automations are shared by design. A Team Terminal
+launched from a Team Chat is an application-level channel boundary: only current
+channel members may discover or attach to that PTY. Interactive Neura
+credentials and histories are separated by OpenClaw agent and app authorization,
+but workspace-root users remain inside the same operating-system trust domain.
 
 The workspace remains a container so its passwordless `sudo` cannot administer
 the host, PostgreSQL, Nginx, Docker, or the control-plane secrets. It has no
@@ -47,7 +49,7 @@ reports **Connected**.
 That Workspace connection is the service account for automations and other
 background work. Each teammate separately opens **Settings → Personalization →
 Your ChatGPT account** and completes the same supported device-code flow for
-their personal Neura agent. Interactive private chats and a Team Chat `$Neura`
+their personal Neura agent. Interactive private chats and a Team Chat `@Neura`
 turn use the initiating human's account. They fail closed when that account is
 not connected or is paused; Neural Labs never silently charges interactive work
 to the workspace service account.
@@ -112,10 +114,9 @@ Files is the desktop browser for `/home/node/workspace`. Approved developers can
 navigate folders, upload files by picker or drag and drop, create folders,
 download files, and permanently delete files or folders after confirmation.
 Uploads stream into atomic temporary files and default to a generous 2 GiB cap
-per file. Files can also create and open shared UTF-8 documents in the Editor,
-which provides atomic, version-aware saves and preserves unsaved drafts while
-its window is minimized or closed. See the [Files guide](files.md) and
-[Editor guide](editor.md).
+per file. Files creates new text files in VS Code, opens text and code there by
+default, and provides an **Open in VS Code** action for every file and folder.
+See the [Files guide](files.md) and [VS Code guide](vscode.md).
 
 Terminal provides private per-user PTYs plus opt-in, multi-writer Team
 Terminals. Shells continue running when their browser view disconnects and have
@@ -126,7 +127,7 @@ collaboration, clipboard, and reconnect behavior.
 VS Code runs as code-server inside the same container and opens from the desktop
 dock in an embedded window, with a new-tab fallback. Its listener is loopback
 only and every proxied HTTP and WebSocket request remains behind Neural Labs
-authentication. Editor settings and extensions are shared in the persistent
+authentication. VS Code settings and extensions are shared in the persistent
 home volume. See the [VS Code guide](vscode.md) for routing, framing, persistence,
 and trusted-origin details.
 
@@ -139,7 +140,11 @@ intermediate transcript commits and when a run began before the app opened.
 Queued follow-ups are shown in FIFO order and are owned and advanced by the
 Gateway rather than a browser timer. The raw OpenClaw Control UI is disabled.
 Nginx exposes only the authenticated `/workspace/neura/socket` Gateway WebSocket;
-navigating to `/workspace/openclaw/` returns `404`.
+navigating to `/workspace/openclaw/` returns `404`. Generated Neura media uses
+the authenticated `/workspace/api/neura/media/outgoing/*` workspace route only
+after the user-scoped Gateway connection resolves an artifact to a short-lived
+OpenClaw media ticket. The route is an allowlisted loopback relay, not a general
+Gateway HTTP proxy or public file URL.
 
 Nginx performs a session subrequest for every desktop, asset, API, and Neura
 WebSocket connection, strips caller-supplied identity headers, and injects the

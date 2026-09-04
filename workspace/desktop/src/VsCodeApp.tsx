@@ -1,13 +1,47 @@
 import { Code2, ExternalLink, RefreshCw } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import { openWorkspaceInVsCode, type WorkspaceVsCodeTarget } from "./filesApi";
 import "./vscode-app.css";
 
-const VSCODE_URL = `/workspace/vscode/?folder=${encodeURIComponent("/home/node/workspace")}`;
+const WORKSPACE_ROOT = "/home/node/workspace";
+const VSCODE_URL = `/workspace/vscode/?folder=${encodeURIComponent(WORKSPACE_ROOT)}`;
 
-export function VsCodeApp() {
+function fileUri(absolutePath: string) {
+  return `file://${absolutePath.split("/").map(encodeURIComponent).join("/")}`;
+}
+
+export function vsCodeTargetUrl(target: WorkspaceVsCodeTarget) {
+  const absolutePath = target.path ? `${WORKSPACE_ROOT}/${target.path}` : WORKSPACE_ROOT;
+  if (target.type === "folder") {
+    return `/workspace/vscode/?folder=${encodeURIComponent(absolutePath)}`;
+  }
+  const payload = JSON.stringify([["openFile", fileUri(absolutePath)]]);
+  return `${VSCODE_URL}&payload=${encodeURIComponent(payload)}`;
+}
+
+export type VsCodeOpenRequest = { id: string; path: string };
+
+export function VsCodeApp({ openRequest, notify }: { openRequest?: VsCodeOpenRequest; notify?: (message: string) => void }) {
   const [loaded, setLoaded] = useState(false);
   const [frameKey, setFrameKey] = useState(0);
+  const [frameUrl, setFrameUrl] = useState(VSCODE_URL);
+  const handledRequest = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!openRequest || handledRequest.current === openRequest.id) return;
+    handledRequest.current = openRequest.id;
+    let active = true;
+    void openWorkspaceInVsCode(openRequest.path).then(({ opened }) => {
+      if (!active) return;
+      setLoaded(false);
+      setFrameUrl(vsCodeTargetUrl(opened));
+      setFrameKey((current) => current + 1);
+    }).catch((error) => {
+      if (active) notify?.(error instanceof Error ? error.message : "VS Code could not open this workspace item.");
+    });
+    return () => { active = false; };
+  }, [notify, openRequest]);
 
   const reload = () => {
     setLoaded(false);
@@ -31,7 +65,7 @@ export function VsCodeApp() {
         {!loaded && <div className="vscode-app__loading" role="status"><Code2 /><strong>Opening VS Code</strong><span>Connecting to the shared workspace…</span></div>}
         <iframe
           key={frameKey}
-          src={VSCODE_URL}
+          src={frameUrl}
           title="VS Code workspace"
           allow="clipboard-read; clipboard-write"
           onLoad={() => setLoaded(true)}

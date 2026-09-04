@@ -119,12 +119,12 @@
 .user-settings-session button:hover { color: #fff; background: #c83f50; }
 .user-settings-session button svg { width: .68rem; height: .68rem; }
 
-@media (max-width: 820px) {
+@container app-window (max-width: 820px) {
   .user-settings-identity-list { grid-template-columns: 1fr 1fr; }
   .user-settings-identity-list > div:last-child { grid-column: 1 / -1; }
 }
 
-@media (max-width: 520px) {
+@container app-window (max-width: 520px) {
   .user-settings-openai-status { grid-template-columns: auto minmax(0, 1fr); align-items: start; }
   .user-settings-openai-actions { grid-column: 2; justify-self: start; }
   .user-settings-device-code { grid-template-columns: 1fr; }

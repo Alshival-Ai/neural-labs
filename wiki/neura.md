@@ -44,7 +44,7 @@ history under the system account.
 The sidebar separates **Your chats** from **Team chats**. Team chats are an
 explicit sharing mode and must never be inferred merely because two approved
 developers use the same deployment. See [Team Chats](team-chats.md) for channel
-membership, live updates, `$Neura`, attachments, and MCP behavior. Every
+membership, live updates, `@Neura`, attachments, and MCP behavior. Every
 approved Neural Labs user can:
 
 - create and switch conversations;
@@ -59,7 +59,7 @@ cron, heartbeat, and automation sessions. New private conversations use the
 `neura-private` category and `draft` visibility. Team channels are durable
 control-plane records rather than shared OpenClaw sessions. A user can
 explicitly copy a private conversation into a restricted or Everyone channel,
-and `$Neura` invokes the message author's personal OpenClaw agent only for that
+and `@Neura` invokes the message author's personal OpenClaw agent only for that
 channel turn.
 
 ## Personal OpenAI connection
@@ -68,9 +68,19 @@ Open **Settings → Personalization → Your ChatGPT account** to connect throug
 OpenClaw's device-code flow. The UI shows only the verification URL, one-time
 code, expiry, and safe connection status. OpenClaw stores OAuth material in the
 personal agent's persistent auth directory; the control plane and browser do
-not store the token. Pause removes the Gateway role but retains the credential,
-and Resume restores access without a new sign-in while that credential remains
-valid.
+not store the token. Neural Labs accepts only the signed-in developer's local,
+deterministically named OAuth profile and pins that profile as the personal
+agent's sole OpenAI credential. OpenClaw's inherited workspace profiles and
+another developer's profiles never count as a personal connection. Pause
+removes the Gateway role but retains the credential, and Resume restores access
+without a new sign-in while that credential remains valid.
+
+Neural Labs uses one shared OpenAI provider definition and model policy, not a
+separate provider implementation per teammate. Each teammate's personal agent
+has its own credential profile and prepared runtime-auth route. The account
+controller refreshes that route through the authenticated internal Gateway
+client after login so a newly saved token is usable without restarting the
+workspace.
 
 On page load, Neural Labs provisions and verifies the personal agent before it
 starts the Neura WebSocket. If the safe account status is disconnected or paused, an
@@ -78,7 +88,7 @@ actionable desktop toast opens Settings directly on Personalization. The login
 flow can begin before a Gateway browser profile exists; after successful OpenAI
 authentication, Neural Labs assigns the matching personal role.
 
-Private Neura and Team Chat `$Neura` turns fail closed when this connection is
+Private Neura and Team Chat `@Neura` turns fail closed when this connection is
 missing, paused, expired, or not model-ready. They never fall back to the
 workspace service credential. The separate Workspace connection continues to
 run automations, heartbeats, and other background work.
@@ -126,11 +136,11 @@ as synthetic completed work. OpenClaw approval events render inline with only
 their allowed decisions. Assistant text is rendered as Markdown without raw
 HTML.
 
-Team Chat uses the same timeline. After the author's personal run completes,
-the workspace reconstructs bounded work details from the run history, redacts
-credential-shaped values, stores the safe projection with the Team Chat run,
-and includes it in later shared transcript handoffs. The author-specific private
-session remains inaccessible through the Team Chat API.
+Team Chat uses the same timeline. After the author's isolated personal run
+completes, the workspace stores the bounded tool summary exposed by the runner
+with the Team Chat run and includes it in later shared transcript handoffs. The
+temporary execution state is removed, and author-specific private sessions
+remain inaccessible through the Team Chat API.
 
 ## Gateway boundary
 

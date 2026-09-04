@@ -9,6 +9,8 @@ grep -q 'init.*single root .env' <<<"${help_output}"
 grep -q 'doctor.*Validate configuration' <<<"${help_output}"
 grep -q 'workspace.*Manage the shared workspace' <<<"${help_output}"
 grep -q 'workspace is newer than the running control plane' "${cli}"
+grep -q -- '--user 0:0 --entrypoint tar workspace' "${cli}"
+grep -q -- '--user 0:0 --entrypoint sh workspace' "${cli}"
 grep -q 'restore DIR --confirm' <<<"${help_output}"
 grep -q 'never deletes volumes' <<<"${help_output}"
 
@@ -45,6 +47,9 @@ grep -q 'GOOGLE_PLACES_API_KEY' "${compose_file}"
 grep -q 'KLIPY_API_KEY' "${compose_file}"
 grep -q 'PEXELS_API_KEY' "${compose_file}"
 grep -q 'NEURAL_LABS_WORKSPACE_MCP_PORT' "${compose_file}"
+grep -q '^  turn:$' "${compose_file}"
+grep -q 'NEURAL_LABS_TURN_SECRET' "${compose_file}"
+grep -q 'network_mode: host' "${compose_file}"
 grep -q 'http://127.0.0.1:18790/healthz' "${compose_file}"
 if grep -q '^  mcp:$' "${compose_file}"; then
   echo "public MCP must not be a Compose service in V1" >&2

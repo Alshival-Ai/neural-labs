@@ -21,6 +21,10 @@ export interface ControlPlaneConfig {
   };
   masterKey: Buffer;
   mcpConfigToken: string;
+  turn?: {
+    urls: string[];
+    secret: string;
+  };
   workspace: {
     statusUrl: URL;
     controlUrl: URL;
@@ -172,6 +176,22 @@ export async function loadConfig(env: NodeJS.ProcessEnv = process.env): Promise<
   if (!workspaceControlToken || workspaceControlToken.length < 32) {
     throw new Error("Workspace control token must contain at least 32 characters");
   }
+  const turnSecret =
+    (await readOptionalFile(env, "CONTROL_PLANE_TURN_SECRET_FILE")) ??
+    env.CONTROL_PLANE_TURN_SECRET?.trim();
+  const turnUrls = [...new Set((env.CONTROL_PLANE_TURN_URLS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean))];
+  if ((turnSecret && turnUrls.length === 0) || (!turnSecret && turnUrls.length > 0)) {
+    throw new Error("TURN URLs and secret must be configured together");
+  }
+  if (turnSecret && turnSecret.length < 32) {
+    throw new Error("TURN secret must contain at least 32 characters");
+  }
+  if (turnUrls.some((url) => !/^(?:stun|turns?):[^\s,]+$/u.test(url))) {
+    throw new Error("TURN URLs must use STUN, TURN, or TURNS schemes");
+  }
 
   const publicOriginValue = env.CONTROL_PLANE_PUBLIC_ORIGIN?.trim();
   const publicOrigin = publicOriginValue ? parsePublicOrigin(publicOriginValue) : undefined;
@@ -261,6 +281,7 @@ export async function loadConfig(env: NodeJS.ProcessEnv = process.env): Promise<
     },
     masterKey,
     mcpConfigToken,
+    ...(turnSecret ? { turn: { urls: turnUrls, secret: turnSecret } } : {}),
     workspace: {
       statusUrl: workspaceStatusUrl,
       controlUrl: workspaceControlUrl,

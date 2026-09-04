@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -186,6 +186,7 @@ const personalOpenAIAuthSchema = workspaceProviderAuthSchema.extend({
   agentId: z.string().regex(/^nl-[a-z0-9]+$/),
   paused: z.boolean(),
 });
+const TURN_CREDENTIAL_TTL_SECONDS = 60 * 60;
 
 function personalAgentId(userId: string): string {
   return `nl-${userId.toLowerCase().replace(/[^a-z0-9]/gu, "")}`.slice(0, 63);
@@ -1218,6 +1219,25 @@ export function createApplication(input: {
     response.json(await workspaceData());
   });
 
+  app.get("/api/plugins", async (request, response) => {
+    const actor = await requireActiveJson(request, response);
+    if (!actor) return;
+    const mcp = await mcpData();
+    response.json({
+      plugins: [{
+        id: "neural-labs-tools",
+        name: "Neural Labs Tools",
+        description: "Private provider tools attached automatically to shared workspace agents.",
+        type: "mcp",
+        scope: "global",
+        ownership: "system",
+        editable: false,
+        ready: mcp.ready,
+        mcp,
+      }],
+    });
+  });
+
   app.get("/api/admin/workspace/provider", async (request, response) => {
     const actor = await requireAdminJson(request, response);
     if (!actor) return;
@@ -1830,11 +1850,31 @@ export function createApplication(input: {
           {
             name: "neural_labs_post_channel_message",
             title: "Post to current Team Chat",
-            description: "Post a Neura message in the current Team Chat only.",
+            description: "Post a Neura message and shared-workspace file or image attachments in the current Team Chat only. Attachment paths must be relative to the shared workspace.",
             inputSchema: {
               type: "object",
-              properties: { body: { type: "string", minLength: 1, maxLength: TEAM_CHAT_LIMITS.messageCharacters } },
-              required: ["body"],
+              properties: {
+                body: { type: "string", maxLength: TEAM_CHAT_LIMITS.messageCharacters },
+                attachments: {
+                  type: "array",
+                  maxItems: TEAM_CHAT_LIMITS.attachmentsPerMessage,
+                  items: {
+                    type: "object",
+                    properties: {
+                      path: { type: "string", minLength: 1, maxLength: 4096, description: "Path relative to the shared workspace root." },
+                      name: { type: "string", minLength: 1, maxLength: 255 },
+                      type: { type: "string", maxLength: 200, description: "MIME type, such as image/png or application/pdf." },
+                      size: { type: "integer", minimum: 0 },
+                    },
+                    required: ["path", "name"],
+                    additionalProperties: false,
+                  },
+                },
+              },
+              anyOf: [
+                { required: ["body"] },
+                { required: ["attachments"] },
+              ],
               additionalProperties: false,
             },
             annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -1856,9 +1896,17 @@ export function createApplication(input: {
           return;
         }
         if (call.data.name === "neural_labs_post_channel_message") {
-          const args = z.object({ body: z.string().trim().min(1).max(TEAM_CHAT_LIMITS.messageCharacters) }).safeParse(call.data.arguments);
-          if (!args.success) throw new CollaborationError(422, "invalid_tool_arguments", "A message body is required.");
-          const message = await collaboration.postAgentMessage(capability, args.data.body);
+          const args = z.object({
+            body: z.string().trim().max(TEAM_CHAT_LIMITS.messageCharacters).default(""),
+            attachments: z.array(z.object({
+              path: z.string().trim().min(1).max(4096),
+              name: z.string().trim().min(1).max(255),
+              type: z.string().trim().max(200).optional(),
+              size: z.number().int().nonnegative().optional(),
+            })).max(TEAM_CHAT_LIMITS.attachmentsPerMessage).default([]),
+          }).refine((value) => Boolean(value.body) || value.attachments.length > 0).safeParse(call.data.arguments ?? {});
+          if (!args.success) throw new CollaborationError(422, "invalid_tool_arguments", "A message body or workspace attachment is required.");
+          const message = await collaboration.postAgentMessage(capability, args.data.body, args.data.attachments);
           publish({ type: "message.created", channelId: message.channelId, message });
           publish({ type: "channels.changed", channelId: message.channelId });
           toolResult({ message });
@@ -1892,6 +1940,51 @@ export function createApplication(input: {
       return;
     }
     response.json(mcpConfig);
+  });
+
+  app.post("/internal/turn-credentials", (request, response) => {
+    const supplied = request.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+    if (!supplied || !safeEqual(supplied, config.workspace.controlToken)) {
+      response.status(401).json({ error: { code: "unauthorized", message: "Unauthorized" } });
+      return;
+    }
+    if (!config.turn) {
+      response.status(503).json({ error: { code: "turn_unavailable", message: "TURN is not configured" } });
+      return;
+    }
+    const parsed = z.object({ actorId: z.string().trim().min(1).max(256) }).safeParse(request.body);
+    if (!parsed.success) {
+      jsonError(response, 422, "invalid_actor", "A valid workspace actor is required");
+      return;
+    }
+    const expiresAt = Math.floor(Date.now() / 1000) + TURN_CREDENTIAL_TTL_SECONDS;
+    const actorKey = createHash("sha256").update(parsed.data.actorId).digest("hex").slice(0, 20);
+    const username = `${expiresAt}:${actorKey}`;
+    const credential = createHmac("sha1", config.turn.secret).update(username).digest("base64");
+    const stunUrls = config.turn.urls.filter((url) => url.startsWith("stun:")).map((url) => ({ urls: [url] }));
+    const relayUrls = config.turn.urls.filter((url) => url.startsWith("turn:") || url.startsWith("turns:"));
+    response.json({
+      iceServers: [...stunUrls, ...(relayUrls.length > 0 ? [{ urls: relayUrls, username, credential }] : [])],
+      expiresAt,
+    });
+  });
+
+  app.post("/internal/team-terminal/access", async (request, response) => {
+    const supplied = request.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+    if (!supplied || !safeEqual(supplied, config.workspace.controlToken)) {
+      response.status(401).json({ error: { code: "unauthorized", message: "Unauthorized" } });
+      return;
+    }
+    const parsed = z.object({
+      actorId: z.string().trim().min(1).max(256),
+      channelId: z.string().uuid(),
+    }).safeParse(request.body);
+    if (!parsed.success) {
+      jsonError(response, 422, "invalid_team_terminal_access", "A valid workspace actor and Team Chat channel are required");
+      return;
+    }
+    const access = await collaboration.teamTerminalAccess(parsed.data.channelId, parsed.data.actorId);
+    response.json(access ?? { allowed: false });
   });
 
   app.get("/internal/workspace/auth", async (request, response) => {

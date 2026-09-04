@@ -128,11 +128,12 @@ ensure_generated_secret() {
 }
 
 require_secret_values() {
-  local postgres_password master_key mcp_token workspace_control_token
+  local postgres_password master_key mcp_token workspace_control_token turn_secret
   postgres_password="$(env_value NEURAL_LABS_POSTGRES_PASSWORD || true)"
   master_key="$(env_value NEURAL_LABS_CONTROL_PLANE_MASTER_KEY || true)"
   mcp_token="$(env_value NEURAL_LABS_MCP_CONFIG_TOKEN || true)"
   workspace_control_token="$(env_value NEURAL_LABS_WORKSPACE_CONTROL_TOKEN || true)"
+  turn_secret="$(env_value NEURAL_LABS_TURN_SECRET || true)"
   (( ${#postgres_password} >= 32 )) && ! is_missing_secret "${postgres_password}" ||
     die "NEURAL_LABS_POSTGRES_PASSWORD must contain at least 32 generated characters"
   [[ "${master_key}" =~ ^[A-Fa-f0-9]{64}$ || "${master_key}" =~ ^[A-Za-z0-9+/]{43}=$ ]] ||
@@ -141,6 +142,8 @@ require_secret_values() {
     die "NEURAL_LABS_MCP_CONFIG_TOKEN must contain at least 32 generated characters"
   (( ${#workspace_control_token} >= 32 )) && ! is_missing_secret "${workspace_control_token}" ||
     die "NEURAL_LABS_WORKSPACE_CONTROL_TOKEN must contain at least 32 generated characters"
+  (( ${#turn_secret} >= 32 )) && ! is_missing_secret "${turn_secret}" ||
+    die "NEURAL_LABS_TURN_SECRET must contain at least 32 generated characters"
 }
 
 validate_port() {
@@ -156,6 +159,7 @@ validate_deployment_config() {
   local auto_setup initial_admin local_enabled microsoft_enabled mcp_enabled tenant_id client_id
   local client_secret certificate_base64 workspace_cpus workspace_memory workspace_max_upload_bytes openclaw_image
   local openclaw_version codex_version workspace_subnet workspace_proxy_ip
+  local turn_image turn_host turn_external_ip turn_relay_ip turn_port turn_min_port turn_max_port turn_urls
   [[ -f "${compose_environment}" && ! -L "${compose_environment}" ]] ||
     die "the root .env is missing; run bin/neural-labs init"
   environment_mode="$(stat -c '%a' "${compose_environment}")"
@@ -216,6 +220,29 @@ validate_deployment_config() {
     die "NEURAL_LABS_WORKSPACE_SUBNET must be an IPv4 CIDR"
   [[ "${workspace_proxy_ip}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
     die "NEURAL_LABS_WORKSPACE_PROXY_IP must be an IPv4 address"
+  turn_image="$(env_value NEURAL_LABS_TURN_IMAGE || true)"
+  turn_host="$(env_value NEURAL_LABS_TURN_HOST || true)"
+  turn_external_ip="$(env_value NEURAL_LABS_TURN_EXTERNAL_IP || true)"
+  turn_relay_ip="$(env_value NEURAL_LABS_TURN_RELAY_IP || true)"
+  turn_port="$(env_value NEURAL_LABS_TURN_PORT || true)"
+  turn_min_port="$(env_value NEURAL_LABS_TURN_MIN_PORT || true)"
+  turn_max_port="$(env_value NEURAL_LABS_TURN_MAX_PORT || true)"
+  turn_urls="$(env_value NEURAL_LABS_TURN_URLS || true)"
+  [[ "${turn_image}" =~ ^coturn/coturn:[A-Za-z0-9._-]+@sha256:[a-f0-9]{64}$ ]] ||
+    die "NEURAL_LABS_TURN_IMAGE must be an official coturn image pinned by sha256 digest"
+  [[ "${turn_host}" == "${hostname}" ]] ||
+    die "NEURAL_LABS_TURN_HOST must equal NEURAL_LABS_HOSTNAME"
+  [[ "${turn_external_ip}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
+    die "NEURAL_LABS_TURN_EXTERNAL_IP must be an IPv4 address"
+  [[ "${turn_relay_ip}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
+    die "NEURAL_LABS_TURN_RELAY_IP must be an IPv4 address"
+  validate_port NEURAL_LABS_TURN_PORT "${turn_port}"
+  validate_port NEURAL_LABS_TURN_MIN_PORT "${turn_min_port}"
+  validate_port NEURAL_LABS_TURN_MAX_PORT "${turn_max_port}"
+  (( 10#${turn_min_port} <= 10#${turn_max_port} && 10#${turn_max_port} - 10#${turn_min_port} <= 256 )) ||
+    die "the TURN relay range must be ordered and contain no more than 257 UDP ports"
+  [[ "${turn_urls}" == *"stun:${turn_host}:${turn_port}"* && "${turn_urls}" == *"turn:${turn_host}:${turn_port}?transport=udp"* && "${turn_urls}" == *"turn:${turn_host}:${turn_port}?transport=tcp"* ]] ||
+    die "NEURAL_LABS_TURN_URLS must include this deployment's STUN and TURN TCP/UDP URLs"
   [[ "${auto_setup}" == "true" || "${auto_setup}" == "false" ]] ||
     die "NEURAL_LABS_AUTO_SETUP must be true or false"
   for provider_value in "${local_enabled}" "${microsoft_enabled}" "${mcp_enabled}"; do
@@ -280,6 +307,7 @@ command_init() {
   ensure_generated_secret NEURAL_LABS_CONTROL_PLANE_MASTER_KEY base64
   ensure_generated_secret NEURAL_LABS_MCP_CONFIG_TOKEN hex
   ensure_generated_secret NEURAL_LABS_WORKSPACE_CONTROL_TOKEN hex
+  ensure_generated_secret NEURAL_LABS_TURN_SECRET hex
   note "Review .env, especially the public origin and initial administrator email"
 }
 
@@ -365,7 +393,7 @@ command_doctor() {
   note "Compose services"
   compose ps
   running_services="$(compose ps --status running --services)"
-  for service in postgres landing control-plane workspace; do
+  for service in postgres landing control-plane workspace turn; do
     if ! grep -qx "${service}" <<<"${running_services}"; then
       echo "fail  ${service} is not a running Compose service" >&2
       failure=1
@@ -429,7 +457,7 @@ command_backup() {
     compose stop workspace
   fi
   note "Archiving the persistent shared workspace"
-  if ! compose run -T --rm --no-deps --entrypoint tar workspace \
+  if ! compose run -T --rm --no-deps --user 0:0 --entrypoint tar workspace \
     -C /home/node -czf - . >"${staging}/workspace-home.tar.gz"; then
     [[ "${workspace_was_running}" == true ]] && compose start workspace
     rm -rf -- "${staging}"
@@ -469,7 +497,7 @@ command_restore() {
     <"${source_directory}/database.dump"
 
   note "Replacing persistent workspace state"
-  compose run -T --rm --no-deps --entrypoint sh workspace -c '
+  compose run -T --rm --no-deps --user 0:0 --entrypoint sh workspace -c '
     find /home/node/.openclaw -mindepth 1 -delete
     find /home/node/.config/openclaw -mindepth 1 -delete
     find /home/node/.config -mindepth 1 -maxdepth 1 ! -name openclaw -exec rm -rf -- {} +

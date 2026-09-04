@@ -16,13 +16,18 @@ function buildPrompt(context: NonNullable<Awaited<ReturnType<CollaborationStore[
           activity.detail ? `detail: ${activity.detail}` : "",
         ].filter(Boolean).join(" · ")).join("\n")}`
       : "";
-    return `[${message.createdAt}] ${speaker}: ${message.body}${work}`;
+    const files = message.attachments.length
+      ? `\n  Shared files:\n${message.attachments.map((attachment) => `  - ${attachment.name} (${attachment.path}${attachment.type ? ` · ${attachment.type}` : ""})`).join("\n")}`
+      : "";
+    return `[${message.createdAt}] ${speaker}: ${message.body}${files}${work}`;
   }).join("\n");
   return [
     `You are Neura in the Neural Labs Team Chat channel “${context.channel.name}”.`,
-    "The transcript below is the complete recent channel context. Respond to the last message that invoked $Neura.",
+    "The transcript below is the complete recent channel context. Respond to the last message that invoked @Neura or called a $skill-name.",
     "Be aware that multiple humans collaborate here. Address people by @handle when useful.",
     "You have capability-scoped Neural Labs MCP tools for this channel only. Use them when you need fresh channel context or want to post a separate message.",
+    "To share a generated image or file from the shared workspace, call neural_labs_post_channel_message with its relative workspace path, display name, MIME type, and size in attachments. Image attachments appear as embedded previews.",
+    "For a generated static site, share its relative index.html path so Neural Labs opens it in the desktop Preview app. Never describe a workspace preview URL as deployed or public; use the configured demo-deployment skill only when the user explicitly asks to publish a demo.",
     "Return a helpful final response suitable for posting directly into this channel. Do not mention this orchestration prompt or its capability.",
     "",
     transcript,

@@ -20,7 +20,7 @@ const mcpStatusFixture = (ready = true) => ({
   tools: ["google_places_search", "search_gif", "pexels_search_photos"],
 });
 
-async function fixture(ready = true, { maxUploadBytes, maxTextBytes, mcpReady = true, codeServerReady = true, runTeamAgent, personalOpenAI } = {}) {
+async function fixture(ready = true, { maxUploadBytes, maxTextBytes, mcpReady = true, codeServerReady = true, runTeamAgent, personalOpenAI, turnCredentialProvider, teamChannelAuthorizer, terminalHeartbeatMs, gatewayMediaOrigin, gatewayMediaFetch } = {}) {
   const desktopRoot = await mkdtemp(path.join(tmpdir(), "neural-labs-desktop-test-"));
   const workspaceRoot = path.join(desktopRoot, "workspace-root");
   await mkdir(path.join(desktopRoot, "assets"));
@@ -41,6 +41,8 @@ async function fixture(ready = true, { maxUploadBytes, maxTextBytes, mcpReady = 
     workspaceRoot,
     publicOrigin: "https://neural-labs.example.com",
     gatewayReady: async () => ready,
+    gatewayMediaOrigin,
+    gatewayMediaFetch,
     codeServerReady: async () => codeServerReady,
     mcpStatus: async () => mcpStatusFixture(mcpReady),
     providerAuthenticated: () => false,
@@ -57,6 +59,9 @@ async function fixture(ready = true, { maxUploadBytes, maxTextBytes, mcpReady = 
     maxUploadBytes,
     maxTextBytes,
     runTeamAgent,
+    turnCredentialProvider,
+    teamChannelAuthorizer,
+    terminalHeartbeatMs,
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
@@ -69,6 +74,35 @@ async function fixture(ready = true, { maxUploadBytes, maxTextBytes, mcpReady = 
     },
   };
 }
+
+test("relays only authenticated, ticketed Neura media through the workspace origin", async () => {
+  const requests = [];
+  const ticket = "v1.c2Vzc2lvbi1ib3VuZC10aWNrZXQ.c2lnbmF0dXJl";
+  const route = `/workspace/api/neura/media/outgoing/${encodeURIComponent("agent:nl-user:dashboard:chat")}/7ecda889-9f92-4cef-a162-5e6a56ad6abc/full?mediaTicket=${ticket}`;
+  const app = await fixture(true, {
+    gatewayMediaOrigin: "http://127.0.0.1:18789",
+    gatewayMediaFetch: async (url, init) => {
+      requests.push({ url: String(url), method: init.method, authorization: init.headers?.authorization });
+      return new Response(Buffer.from([137, 80, 78, 71]), {
+        headers: { "Content-Type": "image/png", "Content-Length": "4", "Content-Disposition": "inline; filename=generated.png" },
+      });
+    },
+  });
+  try {
+    assert.equal((await fetch(`${app.origin}${route}`)).status, 401);
+    assert.equal((await fetch(`${app.origin}${route.replace(`?mediaTicket=${ticket}`, "")}`, { headers: { "X-Forwarded-User": "maya-id" } })).status, 404);
+    const response = await fetch(`${app.origin}${route}`, { headers: { "X-Forwarded-User": "maya-id" } });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("content-type"), "image/png");
+    assert.equal(response.headers.get("cache-control"), "private, no-store");
+    assert.deepEqual(Buffer.from(await response.arrayBuffer()), Buffer.from([137, 80, 78, 71]));
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, `http://127.0.0.1:18789/api/chat/media/outgoing/${encodeURIComponent("agent:nl-user:dashboard:chat")}/7ecda889-9f92-4cef-a162-5e6a56ad6abc/full?mediaTicket=${ticket}`);
+    assert.equal(requests[0].authorization, undefined);
+  } finally {
+    await app.close();
+  }
+});
 
 test("serves the desktop shell and its allowlisted assets", async () => {
   const app = await fixture();
@@ -454,11 +488,11 @@ test("serves authenticated, sandboxed website previews confined to one workspace
       headers: { ...workspaceHeaders, Origin: "https://neural-labs.example.com", "Content-Type": "application/json" },
       body: JSON.stringify({ root: "", entry: "index.html" }),
     }).then((response) => response.json());
-    const rootPage = await fetch(`${app.origin}${rootLaunch.url}`);
+    const rootPage = await fetch(`${app.origin}${rootLaunch.url}`, { headers: workspaceHeaders });
     assert.equal(rootPage.status, 200);
     assert.match(await rootPage.text(), /Root preview works/);
 
-    const head = await fetch(`${previewBase}/index.html`, { method: "HEAD" });
+    const head = await fetch(`${previewBase}/index.html`, { method: "HEAD", headers: workspaceHeaders });
     assert.equal(head.status, 200);
     assert.equal(await head.text(), "");
     assert.equal((await fetch(`${previewBase}/index.html`, { method: "POST", headers: workspaceHeaders })).status, 405);
@@ -471,12 +505,12 @@ test("serves authenticated, sandboxed website previews confined to one workspace
     assert.equal(invalidRoot.status, 400);
     assert.equal((await invalidRoot.json()).error.code, "not_a_directory");
 
-    const traversal = await fetch(`${previewBase}/%2e%2e%2fnotes.md`);
+    const traversal = await fetch(`${previewBase}/%2e%2e%2fnotes.md`, { headers: workspaceHeaders });
     assert.equal(traversal.status, 400);
     assert.equal((await traversal.json()).error.code, "invalid_path");
 
     await symlink("../../notes.md", path.join(app.workspaceRoot, "projects", "site", "leak.txt"));
-    const symlinkResponse = await fetch(`${previewBase}/leak.txt`);
+    const symlinkResponse = await fetch(`${previewBase}/leak.txt`, { headers: workspaceHeaders });
     assert.equal(symlinkResponse.status, 400);
     assert.equal((await symlinkResponse.json()).error.code, "invalid_path");
   } finally {
@@ -547,6 +581,47 @@ test("broadcasts external workspace changes to every authenticated Files client"
     assert.equal(left.sequence, right.sequence);
     assert.deepEqual(left.paths, ["from-another-user.txt"]);
     assert.deepEqual(right.paths, ["from-another-user.txt"]);
+  } finally {
+    await app.close();
+  }
+});
+
+test("resolves only authenticated, same-origin workspace paths for VS Code", async () => {
+  const app = await fixture();
+  const endpoint = `${app.origin}/workspace/api/vscode/open`;
+  try {
+    assert.equal((await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: "https://neural-labs.example.com" },
+      body: JSON.stringify({ path: "notes.md" }),
+    })).status, 401);
+    assert.equal((await fetch(endpoint, {
+      method: "POST",
+      headers: { ...workspaceHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({ path: "notes.md" }),
+    })).status, 403);
+    assert.equal((await fetch(endpoint, {
+      method: "POST",
+      headers: { ...workspaceMutationHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({ path: "../outside.txt" }),
+    })).status, 400);
+
+    const fileResponse = await fetch(endpoint, {
+      method: "POST",
+      headers: { ...workspaceMutationHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({ path: "notes.md" }),
+    });
+    assert.equal(fileResponse.status, 200);
+    assert.deepEqual(await fileResponse.json(), { opened: { path: "notes.md", type: "file" } });
+
+    const folderResponse = await fetch(endpoint, {
+      method: "POST",
+      headers: { ...workspaceMutationHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({ path: "projects" }),
+    });
+    assert.equal(folderResponse.status, 200);
+    assert.deepEqual(await folderResponse.json(), { opened: { path: "projects", type: "folder" } });
+    assert.equal((await fetch(endpoint, { headers: workspaceHeaders })).status, 405);
   } finally {
     await app.close();
   }
@@ -747,6 +822,11 @@ const terminalUserTwo = {
   "X-Neural-Labs-Email": "grace@example.com",
   "X-Neural-Labs-Role": "user",
 };
+const terminalOutsider = {
+  "X-Forwarded-User": "terminal-user-3",
+  "X-Neural-Labs-Email": "linus@example.com",
+  "X-Neural-Labs-Role": "user",
+};
 
 function waitForSocketMessage(socket, predicate, label) {
   return new Promise((resolve, reject) => {
@@ -874,8 +954,15 @@ test("keeps private PTYs alive across socket reconnects and isolates them by use
   }
 });
 
-test("shares one Team PTY while participants take turns controlling it", async () => {
-  const app = await fixture();
+test("shares one Team PTY with live input from every participant", async () => {
+  const relay = {
+    urls: ["turn:neural-labs.example.com:3478?transport=udp", "turn:neural-labs.example.com:3478?transport=tcp"],
+    username: "1234567890:test-user",
+    credential: "temporary-credential",
+  };
+  const app = await fixture(true, {
+    turnCredentialProvider: async () => [{ urls: ["stun:neural-labs.example.com:3478"] }, relay],
+  });
   let ownerSocket;
   let teammateSocket;
   try {
@@ -887,31 +974,58 @@ test("shares one Team PTY while participants take turns controlling it", async (
     ownerSocket = owner.socket;
     const teammate = await connectTerminalSocket(app, terminalUserTwo, await issueTerminalSocketTicket(app, terminalUserTwo, session.id));
     teammateSocket = teammate.socket;
-    assert.equal(owner.ready.connectionId, owner.ready.session.controller.connectionId);
+    assert.equal(owner.ready.connectionId, owner.ready.session.layoutLeader.connectionId);
 
     const ownerSeesOutput = waitForSocketMessage(ownerSocket, (message) => message.type === "output" && message.data.includes("NL_TEAM_OWNER"), "owner sees shared output");
-    const teammateSeesOutput = waitForSocketMessage(teammateSocket, (message) => message.type === "output" && message.data.includes("NL_TEAM_OWNER"), "teammate sees the driver's output");
+    const teammateSeesOutput = waitForSocketMessage(teammateSocket, (message) => message.type === "output" && message.data.includes("NL_TEAM_OWNER"), "teammate sees shared output");
     ownerSocket.send(JSON.stringify({ type: "input", data: "printf 'NL_TEAM_OWNER\\n'\n" }));
     await Promise.all([ownerSeesOutput, teammateSeesOutput]);
 
-    const ownerHandoff = waitForSocketMessage(ownerSocket, (message) => message.type === "presence" && message.controller?.connectionId === teammate.ready.connectionId, "owner sees control handoff");
-    const teammateHandoff = waitForSocketMessage(teammateSocket, (message) => message.type === "presence" && message.controller?.connectionId === teammate.ready.connectionId, "teammate takes control");
-    teammateSocket.send(JSON.stringify({ type: "claim-control" }));
-    await Promise.all([ownerHandoff, teammateHandoff]);
-
-    const ownerSeesTeammateOutput = waitForSocketMessage(ownerSocket, (message) => message.type === "output" && message.data.includes("NL_TEAM_TEAMMATE"), "owner sees new driver's output");
-    const teammateSeesOwnOutput = waitForSocketMessage(teammateSocket, (message) => message.type === "output" && message.data.includes("NL_TEAM_TEAMMATE"), "new driver sees output");
+    const ownerSeesTeammateOutput = waitForSocketMessage(ownerSocket, (message) => message.type === "output" && message.data.includes("NL_TEAM_TEAMMATE"), "owner sees teammate output");
+    const teammateSeesOwnOutput = waitForSocketMessage(teammateSocket, (message) => message.type === "output" && message.data.includes("NL_TEAM_TEAMMATE"), "teammate sees own output");
     teammateSocket.send(JSON.stringify({ type: "input", data: "printf 'NL_TEAM_TEAMMATE\\n'\n" }));
     await Promise.all([ownerSeesTeammateOutput, teammateSeesOwnOutput]);
 
-    const resized = waitForSocketMessage(ownerSocket, (message) => message.type === "layout" && message.cols === 132 && message.rows === 42, "new leader resizes PTY");
-    teammateSocket.send(JSON.stringify({ type: "resize", cols: 132, rows: 42 }));
+    const resized = waitForSocketMessage(teammateSocket, (message) => message.type === "layout" && message.cols === 132 && message.rows === 42, "layout leader resizes PTY");
+    ownerSocket.send(JSON.stringify({ type: "resize", cols: 132, rows: 42 }));
     await resized;
 
     const ownerReaction = waitForSocketMessage(ownerSocket, (message) => message.type === "reaction" && message.emoji === "🚀", "owner sees teammate reaction");
     const teammateReaction = waitForSocketMessage(teammateSocket, (message) => message.type === "reaction" && message.emoji === "🚀", "teammate sees own reaction");
     teammateSocket.send(JSON.stringify({ type: "reaction", emoji: "🚀" }));
     await Promise.all([ownerReaction, teammateReaction]);
+
+    const ownerVoiceConfig = waitForSocketMessage(ownerSocket, (message) => message.type === "voice-config", "owner receives temporary TURN configuration");
+    const ownerVoiceJoin = waitForSocketMessage(ownerSocket, (message) => message.type === "voice-presence" && message.participants.length === 1, "owner joins voice");
+    ownerSocket.send(JSON.stringify({ type: "voice-join", mode: "muted" }));
+    const [voiceConfig, ownerVoicePresence] = await Promise.all([ownerVoiceConfig, ownerVoiceJoin]);
+    assert.deepEqual(voiceConfig.iceServers[0], { urls: ["stun:neural-labs.example.com:3478"] });
+    assert.deepEqual(voiceConfig.iceServers[1], relay);
+    assert.equal(ownerVoicePresence.participants[0].connectionId, owner.ready.connectionId);
+    assert.equal(ownerVoicePresence.participants[0].mode, "muted");
+
+    const ownerSeesTeammateVoice = waitForSocketMessage(ownerSocket, (message) => message.type === "voice-presence" && message.participants.length === 2, "owner sees teammate join voice");
+    const teammateSeesVoiceRoom = waitForSocketMessage(teammateSocket, (message) => message.type === "voice-presence" && message.participants.length === 2, "teammate sees voice room");
+    teammateSocket.send(JSON.stringify({ type: "voice-join", mode: "push-to-talk" }));
+    await Promise.all([ownerSeesTeammateVoice, teammateSeesVoiceRoom]);
+
+    const relayedOffer = waitForSocketMessage(teammateSocket, (message) => message.type === "voice-signal", "voice offer is relayed only to its target");
+    ownerSocket.send(JSON.stringify({
+      type: "voice-signal",
+      targetConnectionId: teammate.ready.connectionId,
+      signal: { description: { type: "offer", sdp: "v=0\r\n" } },
+    }));
+    const offer = await relayedOffer;
+    assert.equal(offer.fromConnectionId, owner.ready.connectionId);
+    assert.equal(offer.signal.description.type, "offer");
+
+    const ownerSeesOpenMic = waitForSocketMessage(ownerSocket, (message) => message.type === "voice-presence" && message.participants.some((participant) => participant.connectionId === teammate.ready.connectionId && participant.mode === "open-mic"), "owner sees teammate microphone mode");
+    teammateSocket.send(JSON.stringify({ type: "voice-mode", mode: "open-mic" }));
+    await ownerSeesOpenMic;
+
+    const ownerSeesVoiceLeave = waitForSocketMessage(ownerSocket, (message) => message.type === "voice-presence" && message.participants.length === 1, "owner sees teammate leave voice");
+    teammateSocket.send(JSON.stringify({ type: "voice-leave" }));
+    await ownerSeesVoiceLeave;
 
     const forbiddenDelete = await fetch(`${app.origin}/workspace/api/terminals/${session.id}`, {
       method: "DELETE",
@@ -921,6 +1035,57 @@ test("shares one Team PTY while participants take turns controlling it", async (
   } finally {
     ownerSocket?.close();
     teammateSocket?.close();
+    await app.close();
+  }
+});
+
+test("limits a Team Chat terminal to current channel members", async () => {
+  const channelId = "55555555-5555-4555-8555-555555555555";
+  const members = new Set(["terminal-user-1", "terminal-user-2"]);
+  const app = await fixture(true, {
+    terminalHeartbeatMs: 20,
+    teamChannelAuthorizer: async (actor, requestedChannelId) => requestedChannelId === channelId && members.has(actor.id)
+      ? { allowed: true, channel: { id: channelId, name: "Private release", audience: "restricted" } }
+      : { allowed: false },
+  });
+  let memberSocket;
+  try {
+    const forbiddenCreate = await fetch(`${app.origin}/workspace/api/terminals`, {
+      method: "POST",
+      headers: { ...terminalOutsider, Origin: "https://neural-labs.example.com", "Content-Type": "application/json" },
+      body: JSON.stringify({ scope: "team", channelId }),
+    });
+    assert.equal(forbiddenCreate.status, 404);
+
+    const session = await createTerminalSession(app, terminalUserOne, { scope: "team", channelId });
+    assert.deepEqual(session.teamChannel, { id: channelId, name: "Private release" });
+    const secondSession = await createTerminalSession(app, terminalUserTwo, { scope: "team", channelId });
+    assert.notEqual(secondSession.id, session.id, "the channel can have multiple Team Terminals");
+
+    const memberListing = await fetch(`${app.origin}/workspace/api/terminals`, { headers: terminalUserTwo }).then((response) => response.json());
+    assert.equal(memberListing.sessions.some((candidate) => candidate.id === session.id), true);
+    assert.equal(memberListing.sessions.some((candidate) => candidate.id === secondSession.id), true);
+    const outsiderListing = await fetch(`${app.origin}/workspace/api/terminals`, { headers: terminalOutsider }).then((response) => response.json());
+    assert.equal(outsiderListing.sessions.some((candidate) => candidate.id === session.id), false);
+
+    const member = await connectTerminalSocket(app, terminalUserTwo, await issueTerminalSocketTicket(app, terminalUserTwo, session.id));
+    memberSocket = member.socket;
+    assert.equal(member.ready.session.id, session.id);
+
+    const outsiderTicket = await fetch(`${app.origin}/workspace/api/terminals/${session.id}/ticket`, {
+      method: "POST",
+      headers: { ...terminalOutsider, Origin: "https://neural-labs.example.com", "Content-Type": "application/json" },
+      body: JSON.stringify({ afterSequence: null }),
+    });
+    assert.equal(outsiderTicket.status, 404);
+
+    const memberRevoked = once(memberSocket, "close");
+    members.delete("terminal-user-2");
+    const revokedListing = await fetch(`${app.origin}/workspace/api/terminals`, { headers: terminalUserTwo }).then((response) => response.json());
+    assert.equal(revokedListing.sessions.some((candidate) => candidate.id === session.id), false);
+    await memberRevoked;
+  } finally {
+    memberSocket?.close();
     await app.close();
   }
 });

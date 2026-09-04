@@ -525,13 +525,13 @@
 .is-spinning { animation: files-spin .8s linear infinite; }
 @keyframes files-spin { to { transform: rotate(360deg); } }
 
-@media (max-width: 1180px) {
+@container app-window (max-width: 1180px) {
   .files-app { grid-template-columns: 13.5rem minmax(28rem, 1fr); }
   .files-detail { display: none; }
   .files-grid { grid-template-columns: repeat(4, minmax(7.5rem, 1fr)); }
 }
 
-@media (max-width: 850px) {
+@container app-window (max-width: 850px) {
   .files-app { grid-template-columns: 12.5rem minmax(24rem, 1fr); }
   .files-folder-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .files-folder-card:last-child { display: none; }
@@ -542,7 +542,7 @@
   .files-grid { grid-template-columns: repeat(3, minmax(7.5rem, 1fr)); }
 }
 
-@media (max-width: 760px) {
+@container app-window (max-width: 760px) {
   .files-app { display: block; }
   .files-nav { position: absolute; z-index: 80; inset: 0 auto 0 0; width: min(18rem, 86vw); display: none; box-shadow: 20px 0 55px rgba(0, 0, 0, .24); }
   .files-nav--open { display: flex; }
@@ -568,7 +568,7 @@
   .files-browser { margin-top: 1.25rem; }
 }
 
-@media (max-width: 560px) {
+@container app-window (max-width: 560px) {
   .files-toolbar__create { width: 2.25rem; justify-content: center; padding: 0; font-size: 0; }
   .files-intro p { max-width: 20rem; }
   .files-presence > span:nth-child(-n+2) { display: none; }
@@ -584,7 +584,7 @@
   .files-card > .files-owner { top: 5.9rem; }
 }
 
-@media (max-width: 380px) {
+@container app-window (max-width: 380px) {
   .files-breadcrumb { display: none; }
   .files-intro p { display: none; }
   .files-intro h1 { font-size: var(--desktop-font-display, 28px); }

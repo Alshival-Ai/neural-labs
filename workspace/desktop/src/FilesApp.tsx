@@ -41,7 +41,7 @@ export type WorkspaceFile = {
 
 export type FilesAppProps = {
   notify?: (message: string) => void;
-  onOpenFile?: (path: string) => void;
+  onOpenInVsCode?: (path: string) => void;
   onPreviewFile?: (file: WorkspacePreviewFile) => void;
   storageNamespace?: string;
   storageArea?: string;
@@ -158,7 +158,7 @@ type DirectoryLoadOptions = {
   reportError?: boolean;
 };
 
-export function FilesApp({ notify, onOpenFile, onPreviewFile, storageNamespace, storageArea = "files" }: FilesAppProps) {
+export function FilesApp({ notify, onOpenInVsCode, onPreviewFile, storageNamespace, storageArea = "files" }: FilesAppProps) {
   const [initialUiState] = useState(() => filesDeviceState(storageNamespace, storageArea));
   const [currentPath, setCurrentPath] = useState(initialUiState.currentPath);
   const [items, setItems] = useState<WorkspaceFile[]>([]);
@@ -292,14 +292,26 @@ export function FilesApp({ notify, onOpenFile, onPreviewFile, storageNamespace, 
     if (id === "trash") showNotice("V1 deletes files permanently after confirmation; a recoverable trash is coming later.");
   };
 
+  const prefersVsCode = (item: WorkspaceFile) => item.kind === "code" || item.kind === "markdown" ||
+    item.mimeType.startsWith("text/") || item.mimeType === "application/json" || item.mimeType === "application/xml";
+
+  const openInVsCode = (item: WorkspaceFile) => {
+    setContextMenu(undefined);
+    if (onOpenInVsCode) onOpenInVsCode(item.relativePath);
+    else showNotice(`${item.name} is ready to open in VS Code.`);
+  };
+
   const openItem = (item: WorkspaceFile) => {
     setContextMenu(undefined);
     if (item.kind === "folder") {
       setActiveNav("home"); setCurrentPath(item.relativePath); setQuery("");
+    } else if (prefersVsCode(item)) {
+      openInVsCode(item);
     } else if (workspaceFileCanPreview(item.name) && onPreviewFile) {
       onPreviewFile({ name: item.name, path: item.relativePath, size: item.bytes ?? 0, mimeType: item.mimeType });
-    } else if (onOpenFile) onOpenFile(item.relativePath);
-    else showNotice(`${item.name} is ready to open in the Editor.`);
+    } else {
+      openInVsCode(item);
+    }
   };
 
   const navigateTo = (targetPath: string) => {
@@ -361,7 +373,7 @@ export function FilesApp({ notify, onOpenFile, onPreviewFile, storageNamespace, 
         await loadDirectory(targetPath, { background: true, reportError: false });
       }
       showNotice(`File “${name}” created.`);
-      onOpenFile?.(result.item.path);
+      onOpenInVsCode?.(result.item.path);
     } catch (error) { showNotice(errorMessage(error)); }
     finally { setBusy(false); }
   };
@@ -462,12 +474,12 @@ export function FilesApp({ notify, onOpenFile, onPreviewFile, storageNamespace, 
       </section>
     </main>
 
-    <aside className="files-detail" aria-label="File details">{selected ? <><div className="files-detail__top"><span>Details</span><button type="button" aria-label={`More actions for ${selected.name}`} onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); setContextMenu({ item: selected, x: rect.right - 170, y: rect.bottom + 5 }); }}><MoreHorizontal /></button></div><FileArtwork item={selected} large /><div className="files-detail__identity"><span className={`files-detail__kind is-${selected.accent}`}>{kindLabel(selected.kind)}</span><h2>{selected.name}</h2><p>{selected.summary}</p></div><div className="files-detail__actions">{selected.kind === "folder" ? <button type="button" onClick={() => openItem(selected)}>Open folder</button> : <button type="button" onClick={() => openItem(selected)}>{workspaceFileCanPreview(selected.name) && onPreviewFile ? <><Eye />Preview</> : "Open"}</button>}{selected.kind === "folder" ? <button type="button" disabled aria-label="Download folder"><Download /></button> : <a href={workspaceDownloadUrl(selected.relativePath)} download={selected.name} aria-label={`Download ${selected.name}`}><Download /></a>}<button type="button" aria-label={`Delete ${selected.name}`} disabled={busy} onClick={() => void deleteItem(selected)}><Trash2 /></button><button type="button" aria-label={`More actions for ${selected.name}`} onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); setContextMenu({ item: selected, x: rect.right - 170, y: rect.bottom + 5 }); }}><MoreHorizontal /></button></div><dl className="files-detail__metadata"><div><dt>Location</dt><dd>{selected.path}</dd></div><div><dt>Access</dt><dd><span className={`files-owner is-${selected.accent}`}>{selected.ownerInitials}</span>{selected.owner}</dd></div><div><dt>Modified</dt><dd>{selected.modified}</dd></div><div><dt>Size</dt><dd>{selected.size}</dd></div></dl><div className="files-detail__activity"><span>Availability</span><div><i className="is-cyan"><Cloud /></i><p><strong>Persistent workspace</strong><small>Available to approved developers and Neura</small></p></div></div></> : <div className="files-detail__empty"><File /><p>Select an item to see its details.</p></div>}</aside>
+    <aside className="files-detail" aria-label="File details">{selected ? <><div className="files-detail__top"><span>Details</span><button type="button" aria-label={`More actions for ${selected.name}`} onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); setContextMenu({ item: selected, x: rect.right - 170, y: rect.bottom + 5 }); }}><MoreHorizontal /></button></div><FileArtwork item={selected} large /><div className="files-detail__identity"><span className={`files-detail__kind is-${selected.accent}`}>{kindLabel(selected.kind)}</span><h2>{selected.name}</h2><p>{selected.summary}</p></div><div className="files-detail__actions">{selected.kind === "folder" ? <button type="button" onClick={() => openItem(selected)}>Open folder</button> : <button type="button" onClick={() => openItem(selected)}>{!prefersVsCode(selected) && workspaceFileCanPreview(selected.name) && onPreviewFile ? <><Eye />Preview</> : <><Code2 />Open in VS Code</>}</button>}{selected.kind === "folder" ? <button type="button" disabled aria-label="Download folder"><Download /></button> : <a href={workspaceDownloadUrl(selected.relativePath)} download={selected.name} aria-label={`Download ${selected.name}`}><Download /></a>}<button type="button" aria-label={`Delete ${selected.name}`} disabled={busy} onClick={() => void deleteItem(selected)}><Trash2 /></button><button type="button" aria-label={`More actions for ${selected.name}`} onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); setContextMenu({ item: selected, x: rect.right - 170, y: rect.bottom + 5 }); }}><MoreHorizontal /></button></div><dl className="files-detail__metadata"><div><dt>Location</dt><dd>{selected.path}</dd></div><div><dt>Access</dt><dd><span className={`files-owner is-${selected.accent}`}>{selected.ownerInitials}</span>{selected.owner}</dd></div><div><dt>Modified</dt><dd>{selected.modified}</dd></div><div><dt>Size</dt><dd>{selected.size}</dd></div></dl><div className="files-detail__activity"><span>Availability</span><div><i className="is-cyan"><Cloud /></i><p><strong>Persistent workspace</strong><small>Available to approved developers and Neura</small></p></div></div></> : <div className="files-detail__empty"><File /><p>Select an item to see its details.</p></div>}</aside>
 
-    {contextMenu && <div className="files-context-menu" role="menu" style={{ left: contextMenu.x, top: contextMenu.y } satisfies CSSProperties} onPointerDown={(event) => event.stopPropagation()}><div><strong>{contextMenu.item.name}</strong><small>{kindLabel(contextMenu.item.kind)} · {contextMenu.item.size}</small></div>{contextMenu.item.kind === "folder" ? <button type="button" role="menuitem" onClick={() => openItem(contextMenu.item)}><FolderOpen />Open folder</button> : <button type="button" role="menuitem" onClick={() => openItem(contextMenu.item)}>{workspaceFileCanPreview(contextMenu.item.name) && onPreviewFile ? <><Eye />Open Preview</> : <><FileText />Open in Editor</>}</button>}<button type="button" role="menuitem" onClick={() => void copyItemPath(contextMenu.item)}><Copy />Copy path</button>{contextMenu.item.kind === "folder" ? <button type="button" role="menuitem" disabled title="Folder archives are coming later"><Download />Download<small>Files only</small></button> : <a role="menuitem" href={workspaceDownloadUrl(contextMenu.item.relativePath)} download={contextMenu.item.name} onClick={() => setContextMenu(undefined)}><Download />Download</a>}<button type="button" role="menuitem" className="danger" disabled={busy} onClick={() => void deleteItem(contextMenu.item)}><Trash2 />Delete permanently</button></div>}
+    {contextMenu && <div className="files-context-menu" role="menu" style={{ left: contextMenu.x, top: contextMenu.y } satisfies CSSProperties} onPointerDown={(event) => event.stopPropagation()}><div><strong>{contextMenu.item.name}</strong><small>{kindLabel(contextMenu.item.kind)} · {contextMenu.item.size}</small></div>{contextMenu.item.kind === "folder" && <button type="button" role="menuitem" onClick={() => openItem(contextMenu.item)}><FolderOpen />Open folder</button>}<button type="button" role="menuitem" onClick={() => openInVsCode(contextMenu.item)}><Code2 />Open in VS Code</button>{contextMenu.item.kind !== "folder" && workspaceFileCanPreview(contextMenu.item.name) && onPreviewFile && <button type="button" role="menuitem" onClick={() => { setContextMenu(undefined); onPreviewFile({ name: contextMenu.item.name, path: contextMenu.item.relativePath, size: contextMenu.item.bytes ?? 0, mimeType: contextMenu.item.mimeType }); }}><Eye />Open Preview</button>}<button type="button" role="menuitem" onClick={() => void copyItemPath(contextMenu.item)}><Copy />Copy path</button>{contextMenu.item.kind === "folder" ? <button type="button" role="menuitem" disabled title="Folder archives are coming later"><Download />Download<small>Files only</small></button> : <a role="menuitem" href={workspaceDownloadUrl(contextMenu.item.relativePath)} download={contextMenu.item.name} onClick={() => setContextMenu(undefined)}><Download />Download</a>}<button type="button" role="menuitem" className="danger" disabled={busy} onClick={() => void deleteItem(contextMenu.item)}><Trash2 />Delete permanently</button></div>}
 
     {folderDialogOpen && <div className="files-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setFolderDialogOpen(false); }}><form className="files-dialog" role="dialog" aria-modal="true" aria-labelledby="new-folder-title" onSubmit={(event) => void submitFolder(event)}><div><span><FolderPlus /></span><div><h2 id="new-folder-title">Create a folder</h2><p>It will be available to everyone in {folderTitle}.</p></div></div><label><span>Folder name</span><input autoFocus required maxLength={255} value={folderName} onChange={(event) => setFolderName(event.target.value)} placeholder="project-name" /></label><div><button type="button" onClick={() => setFolderDialogOpen(false)}>Cancel</button><button type="submit" disabled={busy || !folderName.trim()}>{busy ? "Creating…" : "Create folder"}</button></div></form></div>}
-    {fileDialogOpen && <div className="files-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setFileDialogOpen(false); }}><form className="files-dialog" role="dialog" aria-modal="true" aria-labelledby="new-file-title" onSubmit={(event) => void submitFile(event)}><div><span><FilePlus2 /></span><div><h2 id="new-file-title">Create a text file</h2><p>It will open in Editor and be available to everyone in {folderTitle}.</p></div></div><label><span>File name</span><input autoFocus required maxLength={255} value={fileName} onChange={(event) => setFileName(event.target.value)} placeholder="notes.md" /></label><div><button type="button" onClick={() => setFileDialogOpen(false)}>Cancel</button><button type="submit" disabled={busy || !fileName.trim()}>{busy ? "Creating…" : "Create file"}</button></div></form></div>}
+    {fileDialogOpen && <div className="files-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setFileDialogOpen(false); }}><form className="files-dialog" role="dialog" aria-modal="true" aria-labelledby="new-file-title" onSubmit={(event) => void submitFile(event)}><div><span><FilePlus2 /></span><div><h2 id="new-file-title">Create a text file</h2><p>It will open in VS Code and be available to everyone in {folderTitle}.</p></div></div><label><span>File name</span><input autoFocus required maxLength={255} value={fileName} onChange={(event) => setFileName(event.target.value)} placeholder="notes.md" /></label><div><button type="button" onClick={() => setFileDialogOpen(false)}>Cancel</button><button type="submit" disabled={busy || !fileName.trim()}>{busy ? "Creating…" : "Create file"}</button></div></form></div>}
   </div>;
 }
 

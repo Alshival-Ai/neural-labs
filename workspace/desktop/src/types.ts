@@ -17,8 +17,17 @@ export type NeuraMessage = {
   role: "user" | "assistant" | "system";
   text: string;
   pending?: boolean;
-  attachments?: Array<{ name: string; type: string; url?: string }>;
+  attachments?: NeuraAttachment[];
   activities?: NeuraActivity[];
+};
+
+export type NeuraAttachment = {
+  name: string;
+  type: string;
+  artifactId?: string;
+  url?: string;
+  path?: string;
+  size?: number;
 };
 
 export type NeuraActivity = {

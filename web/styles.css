@@ -1596,31 +1596,64 @@ footer > div a { text-underline-offset: 0.3rem; }
   transform: none;
 }
 
-.setup-pending {
-  display: grid;
+.setup-pending-shell {
+  display: flex;
   min-height: 100svh;
-  place-items: center;
-  padding: var(--gutter);
+  flex-direction: column;
   background:
-    radial-gradient(circle at 20% 10%, rgba(8, 169, 239, 0.18), transparent 30rem),
-    radial-gradient(circle at 85% 85%, rgba(242, 58, 169, 0.15), transparent 28rem),
+    radial-gradient(circle at 12% 12%, rgba(8, 169, 239, 0.13), transparent 28rem),
+    radial-gradient(circle at 88% 82%, rgba(242, 58, 169, 0.11), transparent 26rem),
     var(--paper);
 }
 
+.setup-pending-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 4.8rem;
+  padding: 0.65rem var(--gutter);
+  border-bottom: 1px solid var(--line);
+  background: rgba(246, 244, 239, 0.82);
+  backdrop-filter: blur(18px);
+}
+
+.setup-pending-header > a:last-child {
+  color: #555760;
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.06em;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.setup-pending-header > a:last-child:hover {
+  color: var(--ink);
+}
+
+.setup-pending {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: clamp(3rem, 8vw, 7rem) var(--gutter);
+}
+
 .setup-pending-card {
+  position: relative;
   width: min(100%, 39rem);
-  padding: clamp(2rem, 6vw, 4rem);
+  overflow: hidden;
+  padding: clamp(2rem, 6vw, 3.8rem);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  background: rgba(255, 254, 249, 0.86);
+  background: rgba(255, 254, 249, 0.9);
   box-shadow: 0 2rem 6rem rgba(18, 19, 28, 0.12);
 }
 
-.setup-pending-logo {
-  width: min(17rem, 70%);
-  margin-bottom: 2rem;
-  border-radius: 1rem;
-  background: var(--ink);
+.setup-pending-card::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 0.32rem;
+  content: "";
+  background: linear-gradient(90deg, var(--cyan), var(--violet), var(--pink), var(--coral), var(--amber));
 }
 
 .setup-pending-eyebrow {
@@ -1635,8 +1668,8 @@ footer > div a { text-underline-offset: 0.3rem; }
 
 .setup-pending-card h1 {
   margin: 0;
-  font-size: clamp(2.2rem, 7vw, 4.2rem);
-  line-height: 0.98;
+  font-size: clamp(2.2rem, 6vw, 3.8rem);
+  line-height: 1;
   letter-spacing: -0.06em;
 }
 
@@ -1649,6 +1682,20 @@ footer > div a { text-underline-offset: 0.3rem; }
 .button-dark {
   color: white;
   background: var(--ink);
+}
+
+.setup-pending-footer > div > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.setup-pending-footer i {
+  width: 0.48rem;
+  height: 0.48rem;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 0.2rem rgba(77, 204, 134, 0.13);
 }
 
 @keyframes blink {

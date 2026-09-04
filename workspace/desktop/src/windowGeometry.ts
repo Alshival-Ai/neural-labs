@@ -1,7 +1,7 @@
 export type Bounds = { x: number; y: number; width: number; height: number };
 export type ResizeEdge = "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw";
 
-export const MIN_WINDOW_WIDTH = 640;
+export const MIN_WINDOW_WIDTH = 360;
 export const MIN_WINDOW_HEIGHT = 440;
 
 export function initialBounds(viewportWidth: number, viewportHeight: number): Bounds {

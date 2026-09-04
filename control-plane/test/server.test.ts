@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import request from "supertest";
+import { createHmac } from "node:crypto";
 
 import type { ControlPlaneConfig } from "../src/config.js";
+import type { CollaborationStore } from "../src/collaboration.js";
 import { hashToken } from "../src/crypto.js";
 import type { Database } from "../src/database.js";
 import { createApplication } from "../src/server.js";
@@ -52,6 +54,10 @@ const config: ControlPlaneConfig = {
   },
   masterKey: Buffer.alloc(32, 4),
   mcpConfigToken: "mcp-config-token-at-least-thirty-two-characters",
+  turn: {
+    urls: ["stun:neural-labs.example.org:3478", "turn:neural-labs.example.org:3478?transport=udp", "turn:neural-labs.example.org:3478?transport=tcp"],
+    secret: "turn-test-secret-at-least-thirty-two-characters",
+  },
   workspace: {
     statusUrl: new URL("http://workspace:18790/status"),
     controlUrl: new URL("http://workspace:18790/internal/provider-auth/openai"),
@@ -108,7 +114,7 @@ const passkey: PasskeyRecord = {
   createdAt: now,
 };
 
-function application(user?: UserRecord, microsoftLinked = false) {
+function application(user?: UserRecord, microsoftLinked = false, collaboration?: CollaborationStore) {
   const setUserState = vi.fn(async (_actorId: string, _targetId: string, input: { role?: "admin" | "user"; status?: "pending" | "active" | "rejected" | "disabled" }) => ({
     ...regular,
     ...input,
@@ -207,7 +213,7 @@ function application(user?: UserRecord, microsoftLinked = false) {
     });
   });
   return {
-    app: createApplication({ database, config, workspaceFetch, webauthn }).app,
+    app: createApplication({ database, config, workspaceFetch, webauthn, ...(collaboration ? { collaboration } : {}) }).app,
     database,
     webauthn,
     setUserState,
@@ -308,6 +314,47 @@ describe("control-plane JSON and role routing", () => {
       .expect("X-Neural-Labs-Redirect", "/login?error=Please+log+in");
   });
 
+  it("issues short-lived pseudonymous TURN credentials only to the workspace", async () => {
+    const { app } = application();
+    await request(app)
+      .post("/internal/turn-credentials")
+      .send({ actorId: regular.id })
+      .expect(401);
+
+    const result = await request(app)
+      .post("/internal/turn-credentials")
+      .set("Authorization", `Bearer ${config.workspace.controlToken}`)
+      .send({ actorId: regular.id })
+      .expect(200);
+    expect(result.body.iceServers[0]).toEqual({ urls: ["stun:neural-labs.example.org:3478"] });
+    const relay = result.body.iceServers[1];
+    expect(relay.urls).toHaveLength(2);
+    expect(relay.username).toMatch(/^\d+:[a-f0-9]{20}$/);
+    expect(relay.credential).toBe(createHmac("sha1", config.turn!.secret).update(relay.username).digest("base64"));
+    expect(JSON.stringify(result.body)).not.toContain(config.turn!.secret);
+    expect(relay.username).not.toContain(regular.id);
+  });
+
+  it("answers Team Terminal membership checks only for the trusted workspace", async () => {
+    const channelId = "55555555-5555-4555-8555-555555555555";
+    const teamTerminalAccess = vi.fn(async () => ({
+      allowed: true as const,
+      channel: { id: channelId, name: "Private release", audience: "restricted" as const },
+    }));
+    const collaboration = { teamTerminalAccess } as unknown as CollaborationStore;
+    const { app } = application(undefined, false, collaboration);
+
+    await request(app).post("/internal/team-terminal/access").send({ actorId: regular.id, channelId }).expect(401);
+    const result = await request(app)
+      .post("/internal/team-terminal/access")
+      .set("Authorization", `Bearer ${config.workspace.controlToken}`)
+      .send({ actorId: regular.id, channelId })
+      .expect(200);
+
+    expect(result.body).toEqual({ allowed: true, channel: { id: channelId, name: "Private release", audience: "restricted" } });
+    expect(teamTerminalAccess).toHaveBeenCalledWith(channelId, regular.id);
+  });
+
   it("reserves the automation administration ingress for active administrators", async () => {
     await request(application(regular).app)
       .get("/internal/workspace/admin-auth")
@@ -338,6 +385,23 @@ describe("control-plane JSON and role routing", () => {
       openclawModelReady: true,
       publicUrl: "https://neural-labs.example.org/workspace",
     });
+  });
+
+  it("reports the display-safe plugin catalog to active members", async () => {
+    const { app } = application(regular);
+    const response = await request(app).get("/api/plugins").set("Cookie", cookies).expect(200);
+    expect(response.body.plugins).toHaveLength(1);
+    expect(response.body.plugins[0]).toMatchObject({
+      id: "neural-labs-tools",
+      type: "mcp",
+      scope: "global",
+      ownership: "system",
+      editable: false,
+      ready: true,
+      mcp: { agentServerName: "neural-labs-tools", publicAccess: false },
+    });
+    expect(response.body.plugins[0].mcp.tools).toContain("search_gif");
+    await request(application().app).get("/api/plugins").expect(401);
   });
 
   it("reports the workspace-local MCP without exposing legacy public controls", async () => {

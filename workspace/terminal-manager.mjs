@@ -13,6 +13,7 @@ const MAX_PERSONAL_SESSIONS = 8;
 const MAX_TEAM_SESSIONS = 8;
 const MAX_TOTAL_SESSIONS = 32;
 const MAX_CONNECTIONS_PER_SESSION = 16;
+const MAX_VOICE_CONNECTIONS_PER_SESSION = 8;
 const MAX_BACKLOG_BYTES = 2 * 1024 * 1024;
 const MAX_INPUT_BYTES = 64 * 1024;
 const MAX_BUFFERED_SOCKET_BYTES = 1024 * 1024;
@@ -36,30 +37,42 @@ export class WorkspaceTerminalManager {
     shell = existsSync("/usr/bin/zsh") ? "/usr/bin/zsh" : "/bin/bash",
     now = Date.now,
     spawnPty = (file, args, options) => pty.spawn(file, args, options),
+    turnCredentialProvider = async () => [],
+    teamChannelAuthorizer = async () => null,
   } = {}) {
     if (!workspaceRoot) throw new Error("workspaceRoot is required");
     this.workspaceRoot = workspaceRoot;
     this.shell = shell;
     this.now = now;
     this.spawnPty = spawnPty;
+    this.turnCredentialProvider = turnCredentialProvider;
+    this.teamChannelAuthorizer = teamChannelAuthorizer;
     this.sessions = new Map();
     this.tickets = new Map();
     this.cleanupTimer = setInterval(() => this.cleanupTickets(), 30_000);
     this.cleanupTimer.unref?.();
   }
 
-  list(actor) {
-    return [...this.sessions.values()]
-      .filter((session) => this.canAccess(actor, session))
+  async list(actor) {
+    const sessions = [...this.sessions.values()];
+    const access = await Promise.all(sessions.map((session) => this.canAccess(actor, session)));
+    return sessions
+      .filter((_session, index) => access[index])
       .sort((left, right) => left.createdAt - right.createdAt)
       .map((session) => this.snapshot(actor, session));
   }
 
-  create(actor, input = {}) {
+  async create(actor, input = {}) {
+    const scope = input.scope === "team" ? "team" : "personal";
+    const channelId = scope === "team" ? normalizeChannelId(input.channelId) : null;
+    let teamChannel = null;
+    if (channelId) {
+      teamChannel = await this.authorizeTeamChannel(actor, channelId);
+      if (!teamChannel) throw new TerminalError(404, "team_channel_not_found", "Team Chat channel not found");
+    }
     if (this.sessions.size >= MAX_TOTAL_SESSIONS) {
       throw new TerminalError(429, "terminal_limit_reached", "The workspace terminal limit has been reached");
     }
-    const scope = input.scope === "team" ? "team" : "personal";
     if (scope === "personal") {
       const personalCount = [...this.sessions.values()].filter((session) => session.scope === "personal" && session.ownerId === actor.id).length;
       if (personalCount >= MAX_PERSONAL_SESSIONS) {
@@ -74,7 +87,12 @@ export class WorkspaceTerminalManager {
 
     const size = normalizeSize(input.cols, input.rows);
     const defaultIndex = [...this.sessions.values()].filter((session) => session.scope === scope).length + 1;
-    const title = normalizeTitle(input.title, scope === "team" ? `Team shell ${defaultIndex}` : `shell ${defaultIndex}`);
+    const channelIndex = channelId
+      ? [...this.sessions.values()].filter((session) => session.channelId === channelId).length + 1
+      : defaultIndex;
+    const title = teamChannel
+      ? normalizeTitle(`#${teamChannel.name} · terminal ${channelIndex}`, "Team Chat terminal")
+      : normalizeTitle(input.title, scope === "team" ? `Team shell ${defaultIndex}` : `shell ${defaultIndex}`);
     const terminalId = randomUUID();
     let processHandle;
     try {
@@ -97,6 +115,8 @@ export class WorkspaceTerminalManager {
       scope,
       ownerId: actor.id,
       ownerLabel: actor.label,
+      channelId,
+      channelName: teamChannel?.name ?? null,
       process: processHandle,
       status: "running",
       createdAt: timestamp,
@@ -107,7 +127,7 @@ export class WorkspaceTerminalManager {
       backlogBytes: 0,
       backlog: [],
       connections: new Map(),
-      controllerConnectionId: null,
+      layoutConnectionId: null,
       exitCode: null,
       exitSignal: null,
     };
@@ -128,13 +148,13 @@ export class WorkspaceTerminalManager {
     return this.snapshot(actor, session);
   }
 
-  get(actor, terminalId) {
+  async get(actor, terminalId) {
     const session = this.sessions.get(String(terminalId ?? ""));
-    return session && this.canAccess(actor, session) ? session : null;
+    return session && await this.canAccess(actor, session) ? session : null;
   }
 
-  issueTicket(actor, terminalId, afterSequence) {
-    const session = this.get(actor, terminalId);
+  async issueTicket(actor, terminalId, afterSequence) {
+    const session = await this.get(actor, terminalId);
     if (!session) throw new TerminalError(404, "terminal_not_found", "Terminal session not found");
     if (session.connections.size >= MAX_CONNECTIONS_PER_SESSION) {
       throw new TerminalError(429, "terminal_connection_limit", "This terminal has too many connected viewers");
@@ -150,13 +170,13 @@ export class WorkspaceTerminalManager {
     return { ticket: token, expiresAt };
   }
 
-  consumeTicket(actorId, token) {
+  async consumeTicket(actorId, token) {
     const normalized = String(token ?? "");
     const ticket = this.tickets.get(normalized);
     this.tickets.delete(normalized);
     if (!ticket || ticket.expiresAt <= this.now() || ticket.actor.id !== actorId) return null;
     const session = this.sessions.get(ticket.terminalId);
-    if (!session || !this.canAccess(ticket.actor, session)) return null;
+    if (!session || !(await this.canAccess(ticket.actor, session))) return null;
     return { ticket, session };
   }
 
@@ -168,26 +188,30 @@ export class WorkspaceTerminalManager {
       connectedAt: this.now(),
       lastTypingAt: 0,
       lastReactionAt: 0,
+      voiceJoined: false,
+      voiceJoining: false,
+      voiceMode: "muted",
     };
     session.connections.set(connection.id, connection);
-    if (session.scope === "team" && !session.controllerConnectionId) {
-      session.controllerConnectionId = connection.id;
+    if (session.scope === "team" && !session.layoutConnectionId) {
+      session.layoutConnectionId = connection.id;
     }
     this.broadcastPresence(session);
     return connection;
   }
 
   detach(session, connection) {
+    const voiceChanged = connection.voiceJoined;
     if (!session.connections.delete(connection.id)) return;
-    if (session.controllerConnectionId === connection.id) {
-      session.controllerConnectionId = session.connections.keys().next().value ?? null;
+    if (session.layoutConnectionId === connection.id) {
+      session.layoutConnectionId = session.connections.keys().next().value ?? null;
     }
     this.broadcastPresence(session);
+    if (voiceChanged) this.broadcastVoicePresence(session);
   }
 
   input(session, connection, data) {
     if (session.status !== "running") return;
-    if (session.scope === "team" && session.controllerConnectionId !== connection.id) return;
     const input = String(data ?? "");
     if (!input || Buffer.byteLength(input, "utf8") > MAX_INPUT_BYTES) return;
     session.lastActivityAt = this.now();
@@ -205,7 +229,7 @@ export class WorkspaceTerminalManager {
 
   resize(session, connection, cols, rows) {
     if (session.status !== "running") return false;
-    if (session.scope === "team" && session.controllerConnectionId !== connection.id) return false;
+    if (session.scope === "team" && session.layoutConnectionId !== connection.id) return false;
     const size = normalizeSize(cols, rows);
     if (size.cols === session.cols && size.rows === session.rows) return true;
     session.cols = size.cols;
@@ -213,12 +237,6 @@ export class WorkspaceTerminalManager {
     session.process.resize(size.cols, size.rows);
     this.broadcastLayout(session);
     return true;
-  }
-
-  claimControl(session, connection) {
-    if (session.scope !== "team") return;
-    session.controllerConnectionId = connection.id;
-    this.broadcastPresence(session);
   }
 
   react(session, connection, value) {
@@ -236,22 +254,73 @@ export class WorkspaceTerminalManager {
     });
   }
 
-  close(actor, terminalId) {
-    const session = this.get(actor, terminalId);
+  async joinVoice(session, connection, mode) {
+    if (session.scope !== "team" || connection.voiceJoined || connection.voiceJoining) return;
+    const occupied = [...session.connections.values()].filter((candidate) => candidate.voiceJoined || candidate.voiceJoining).length;
+    if (occupied >= MAX_VOICE_CONNECTIONS_PER_SESSION) {
+      sendSocket(connection.socket, {
+        type: "voice-error",
+        code: "voice_room_full",
+        message: "This voice chat already has the maximum of eight connected devices",
+      });
+      return;
+    }
+    connection.voiceJoining = true;
+    let iceServers;
+    try {
+      iceServers = await this.turnCredentialProvider(connection.actor);
+    } catch {
+      connection.voiceJoining = false;
+      sendSocket(connection.socket, {
+        type: "voice-error",
+        code: "voice_relay_unavailable",
+        message: "Voice relay credentials are temporarily unavailable",
+      });
+      return;
+    }
+    connection.voiceJoining = false;
+    if (!session.connections.has(connection.id)) return;
+    sendSocket(connection.socket, { type: "voice-config", iceServers });
+    connection.voiceJoined = true;
+    connection.voiceMode = normalizeVoiceMode(mode);
+    this.broadcastVoicePresence(session);
+  }
+
+  leaveVoice(session, connection) {
+    if (!connection.voiceJoined) return;
+    connection.voiceJoined = false;
+    connection.voiceMode = "muted";
+    this.broadcastVoicePresence(session);
+  }
+
+  setVoiceMode(session, connection, mode) {
+    if (session.scope !== "team" || !connection.voiceJoined) return;
+    const nextMode = normalizeVoiceMode(mode);
+    if (nextMode === connection.voiceMode) return;
+    connection.voiceMode = nextMode;
+    this.broadcastVoicePresence(session);
+  }
+
+  signalVoice(session, connection, targetConnectionId, value) {
+    if (session.scope !== "team" || !connection.voiceJoined) return;
+    const target = session.connections.get(String(targetConnectionId ?? ""));
+    const signal = normalizeVoiceSignal(value);
+    if (!target?.voiceJoined || target.id === connection.id || !signal) return;
+    sendSocket(target.socket, {
+      type: "voice-signal",
+      fromConnectionId: connection.id,
+      actor: { id: connection.actor.id, label: connection.actor.label },
+      signal,
+    });
+  }
+
+  async close(actor, terminalId) {
+    const session = await this.get(actor, terminalId);
     if (!session) return false;
     if (session.scope === "team" && actor.id !== session.ownerId && actor.role !== "admin") {
       throw new TerminalError(403, "terminal_forbidden", "Only the creator or an administrator can end this Team Terminal");
     }
-    this.sessions.delete(session.id);
-    for (const [token, ticket] of this.tickets) {
-      if (ticket.terminalId === session.id) this.tickets.delete(token);
-    }
-    this.broadcast(session, { type: "closed" });
-    for (const connection of session.connections.values()) {
-      connection.socket.close(1000, "Terminal ended");
-    }
-    session.connections.clear();
-    if (session.status === "running") session.process.kill();
+    this.destroy(session);
     return true;
   }
 
@@ -272,7 +341,7 @@ export class WorkspaceTerminalManager {
   }
 
   snapshot(actor, session) {
-    const controller = session.connections.get(session.controllerConnectionId);
+    const layoutLeader = session.connections.get(session.layoutConnectionId);
     return {
       id: session.id,
       title: session.title,
@@ -290,7 +359,9 @@ export class WorkspaceTerminalManager {
       owned: session.ownerId === actor.id,
       canTerminate: session.scope === "personal" || session.ownerId === actor.id || actor.role === "admin",
       participants: participants(session),
-      controller: terminalController(controller),
+      voiceParticipants: voiceParticipants(session),
+      layoutLeader: terminalLayoutLeader(layoutLeader),
+      ...(session.channelId ? { teamChannel: { id: session.channelId, name: session.channelName } } : {}),
     };
   }
 
@@ -304,13 +375,56 @@ export class WorkspaceTerminalManager {
   shutdown() {
     clearInterval(this.cleanupTimer);
     for (const session of [...this.sessions.values()]) {
-      this.close({ id: session.ownerId, role: "admin", label: session.ownerLabel }, session.id);
+      this.destroy(session);
     }
     this.tickets.clear();
   }
 
-  canAccess(actor, session) {
-    return session.scope === "team" || session.ownerId === actor.id;
+  async canAccess(actor, session) {
+    if (session.scope === "personal") return session.ownerId === actor.id;
+    if (!session.channelId) return true;
+    const channel = await this.authorizeTeamChannel(actor, session.channelId);
+    if (channel) session.channelName = channel.name;
+    return Boolean(channel);
+  }
+
+  async authorizeTeamChannel(actor, channelId) {
+    try {
+      const access = await this.teamChannelAuthorizer(actor, channelId);
+      return access?.allowed === true && access.channel?.id === channelId && typeof access.channel.name === "string"
+        ? access.channel
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async revalidateConnections() {
+    for (const session of this.sessions.values()) {
+      if (!session.channelId || session.connections.size === 0) continue;
+      const actors = new Map([...session.connections.values()].map((connection) => [connection.actor.id, connection.actor]));
+      const allowed = new Map();
+      await Promise.all([...actors].map(async ([actorId, actor]) => {
+        allowed.set(actorId, await this.canAccess(actor, session));
+      }));
+      for (const connection of session.connections.values()) {
+        if (allowed.get(connection.actor.id) !== false) continue;
+        connection.socket.close(1008, "Team Chat access revoked");
+      }
+    }
+  }
+
+  destroy(session) {
+    this.sessions.delete(session.id);
+    for (const [token, ticket] of this.tickets) {
+      if (ticket.terminalId === session.id) this.tickets.delete(token);
+    }
+    this.broadcast(session, { type: "closed" });
+    for (const connection of session.connections.values()) {
+      connection.socket.close(1000, "Terminal ended");
+    }
+    session.connections.clear();
+    if (session.status === "running") session.process.kill();
   }
 
   recordOutput(session, data) {
@@ -341,21 +455,29 @@ export class WorkspaceTerminalManager {
   }
 
   broadcastPresence(session) {
-    const controller = session.connections.get(session.controllerConnectionId);
+    const layoutLeader = session.connections.get(session.layoutConnectionId);
     this.broadcast(session, {
       type: "presence",
       participants: participants(session),
-      controller: terminalController(controller),
+      voiceParticipants: voiceParticipants(session),
+      layoutLeader: terminalLayoutLeader(layoutLeader),
+    });
+  }
+
+  broadcastVoicePresence(session) {
+    this.broadcast(session, {
+      type: "voice-presence",
+      participants: voiceParticipants(session),
     });
   }
 
   broadcastLayout(session) {
-    const controller = session.connections.get(session.controllerConnectionId);
+    const layoutLeader = session.connections.get(session.layoutConnectionId);
     this.broadcast(session, {
       type: "layout",
       cols: session.cols,
       rows: session.rows,
-      controller: terminalController(controller),
+      layoutLeader: terminalLayoutLeader(layoutLeader),
     });
   }
 }
@@ -372,27 +494,29 @@ export function attachTerminalWebSocket(server, { manager, publicOrigin, heartbe
   const alive = new WeakMap();
 
   const onUpgrade = (request, socket, head) => {
-    const url = safeUrl(request.url, publicOrigin);
-    if (url?.pathname !== TERMINAL_SOCKET_PATH) return;
-    const actor = terminalActor(request.headers);
-    if (!actor || request.headers.origin !== publicOrigin) {
-      rejectUpgrade(socket, 404, "Not Found");
-      return;
-    }
-    const protocols = parseProtocols(request.headers["sec-websocket-protocol"]);
-    const ticketProtocol = protocols.find((protocol) => protocol.startsWith("ticket."));
-    if (!protocols.includes(TERMINAL_SOCKET_PROTOCOL) || !ticketProtocol) {
-      rejectUpgrade(socket, 403, "Forbidden");
-      return;
-    }
-    const consumed = manager.consumeTicket(actor.id, ticketProtocol.slice("ticket.".length));
-    if (!consumed) {
-      rejectUpgrade(socket, 403, "Forbidden");
-      return;
-    }
-    socketServer.handleUpgrade(request, socket, head, (websocket) => {
-      socketServer.emit("connection", websocket, request, consumed.ticket.actor, consumed.session, consumed.ticket.afterSequence);
-    });
+    void (async () => {
+      const url = safeUrl(request.url, publicOrigin);
+      if (url?.pathname !== TERMINAL_SOCKET_PATH) return;
+      const actor = terminalActor(request.headers);
+      if (!actor || request.headers.origin !== publicOrigin) {
+        rejectUpgrade(socket, 404, "Not Found");
+        return;
+      }
+      const protocols = parseProtocols(request.headers["sec-websocket-protocol"]);
+      const ticketProtocol = protocols.find((protocol) => protocol.startsWith("ticket."));
+      if (!protocols.includes(TERMINAL_SOCKET_PROTOCOL) || !ticketProtocol) {
+        rejectUpgrade(socket, 403, "Forbidden");
+        return;
+      }
+      const consumed = await manager.consumeTicket(actor.id, ticketProtocol.slice("ticket.".length));
+      if (!consumed) {
+        rejectUpgrade(socket, 403, "Forbidden");
+        return;
+      }
+      socketServer.handleUpgrade(request, socket, head, (websocket) => {
+        socketServer.emit("connection", websocket, request, consumed.ticket.actor, consumed.session, consumed.ticket.afterSequence);
+      });
+    })().catch(() => rejectUpgrade(socket, 403, "Forbidden"));
   };
   server.on("upgrade", onUpgrade);
 
@@ -430,8 +554,11 @@ export function attachTerminalWebSocket(server, { manager, publicOrigin, heartbe
       }
       if (message?.type === "input") manager.input(session, connection, message.data);
       else if (message?.type === "resize") manager.resize(session, connection, message.cols, message.rows);
-      else if (message?.type === "claim-control") manager.claimControl(session, connection);
       else if (message?.type === "reaction") manager.react(session, connection, message.emoji);
+      else if (message?.type === "voice-join") void manager.joinVoice(session, connection, message.mode);
+      else if (message?.type === "voice-leave") manager.leaveVoice(session, connection);
+      else if (message?.type === "voice-mode") manager.setVoiceMode(session, connection, message.mode);
+      else if (message?.type === "voice-signal") manager.signalVoice(session, connection, message.targetConnectionId, message.signal);
       else if (message?.type === "detach") socket.close(1000, "Terminal detached");
     });
     const detach = () => manager.detach(session, connection);
@@ -440,6 +567,7 @@ export function attachTerminalWebSocket(server, { manager, publicOrigin, heartbe
   });
 
   const heartbeat = setInterval(() => {
+    void manager.revalidateConnections();
     for (const socket of socketServer.clients) {
       if (alive.get(socket) === false) {
         socket.terminate();
@@ -507,7 +635,16 @@ function participants(session) {
   return [...values.values()];
 }
 
-function terminalController(connection) {
+function voiceParticipants(session) {
+  return [...session.connections.values()].flatMap((connection) => connection.voiceJoined ? [{
+    connectionId: connection.id,
+    id: connection.actor.id,
+    label: connection.actor.label,
+    mode: connection.voiceMode,
+  }] : []);
+}
+
+function terminalLayoutLeader(connection) {
   return connection ? {
     id: connection.actor.id,
     label: connection.actor.label,
@@ -524,6 +661,15 @@ function normalizeTitle(value, fallback) {
   return normalized || fallback;
 }
 
+function normalizeChannelId(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const channelId = String(value).trim();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(channelId)) {
+    throw new TerminalError(422, "invalid_team_channel", "A valid Team Chat channel is required");
+  }
+  return channelId;
+}
+
 function normalizeSize(cols, rows) {
   return {
     cols: clampInteger(cols, 20, 320, 100),
@@ -535,6 +681,32 @@ function normalizeSequence(value) {
   if (value === null || value === undefined) return null;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function normalizeVoiceMode(value) {
+  return value === "open-mic" || value === "push-to-talk" ? value : "muted";
+}
+
+function normalizeVoiceSignal(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  if (value.description && typeof value.description === "object" && !Array.isArray(value.description)) {
+    const type = value.description.type;
+    const sdp = value.description.sdp;
+    if (!["offer", "answer"].includes(type) || typeof sdp !== "string" || !sdp || sdp.length > 32 * 1024) return null;
+    return { description: { type, sdp } };
+  }
+  if (value.candidate && typeof value.candidate === "object" && !Array.isArray(value.candidate)) {
+    const candidate = value.candidate.candidate;
+    const sdpMid = value.candidate.sdpMid;
+    const sdpMLineIndex = value.candidate.sdpMLineIndex;
+    const usernameFragment = value.candidate.usernameFragment;
+    if (typeof candidate !== "string" || candidate.length > 4096) return null;
+    if (sdpMid !== null && sdpMid !== undefined && (typeof sdpMid !== "string" || sdpMid.length > 256)) return null;
+    if (sdpMLineIndex !== null && sdpMLineIndex !== undefined && (!Number.isInteger(sdpMLineIndex) || sdpMLineIndex < 0 || sdpMLineIndex > 64)) return null;
+    if (usernameFragment !== null && usernameFragment !== undefined && (typeof usernameFragment !== "string" || usernameFragment.length > 256)) return null;
+    return { candidate: { candidate, sdpMid: sdpMid ?? null, sdpMLineIndex: sdpMLineIndex ?? null, usernameFragment: usernameFragment ?? null } };
+  }
+  return null;
 }
 
 function clampInteger(value, minimum, maximum, fallback) {

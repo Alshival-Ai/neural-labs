@@ -26,10 +26,11 @@ desktop actions rather than external navigation.
 
 Before loading an HTML iframe, require an authenticated, exact-origin POST to
 mint a random 192-bit launch capability. Associate the capability with the
-requesting user and one workspace directory, keep it only in workspace-process
-memory, and expire it after 15 minutes without preview traffic. Treat the
-unguessable path as a bearer capability on subsequent HTML, script, stylesheet,
-image, font, and media reads. Reject the previous folder-encoded URL format.
+immutable requesting user and one workspace directory, keep it only in
+workspace-process memory, and expire it after 15 minutes without preview
+traffic. Treat the unguessable path as a bearer capability on subsequent HTML,
+script, stylesheet, image, font, and media reads. Reject the previous
+folder-encoded URL format.
 
 Route only `/workspace/preview/<capability>/` around Nginx session
 authentication, clear cookies, authorization, and identity assertion headers

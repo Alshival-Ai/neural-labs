@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import path from "node:path";
+import { Readable } from "node:stream";
 
 import { BuilderError, attachBuilderWebSocket, createBuilderManager } from "./builder-manager.mjs";
 import { createWorkspaceFileEvents } from "./file-events.mjs";
@@ -35,6 +36,8 @@ const CSP_NONCE_MARKER = "__NEURAL_LABS_CSP_NONCE__";
 const PREVIEW_PREFIX = "/workspace/preview/";
 const PREVIEW_LAUNCH_PATH = "/workspace/api/previews";
 const PREVIEW_LAUNCH_TTL_MS = 15 * 60 * 1000;
+const NEURA_MEDIA_PREFIX = "/workspace/api/neura/media/outgoing/";
+const NEURA_MEDIA_TICKET = /^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u;
 // @xterm/xterm 6.0.0 creates two library-global styles outside its
 // documentOverride path: an initially empty shared sheet and its pinned base
 // rules. Keep these exact hashes in sync with the pinned xterm dependency.
@@ -42,7 +45,6 @@ const XTERM_GLOBAL_STYLE_HASHES = [
   "'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU='",
   "'sha256-0HLsQTd9pfKPyap6Gal6YdqwXATwb28CEdo/XWqlODU='",
 ];
-
 function contentSecurityPolicy(nonce) {
   return [
     "default-src 'self'",
@@ -171,6 +173,60 @@ function parsePreviewRequest(pathname) {
   } catch {
     throw new WorkspaceFileError(400, "invalid_preview", "The preview website path is invalid");
   }
+}
+
+function parseNeuraMediaRequest(url) {
+  const match = url.pathname.match(/^\/workspace\/api\/neura\/media\/outgoing\/([^/]+)\/([A-Za-z0-9-]{1,128})\/(full|thumbnail)$/u);
+  const ticket = url.searchParams.get("mediaTicket");
+  if (!match || !ticket || !NEURA_MEDIA_TICKET.test(ticket) || [...url.searchParams.keys()].some((key) => key !== "mediaTicket")) {
+    throw new WorkspaceFileError(404, "media_not_found", "This Neura attachment is unavailable");
+  }
+  let sessionKey;
+  try {
+    sessionKey = decodeURIComponent(match[1]);
+  } catch {
+    throw new WorkspaceFileError(404, "media_not_found", "This Neura attachment is unavailable");
+  }
+  if (!sessionKey || sessionKey.length > 512 || sessionKey.includes("/") || sessionKey.includes("\\")) {
+    throw new WorkspaceFileError(404, "media_not_found", "This Neura attachment is unavailable");
+  }
+  return `/api/chat/media/outgoing/${encodeURIComponent(sessionKey)}/${match[2]}/${match[3]}?mediaTicket=${encodeURIComponent(ticket)}`;
+}
+
+async function relayNeuraMedia(response, method, upstreamOrigin, upstreamPath, gatewayMediaFetch) {
+  let upstream;
+  try {
+    upstream = await gatewayMediaFetch(new URL(upstreamPath, upstreamOrigin), {
+      method,
+      redirect: "error",
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch {
+    throw new WorkspaceFileError(502, "media_unavailable", "Neura could not load this attachment");
+  }
+  if (!upstream.ok) {
+    throw new WorkspaceFileError(upstream.status === 404 ? 404 : 502, "media_unavailable", "This Neura attachment is unavailable");
+  }
+  const contentType = upstream.headers.get("content-type") ?? "application/octet-stream";
+  if (!/^(?:image|audio|video)\//iu.test(contentType) && contentType !== "application/pdf" && contentType !== "application/octet-stream") {
+    throw new WorkspaceFileError(415, "media_unavailable", "This Neura attachment type is unavailable");
+  }
+  response.setHeader("Cache-Control", "private, no-store");
+  response.setHeader("Content-Type", contentType);
+  response.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+  response.setHeader("Referrer-Policy", "no-referrer");
+  response.setHeader("X-Content-Type-Options", "nosniff");
+  response.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
+  if (contentType.toLowerCase().startsWith("image/svg+xml")) {
+    response.setHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+  }
+  for (const name of ["content-length", "content-disposition", "accept-ranges", "content-range"]) {
+    const value = upstream.headers.get(name);
+    if (value) response.setHeader(name, value);
+  }
+  response.writeHead(upstream.status);
+  if (method === "HEAD" || !upstream.body) response.end();
+  else Readable.fromWeb(upstream.body).on("error", () => response.destroy()).pipe(response);
 }
 
 function inlinePreviewAvailable(mimeType) {
@@ -310,6 +366,8 @@ export function createWorkspaceHttpServer({
   workspaceRoot,
   publicOrigin,
   gatewayReady,
+  gatewayMediaOrigin,
+  gatewayMediaFetch = fetch,
   codeServerOrigin = "http://127.0.0.1:18881",
   codeServerReady = async () => true,
   mcpStatus = async () => ({
@@ -343,6 +401,9 @@ export function createWorkspaceHttpServer({
   ],
   builderDraftsRoot = path.join(path.dirname(workspaceRoot), ".local", "state", "neural-labs", "builder-drafts"),
   terminalManager,
+  terminalHeartbeatMs,
+  turnCredentialProvider,
+  teamChannelAuthorizer,
   runTeamAgent,
 }) {
   const files = createFileManager({ root: workspaceRoot, maxUploadBytes, maxTextBytes });
@@ -356,7 +417,7 @@ export function createWorkspaceHttpServer({
     publishSkill: (actor, skillPackage, targetKey) => skills.savePackage(actor, skillPackage, targetKey),
   });
   const fileEvents = createWorkspaceFileEvents({ root: workspaceRoot });
-  const terminals = terminalManager ?? new WorkspaceTerminalManager({ workspaceRoot });
+  const terminals = terminalManager ?? new WorkspaceTerminalManager({ workspaceRoot, turnCredentialProvider, teamChannelAuthorizer });
   const previewLaunches = new Map();
   const server = createServer(async (request, response) => {
     const method = request.method ?? "GET";
@@ -446,6 +507,33 @@ export function createWorkspaceHttpServer({
       return;
     }
 
+    if (pathname === "/workspace/api/vscode/open") {
+      if (typeof request.headers["x-forwarded-user"] !== "string" || !request.headers["x-forwarded-user"].trim()) {
+        sendJson(response, 401, { error: { code: "unauthorized", message: "Authentication is required" } }, method);
+        return;
+      }
+      if (method !== "POST") {
+        response.setHeader("Allow", "POST");
+        sendJson(response, 405, { error: { code: "method_not_allowed", message: "Method not allowed" } }, method);
+        return;
+      }
+      if (request.headers.origin !== publicOrigin) {
+        sendJson(response, 403, { error: { code: "same_origin_required", message: "A same-origin request is required" } }, method);
+        return;
+      }
+      try {
+        if (!await codeServerReady()) {
+          throw new WorkspaceFileError(503, "vscode_unavailable", "VS Code is still starting");
+        }
+        const body = await readJsonBody(request, 16 * 1024);
+        const target = await files.openTarget(body?.path);
+        sendJson(response, 200, { opened: { path: target.relativePath, type: target.type } }, method);
+      } catch (error) {
+        fileApiError(response, error, method);
+      }
+      return;
+    }
+
     if (pathname === PREVIEW_LAUNCH_PATH) {
       const userId = typeof request.headers["x-forwarded-user"] === "string" ? request.headers["x-forwarded-user"].trim() : "";
       if (!userId) {
@@ -504,6 +592,28 @@ export function createWorkspaceHttpServer({
       return;
     }
 
+    if (pathname.startsWith(NEURA_MEDIA_PREFIX)) {
+      if (typeof request.headers["x-forwarded-user"] !== "string" || !request.headers["x-forwarded-user"].trim()) {
+        sendJson(response, 401, { error: { code: "unauthorized", message: "Authentication is required" } }, method);
+        return;
+      }
+      if (method !== "GET" && method !== "HEAD") {
+        response.setHeader("Allow", "GET, HEAD");
+        sendJson(response, 405, { error: { code: "method_not_allowed", message: "Method not allowed" } }, method);
+        return;
+      }
+      if (!gatewayMediaOrigin) {
+        sendJson(response, 503, { error: { code: "media_unavailable", message: "Neura media is unavailable" } }, method);
+        return;
+      }
+      try {
+        await relayNeuraMedia(response, method, gatewayMediaOrigin, parseNeuraMediaRequest(url), gatewayMediaFetch);
+      } catch (error) {
+        fileApiError(response, error, method);
+      }
+      return;
+    }
+
     if (pathname === "/workspace/api/terminals" ||
         pathname === "/workspace/api/terminals/socket" ||
         /^\/workspace\/api\/terminals\/[^/]+\/ticket$/.test(pathname) ||
@@ -520,18 +630,18 @@ export function createWorkspaceHttpServer({
       }
       try {
         if (pathname === "/workspace/api/terminals" && method === "GET") {
-          sendJson(response, 200, { sessions: terminals.list(actor) }, method);
+          sendJson(response, 200, { sessions: await terminals.list(actor) }, method);
           return;
         }
         if (pathname === "/workspace/api/terminals" && method === "POST") {
           const body = await readJsonBody(request);
-          sendJson(response, 201, { session: terminals.create(actor, body) }, method);
+          sendJson(response, 201, { session: await terminals.create(actor, body) }, method);
           return;
         }
         const ticketMatch = pathname.match(/^\/workspace\/api\/terminals\/([^/]+)\/ticket$/);
         if (ticketMatch && method === "POST") {
           const body = await readJsonBody(request);
-          const issued = terminals.issueTicket(actor, decodeURIComponent(ticketMatch[1]), body?.afterSequence);
+          const issued = await terminals.issueTicket(actor, decodeURIComponent(ticketMatch[1]), body?.afterSequence);
           sendJson(response, 200, {
             ...issued,
             path: TERMINAL_SOCKET_PATH,
@@ -541,7 +651,7 @@ export function createWorkspaceHttpServer({
         }
         const terminalMatch = pathname.match(/^\/workspace\/api\/terminals\/([^/]+)$/);
         if (terminalMatch && method === "DELETE") {
-          const closed = terminals.close(actor, decodeURIComponent(terminalMatch[1]));
+          const closed = await terminals.close(actor, decodeURIComponent(terminalMatch[1]));
           if (!closed) throw new TerminalError(404, "terminal_not_found", "Terminal session not found");
           sendJson(response, 200, { closed: true }, method);
           return;
@@ -835,7 +945,7 @@ export function createWorkspaceHttpServer({
 
     send(response, 404, "Not found\n", "text/plain; charset=utf-8", method);
   });
-  const terminalSockets = attachTerminalWebSocket(server, { manager: terminals, publicOrigin });
+  const terminalSockets = attachTerminalWebSocket(server, { manager: terminals, publicOrigin, heartbeatMs: terminalHeartbeatMs });
   const vsCodeSockets = attachVsCodeWebSocketBridge(server, { codeServerOrigin, publicOrigin });
   const builderSockets = attachBuilderWebSocket(server, { manager: builder, publicOrigin });
   const closeServer = server.close.bind(server);

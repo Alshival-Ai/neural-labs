@@ -15,7 +15,6 @@ import { teamChatApi, type TeamDirectoryUser } from "./teamChat";
 import type { ConnectionState } from "./types";
 
 type WorkspaceUser = { id: string; displayName: string; role: "admin" | "user" };
-type BuilderEditorLauncher = (draftId: string, draftTitle: string, filePath: string, content: string, binding: { change: (content: string) => void; read: () => string; subscribe: (listener: () => void) => () => void }) => void;
 type Props = {
   reader: NeuraGateway;
   administrator?: AutomationsGateway;
@@ -26,7 +25,6 @@ type Props = {
   sectionRequestId?: string;
   notify?: (message: string) => void;
   onComposeInNeura?: (message: string) => void;
-  onOpenBuilderDocument?: BuilderEditorLauncher;
   workspaceName?: string;
 };
 
@@ -93,7 +91,7 @@ function gatewayIdentity(value: unknown): { jobId?: string; configRevision?: str
   return { jobId: typeof job.id === "string" ? job.id : undefined, configRevision: typeof job.configRevision === "string" ? job.configRevision : undefined };
 }
 
-export function SkillsLiveApp({ reader, administrator, canManage, currentUser, currentUserName = "You", initialSection = "mine", sectionRequestId, notify, onComposeInNeura, onOpenBuilderDocument, workspaceName = "Workspace" }: Props) {
+export function SkillsLiveApp({ reader, administrator, canManage, currentUser, currentUserName = "You", initialSection = "mine", sectionRequestId, notify, onComposeInNeura, workspaceName = "Workspace" }: Props) {
   const user = currentUser ?? { id: "current-user", displayName: currentUserName, role: canManage ? "admin" as const : "user" as const };
   const [snapshot, setSnapshot] = useState<SkillsSnapshot>(EMPTY_SNAPSHOT);
   const [automations, setAutomations] = useState<AutomationsSnapshot>(EMPTY_AUTOMATIONS);
@@ -247,7 +245,7 @@ export function SkillsLiveApp({ reader, administrator, canManage, currentUser, c
     return gatewayIdentity(existing ? await administrator.update(existing, draft) : await administrator.create(draft));
   };
 
-  if (activeDraft && builderConnection) return <BuilderWorkspace draft={activeDraft} connection={builderConnection} currentUser={user} directory={directory} skills={snapshot.skills} gateway={reader} onBack={() => { builderConnection.stop(); activeConnection.current = undefined; setBuilderConnection(undefined); setActiveDraft(undefined); void refresh().catch(() => undefined); }} onDraftChanged={(next) => { setActiveDraft(next); setDrafts((current) => current.map((item) => item.id === next.id ? next : item)); }} onPublished={refresh} onPublishAutomation={canManage ? publishAutomation : undefined} onOpenInEditor={onOpenBuilderDocument} notify={notify} />;
+  if (activeDraft && builderConnection) return <BuilderWorkspace draft={activeDraft} connection={builderConnection} currentUser={user} directory={directory} skills={snapshot.skills} gateway={reader} onBack={() => { builderConnection.stop(); activeConnection.current = undefined; setBuilderConnection(undefined); setActiveDraft(undefined); void refresh().catch(() => undefined); }} onDraftChanged={(next) => { setActiveDraft(next); setDrafts((current) => current.map((item) => item.id === next.id ? next : item)); }} onPublished={refresh} onPublishAutomation={canManage ? publishAutomation : undefined} notify={notify} />;
 
   return <SkillsApp skills={snapshot.skills} clawHubResults={snapshot.clawHubResults} drafts={drafts} initialSection={initialSection} sectionRequestId={sectionRequestId} workspaceName={workspaceName} currentUserName={user.displayName} gatewayOnline={connection === "connected"} canInstallFromOpenClaw={canManage && adminConnection === "connected"} loading={loading || connection === "connecting"} error={error} onRefresh={refresh} onSelectSkill={loadSkillInstructions} onSelectHub={loadHubDetail} onDiscoverSearch={search} onInvoke={(skill) => onComposeInNeura?.(skill.command ?? `$${skill.key}`)} onShare={share} onInstall={canManage ? install : undefined} onCreateSkill={() => void createDraft("skill")} onCreateAutomation={canManage ? () => void createDraft("automation") : undefined} onOpenDraft={(draft) => void openDraft(draft)} onEditSkill={(skill) => void editSkill(skill)} onDuplicateSkill={(skill) => void editSkill(skill, true)} automationsContent={<AutomationsApp jobs={automations.jobs} workspaceName={workspaceName} schedulerOnline={automations.schedulerOnline} loading={connection !== "connected"} onRefresh={refreshAutomations} onCreateDraft={canManage ? () => void createDraft("automation") : undefined} onEditDraft={canManage ? (job) => void createDraft("automation", automationInitial(job), job.id, job.configRevision) : undefined} onToggle={canManage && administrator ? async (job, enabled) => { await administrator.toggle(job, enabled); await refreshAutomations(); } : undefined} onRun={canManage && administrator ? async (job, mode) => { await administrator.run(job, mode); await refreshAutomations(); } : undefined} onDelete={canManage && administrator ? async (job) => { await administrator.remove(job); await refreshAutomations(); } : undefined} />} />;
 }

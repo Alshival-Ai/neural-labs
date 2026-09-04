@@ -49,11 +49,15 @@ describe("control-plane configuration", () => {
       WORKSPACE_CONTROL_TOKEN: "workspace-control-token-at-least-thirty-two-characters",
       PGPASSWORD: "database-password",
       CONTROL_PLANE_PUBLIC_ORIGIN: "https://neural-labs.example.com",
+      CONTROL_PLANE_TURN_URLS: "stun:neural-labs.example.com:3478,turn:neural-labs.example.com:3478?transport=udp",
+      CONTROL_PLANE_TURN_SECRET: "turn-secret-at-least-thirty-two-characters",
     });
 
     expect(config.masterKey).toHaveLength(32);
     expect(config.database.password).toBe("database-password");
     expect(config.mcpConfigToken).toBe("mcp-config-token-at-least-thirty-two-characters");
+    expect(config.turn?.urls).toHaveLength(2);
+    expect(config.turn?.secret).toBe("turn-secret-at-least-thirty-two-characters");
   });
 
   it("loads automatic environment setup and the restricted initial administrator", async () => {

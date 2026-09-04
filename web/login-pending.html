@@ -10,14 +10,25 @@
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
-    <main class="setup-pending">
-      <section class="setup-pending-card">
-        <img class="setup-pending-logo" src="/assets/brand/neural-labs-logo.webp" alt="Neural Labs">
-        <p class="eyebrow setup-pending-eyebrow">Private setup</p>
-        <h1>Authentication setup is in progress.</h1>
-        <p>The control plane is running privately while an administrator completes first-run onboarding. Try again after deployment is complete.</p>
-        <a class="button button-dark" href="/">Return to the landing page</a>
-      </section>
-    </main>
+    <div class="setup-pending-shell">
+      <header class="setup-pending-header">
+        <a class="brand" href="/" aria-label="Neural Labs landing page">
+          <span class="spectrum-text">Neural Labs</span>
+        </a>
+        <a href="/">Back to home</a>
+      </header>
+      <main class="setup-pending">
+        <section class="setup-pending-card">
+          <p class="eyebrow setup-pending-eyebrow">Private setup</p>
+          <h1>Authentication setup<br><span class="spectrum-text">is in progress.</span></h1>
+          <p>The private control plane is online while an administrator completes first-run onboarding. Try again after deployment is complete.</p>
+          <a class="button button-dark" href="/">Return to the landing page <span aria-hidden="true">→</span></a>
+        </section>
+      </main>
+      <footer class="setup-pending-footer">
+        <p>Neural Labs by <a href="https://alshival.ai/">Alshival.Ai</a></p>
+        <div><span><i aria-hidden="true"></i> Private workspace access</span></div>
+      </footer>
+    </div>
   </body>
 </html>

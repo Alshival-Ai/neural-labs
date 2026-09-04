@@ -26,6 +26,10 @@ export function personalRoleId(userId) {
   return `personal-${personalAgentId(userId)}`;
 }
 
+export function personalProfileId(userId) {
+  return `openai:${personalAgentId(userId)}`;
+}
+
 export function createGatewayAdminRequest({ url, password, timeoutMs = 15_000 }) {
   if (!url || !password) throw new Error("The internal Gateway URL and password are required");
   return (method, params) => new Promise((resolve, reject) => {
@@ -60,8 +64,8 @@ export function createGatewayAdminRequest({ url, password, timeoutMs = 15_000 })
   });
 }
 
-function personalLoginProcess(agentId) {
-  const command = `openclaw models auth login --agent ${agentId} --provider openai --device-code`;
+function personalLoginProcess(agentId, profileId) {
+  const command = `openclaw models auth login --agent ${agentId} --provider openai --device-code --profile-id ${profileId}`;
   return spawn("script", ["-qefc", command, "/dev/null"], {
     detached: true,
     env: { ...process.env, NO_COLOR: "1", TERM: "dumb" },
@@ -69,10 +73,26 @@ function personalLoginProcess(agentId) {
   });
 }
 
-function authenticationState(payload) {
-  return Array.isArray(payload?.profiles) && payload.profiles.some(
-    (profile) => profile?.provider === "openai" && profile?.type === "oauth",
-  );
+function ownsPersonalAuthStore(payload, agentId) {
+  const authStatePath = String(payload?.authStatePath ?? "").replaceAll("\\", "/");
+  return authStatePath.endsWith(`/agents/${agentId}/agent/openclaw-agent.sqlite`);
+}
+
+function authenticationState(payload, account) {
+  return ownsPersonalAuthStore(payload, account.agentId) &&
+    Array.isArray(payload?.profiles) && payload.profiles.some(
+      (profile) =>
+        profile?.id === account.profileId &&
+        profile?.provider === "openai" &&
+        profile?.type === "oauth",
+    );
+}
+
+function personalOrderState(payload, account) {
+  return ownsPersonalAuthStore(payload, account.agentId) &&
+    Array.isArray(payload?.order) &&
+    payload.order.length === 1 &&
+    payload.order[0] === account.profileId;
 }
 
 function modelState(payload) {
@@ -80,6 +100,21 @@ function modelState(payload) {
     payload.auth.missingProvidersInUse.length === 0 &&
     Array.isArray(payload?.auth?.modelRouteIssues) &&
     payload.auth.modelRouteIssues.length === 0;
+}
+
+function gatewayModelState(payload, account) {
+  if (payload?.unavailable) return false;
+  const provider = Array.isArray(payload?.providers)
+    ? payload.providers.find((candidate) => candidate?.provider === "openai")
+    : undefined;
+  const usableStatuses = new Set(["ok", "expiring"]);
+  return usableStatuses.has(provider?.status) &&
+    Array.isArray(provider?.profiles) && provider.profiles.some(
+      (profile) =>
+        profile?.profileId === account.profileId &&
+        profile?.type === "oauth" &&
+        usableStatuses.has(profile?.status),
+    );
 }
 
 export class PersonalOpenAIManager {
@@ -125,10 +160,12 @@ export class PersonalOpenAIManager {
       userId,
       agentId: id,
       roleId: personalRoleId(userId),
+      profileId: personalProfileId(userId),
       authenticated: false,
       modelReady: false,
       provisioned: false,
       paused: true,
+      refreshing: undefined,
     };
     account.controller = createProviderAuthController({
       providerAuthenticated: () => account.authenticated,
@@ -137,7 +174,7 @@ export class PersonalOpenAIManager {
         await this.refresh(account);
         if (account.authenticated) await this.assignRole(account.userId, account.roleId);
       },
-      spawnLogin: () => this.spawnLogin(account.agentId),
+      spawnLogin: () => this.spawnLogin(account.agentId, account.profileId),
     });
     this.accounts.set(id, account);
     return account;
@@ -189,13 +226,66 @@ export class PersonalOpenAIManager {
   }
 
   async refresh(account) {
+    if (account.refreshing) return account.refreshing;
+    const refreshing = this.refreshOnce(account);
+    account.refreshing = refreshing;
+    try {
+      await refreshing;
+    } finally {
+      if (account.refreshing === refreshing) account.refreshing = undefined;
+    }
+  }
+
+  async refreshOnce(account) {
     await this.ensureProvisioned(account.userId);
-    const [authentication, models] = await Promise.allSettled([
-      this.openclawJson(["models", "auth", "list", "--agent", account.agentId, "--provider", "openai", "--json"]),
-      this.openclawJson(["models", "status", "--agent", account.agentId, "--json"]),
-    ]);
-    account.authenticated = authentication.status === "fulfilled" && authenticationState(authentication.value);
-    account.modelReady = models.status === "fulfilled" && modelState(models.value);
+    const authentication = await this.openclawJson([
+      "models", "auth", "list", "--agent", account.agentId, "--provider", "openai", "--json",
+    ]).catch(() => undefined);
+    const hasPersonalCredential = authenticationState(authentication, account);
+    account.authenticated = false;
+    account.modelReady = false;
+    if (!hasPersonalCredential) return;
+
+    let order = await this.openclawJson([
+      "models", "auth", "order", "get", "--agent", account.agentId, "--provider", "openai", "--json",
+    ]).catch(() => undefined);
+    if (!personalOrderState(order, account)) {
+      await this.queueMutation(async () => {
+        order = await this.openclawJson([
+          "models", "auth", "order", "get", "--agent", account.agentId, "--provider", "openai", "--json",
+        ]).catch(() => undefined);
+        if (personalOrderState(order, account)) return;
+        await this.execute("openclaw", [
+          "models", "auth", "order", "set",
+          "--agent", account.agentId,
+          "--provider", "openai",
+          account.profileId,
+        ], { encoding: "utf8", timeout: 120_000, maxBuffer: 1024 * 1024 });
+      });
+    }
+
+    account.authenticated = true;
+    const models = await this.openclawJson([
+      "models", "status", "--agent", account.agentId, "--json",
+    ]).catch(() => undefined);
+    if (!modelState(models)) return;
+
+    let runtime = await this.gatewayRequest("models.authStatus", {
+      agentId: account.agentId,
+    }).catch(() => undefined);
+    if (!gatewayModelState(runtime, account)) {
+      runtime = await this.queueMutation(async () => {
+        const current = await this.gatewayRequest("models.authStatus", {
+          agentId: account.agentId,
+        }).catch(() => undefined);
+        if (gatewayModelState(current, account)) return current;
+        return this.gatewayRequest("models.authStatus", {
+          agentId: account.agentId,
+          refresh: true,
+        });
+      }).catch(() => undefined);
+    }
+    account.modelReady = gatewayModelState(runtime, account);
   }
 
   async findProfile(userId) {

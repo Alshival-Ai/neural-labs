@@ -413,7 +413,7 @@
 @keyframes automation-spin { to { transform: rotate(360deg); } }
 @keyframes automation-drawer-in { from { transform: translateX(2rem); opacity: .6; } }
 
-@media (max-width: 980px) {
+@container app-window (max-width: 980px) {
   .automations-workspace { grid-template-columns: 16rem minmax(0, 1fr); }
   .automations-metrics > div { grid-template-columns: auto 1fr; }
   .automations-metrics em { display: none; }
@@ -427,7 +427,7 @@
   .automation-run-list.is-compact { grid-template-columns: 1fr; }
 }
 
-@media (max-width: 720px) {
+@container app-window (max-width: 720px) {
   .automations-app { grid-template-rows: 3.5rem 4.5rem minmax(0, 1fr); }
   .automations-toolbar__identity { min-width: auto; }
   .automations-toolbar__identity small,
@@ -463,7 +463,7 @@
   .automation-field-grid.is-three { grid-template-columns: 1fr 1fr; }
 }
 
-@media (max-width: 480px) {
+@container app-window (max-width: 480px) {
   .automations-scheduler span { display: none; }
   .automations-scheduler { width: 1.75rem; height: 1.75rem; justify-content: center; padding: 0; }
   .automations-metrics > div { min-width: 7.8rem; }

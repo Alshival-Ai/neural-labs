@@ -35,6 +35,12 @@ const workspaceControlToken = process.env.NEURAL_LABS_WORKSPACE_CONTROL_TOKEN?.t
 if (!workspaceControlToken || workspaceControlToken.length < 32) {
   throw new Error("NEURAL_LABS_WORKSPACE_CONTROL_TOKEN must contain at least 32 characters");
 }
+const turnCredentialUrl = new URL(
+  process.env.NEURAL_LABS_TURN_CREDENTIAL_URL ?? "http://control-plane:4174/internal/turn-credentials",
+);
+const teamChannelAccessUrl = new URL(
+  process.env.NEURAL_LABS_TEAM_CHANNEL_ACCESS_URL ?? "http://control-plane:4174/internal/team-terminal/access",
+);
 // OpenClaw resolves environment placeholders whenever it loads configuration.
 // The always-on Gateway must therefore have a harmless value even though only
 // an isolated Team Chat agent process receives a real, short-lived capability.
@@ -359,6 +365,7 @@ const workspaceServer = createWorkspaceHttpServer({
   workspaceRoot,
   publicOrigin,
   gatewayReady,
+  gatewayMediaOrigin: `http://127.0.0.1:${gatewayPort}`,
   codeServerOrigin,
   codeServerReady,
   mcpStatus,
@@ -372,9 +379,35 @@ const workspaceServer = createWorkspaceHttpServer({
   maxUploadBytes,
   personalSkillsRoot,
   builderDraftsRoot,
+  turnCredentialProvider: async (actor) => {
+    const response = await fetch(turnCredentialUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${workspaceControlToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ actorId: actor.id }),
+    });
+    if (!response.ok) throw new Error(`TURN credential service returned HTTP ${response.status}`);
+    const result = await response.json();
+    return Array.isArray(result?.iceServers) ? result.iceServers : [];
+  },
+  teamChannelAuthorizer: async (actor, channelId) => {
+    const response = await fetch(teamChannelAccessUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${workspaceControlToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ actorId: actor.id, channelId }),
+      signal: AbortSignal.timeout(3_000),
+    });
+    if (!response.ok) throw new Error(`Team Chat access service returned HTTP ${response.status}`);
+    return response.json();
+  },
   runTeamAgent: async (input) => {
     const agentId = await personalOpenAI.prepareRun(input.userId);
-    return runTeamAgent({ ...input, agentId, workspaceRoot, gatewayRequest: gatewayAdminRequest });
+    return runTeamAgent({ ...input, agentId, workspaceRoot });
   },
 });
 

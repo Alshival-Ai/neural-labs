@@ -21,8 +21,19 @@ not isolation from a hostile teammate.
 
 Create one OpenClaw agent for each Neural Labs user on first use. Derive its
 non-secret agent ID from the immutable Neural Labs user UUID, give it a unique
-OpenClaw agent/auth directory, and keep its workspace path pointed at the shared
-developer workspace. Do not copy or inherit the `main` agent's provider auth.
+OpenClaw agent/auth directory and deterministic OAuth profile ID, and keep its
+workspace path pointed at the shared developer workspace. OpenClaw normally
+merges the `main` agent's provider profiles into other agents at read time, so
+Neural Labs must reject inherited profiles and pin each personal agent's auth
+order to its one locally stored OAuth profile. A bare `--agent` flag is not an
+isolation boundary.
+
+The `openai` provider implementation and default model policy remain shared;
+the credential profile and runtime agent are per-user. After a device-code
+login or auth-order change, Neural Labs asks the authenticated loopback Gateway
+client to refresh that agent's prepared model-auth state and verifies the exact
+personal profile in the Gateway response. A CLI disk-status check alone is not
+sufficient because a running Gateway may still hold a stale auth snapshot.
 
 Add a Personalization card that starts OpenClaw's ChatGPT device-code login for
 that personal agent. The browser receives only the verification URL, one-time
@@ -41,12 +52,14 @@ account must fail closed; interactive Neura never falls back to `main`.
 Keep public browser WebSockets on the existing authenticated trusted-proxy
 route. Generate a new internal Gateway password at workspace startup and use it
 only for the Gateway process and a loopback administrative client that
-provisions profile roles and reads completed Team Chat run history. It exists
+provisions profile roles. It exists
 in runtime memory/environment, is not written to OpenClaw configuration or the
 repository, is not exported to browsers, shells, or agent-run child processes,
-and is rotated on every workspace start. Team Chat uses OpenClaw's embedded
-`--local` agent mode so a personal turn needs no administrative Gateway
-credential. No new listener or host port is added.
+and is rotated on every workspace start. Team Chat uses OpenClaw's isolated
+`agent exec` mode with a temporary config that selects the message author's
+already-provisioned personal agent. The temporary config and prompt are removed
+after the turn, and the child needs no administrative Gateway credential. No
+new listener or host port is added.
 
 Keep `gateway.auth.trustedProxy.allowLoopback` disabled. Although the workspace
 is a trusted developer appliance, enabling that option would let any local
@@ -55,7 +68,7 @@ The runtime-only password fallback is narrower: it authenticates only the
 in-process administrative client, while browser identity continues to arrive
 from the separately authenticated container-network proxy address.
 
-When a Team Chat message invokes `$Neura`, carry the immutable message-author ID
+When a Team Chat message invokes `@Neura` or a `$skill-name`, carry the immutable message-author ID
 with the durable run record and execute the turn on that author's personal
 agent. Supply the recent shared channel transcript, including bounded public
 work details from prior Neura turns. Persist redacted plan, command, file, and

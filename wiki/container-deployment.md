@@ -2,7 +2,9 @@
 
 The supported deployment is Docker Compose behind an existing host Nginx. The
 four HTTP ports bind to loopback by default; PostgreSQL has no host port. The
-workspace desktop and its status endpoint share one loopback listener.
+workspace desktop and its status endpoint share one loopback listener. Team
+Terminal voice also runs a coturn service on the host network because TURN is
+not HTTP traffic and cannot traverse the Nginx reverse proxy.
 The provider MCP is a child process inside the workspace container and has no
 host or Compose-network listener.
 
@@ -14,6 +16,14 @@ host or Compose-network listener.
 - a repository checkout owned by the operator, not by a service container.
 
 No service mounts the Docker socket or a host home directory.
+
+Team Terminal voice additionally requires the configured TURN listener port
+over TCP and UDP plus the configured narrow UDP relay range. If the host is
+behind NAT, forward those ports to `NEURAL_LABS_TURN_RELAY_IP`. Set
+`NEURAL_LABS_TURN_EXTERNAL_IP` to the public address for
+`NEURAL_LABS_TURN_HOST`. The control plane gives authenticated voice
+participants one-hour credentials derived from `NEURAL_LABS_TURN_SECRET`; the
+shared secret reaches neither browsers nor the developer-accessible workspace.
 
 ## 1. Configure public values and secrets
 
@@ -44,8 +54,9 @@ them again after a reboot. Validate the private listeners:
 bin/neural-labs doctor
 ```
 
-The doctor checks the workspace-local MCP through the container. Both provider
-credentials must be configured for it to pass.
+The doctor checks the workspace-local MCP through the container and requires
+the TURN service to be healthy. Both provider credentials must be configured
+for it to pass.
 
 ## 3. Enable same-domain ingress
 
@@ -67,7 +78,7 @@ The routing is:
 | `/` and landing assets | landing `127.0.0.1:4173` |
 | login, setup, account, admin, `/api/`, `/auth/` | control plane `127.0.0.1:4174` |
 | `/mcp`, `/oauth/`, OAuth well-known metadata | Explicit `404`; public MCP is disabled in V1 |
-| `/workspace`, its assets, and `/workspace/api/files*` | Authenticated workspace desktop and confined file API `127.0.0.1:4181` |
+| `/workspace`, its assets, `/workspace/api/files*`, and ticketed `/workspace/api/neura/media/outgoing/*` | Authenticated workspace desktop, confined file API, and fixed-origin Neura media relay `127.0.0.1:4181` |
 | `/workspace/neura/socket` | Authenticated Neura-to-OpenClaw WebSocket `127.0.0.1:4180` |
 
 The React console is compiled into the control-plane image and served below
@@ -122,6 +133,11 @@ The authenticated `/workspace/api/files/events` response is a long-lived SSE
 stream used for multi-user file invalidation. The supplied Nginx workspace
 location already disables response buffering and has a one-hour read timeout,
 so it does not require another public route or a WebSocket upgrade block.
+Generated Neura attachment URLs must first be authorized through the user's
+Neura WebSocket and resolved to a short-lived OpenClaw media ticket. The
+workspace media route accepts only that ticketed outgoing-media path and relays
+it to the container's loopback Gateway; it must not be expanded into a generic
+Gateway proxy.
 
 As the initial administrator, open `/workspace`, launch **Settings** from the
 dock, choose **Workspace**, and connect the shared OpenClaw runtime to a

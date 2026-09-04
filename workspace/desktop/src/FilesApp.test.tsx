@@ -105,9 +105,9 @@ describe("Files app", () => {
     expect(await screen.findByRole("heading", { name: "projects" })).toBeInTheDocument();
   });
 
-  it("creates folders and creates text files that open in Editor", async () => {
-    const onOpenFile = vi.fn();
-    render(<FilesApp onOpenFile={onOpenFile} />);
+  it("creates folders and creates text files that open in VS Code", async () => {
+    const onOpenInVsCode = vi.fn();
+    render(<FilesApp onOpenInVsCode={onOpenInVsCode} />);
     await screen.findByRole("button", { name: /notes\.md/i });
 
     fireEvent.click(screen.getAllByRole("button", { name: /^New$/ }).at(-1)!);
@@ -130,20 +130,25 @@ describe("Files app", () => {
       expect.stringContaining("/workspace/api/files/text?"),
       expect.objectContaining({ method: "POST", body: "" }),
     ));
-    await waitFor(() => expect(onOpenFile).toHaveBeenCalledWith("new-note.md"));
+    await waitFor(() => expect(onOpenInVsCode).toHaveBeenCalledWith("new-note.md"));
   });
 
-  it("opens a file in Editor from a double click and the context menu", async () => {
-    const onOpenFile = vi.fn();
-    render(<FilesApp onOpenFile={onOpenFile} />);
+  it("opens text files and folders in VS Code from Files", async () => {
+    const onOpenInVsCode = vi.fn();
+    render(<FilesApp onOpenInVsCode={onOpenInVsCode} />);
     const notes = await screen.findByRole("button", { name: /notes\.md/i });
 
     fireEvent.doubleClick(notes);
-    expect(onOpenFile).toHaveBeenCalledWith("notes.md");
+    expect(onOpenInVsCode).toHaveBeenCalledWith("notes.md");
 
     fireEvent.contextMenu(notes, { clientX: 100, clientY: 120 });
-    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Open in Editor" }));
-    expect(onOpenFile).toHaveBeenCalledTimes(2);
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Open in VS Code" }));
+    expect(onOpenInVsCode).toHaveBeenCalledTimes(2);
+
+    const projects = screen.getByRole("button", { name: /projects, folder/i });
+    fireEvent.contextMenu(projects, { clientX: 100, clientY: 120 });
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Open in VS Code" }));
+    expect(onOpenInVsCode).toHaveBeenLastCalledWith("projects");
   });
 
   it("copies a file or folder workspace path from the context menu", async () => {
@@ -163,24 +168,25 @@ describe("Files app", () => {
     await waitFor(() => expect(writeText).toHaveBeenLastCalledWith("~/workspace/projects"));
   });
 
-  it("opens HTML files in a desktop preview", async () => {
+  it("opens HTML source in VS Code while retaining an explicit Preview action", async () => {
     const onPreviewFile = vi.fn();
-    render(<FilesApp onPreviewFile={onPreviewFile} />);
+    const onOpenInVsCode = vi.fn();
+    render(<FilesApp onPreviewFile={onPreviewFile} onOpenInVsCode={onOpenInVsCode} />);
     const browser = screen.getByRole("region", { name: "All files" });
     fireEvent.doubleClick(await within(browser).findByRole("button", { name: /projects, folder/i }));
 
     const page = await within(screen.getByRole("region", { name: "All files" })).findByRole("button", { name: /^index\.html, Code/i });
     fireEvent.doubleClick(page);
+    expect(onOpenInVsCode).toHaveBeenCalledWith("projects/index.html");
+
+    fireEvent.contextMenu(page, { clientX: 100, clientY: 120 });
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Open Preview" }));
     expect(onPreviewFile).toHaveBeenCalledWith({
       name: "index.html",
       path: "projects/index.html",
       size: 1263,
       mimeType: "text/html",
     });
-
-    fireEvent.contextMenu(page, { clientX: 100, clientY: 120 });
-    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Open Preview" }));
-    expect(onPreviewFile).toHaveBeenCalledTimes(2);
   });
 
   it("uploads dropped files and exposes download and delete in the context menu", async () => {

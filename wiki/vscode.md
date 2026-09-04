@@ -1,8 +1,11 @@
 # VS Code desktop app
 
 The VS Code dock icon opens code-server inside a normal Neural Labs desktop
-window. The editor starts on `/home/node/workspace`, so Files, Editor, Terminal,
-Neura tools, and VS Code all operate on the same shared project tree. The
+window. The editor starts on `/home/node/workspace`, so Files, Terminal, Neura
+tools, and VS Code all operate on the same shared project tree. VS Code is the
+desktop's default source editor: new files and text/code files opened from Files
+are sent to the existing VS Code window, and every file or folder has an **Open
+in VS Code** context action. The
 window keeps its iframe mounted while minimized, preserving the browser editor
 connection when it is restored. **Open in tab** remains available for a larger
 standalone view or as a recovery path.
@@ -36,6 +39,13 @@ the rest of `/workspace/` before traffic reaches the proxy. The proxy also:
   WebSocket checks; and
 - replaces upstream frame policy with `frame-ancestors 'self'` and
   `X-Frame-Options: SAMEORIGIN`.
+
+The authenticated `POST /workspace/api/vscode/open` bridge validates an
+existing path beneath `/home/node/workspace` and rejects symbolic links. Files
+then navigates only the requesting developer's embedded workbench with VS Code's
+web startup payload. File requests retain the shared workspace root; folder
+requests open that folder as the workbench root. This avoids code-server's
+process-wide CLI session selection opening a target for a different teammate.
 
 The desktop iframe intentionally is not sandboxed. VS Code depends on workers,
 storage, downloads, clipboard integration, and nested webviews that a useful

@@ -4,11 +4,12 @@ Neural Labs settings live inside the shared desktop at `/workspace`. Every
 active user receives the **Settings** cog in the dock. The account menu is kept
 small and contains only the sign-out action.
 
-Members open a personal version of Settings with one **Personalization** area.
-It controls their device-local desktop font size, shows their account identity,
+Members open Settings with **Personalization** and **Plugins**. Personalization
+controls their device-local desktop font size, shows their account identity,
 lets them link available sign-in methods, and connects or pauses the personal
-ChatGPT account used by interactive Neura. Administrators receive the same
-Personalization area plus the control-plane areas below.
+ChatGPT account used by interactive Neura. Plugins separates private,
+user-owned connections from global workspace capabilities. Administrators
+receive those same areas plus the control-plane areas below.
 
 When that personal ChatGPT account is disconnected or paused, the desktop shows a
 clickable onboarding toast after account bootstrap. Selecting it opens or
@@ -22,10 +23,10 @@ path redirect active users to `/workspace`.
 | Area | Purpose |
 |---|---|
 | Personalization | Per-user desktop font size, account identity, linked sign-in methods, personal Neura ChatGPT connection, and sign out |
-| Overview | Account counts, authentication state, MCP state, runtime health, and recent audit events |
+| Plugins | Private plugins attached only to the member's agents and global plugins available to every workspace member |
+| Overview | Account counts, authentication state, plugin state, runtime health, and recent audit events |
 | Users | User approval, rejection, activation, disabling, and Admin/User role assignment |
 | Authentication | Local and Microsoft login enablement plus Entra secret or certificate rotation |
-| MCP | Live workspace-local MCP health, shared-agent attachment, provider readiness, and registered tools |
 | Workspace | OpenClaw health and ChatGPT/Codex device-code pairing |
 | Audit log | The latest security-sensitive account and configuration activity |
 | About | Live runtime versions, service state, documentation, and project links |
@@ -67,10 +68,24 @@ credential, and Resume restores it. Interactive Neura fails closed when the
 personal account is unavailable. The Workspace pairing remains the independent
 service identity for automations and background work.
 
-The MCP area is read-only in V1. It reports the loopback provider service that
-the workspace attaches globally to shared OpenClaw agents as
-`neural-labs-tools`. Public endpoints, Entra scopes, and client registration
-controls are intentionally absent because public MCP ingress is disabled.
+The former MCP area is represented in Plugins as the locked, global **Neural
+Labs Tools** system plugin. Every active member may inspect its display-safe
+health, shared-agent attachment, provider readiness, and tool inventory. It
+cannot be edited, disconnected, or removed. Public endpoints, Entra scopes,
+and client registration controls remain absent because public MCP ingress is
+disabled.
+
+The plugin catalog distinguishes scope from authentication. A private plugin
+is owned by one user, uses that user's credentials, and attaches only to that
+user's agents. A global plugin is installed for the workspace and is available
+to every member; only administrators may add or manage it. Future global
+plugins may use a reviewed workspace credential or require each member to make
+their own connection, depending on the provider.
+
+The add-plugin and remote MCP installation views are currently a product
+preview. They deliberately accept no URL or credential until the isolated
+credential broker, OAuth callback handling, tool review, confirmation policy,
+and per-agent attachment controls are implemented.
 
 ## Application boundaries
 

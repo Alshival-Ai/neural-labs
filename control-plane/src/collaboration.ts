@@ -81,6 +81,11 @@ export type TeamAgentRun = {
   createdAt: string;
 };
 
+export type TeamTerminalAccess = {
+  allowed: true;
+  channel: { id: string; name: string; audience: ChannelAudience };
+};
+
 interface ChannelRow extends QueryResultRow {
   id: string;
   name: string;
@@ -218,6 +223,11 @@ function mapRun(row: RunRow): TeamAgentRun {
     ...(row.error ? { error: row.error } : {}),
     createdAt: row.created_at.toISOString(),
   };
+}
+
+export function invokesTeamAgent(body: string): boolean {
+  return /(?:^|[\s([{:;,])@neura\b/i.test(body)
+    || /(?:^|[\s([{:;,])\$(?!neura\b)[A-Za-z][A-Za-z0-9_-]*\b/i.test(body);
 }
 
 function assertAttachments(input: ChannelAttachment[]): ChannelAttachment[] {
@@ -358,6 +368,20 @@ export class CollaborationStore {
   async canUserAccess(channelId: string, userId: string): Promise<boolean> {
     const channel = await this.channelRow(this.pool, channelId);
     return Boolean(channel && await this.canAccess(this.pool, channel, userId));
+  }
+
+  async teamTerminalAccess(channelId: string, userId: string): Promise<TeamTerminalAccess | undefined> {
+    const result = await this.pool.query<ChannelRow>(
+      `SELECT c.* FROM team_channels c
+       JOIN users u ON u.id = $2 AND u.status = 'active'
+       WHERE c.id = $1 AND (
+         c.audience = 'everyone' OR c.owner_user_id = $2 OR
+         EXISTS (SELECT 1 FROM team_channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = $2)
+       )`,
+      [channelId, userId],
+    );
+    const channel = result.rows[0];
+    return channel ? { allowed: true, channel: { id: channel.id, name: channel.name, audience: channel.audience } } : undefined;
   }
 
   private async requireAccess(client: Pool | PoolClient, channelId: string, userId: string): Promise<ChannelRow> {
@@ -580,6 +604,17 @@ export class CollaborationStore {
     return result.rows.reverse().map(mapMessage);
   }
 
+  async activeRun(actor: UserRecord, channelId: string): Promise<TeamAgentRun | undefined> {
+    await this.requireAccess(this.pool, channelId, actor.id);
+    const result = await this.pool.query<RunRow>(
+      `SELECT * FROM team_agent_runs
+       WHERE channel_id = $1 AND status IN ('queued', 'running') AND expires_at > now()
+       ORDER BY created_at DESC LIMIT 1`,
+      [channelId],
+    );
+    return result.rows[0] ? mapRun(result.rows[0]) : undefined;
+  }
+
   async markRead(actor: UserRecord, channelId: string, sequence: number): Promise<void> {
     await this.requireAccess(this.pool, channelId, actor.id);
     await this.pool.query(
@@ -661,7 +696,7 @@ export class CollaborationStore {
         message.mentions = mentioned.rows.map((user) => user.id);
       }
       let run: (TeamAgentRun & { capability: string }) | undefined;
-      if (/(?:^|\s)\$neura\b/i.test(normalizedBody)) {
+      if (invokesTeamAgent(normalizedBody)) {
         const capability = randomToken();
         const runRow = await client.query<RunRow>(
           `INSERT INTO team_agent_runs(id, channel_id, trigger_message_id, requested_by, capability_hash, status, expires_at)
@@ -704,7 +739,7 @@ export class CollaborationStore {
     return { channel, trigger: mapped.find((item) => item.id === row.trigger_message_id)!, messages: mapped };
   }
 
-  async postAgentMessage(capability: string, body: string): Promise<TeamMessage> {
+  async postAgentMessage(capability: string, body: string, messageAttachments: ChannelAttachment[] = []): Promise<TeamMessage> {
     const result = await this.pool.query<RunRow>(
       `SELECT * FROM team_agent_runs WHERE capability_hash = $1 AND status = 'running' AND expires_at > now()`,
       [hashToken(capability)],
@@ -712,12 +747,13 @@ export class CollaborationStore {
     const run = result.rows[0];
     if (!run) throw new CollaborationError(403, "agent_capability_invalid", "This Neura channel capability is invalid or expired.");
     const normalizedBody = body.trim().slice(0, TEAM_CHAT_LIMITS.messageCharacters);
-    if (!normalizedBody) throw new CollaborationError(422, "message_required", "Neura cannot post an empty channel message.");
+    const safeAttachments = assertAttachments(messageAttachments);
+    if (!normalizedBody && safeAttachments.length === 0) throw new CollaborationError(422, "message_required", "Neura must write a message or attach a workspace file.");
     const message = await this.insertMessage(this.pool, {
       channelId: run.channel_id,
       authorKind: "neura",
-      body: normalizedBody,
-      attachments: [],
+      body: normalizedBody || safeAttachments.map((item) => item.name).join(", "),
+      attachments: safeAttachments,
       agentRunId: run.id,
     });
     message.activities = teamRunActivities(run.activities);

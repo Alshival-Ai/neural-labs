@@ -178,6 +178,9 @@ integration("PostgreSQL account state", () => {
         audience: "restricted",
         memberIds: [member.id],
       });
+      expect(await store.teamTerminalAccess(created.channel.id, owner.id)).toMatchObject({ allowed: true, channel: { name: "Release room", audience: "restricted" } });
+      expect(await store.teamTerminalAccess(created.channel.id, member.id)).toMatchObject({ allowed: true, channel: { id: created.channel.id } });
+      expect(await store.teamTerminalAccess(created.channel.id, outsider.id)).toBeUndefined();
       await expect(store.listMessages(outsider, created.channel.id)).rejects.toMatchObject({
         status: 404,
         code: "channel_not_found",
@@ -185,7 +188,7 @@ integration("PostgreSQL account state", () => {
 
       const posted = await store.postMessage(member, {
         channelId: created.channel.id,
-        body: `(@${owner.handle}), please review this with $Neura.`,
+        body: `(@${owner.handle}), please review this with @Neura.`,
         attachments: [],
         clientRequestId: randomUUID(),
       });
@@ -196,8 +199,8 @@ integration("PostgreSQL account state", () => {
       const capability = posted.run!.capability;
       expect(await store.claimRun(posted.run!.id)).toMatchObject({ status: "running" });
       expect((await store.channelForCapability(capability)).id).toBe(created.channel.id);
-      const response = await store.postAgentMessage(capability, "The release looks ready.");
-      expect(response).toMatchObject({ channelId: created.channel.id, authorKind: "neura" });
+      const response = await store.postAgentMessage(capability, "The release looks ready.", [{ path: "reports/release.png", name: "release.png", type: "image/png", size: 2048 }]);
+      expect(response).toMatchObject({ channelId: created.channel.id, authorKind: "neura", attachments: [{ path: "reports/release.png", type: "image/png" }] });
       await store.saveRunActivities(posted.run!.id, [{
         kind: "command", title: "Command completed", command: "release-check", output: "token=must-not-leak", state: "done",
       }]);

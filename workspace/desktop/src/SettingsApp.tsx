@@ -1,5 +1,6 @@
 import {
   Activity,
+  ArrowLeft,
   Bot,
   Check,
   ChevronRight,
@@ -10,10 +11,13 @@ import {
   Gauge,
   Info,
   KeyRound,
+  LockKeyhole,
   Menu,
+  Plus,
   PlugZap,
   RefreshCw,
   Search,
+  Server,
   Settings as SettingsIcon,
   ShieldCheck,
   Type,
@@ -29,8 +33,8 @@ import {
   type AdminUser,
   type AuditEvent,
   type AuthenticationSettings,
-  type McpSettings,
   type OverviewData,
+  type PluginCatalog,
   type UserRole,
   type UserStatus,
   type WorkspaceProviderAuth,
@@ -47,7 +51,7 @@ import {
 } from "./UserSettingsApp";
 import "./settings-app.css";
 
-export type SettingsSection = "personalization" | "overview" | "users" | "authentication" | "mcp" | "workspace" | "audit" | "about";
+export type SettingsSection = "personalization" | "plugins" | "overview" | "users" | "authentication" | "workspace" | "audit" | "about";
 
 export type SettingsAppProps = {
   administrator?: boolean;
@@ -70,17 +74,19 @@ type SettingsDeviceState = { section: SettingsSection };
 function settingsDeviceState(storageNamespace: string | undefined, storageArea: string, fallback: SettingsSection, allowed: Set<SettingsSection>): SettingsDeviceState {
   const stored = readDeviceState(storageNamespace, storageArea);
   if (!stored || typeof stored !== "object") return { section: fallback };
-  const section = (stored as Record<string, unknown>).section;
+  const storedSection = (stored as Record<string, unknown>).section;
+  const section = storedSection === "mcp" || storedSection === "connectors" ? "plugins" : storedSection;
   return { section: allowed.has(section as SettingsSection) ? section as SettingsSection : fallback };
 }
 
 const PERSONALIZATION_NAVIGATION = { id: "personalization", label: "Personalization", description: "Your desktop and account", icon: Type, accent: "violet" } satisfies { id: SettingsSection; label: string; description: string; icon: LucideIcon; accent: string };
 
+const PLUGINS_NAVIGATION = { id: "plugins", label: "Plugins", description: "Private and global tools", icon: PlugZap, accent: "violet" } satisfies { id: SettingsSection; label: string; description: string; icon: LucideIcon; accent: string };
+
 const ADMIN_NAVIGATION: { id: SettingsSection; label: string; description: string; icon: LucideIcon; accent: string }[] = [
   { id: "overview", label: "Overview", description: "Workspace health", icon: Gauge, accent: "cyan" },
   { id: "users", label: "Users", description: "People and access", icon: Users, accent: "pink" },
   { id: "authentication", label: "Authentication", description: "Login providers", icon: KeyRound, accent: "amber" },
-  { id: "mcp", label: "MCP", description: "Tools and connections", icon: PlugZap, accent: "violet" },
   { id: "workspace", label: "Workspace", description: "OpenClaw and Codex", icon: Bot, accent: "coral" },
   { id: "audit", label: "Audit log", description: "Security activity", icon: Activity, accent: "mint" },
   { id: "about", label: "About", description: "Versions and credits", icon: Info, accent: "amber" },
@@ -111,7 +117,7 @@ function initials(value: string): string {
 }
 
 export function SettingsApp({ administrator = true, csrfToken, currentUserId, user, providers = [], initialNotice, initialSection, sectionRequest, fontScale = 100, onFontScaleChange = () => undefined, onLogout = () => undefined, storageNamespace, storageArea = "settings" }: SettingsAppProps) {
-  const navigation = administrator ? [PERSONALIZATION_NAVIGATION, ...ADMIN_NAVIGATION] : [PERSONALIZATION_NAVIGATION];
+  const navigation = administrator ? [PERSONALIZATION_NAVIGATION, PLUGINS_NAVIGATION, ...ADMIN_NAVIGATION] : [PERSONALIZATION_NAVIGATION, PLUGINS_NAVIGATION];
   const allowedSections = new Set(navigation.map((item) => item.id));
   const fallbackSection: SettingsSection = administrator ? "overview" : "personalization";
   const [initialUiState] = useState(() => initialSection && allowedSections.has(initialSection)
@@ -124,7 +130,7 @@ export function SettingsApp({ administrator = true, csrfToken, currentUserId, us
   const [overviewError, setOverviewError] = useState<string>();
   const [users, setUsers] = useState<AdminUser[]>();
   const [authentication, setAuthentication] = useState<AuthenticationSettings>();
-  const [mcp, setMcp] = useState<McpSettings>();
+  const [plugins, setPlugins] = useState<PluginCatalog>();
   const [workspace, setWorkspace] = useState<WorkspaceStatus>();
   const [provider, setProvider] = useState<WorkspaceProviderAuth>();
   const [audit, setAudit] = useState<AuditEvent[]>();
@@ -168,9 +174,14 @@ export function SettingsApp({ administrator = true, csrfToken, currentUserId, us
   }, []);
 
   useEffect(() => {
+    if (section === "plugins" && !plugins) {
+      void settingsRequest<PluginCatalog>("/api/plugins")
+        .then(setPlugins)
+        .catch((error: unknown) => setNotice({ tone: "error", message: errorMessage(error, "Plugins could not be loaded.") }));
+    }
     if (!administrator) return;
     void refreshOverview();
-  }, [administrator, refreshOverview]);
+  }, [administrator, plugins, refreshOverview, section]);
 
   useEffect(() => {
     if (!administrator) return;
@@ -184,18 +195,13 @@ export function SettingsApp({ administrator = true, csrfToken, currentUserId, us
         .then(setAuthentication)
         .catch((error: unknown) => setNotice({ tone: "error", message: errorMessage(error, "Authentication settings could not be loaded.") }));
     }
-    if (section === "mcp" && !mcp) {
-      void settingsRequest<McpSettings>("/api/admin/mcp")
-        .then(setMcp)
-        .catch((error: unknown) => setNotice({ tone: "error", message: errorMessage(error, "MCP settings could not be loaded.") }));
-    }
     if (section === "workspace" && (!workspace || !provider)) void refreshWorkspace();
     if (section === "audit" && !audit) {
       void settingsRequest<{ events: AuditEvent[] }>("/api/admin/audit?limit=100")
         .then((result) => setAudit(result.events))
         .catch((error: unknown) => setNotice({ tone: "error", message: errorMessage(error, "Audit events could not be loaded.") }));
     }
-  }, [administrator, audit, authentication, mcp, provider, refreshWorkspace, section, users, workspace]);
+  }, [administrator, audit, authentication, plugins, provider, refreshWorkspace, section, users, workspace]);
 
   useEffect(() => {
     if (!administrator || section !== "workspace" || (provider?.state !== "starting" && provider?.state !== "awaiting_user")) return;
@@ -231,6 +237,12 @@ export function SettingsApp({ administrator = true, csrfToken, currentUserId, us
               <i><Icon /></i><span><strong>{label}</strong><small>{description}</small></span><ChevronRight />
             </button>
           ))}
+          <span>Workspace</span>
+          {[PLUGINS_NAVIGATION].map(({ id, label, description, icon: Icon, accent }) => (
+            <button type="button" className={`is-${accent}${section === id ? " is-active" : ""}`} aria-current={section === id ? "page" : undefined} key={id} onClick={() => chooseSection(id)}>
+              <i><Icon /></i><span><strong>{label}</strong><small>{description}</small></span><ChevronRight />
+            </button>
+          ))}
           {administrator && <><span>Control plane</span>{ADMIN_NAVIGATION.map(({ id, label, description, icon: Icon, accent }) => (
             <button type="button" className={`is-${accent}${section === id ? " is-active" : ""}`} aria-current={section === id ? "page" : undefined} key={id} onClick={() => chooseSection(id)}>
               <i><Icon /></i><span><strong>{label}</strong><small>{description}</small></span><ChevronRight />
@@ -247,17 +259,17 @@ export function SettingsApp({ administrator = true, csrfToken, currentUserId, us
         <header className="settings-toolbar">
           <button type="button" className="settings-icon-button settings-toolbar__menu" aria-label="Open settings navigation" onClick={() => setMobileNavigation(true)}><Menu /></button>
           <div><span>Settings</span><ChevronRight /><strong>{currentNavigation.label}</strong></div>
-          <span className="settings-toolbar__scope">{administrator ? <ShieldCheck /> : <UserRound />}{administrator ? "Administrator" : "Personal"}</span>
+          <span className="settings-toolbar__scope">{administrator ? <ShieldCheck /> : <UserRound />}{administrator ? "Administrator" : section === "plugins" ? "Workspace member" : "Personal"}</span>
         </header>
 
         <div className="settings-feedback">{notice && <div className={`settings-notice is-${notice.tone}`} role={notice.tone === "error" ? "alert" : "status"}><span>{notice.message}</span><button type="button" aria-label="Dismiss message" onClick={() => setNotice(undefined)}><X /></button></div>}</div>
 
         <div className="settings-scroll">
           {section === "personalization" && user && <PersonalizationPanel user={user} providers={providers} csrfToken={csrfToken} initialNotice={initialNotice} fontScale={fontScale} onFontScaleChange={onFontScaleChange} onLogout={onLogout} />}
+          {section === "plugins" && <PluginsPanel catalog={plugins} administrator={administrator} />}
           {administrator && section === "overview" && <OverviewPanel overview={overview} error={overviewError} onNavigate={chooseSection} onRefresh={() => void refreshOverview()} />}
           {administrator && section === "users" && <UsersPanel users={users} currentUserId={currentUserId} csrfToken={csrfToken} onUsers={setUsers} onNotice={setNotice} onMutated={refreshAfterMutation} />}
           {administrator && section === "authentication" && <AuthenticationPanel settings={authentication} csrfToken={csrfToken} onSettings={setAuthentication} onNotice={setNotice} onMutated={refreshAfterMutation} />}
-          {administrator && section === "mcp" && <McpPanel mcp={mcp} />}
           {administrator && section === "workspace" && <WorkspacePanel workspace={workspace} provider={provider} csrfToken={csrfToken} onProvider={setProvider} onNotice={setNotice} onRefresh={() => void refreshWorkspace()} />}
           {administrator && section === "audit" && <AuditPanel events={audit} />}
           {administrator && section === "about" && <AboutPanel overview={overview} />}
@@ -280,11 +292,11 @@ function OverviewPanel({ overview, error, onNavigate, onRefresh }: { overview?: 
   if (!overview) return <LoadingPanel label="Loading admin settings" />;
   return (
     <div className="settings-panel">
-      <SectionHeader eyebrow="Control plane" title="Overview" description="Identity, authentication, MCP, and the shared OpenClaw workspace at a glance." icon={Gauge} />
+      <SectionHeader eyebrow="Control plane" title="Overview" description="Identity, authentication, plugins, and the shared OpenClaw workspace at a glance." icon={Gauge} />
       <div className="settings-overview-grid">
         <OverviewCard accent="pink" label="Pending requests" value={String(overview.counts.pending)} detail="Waiting for review" onClick={() => onNavigate("users")} />
         <OverviewCard accent="amber" label="Login providers" value={String(Number(overview.authentication.localEnabled) + Number(overview.authentication.microsoftEnabled))} detail={overview.authentication.microsoftEnabled ? "Microsoft enabled" : "Local only"} onClick={() => onNavigate("authentication")} />
-        <OverviewCard accent="violet" label="MCP server" value={overview.mcp.ready ? "Ready" : "Offline"} detail={`${overview.mcp.tools.length} tools · workspace local`} onClick={() => onNavigate("mcp")} />
+        <OverviewCard accent="violet" label="Plugins" value="1 global" detail={`${overview.mcp.tools.length} tools · ${overview.mcp.ready ? "ready" : "offline"}`} onClick={() => onNavigate("plugins")} />
         <OverviewCard accent="coral" label="Workspace" value={overview.workspace.status} detail={`OpenClaw ${overview.workspace.openclawVersion}`} onClick={() => onNavigate("workspace")} />
       </div>
       <div className="settings-mcp-grid">
@@ -300,7 +312,7 @@ function OverviewPanel({ overview, error, onNavigate, onRefresh }: { overview?: 
           <div className="settings-system-list">
             <ServiceRow label="Local authentication" ready={overview.authentication.localEnabled} value={overview.authentication.localEnabled ? "Enabled" : "Disabled"} />
             <ServiceRow label="Microsoft Entra" ready={overview.authentication.microsoftEnabled} value={overview.authentication.microsoftEnabled ? "Enabled" : overview.authentication.microsoftAvailable ? "Available" : "Not configured"} />
-            <ServiceRow label="Workspace MCP" ready={overview.mcp.ready} value={overview.mcp.ready ? "Ready" : "Offline"} />
+            <ServiceRow label="Neural Labs Tools" ready={overview.mcp.ready} value={overview.mcp.ready ? "Connected" : "Offline"} />
             <ServiceRow label="OpenClaw workspace" ready={overview.workspace.status === "ready"} value={overview.workspace.status} />
           </div>
         </section>
@@ -491,18 +503,57 @@ function AuthenticationForm({ settings, csrfToken, onSettings, onNotice, onMutat
   );
 }
 
-function McpPanel({ mcp }: { mcp?: McpSettings }) {
-  if (!mcp) return <LoadingPanel label="Loading MCP settings" />;
+function PluginsPanel({ catalog, administrator }: { catalog?: PluginCatalog; administrator: boolean }) {
+  const [adding, setAdding] = useState(false);
+  const [scope, setScope] = useState<"all" | "private" | "global">("all");
+  const [newScope, setNewScope] = useState<"private" | "global">("private");
+  if (!catalog) return <LoadingPanel label="Loading plugins" />;
+
+  const privatePlugins = catalog.plugins.filter((plugin) => plugin.scope === "private");
+  const globalPlugins = catalog.plugins.filter((plugin) => plugin.scope === "global");
+  const toolCount = catalog.plugins.reduce((total, plugin) => total + plugin.mcp.tools.length, 0);
+
+  if (adding) {
+    return (
+      <div className="settings-panel">
+        <button className="settings-back-button" type="button" onClick={() => setAdding(false)}><ArrowLeft />All plugins</button>
+        <SectionHeader eyebrow="New integration" title="Add a plugin" description="Install capabilities for your agents or the whole workspace." icon={Plus} />
+        <div className="settings-plugin-scope-picker" aria-label="Plugin scope">
+          <button type="button" className={newScope === "private" ? "is-active" : ""} onClick={() => setNewScope("private")}><UserRound /><span><strong>Private plugin</strong><small>Only your agents · your credentials</small></span><Check /></button>
+          <button type="button" className={newScope === "global" ? "is-active" : ""} disabled={!administrator} onClick={() => setNewScope("global")}><Users /><span><strong>Global plugin</strong><small>Every member · administrator managed</small></span>{administrator ? <Check /> : <LockKeyhole />}</button>
+        </div>
+        <section className="settings-card settings-connector-choice">
+          <div className="settings-connector-choice__icon"><Server /></div>
+          <div><span>Connection-only plugin</span><h2>MCP server</h2><p>Attach a remote Model Context Protocol server and authenticate it for {newScope === "private" ? "your own agents" : "everyone in the workspace"}.</p><div><code>OAuth</code><code>Access token</code><code>Streamable HTTP</code></div></div>
+          <span className="settings-connector-planned">In development</span>
+        </section>
+        <section className="settings-connector-roadmap">
+          <div><span>1</span><strong>Discover</strong><small>Validate its HTTPS URL and inspect tools.</small></div>
+          <div><span>2</span><strong>Authenticate</strong><small>{newScope === "private" ? "Connect your own account." : "Configure workspace credentials."}</small></div>
+          <div><span>3</span><strong>Review access</strong><small>Choose tools and confirmation rules.</small></div>
+        </section>
+        <p className="settings-trust-note"><ShieldCheck />This installation flow is a product preview. Neural Labs will not accept server URLs or credentials until the isolated credential broker and per-plugin permission controls are available.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="settings-panel">
-      <SectionHeader eyebrow="Model Context Protocol" title="MCP" description="Workspace-local tools attached automatically to every shared OpenClaw agent." icon={PlugZap} />
-      <section className="settings-card settings-mcp-hero"><div className="settings-mcp-hero__mark"><PlugZap /></div><div><span>Private workspace service</span><h2>Neural Labs Tools</h2><p>Provider tools run inside the workspace container and are not exposed publicly.</p></div><span className={`settings-service-state${mcp.ready ? " is-ready" : ""}`}><i />{mcp.ready ? "Ready" : "Offline"}</span></section>
-      <div className="settings-mcp-grid">
-        <section className="settings-card"><div className="settings-card__heading"><div><span>Agent attachment</span><h2>Shared OpenClaw agents</h2><p>The global workspace configuration supplies this server to every agent automatically.</p></div><Bot /></div><dl className="settings-detail-list"><div><dt>Server name</dt><dd><code>{mcp.agentServerName}</code></dd></div><div><dt>Scope</dt><dd>All shared workspace agents</dd></div><div><dt>Transport</dt><dd>{mcp.transport}</dd></div><div><dt>Internal endpoint</dt><dd><code>{mcp.endpoint}</code></dd></div><div><dt>Public access</dt><dd>Disabled</dd></div></dl></section>
-        <section className="settings-card"><div className="settings-card__heading"><div><span>Provider readiness</span><h2>Credentials loaded</h2><p>Secrets stay inside the workspace container and are never returned here.</p></div><CloudCog /></div><div className="settings-system-list"><ServiceRow label="Google Places" ready={mcp.providers.googlePlaces} value={mcp.providers.googlePlaces ? "Configured" : "Missing"} /><ServiceRow label="Google Geocoding" ready={mcp.providers.googleGeocoding} value={mcp.providers.googleGeocoding ? "Configured" : "Missing"} /><ServiceRow label="KLIPY" ready={mcp.providers.klipy} value={mcp.providers.klipy ? "Configured" : "Missing"} /><ServiceRow label="Pexels" ready={mcp.providers.pexels} value={mcp.providers.pexels ? "Configured" : "Missing"} /></div></section>
-      </div>
-      <section className="settings-card"><div className="settings-card__heading"><div><span>Registered capabilities</span><h2>{mcp.tools.length} tools available</h2><p>This is the live tool inventory reported by the workspace MCP.</p></div><PlugZap /></div><div className="settings-tool-list">{mcp.tools.length ? mcp.tools.map((tool) => <code key={tool}>{tool}</code>) : <p className="settings-card-note">No provider tools are currently registered.</p>}</div></section>
+      <div className="settings-connectors-heading"><SectionHeader eyebrow="Agent extensions" title="Plugins" description="Skills, services, and MCP tools installed privately or across the workspace." icon={PlugZap} /><button className="settings-button is-primary" type="button" onClick={() => setAdding(true)}><Plus />Add plugin</button></div>
+      <div className="settings-connector-summary" aria-label="Plugin summary"><div><strong>{privatePlugins.length}</strong><span>Private</span></div><div><strong>{globalPlugins.length}</strong><span>Global</span></div><div><strong>{toolCount}</strong><span>Tools available</span></div></div>
+      <div className="settings-plugin-tabs" role="tablist" aria-label="Plugin scope"><button type="button" role="tab" aria-selected={scope === "all"} className={scope === "all" ? "is-active" : ""} onClick={() => setScope("all")}>All</button><button type="button" role="tab" aria-selected={scope === "private"} className={scope === "private" ? "is-active" : ""} onClick={() => setScope("private")}>Private</button><button type="button" role="tab" aria-selected={scope === "global"} className={scope === "global" ? "is-active" : ""} onClick={() => setScope("global")}>Global</button></div>
+
+      {(scope === "all" || scope === "private") && <section className="settings-plugin-group" aria-labelledby="private-plugins-title"><div className="settings-plugin-group__heading"><div><span><UserRound />Private</span><h2 id="private-plugins-title">Your plugins</h2><p>Only your agents can use these connections. Credentials belong to your account.</p></div></div>{privatePlugins.length === 0 && <button className="settings-plugin-empty" type="button" onClick={() => { setNewScope("private"); setAdding(true); }}><span><Plus /></span><div><strong>Add your first private plugin</strong><small>Connect personal services such as notes, calendars, or project tools without sharing your account.</small></div><ChevronRight /></button>}</section>}
+
+      {(scope === "all" || scope === "global") && <section className="settings-plugin-group" aria-labelledby="global-plugins-title"><div className="settings-plugin-group__heading"><div><span><Users />Global</span><h2 id="global-plugins-title">Workspace plugins</h2><p>Available to every member. Administrators manage installation and shared access.</p></div></div>{globalPlugins.map((plugin) => {
+        const mcp = plugin.mcp;
+        return <section className="settings-card settings-connector-card" key={plugin.id}>
+          <header><div className="settings-connector-card__mark"><PlugZap /></div><div className="settings-connector-card__identity"><span>Built in · MCP</span><h2>{plugin.name}</h2><p>{plugin.description}</p></div><div className="settings-connector-card__states"><span className="settings-locked-state"><LockKeyhole />System</span><span className={`settings-service-state${plugin.ready ? " is-ready" : ""}`}><i />{plugin.ready ? "Connected" : "Offline"}</span></div></header>
+          <p className="settings-connector-lock-note"><LockKeyhole />Installed with Neural Labs. This global system plugin cannot be edited, disconnected, or removed.</p>
+          <div className="settings-mcp-grid settings-connector-details"><section><div className="settings-card__heading"><div><span>Attachment</span><h2>Shared OpenClaw agents</h2><p>Supplied to every shared agent automatically.</p></div><Bot /></div><dl className="settings-detail-list"><div><dt>Server name</dt><dd><code>{mcp.agentServerName}</code></dd></div><div><dt>Scope</dt><dd>Global · all members</dd></div><div><dt>Transport</dt><dd>{mcp.transport}</dd></div><div><dt>Internal endpoint</dt><dd><code>{mcp.endpoint}</code></dd></div><div><dt>Public access</dt><dd>Disabled</dd></div></dl></section><section><div className="settings-card__heading"><div><span>Provider readiness</span><h2>Credentials loaded</h2><p>Secret material is never returned here.</p></div><CloudCog /></div><div className="settings-system-list"><ServiceRow label="Google Places" ready={mcp.providers.googlePlaces} value={mcp.providers.googlePlaces ? "Configured" : "Missing"} /><ServiceRow label="Google Geocoding" ready={mcp.providers.googleGeocoding} value={mcp.providers.googleGeocoding ? "Configured" : "Missing"} /><ServiceRow label="KLIPY" ready={mcp.providers.klipy} value={mcp.providers.klipy ? "Configured" : "Missing"} /><ServiceRow label="Pexels" ready={mcp.providers.pexels} value={mcp.providers.pexels ? "Configured" : "Missing"} /></div></section></div>
+          <div className="settings-connector-tools"><div><span>Registered capabilities</span><strong>{mcp.tools.length} tools available</strong></div><div className="settings-tool-list">{mcp.tools.length ? mcp.tools.map((tool) => <code key={tool}>{tool}</code>) : <p className="settings-card-note">No provider tools are currently registered.</p>}</div></div>
+        </section>;
+      })}{administrator && <button className="settings-connector-add-card" type="button" onClick={() => { setNewScope("global"); setAdding(true); }}><span><Plus /></span><div><strong>Add a global plugin</strong><small>Install tools and services for everyone in the workspace.</small></div><ChevronRight /></button>}</section>}
     </div>
   );
 }
@@ -581,7 +632,7 @@ function AboutPanel({ overview }: { overview?: OverviewData }) {
     <div className="settings-panel">
       <SectionHeader eyebrow="Product and runtime" title="About" description="The people, platform, and open tools behind this shared workspace." icon={Info} />
       <section className="settings-about-hero"><div className="settings-about-hero__mark"><span>N</span></div><div><span>Neural Labs</span><h2>A colorful place to build together.</h2><p>Shared workflows, skills, files, and agent context—powered by OpenClaw and shaped for teams.</p><div><a href="https://alshival.ai" target="_blank" rel="noreferrer">Developed by Alshival.Ai <ExternalLink /></a><a href="https://github.com/Alshival-Ai/neural-labs" target="_blank" rel="noreferrer">Source code <ExternalLink /></a></div></div></section>
-      <div className="settings-about-grid"><section className="settings-card"><div className="settings-card__heading"><div><span>Versions</span><h2>Runtime stack</h2><p>Components running in this shared environment.</p></div><Gauge /></div><dl className="settings-detail-list"><div><dt>Neural Labs</dt><dd><code>v0.3.2</code></dd></div><div><dt>OpenClaw</dt><dd><code>{overview?.workspace.openclawVersion ?? "Checking"}</code></dd></div><div><dt>Codex CLI</dt><dd><code>{overview?.workspace.codexVersion ?? "Checking"}</code></dd></div><div><dt>Theme</dt><dd>Spectrum Paper</dd></div></dl></section><section className="settings-card"><div className="settings-card__heading"><div><span>System</span><h2>Service health</h2><p>Live state reported by the control plane.</p></div><ShieldCheck /></div><div className="settings-system-list"><ServiceRow label="Workspace" ready={overview?.workspace.status === "ready"} value={overview?.workspace.status ?? "Checking"} /><ServiceRow label="OpenClaw model" ready={overview?.workspace.openclawModelReady === true} value={overview?.workspace.openclawModelReady ? "Ready" : "Setup required"} /><ServiceRow label="Workspace MCP" ready={overview?.mcp.ready === true} value={overview?.mcp.ready ? "Ready" : "Offline"} /></div></section></div>
+      <div className="settings-about-grid"><section className="settings-card"><div className="settings-card__heading"><div><span>Versions</span><h2>Runtime stack</h2><p>Components running in this shared environment.</p></div><Gauge /></div><dl className="settings-detail-list"><div><dt>Neural Labs</dt><dd><code>v0.3.2</code></dd></div><div><dt>OpenClaw</dt><dd><code>{overview?.workspace.openclawVersion ?? "Checking"}</code></dd></div><div><dt>Codex CLI</dt><dd><code>{overview?.workspace.codexVersion ?? "Checking"}</code></dd></div><div><dt>Theme</dt><dd>Spectrum Paper</dd></div></dl></section><section className="settings-card"><div className="settings-card__heading"><div><span>System</span><h2>Service health</h2><p>Live state reported by the control plane.</p></div><ShieldCheck /></div><div className="settings-system-list"><ServiceRow label="Workspace" ready={overview?.workspace.status === "ready"} value={overview?.workspace.status ?? "Checking"} /><ServiceRow label="OpenClaw model" ready={overview?.workspace.openclawModelReady === true} value={overview?.workspace.openclawModelReady ? "Ready" : "Setup required"} /><ServiceRow label="Neural Labs Tools plugin" ready={overview?.mcp.ready === true} value={overview?.mcp.ready ? "Ready" : "Offline"} /></div></section></div>
       <section className="settings-card settings-about-links"><a href="https://github.com/Alshival-Ai/neural-labs/tree/main/wiki" target="_blank" rel="noreferrer"><FileText /><span><strong>Documentation</strong><small>Architecture, operations, and guides</small></span><ExternalLink /></a><a href="https://github.com/Alshival-Ai/neural-labs/blob/main/wiki/adr/0003-shared-developer-workspace.md" target="_blank" rel="noreferrer"><KeyRound /><span><strong>Security notes</strong><small>Trust boundaries and shared access</small></span><ExternalLink /></a><a href="https://openclaw.ai" target="_blank" rel="noreferrer"><Bot /><span><strong>OpenClaw</strong><small>The agent runtime underneath Neura</small></span><ExternalLink /></a></section>
       <p className="settings-about-footer">Neural Labs · Built with care by Alshival.Ai</p>
     </div>

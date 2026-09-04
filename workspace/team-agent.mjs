@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -131,19 +131,72 @@ function finalText(payload) {
   throw new Error("OpenClaw returned no final assistant message");
 }
 
-export async function runTeamAgent({ prompt, capability, agentId, runId, workspaceRoot, gatewayRequest, execute = execFileAsync }) {
+function openClawConfigPath() {
+  const configured = process.env.OPENCLAW_CONFIG_PATH?.trim();
+  if (configured) return configured;
+  const stateDirectory = process.env.OPENCLAW_STATE_DIR?.trim();
+  if (stateDirectory) return path.join(stateDirectory, "openclaw.json");
+  const home = process.env.HOME?.trim();
+  if (!home) throw new Error("The OpenClaw configuration path is unavailable");
+  return path.join(home, ".openclaw", "openclaw.json");
+}
+
+export function personalAgentExecConfig(value, agentId) {
+  const source = record(value);
+  const agents = record(source?.agents);
+  const entries = record(agents?.entries);
+  if (!record(entries?.[agentId])) throw new Error("The Team Chat personal agent is not provisioned");
+  const defaults = record(agents?.defaults) ?? {};
+  const systemAgent = record(defaults.systemAgent) ?? {};
+  return {
+    ...source,
+    agents: {
+      ...agents,
+      defaults: {
+        ...defaults,
+        systemAgent: { ...systemAgent, agentId },
+      },
+    },
+  };
+}
+
+async function loadOpenClawConfig() {
+  const raw = await readFile(openClawConfigPath(), "utf8");
+  return JSON.parse(raw);
+}
+
+export function activitiesFromExecSummary(value) {
+  const summary = record(value);
+  const calls = Number.isInteger(summary?.calls) && summary.calls > 0 ? summary.calls : 0;
+  if (!calls) return [];
+  const tools = Array.isArray(summary.tools)
+    ? summary.tools.map((tool) => safeText(tool, 120)).filter(Boolean).slice(0, 20)
+    : [];
+  const failures = Number.isInteger(summary.failures) && summary.failures > 0 ? summary.failures : 0;
+  const toolLabel = tools.length ? ` Tools: ${tools.join(", ")}.` : "";
+  return [{
+    kind: "operation",
+    title: failures ? "Shared work completed with errors" : "Shared work completed",
+    detail: `${calls} tool ${calls === 1 ? "call" : "calls"}.${toolLabel}`,
+    state: failures ? "error" : "done",
+  }];
+}
+
+export async function runTeamAgent({ prompt, capability, agentId, runId, workspaceRoot, execute = execFileAsync, loadConfig = loadOpenClawConfig }) {
   if (typeof prompt !== "string" || !prompt.trim() || prompt.length > 1024 * 1024) throw new Error("The Team Chat prompt is invalid");
   if (typeof capability !== "string" || capability.length < 32 || capability.length > 512) throw new Error("The Team Chat capability is invalid");
   if (typeof agentId !== "string" || !/^nl-[a-z0-9]{1,60}$/u.test(agentId)) throw new Error("The Team Chat personal agent is invalid");
   if (typeof runId !== "string" || !/^[a-zA-Z0-9-]{8,128}$/u.test(runId)) throw new Error("The Team Chat run id is invalid");
-  const sessionKey = `agent:${agentId}:team-${runId.toLowerCase()}`;
   const temporaryDirectory = await mkdtemp(path.join(tmpdir(), "neural-labs-team-"));
   const messagePath = path.join(temporaryDirectory, "message.md");
+  const configPath = path.join(temporaryDirectory, "openclaw.json");
   let stdout;
   try {
     await writeFile(messagePath, prompt, { encoding: "utf8", mode: 0o600 });
+    const config = personalAgentExecConfig(await loadConfig(agentId), agentId);
+    await writeFile(configPath, JSON.stringify(config), { encoding: "utf8", mode: 0o600 });
     ({ stdout } = await execute("openclaw", [
-      "agent", "--local", "--agent", agentId, "--message-file", messagePath, "--session-key", sessionKey, "--json", "--timeout", "600",
+      "agent", "exec", "--config", configPath, "--message-file", messagePath, "--cwd", workspaceRoot, "--json", "--timeout", "600",
     ], {
       cwd: workspaceRoot,
       encoding: "utf8",
@@ -155,10 +208,6 @@ export async function runTeamAgent({ prompt, capability, agentId, runId, workspa
     await rm(temporaryDirectory, { recursive: true, force: true });
   }
   const payload = JSON.parse(stdout);
-  let activities = [];
-  if (typeof gatewayRequest === "function") {
-    const history = await gatewayRequest("chat.history", { sessionKey, agentId, limit: 250 }).catch(() => undefined);
-    activities = activitiesFromHistory(history?.messages);
-  }
-  return { reply: finalText(payload), activities };
+  if (payload?.ok === false) throw new Error(safeText(payload?.error?.message, 500) || "OpenClaw could not complete the Team Chat turn");
+  return { reply: finalText(payload), activities: activitiesFromExecSummary(payload?.toolSummary) };
 }

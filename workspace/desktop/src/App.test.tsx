@@ -11,11 +11,11 @@ vi.mock("./openclaw", () => ({
 }));
 
 vi.mock("./TerminalApp", () => ({
-  TerminalApp: () => <div data-testid="terminal-live-view">Live terminal view</div>,
+  TerminalApp: ({ openRequest }: { openRequest?: { session: { id: string } } }) => <div data-testid="terminal-live-view">Live terminal view{openRequest ? ` · ${openRequest.session.id}` : ""}</div>,
 }));
 
 vi.mock("./NeuraApp", () => ({
-  NeuraApp: () => <div data-testid="neura-live-view">Live Neura view</div>,
+  NeuraApp: ({ onOpenTeamTerminal }: { onOpenTeamTerminal?: (channel: { id: string; name: string }) => void }) => <div data-testid="neura-live-view">Live Neura view<button type="button" onClick={() => onOpenTeamTerminal?.({ id: "55555555-5555-4555-8555-555555555555", name: "private-release" })}>Open mock Team Chat terminal</button></div>,
 }));
 
 vi.mock("./SkillsLiveApp", () => ({
@@ -46,6 +46,15 @@ function renderDesktop(role: "admin" | "user", { accountAuthenticated = true, ac
     if (url === "/api/session") return json(session(role));
     if (url === "/api/account/openai") return json({ agentId: session(role).neura.agentId, authenticated: accountAuthenticated, paused: accountPaused });
     if (url === "/api/workspace") return json({ status: "ready" });
+    if (url === "/workspace/api/terminals" && method === "GET") return json({ sessions: [] });
+    if (url === "/workspace/api/terminals" && method === "POST") return json({ session: {
+      id: "channel-terminal-1", title: "#private-release", scope: "team", status: "running",
+      teamChannel: { id: "55555555-5555-4555-8555-555555555555", name: "private-release" },
+    } });
+    if (url === "/workspace/api/vscode/open" && method === "POST") {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { path?: string };
+      return json({ opened: { path: body.path, type: "file" } });
+    }
     if (url === "/api/auth/providers") return json({ local: { enabled: true }, microsoft: { available: true, enabled: true } });
     if (url === "/api/admin/overview") return json({
       counts: { pending: 0, active: 1, activeAdmins: 1, inactive: 0 },
@@ -162,6 +171,21 @@ describe("desktop admin navigation", () => {
     expect(await within(terminalWindow).findByTestId("terminal-live-view")).toBeInTheDocument();
   });
 
+  it("creates and opens a channel-scoped terminal from Neura Team Chat", async () => {
+    renderDesktop("user");
+    await screen.findByLabelText("Terminal application");
+    fireEvent.click(screen.getByRole("button", { name: "Neura" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open mock Team Chat terminal" }));
+
+    await waitFor(() => expect(screen.getByTestId("terminal-live-view")).toHaveTextContent("channel-terminal-1"));
+    const createCall = vi.mocked(fetch).mock.calls.find(([url, init]) => String(url) === "/workspace/api/terminals" && init?.method === "POST");
+    expect(JSON.parse(String(createCall?.[1]?.body))).toMatchObject({
+      scope: "team",
+      channelId: "55555555-5555-4555-8555-555555555555",
+      title: "#private-release",
+    });
+  });
+
   it("provisions the personal agent before starting the Neura Gateway", async () => {
     renderDesktop("user");
 
@@ -275,7 +299,7 @@ describe("desktop admin navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: "VS Code" }));
 
     const vsCodeWindow = await screen.findByLabelText("VS Code application");
-    const frame = await within(vsCodeWindow).findByTitle("VS Code workspace");
+    const frame = await within(vsCodeWindow).findByTitle("VS Code workspace") as HTMLIFrameElement;
     expect(frame).toHaveAttribute("src", "/workspace/vscode/?folder=%2Fhome%2Fnode%2Fworkspace");
     expect(within(vsCodeWindow).getByRole("link", { name: "Open VS Code in a new tab" })).toHaveAttribute("target", "_blank");
 
@@ -285,6 +309,47 @@ describe("desktop admin navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: "VS Code" }));
     expect(vsCodeWindow).not.toHaveAttribute("hidden");
     expect(within(vsCodeWindow).getByTitle("VS Code workspace")).toBe(frame);
+
+    fireEvent.click(screen.getByRole("button", { name: "Files" }));
+    const filesWindow = await screen.findByLabelText("Files application");
+    await waitFor(() => expect(Number(filesWindow.style.zIndex)).toBeGreaterThan(Number(vsCodeWindow.style.zIndex)));
+    fireEvent.focus(frame);
+    await waitFor(() => expect(Number(vsCodeWindow.style.zIndex)).toBeGreaterThan(Number(filesWindow.style.zIndex)));
+
+    await waitFor(() => {
+      const saved = JSON.parse(localStorage.getItem(deviceStateKey("user-id", "desktop")) ?? "{}") as { windows?: Array<{ app: string }> };
+      expect(saved.windows?.at(-1)?.app).toBe("vscode");
+    });
+  });
+
+  it("restores the persisted least-to-most-recent window stack", async () => {
+    localStorage.setItem(deviceStateKey("user-id", "desktop"), JSON.stringify({
+      windows: [
+        { id: "files-recent", app: "files", visibility: "open", order: 20 },
+        { id: "vscode-old", app: "vscode", visibility: "open", order: 4 },
+      ],
+      editorPaths: [],
+    }));
+
+    renderDesktop("user");
+    const filesWindow = await screen.findByLabelText("Files application");
+    const vsCodeWindow = await screen.findByLabelText("VS Code application");
+    expect(Number(filesWindow.style.zIndex)).toBeGreaterThan(Number(vsCodeWindow.style.zIndex));
+  });
+
+  it("keeps stack positions unique after closing a middle window", async () => {
+    renderDesktop("user");
+    await screen.findByText("Workspace ready");
+    fireEvent.click(screen.getByRole("button", { name: "Files" }));
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const filesWindow = await screen.findByLabelText("Files application");
+    const settingsWindow = await screen.findByLabelText("Settings application");
+
+    fireEvent.click(within(filesWindow).getByRole("button", { name: "Close Files" }));
+    fireEvent.click(screen.getByRole("button", { name: "VS Code" }));
+    const vsCodeWindow = await screen.findByLabelText("VS Code application");
+
+    expect(Number(vsCodeWindow.style.zIndex)).toBeGreaterThan(Number(settingsWindow.style.zIndex));
   });
 
   it("opens administrator and personal settings from the shared Settings cog", async () => {
@@ -351,7 +416,7 @@ describe("desktop admin navigation", () => {
     expect(screen.queryByLabelText("Automations application")).not.toBeInTheDocument();
   });
 
-  it("opens and saves a shared file through Files and the Editor window", async () => {
+  it("opens a shared text file from Files in VS Code", async () => {
     renderDesktop("user");
     await screen.findByText("Workspace ready");
     fireEvent.click(screen.getByRole("button", { name: "Files" }));
@@ -359,18 +424,15 @@ describe("desktop admin navigation", () => {
     const notes = await within(browser).findByRole("button", { name: /notes\.md/i });
     fireEvent.doubleClick(notes);
 
-    const editor = await screen.findByRole("textbox", { name: "Code editor for notes.md" }, { timeout: 4_000 });
-    fireEvent.change(editor, { target: { value: "# Team notes\n\nUpdated together.\n" } });
-    fireEvent.click(screen.getByRole("button", { name: "Minimize Editor" }));
-    fireEvent.click(screen.getByRole("button", { name: "Editor" }));
-    expect(await screen.findByRole("textbox", { name: "Code editor for notes.md" })).toHaveValue("# Team notes\n\nUpdated together.\n");
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    const vsCodeWindow = await screen.findByLabelText("VS Code application");
+    const frame = await within(vsCodeWindow).findByTitle("VS Code workspace");
+    fireEvent.load(frame);
 
     await waitFor(() => expect(fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/workspace/api/files/text?path=notes.md&version="),
-      expect.objectContaining({ method: "PUT", body: "# Team notes\n\nUpdated together.\n" }),
+      "/workspace/api/vscode/open",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ path: "notes.md" }) }),
     ));
-    expect((await screen.findAllByText("notes.md saved to the shared workspace.")).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "Editor" })).not.toBeInTheDocument();
   });
 
   it("opens a common binary file in a dedicated desktop preview window", async () => {
@@ -389,20 +451,20 @@ describe("desktop admin navigation", () => {
     renderDesktop("user");
     await screen.findByText("Workspace ready");
     fireEvent.click(screen.getByRole("button", { name: "Files" }));
-    fireEvent.click(screen.getByRole("button", { name: "Editor" }));
+    fireEvent.click(screen.getByRole("button", { name: "VS Code" }));
 
     const filesWindow = await screen.findByLabelText("Files application");
-    const editorWindow = await screen.findByLabelText("Editor application");
-    expect(Number(editorWindow.style.zIndex)).toBeGreaterThan(Number(filesWindow.style.zIndex));
+    const vsCodeWindow = await screen.findByLabelText("VS Code application");
+    expect(Number(vsCodeWindow.style.zIndex)).toBeGreaterThan(Number(filesWindow.style.zIndex));
 
     fireEvent.click(screen.getByRole("button", { name: "Files" }));
-    await waitFor(() => expect(Number(filesWindow.style.zIndex)).toBeGreaterThan(Number(editorWindow.style.zIndex)));
+    await waitFor(() => expect(Number(filesWindow.style.zIndex)).toBeGreaterThan(Number(vsCodeWindow.style.zIndex)));
     expect(filesWindow).toBeInTheDocument();
 
-    fireEvent.pointerDown(editorWindow);
-    await waitFor(() => expect(Number(editorWindow.style.zIndex)).toBeGreaterThan(Number(filesWindow.style.zIndex)));
+    fireEvent.pointerDown(vsCodeWindow);
+    await waitFor(() => expect(Number(vsCodeWindow.style.zIndex)).toBeGreaterThan(Number(filesWindow.style.zIndex)));
     fireEvent.pointerDown(filesWindow);
-    await waitFor(() => expect(Number(filesWindow.style.zIndex)).toBeGreaterThan(Number(editorWindow.style.zIndex)));
+    await waitFor(() => expect(Number(filesWindow.style.zIndex)).toBeGreaterThan(Number(vsCodeWindow.style.zIndex)));
 
     fireEvent.click(screen.getByRole("button", { name: "Files" }));
     expect(screen.queryByLabelText("Files application")).not.toBeInTheDocument();
@@ -465,8 +527,8 @@ describe("desktop admin navigation", () => {
     expect(filesWindow.style.height).toBe("100dvh");
     expect(view.container.querySelectorAll(".shell-reveal-zone")).toHaveLength(2);
 
-    fireEvent.click(screen.getByRole("button", { name: "Editor" }));
-    await screen.findByLabelText("Editor application");
+    fireEvent.click(screen.getByRole("button", { name: "VS Code" }));
+    await screen.findByLabelText("VS Code application");
     await waitFor(() => expect(view.container.querySelector(".desktop")).not.toHaveClass("has-maximized-window"));
 
     fireEvent.pointerDown(filesWindow);
@@ -479,31 +541,27 @@ describe("desktop admin navigation", () => {
     const first = renderDesktop("user");
     await screen.findByText("Workspace ready");
     fireEvent.click(screen.getByRole("button", { name: "Files" }));
-    fireEvent.click(screen.getByRole("button", { name: "Editor" }));
-    fireEvent.click(screen.getByRole("button", { name: "Editor" }));
+    fireEvent.click(screen.getByRole("button", { name: "VS Code" }));
+    fireEvent.click(screen.getByRole("button", { name: "VS Code" }));
     expect(await screen.findByLabelText("Files application")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Editor application")).not.toBeInTheDocument();
+    expect(await screen.findByLabelText("VS Code application")).toHaveAttribute("hidden");
 
     first.unmount();
     render(<App />);
     expect(await screen.findByLabelText("Files application")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Editor application")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Editor" }));
-    expect(await screen.findByLabelText("Editor application")).toBeInTheDocument();
+    expect(await screen.findByLabelText("VS Code application")).toHaveAttribute("hidden");
+    fireEvent.click(screen.getByRole("button", { name: "VS Code" }));
+    expect(await screen.findByLabelText("VS Code application")).not.toHaveAttribute("hidden");
   });
 
-  it("restores Editor file paths by refetching content instead of caching file bodies", async () => {
-    const first = renderDesktop("user");
-    await screen.findByText("Workspace ready");
-    fireEvent.click(screen.getByRole("button", { name: "Files" }));
-    const browser = await screen.findByRole("region", { name: "All files" });
-    fireEvent.doubleClick(await within(browser).findByRole("button", { name: /notes\.md/i }));
-    expect(await screen.findByRole("textbox", { name: "Code editor for notes.md" })).toHaveValue("# Team notes\n");
-    const stored = Array.from({ length: localStorage.length }, (_, index) => localStorage.getItem(localStorage.key(index) ?? "")).join("\n");
-    expect(stored).not.toContain("# Team notes");
-
-    first.unmount();
-    render(<App />);
-    expect(await screen.findByRole("textbox", { name: "Code editor for notes.md" })).toHaveValue("# Team notes\n");
+  it("migrates a persisted Editor window to VS Code", async () => {
+    localStorage.setItem(deviceStateKey("user-id", "desktop"), JSON.stringify({
+      windows: [{ id: "editor-old", app: "editor", visibility: "open", order: 1 }],
+      editorPaths: ["notes.md"],
+    }));
+    renderDesktop("user");
+    expect(await screen.findByLabelText("VS Code application")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Editor application")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Editor" })).not.toBeInTheDocument();
   });
 });

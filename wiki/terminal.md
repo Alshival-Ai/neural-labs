@@ -40,26 +40,65 @@ and retried with bounded backoff.
 
 ## Team Terminals
 
-Choose **Team** to create or join a Team Terminal. Every approved Neural Labs
-user can discover the session. Each participant has an independent authenticated
-WebSocket attached to one shared server-side PTY, so everyone sees the same
-prompt, typed text, program output, and full-screen terminal program. Leaving its
-tab does not end the shell. The creator or an administrator can use **End for
-everyone** to stop it.
+Choose **Team** in the Terminal app to create or join a workspace-wide Team
+Terminal, which every approved Neural Labs user can discover. A Team Chat has a
+collapsible terminal rail on its right edge. The plus action creates a new
+terminal for that channel, while the expanded rail shows active and ended
+sessions, the channel members who can join, and the participants currently
+connected to each PTY. Only current channel members can discover or join these
+sessions. This includes restricted-channel membership and the dynamic
+active-user audience of an Everyone channel.
 
-One participant drives the PTY at a time. The driver alone sends keystrokes and
-controls its dimensions; all other participants remain live spectators and may
-use **Take control** when it is their turn. If the driver disconnects, control
-passes to the next connected participant. Each spectator still fits and renders
-an xterm canvas locally, so giving another person control never hides the
-terminal.
+Each participant has an independent authenticated WebSocket attached to one
+shared server-side PTY, so everyone sees the same prompt, typed text, program
+output, and full-screen terminal program. Leaving its tab does not end the
+shell. The creator or an administrator can use **End for everyone** to stop it.
+If a channel member is removed or disabled, new discovery and connections fail
+closed and an existing socket is closed by the periodic access recheck.
 
-Presence avatars identify connected teammates, the current driver is ringed,
-and brief typing attribution makes collaborative command entry easy to follow.
+Every attached participant can send keystrokes immediately. Input is written to
+the shared PTY in the order it reaches the server, so teammates can type and
+interact fluidly without claiming control or waiting for a turn. The first live
+connection remains an invisible layout leader for PTY dimensions only; this
+prevents browser windows with different sizes from repeatedly fighting over
+line wrapping, and layout leadership passes automatically when it disconnects.
+
+Presence avatars identify connected teammates, and brief typing attribution
+makes collaborative command entry easy to follow.
 The smile action sends an ephemeral emoji sticker to every connected viewer.
 Stickers are rate-limited, are not written into the PTY, and are not persisted.
 Raw input is not duplicated into a social event: terminal echo is the source of
 visible typed text, which preserves normal no-echo behavior for password prompts.
+
+### Voice chat
+
+Each live Team Terminal has an optional voice room. **Join voice** starts in the
+muted, listen-only mode without requesting microphone access. The settings menu
+offers three device-local modes:
+
+- **Muted** receives teammates without sharing a microphone.
+- **Open mic** keeps the microphone track enabled while the room and terminal
+  socket are connected.
+- **Push to talk** enables the microphone only while the dedicated **Hold to
+  talk** button is held by pointer, touch, Space, or Enter.
+
+Leaving voice stops the local microphone tracks and closes all peer connections.
+Closing the terminal pane has the same effect. Minimizing its desktop window
+keeps the mounted terminal and voice room active. Reconnecting the terminal
+socket automatically rejoins an intended voice room but keeps the microphone
+disabled until signaling is ready again.
+
+Voice is an eight-device WebRTC mesh. Browsers use a direct encrypted media path
+when possible and fall back to the Neural Labs TURN relay when routing or a
+firewall prevents that path. The authenticated Team Terminal WebSocket carries
+ephemeral presence, session descriptions, ICE candidates, and one-hour relay
+credentials only; it never carries, records, or persists audio. Relay usernames
+contain a pseudonymous user key rather than an account identifier.
+
+The deployment must expose the configured TURN port over TCP and UDP and the
+configured relay range over UDP. When the host is behind NAT, forward those
+ports to `NEURAL_LABS_TURN_RELAY_IP` and set
+`NEURAL_LABS_TURN_EXTERNAL_IP` to the public address advertised by DNS.
 
 ## Interactive shell
 

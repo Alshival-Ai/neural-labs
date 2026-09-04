@@ -304,14 +304,14 @@
 .editor-presence .is-violet { color: #2f1d6b; background: #d9cfff; }
 .editor-app__scrim { display: none; }
 
-@media (max-width: 1180px) {
+@container app-window (max-width: 1180px) {
   .editor-app { grid-template-columns: 15.5rem minmax(28rem, 1fr); }
   .editor-app--context-open { grid-template-columns: 15.5rem minmax(28rem, 1fr); }
   .editor-context { display: none; }
   .editor-context-toggle { display: none; }
 }
 
-@media (max-width: 900px) {
+@container app-window (max-width: 900px) {
   .editor-app { grid-template-columns: 2.85rem minmax(26rem, 1fr); }
   .editor-sidebar { grid-template-columns: 2.85rem; }
   .editor-explorer { display: none; }
@@ -320,7 +320,7 @@
   .editor-command { width: 2rem; justify-content: center; padding: 0; }
 }
 
-@media (max-width: 760px) {
+@container app-window (max-width: 760px) {
   .editor-app { display: block; }
   .editor-sidebar { position: absolute; z-index: 90; inset: 0 auto 0 0; width: min(18rem, 88vw); display: none; grid-template-columns: 2.85rem minmax(0, 1fr); box-shadow: 20px 0 60px rgba(0, 0, 0, .3); }
   .editor-sidebar--open { display: grid; }
@@ -346,7 +346,7 @@
   .editor-statusbar > div:last-child span:nth-child(3) { display: none; }
 }
 
-@media (max-width: 480px) {
+@container app-window (max-width: 480px) {
   .editor-toolbar { gap: .25rem; padding-inline: .4rem; }
   .editor-breadcrumb { min-width: 0; }
   .editor-breadcrumb strong { max-width: 6.5rem; }

@@ -38,6 +38,8 @@ const IDENTITY_KEY = "neural-labs.neura.device.v1";
 const TOKEN_PREFIX = "neural-labs.neura.token.v1";
 const INSTANCE_KEY = "neural-labs.neura.instance.v1"; // gitleaks:allow -- localStorage key name, not a credential
 const SCOPES = ["operator.read", "operator.write", "operator.approvals", "operator.questions"] as const;
+const MANAGED_MEDIA_PATH = /^\/api\/chat\/media\/outgoing\/([^/]+)\/([A-Za-z0-9-]{1,128})\/(full|thumbnail)$/u;
+const MANAGED_MEDIA_TICKET = /^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u;
 
 type StoredIdentity = { privateKey: string; publicKey: string; deviceId: string };
 type RecordValue = Record<string, unknown>;
@@ -409,7 +411,43 @@ export class NeuraGateway {
       limit: 250,
     });
     const rows = isRecord(result) && Array.isArray(result.messages) ? result.messages : [];
-    return normalizeNeuraHistory(rows, sessionKey);
+    return this.resolveMessageAttachments(sessionKey, normalizeNeuraHistory(rows, sessionKey));
+  }
+
+  async resolveMessageAttachments(sessionKey: string, messages: NeuraMessage[]): Promise<NeuraMessage[]> {
+    return Promise.all(messages.map(async (message) => {
+      if (!message.attachments?.some((attachment) => attachment.artifactId)) return message;
+      const attachments = await Promise.all(message.attachments.map(async (attachment) => {
+        if (!attachment.artifactId) return attachment;
+        try {
+          const result = await this.client.request<unknown>("artifacts.download", {
+            sessionKey,
+            agentId: this.requireAgentId(),
+            artifactId: attachment.artifactId,
+          });
+          if (!isRecord(result)) return attachment;
+          const artifact = isRecord(result.artifact) ? result.artifact : {};
+          const mimeType = stringValue(artifact.mimeType) ?? attachment.type;
+          const title = stringValue(artifact.title) ?? attachment.name;
+          const size = numberValue(artifact.sizeBytes) ?? attachment.size;
+          const encoded = stringValue(result.data);
+          const dataUrl = result.encoding === "base64" && encoded
+            ? `data:${mimeType};base64,${encoded}`
+            : undefined;
+          const url = dataUrl ?? workspaceNeuraMediaUrl(stringValue(result.url));
+          return {
+            ...attachment,
+            name: title,
+            type: mimeType,
+            ...(size !== undefined ? { size } : {}),
+            ...(url ? { url } : {}),
+          };
+        } catch {
+          return attachment;
+        }
+      }));
+      return { ...message, attachments };
+    }));
   }
 
   async send(
@@ -689,17 +727,93 @@ function textFromContent(content: unknown): string {
     .join("\n");
 }
 
+function attachmentFromRecord(value: unknown): NonNullable<NeuraMessage["attachments"]> {
+  if (!isRecord(value)) return [];
+  const record = isRecord(value.attachment) ? value.attachment : value;
+  const source = isRecord(record.source) ? record.source : {};
+  const path = stringValue(record.path) ?? stringValue(record.filePath) ?? stringValue(record.file_path);
+  const name = stringValue(record.fileName) ?? stringValue(record.file_name) ?? stringValue(record.name)
+    ?? stringValue(record.title) ?? stringValue(record.label) ?? stringValue(record.alt) ?? path?.split("/").pop();
+  const artifactId = stringValue(record.artifactId) ?? stringValue(record.artifact_id);
+  const blockType = (stringValue(value.type) ?? stringValue(record.kind) ?? "").toLowerCase();
+  let mimeType = stringValue(record.mimeType) ?? stringValue(record.mime_type) ?? stringValue(record.mediaType) ?? stringValue(record.media_type)
+    ?? stringValue(source.mediaType) ?? stringValue(source.media_type);
+  if (!mimeType && blockType === "image") mimeType = "image/*";
+  if (!mimeType && blockType === "file") mimeType = "application/octet-stream";
+  const directUrl = stringValue(record.url) ?? stringValue(record.imageUrl) ?? stringValue(record.image_url);
+  const sourceUrl = stringValue(source.url);
+  const base64 = stringValue(record.data) ?? stringValue(source.data) ?? (blockType === "image" ? stringValue(record.content) : undefined);
+  const rawUrl = directUrl ?? sourceUrl;
+  const managedUrl = workspaceNeuraMediaUrl(rawUrl);
+  const url = managedUrl ?? (rawUrl && !managedGatewayMediaReference(rawUrl) ? rawUrl : undefined) ?? (mimeType?.startsWith("image/") && base64 && /^[A-Za-z0-9+/=\s]+$/.test(base64)
+    ? `data:${mimeType};base64,${base64.replaceAll(/\s/g, "")}`
+    : undefined);
+  const size = typeof record.sizeBytes === "number" ? record.sizeBytes : typeof record.size === "number" ? record.size : undefined;
+  if (!name && !url && !path && !artifactId) return [];
+  return [{
+    name: name ?? (mimeType?.startsWith("image/") ? "Generated image" : "Shared file"),
+    type: mimeType ?? "application/octet-stream",
+    ...(artifactId ? { artifactId } : {}),
+    ...(url ? { url } : {}),
+    ...(path ? { path } : {}),
+    ...(size !== undefined ? { size } : {}),
+  }];
+}
+
+function managedGatewayMediaReference(reference: string): boolean {
+  try {
+    const parsed = new URL(reference, "https://openclaw.invalid");
+    return MANAGED_MEDIA_PATH.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
+export function workspaceNeuraMediaUrl(reference: string | undefined): string | undefined {
+  if (!reference) return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(reference, "https://openclaw.invalid");
+  } catch {
+    return undefined;
+  }
+  if (parsed.origin !== "https://openclaw.invalid" && !["127.0.0.1", "localhost", "[::1]"].includes(parsed.hostname)) return undefined;
+  const match = parsed.pathname.match(MANAGED_MEDIA_PATH);
+  const ticket = parsed.searchParams.get("mediaTicket");
+  if (!match || !ticket || !MANAGED_MEDIA_TICKET.test(ticket) || [...parsed.searchParams.keys()].some((key) => key !== "mediaTicket")) return undefined;
+  return `/workspace/api/neura/media/outgoing/${match[1]}/${match[2]}/${match[3]}?mediaTicket=${encodeURIComponent(ticket)}`;
+}
+
+function attachmentsFromMessage(message: Record<string, unknown>): NonNullable<NeuraMessage["attachments"]> {
+  const candidates = [
+    ...(Array.isArray(message.attachments) ? message.attachments : []),
+    ...(Array.isArray(message.content) ? message.content.filter((part) => {
+      if (!isRecord(part)) return false;
+      return ["image", "file", "attachment", "document"].includes((stringValue(part.type) ?? "").toLowerCase().replaceAll(/[_-]+/g, ""));
+    }) : []),
+  ];
+  const seen = new Set<string>();
+  return candidates.flatMap(attachmentFromRecord).filter((attachment) => {
+    const key = `${attachment.path ?? ""}\u0000${attachment.url ?? ""}\u0000${attachment.name}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function normalizeMessage(value: unknown, fallbackId: string): NeuraMessage[] {
   if (!isRecord(value)) return [];
   const rawRole = stringValue(value.role) ?? (isRecord(value.message) ? stringValue(value.message.role) : undefined);
   if (!rawRole || !["user", "assistant", "system"].includes(rawRole)) return [];
   const nested = isRecord(value.message) ? value.message : value;
   const text = textFromContent(nested.content) || stringValue(nested.text) || stringValue(value.text) || "";
-  if (!text) return [];
+  const attachments = attachmentsFromMessage(nested);
+  if (!text && attachments.length === 0) return [];
   return [{
     id: stringValue(value.id) ?? stringValue(nested.id) ?? fallbackId,
     role: rawRole as NeuraMessage["role"],
     text,
+    ...(attachments.length ? { attachments } : {}),
   }];
 }
 

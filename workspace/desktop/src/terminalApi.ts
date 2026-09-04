@@ -1,5 +1,6 @@
 export type TerminalScope = "personal" | "team";
 export type TerminalProcessStatus = "running" | "exited";
+export type TerminalVoiceMode = "muted" | "open-mic" | "push-to-talk";
 
 export type TerminalParticipant = {
   id: string;
@@ -7,10 +8,17 @@ export type TerminalParticipant = {
   connections: number;
 };
 
-export type TerminalController = {
+export type TerminalLayoutLeader = {
   id: string;
   label: string;
   connectionId: string;
+};
+
+export type TerminalVoiceParticipant = {
+  connectionId: string;
+  id: string;
+  label: string;
+  mode: TerminalVoiceMode;
 };
 
 export type TerminalDescriptor = {
@@ -30,7 +38,9 @@ export type TerminalDescriptor = {
   owned: boolean;
   canTerminate: boolean;
   participants: TerminalParticipant[];
-  controller: TerminalController | null;
+  voiceParticipants: TerminalVoiceParticipant[];
+  layoutLeader: TerminalLayoutLeader | null;
+  teamChannel?: { id: string; name: string };
 };
 
 export type TerminalTicket = {
@@ -76,7 +86,7 @@ export async function listTerminals(): Promise<TerminalDescriptor[]> {
   return response.sessions;
 }
 
-export async function createTerminal(input: { scope: TerminalScope; title?: string; cols?: number; rows?: number }): Promise<TerminalDescriptor> {
+export async function createTerminal(input: { scope: TerminalScope; title?: string; channelId?: string; cols?: number; rows?: number }): Promise<TerminalDescriptor> {
   const response = await terminalRequest<TerminalCreateResponse>("/workspace/api/terminals", {
     method: "POST",
     body: JSON.stringify(input),

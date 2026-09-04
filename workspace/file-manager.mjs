@@ -392,6 +392,17 @@ export function createFileManager({
     };
   }
 
+  async function openTarget(relativeValue) {
+    const target = await resolveExisting(relativeValue);
+    if (!target.info.isFile() && !target.info.isDirectory()) {
+      throw new WorkspaceFileError(400, "unsupported_item", "Only workspace files and folders can be opened in VS Code");
+    }
+    return {
+      relativePath: target.relativePath,
+      type: target.info.isDirectory() ? "folder" : "file",
+    };
+  }
+
   async function preview(relativeRoot, relativeValue = "index.html") {
     const previewRoot = await resolveExisting(relativeRoot);
     if (!previewRoot.info.isDirectory()) {
@@ -424,6 +435,7 @@ export function createFileManager({
     upload,
     remove,
     download,
+    openTarget,
     preview,
     maxUploadBytes,
     maxTextBytes,

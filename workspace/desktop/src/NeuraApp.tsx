@@ -13,9 +13,13 @@ import {
   Paperclip,
   PanelLeftClose,
   PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   Pin,
+  Plus,
   Send,
   Square,
+  TerminalSquare,
   Trash2,
   UserPlus,
   Users,
@@ -25,11 +29,13 @@ import { type ChangeEvent, type KeyboardEvent, useCallback, useEffect, useLayout
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { useAppViewport } from "./appViewport";
 import { activitiesFromGatewayEvent, eventRecord, eventText, messagesFromSessionEvent, NeuraGateway } from "./openclaw";
 import { readDeviceState, writeDeviceState } from "./deviceState";
-import { createWorkspaceFolder, uploadWorkspaceFile, workspaceDownloadUrl, type WorkspacePreviewFile } from "./filesApi";
+import { createWorkspaceFolder, uploadWorkspaceFile, workspaceContentUrl, workspaceDownloadUrl, type WorkspacePreviewFile } from "./filesApi";
 import { listCustomSkills } from "./skillsApi";
 import { teamChatApi, teamSocketUrl, type TeamAttachment, type TeamChannel, type TeamDirectoryUser, type TeamMessage } from "./teamChat";
+import { listTerminals, type TerminalDescriptor } from "./terminalApi";
 import type {
   ComposerAttachment,
   ConnectionState,
@@ -37,6 +43,7 @@ import type {
   NeuraActivity,
   NeuraApproval,
   NeuraMessage,
+  NeuraAttachment,
   SessionRow,
 } from "./types";
 
@@ -49,11 +56,13 @@ type Props = {
   csrfToken?: string;
   currentUser?: { id: string; handle: string; displayName: string; role: "admin" | "user" };
   onPreviewFile?: (file: WorkspacePreviewFile) => void;
+  onOpenTeamTerminal?: (channel: Pick<TeamChannel, "id" | "name">, session?: TerminalDescriptor) => Promise<TerminalDescriptor | undefined> | TerminalDescriptor | undefined;
 };
 
-type NeuraDeviceState = { selectedKey?: string; selectedChannelId?: string; sidebarOpen: boolean; showArchived: boolean };
+type NeuraDeviceState = { selectedKey?: string; selectedChannelId?: string; sidebarOpen: boolean; terminalSidebarOpen: boolean; showArchived: boolean };
 type SkillSuggestion = { key: string; name: string; description: string };
 type SkillTrigger = { start: number; end: number; query: string };
+type TeamAgentPhase = "starting" | "working";
 type QueuedPrompt = {
   id: string;
   sessionKey: string;
@@ -96,14 +105,28 @@ function skillCommand(skill: SkillSuggestion): string {
   return `$${skill.key}`;
 }
 
+function matchingSkillSuggestions(skills: SkillSuggestion[], trigger: SkillTrigger | null): SkillSuggestion[] {
+  if (!trigger) return [];
+  const query = trigger.query.toLowerCase().replaceAll("_", "-");
+  return skills
+    .filter((skill) => !query || `${skill.key} ${skill.name}`.toLowerCase().replaceAll("_", "-").includes(query))
+    .sort((left, right) => {
+      const leftStarts = left.key.toLowerCase().startsWith(query) || left.name.toLowerCase().startsWith(query);
+      const rightStarts = right.key.toLowerCase().startsWith(query) || right.name.toLowerCase().startsWith(query);
+      return Number(rightStarts) - Number(leftStarts) || left.name.localeCompare(right.name);
+    })
+    .slice(0, 10);
+}
+
 function neuraDeviceState(storageNamespace: string | undefined, storageArea: string): NeuraDeviceState {
   const stored = readDeviceState(storageNamespace, storageArea);
-  if (!stored || typeof stored !== "object") return { sidebarOpen: true, showArchived: false };
+  if (!stored || typeof stored !== "object") return { sidebarOpen: true, terminalSidebarOpen: false, showArchived: false };
   const value = stored as Record<string, unknown>;
   return {
     selectedKey: typeof value.selectedKey === "string" ? value.selectedKey.slice(0, 500) : undefined,
     selectedChannelId: typeof value.selectedChannelId === "string" ? value.selectedChannelId.slice(0, 100) : undefined,
     sidebarOpen: value.sidebarOpen !== false,
+    terminalSidebarOpen: value.terminalSidebarOpen === true,
     showArchived: value.showArchived === true,
   };
 }
@@ -138,52 +161,115 @@ function websiteEntryFromMessage(message: string): { root: string; entry: string
   return website;
 }
 
+export function resolveNeuraMessageLink(href: string | undefined, _message: string): string | undefined {
+  if (!href) return href;
+  const path = workspacePathFromMessageReference(href);
+  return path ? workspaceDownloadUrl(path) : href;
+}
+
+function workspacePathFromMessageReference(reference: string | undefined): string | undefined {
+  if (!reference || reference.startsWith("#") || reference.includes("\\")) return undefined;
+  const withoutSuffix = reference.split(/[?#]/, 1)[0] ?? "";
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(withoutSuffix);
+  } catch {
+    return undefined;
+  }
+  const workspacePrefix = "/home/node/workspace/";
+  const candidate = (decoded.startsWith(workspacePrefix) ? decoded.slice(workspacePrefix.length) : decoded).replace(/^\.\//, "");
+  if (!candidate || candidate.startsWith("/") || candidate.includes(":")) return undefined;
+  const segments = candidate.split("/");
+  if (segments.some((segment) => !segment || segment === "." || segment === "..")) return undefined;
+  if (!/\.[A-Za-z0-9]{1,12}$/.test(segments.at(-1) ?? "")) return undefined;
+  return candidate;
+}
+
+export function resolveNeuraMessageImage(src: string | undefined): string | undefined {
+  const path = workspacePathFromMessageReference(src);
+  return path ? workspaceContentUrl(path) : src;
+}
+
 function decodedLegacyPreviewRoot(token: string): string | undefined {
   if (token === "root") return "";
   try {
     const standard = token.replaceAll("-", "+").replaceAll("_", "/").padEnd(Math.ceil(token.length / 4) * 4, "=");
     const binary = atob(standard);
-    return new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(binary, (character) => character.charCodeAt(0)));
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
     return undefined;
   }
 }
 
-function safeWebsitePath(value: string | undefined): string | undefined {
-  if (!value || value.startsWith("/") || value.includes("\\")) return undefined;
-  const segments = value.split("/");
-  if (segments.some((segment) => !/^[A-Za-z0-9._-]+$/.test(segment) || segment === "." || segment === "..")) return undefined;
-  return /\.html?$/i.test(segments.at(-1) ?? "") ? value : undefined;
-}
-
 export function neuraWebsitePreviewFile(href: string | undefined, message: string): WorkspacePreviewFile | undefined {
   if (!href) return undefined;
-  const relativeReference = !/^[A-Za-z][A-Za-z0-9+.-]*:/.test(href) && !href.startsWith("//");
+  let path: string | undefined;
   let url: URL;
   try {
     url = new URL(href, "https://neural-labs.invalid");
   } catch {
     return undefined;
   }
-  let path: string | undefined;
-  try {
-    if (["http:", "https:"].includes(url.protocol) && LOOPBACK_PREVIEW_HOSTS.has(url.hostname)) {
-      const website = websiteEntryFromMessage(message);
-      if (website) path = `${website.root}/${decodeURIComponent(url.pathname).replace(/^\/+/, "") || website.entry}`;
-    } else if (relativeReference || href.startsWith("/workspace/preview/") || url.hostname === "neural-labs.ai" || (typeof window !== "undefined" && url.origin === window.location.origin)) {
-      const legacy = url.pathname.match(/^\/workspace\/preview\/([A-Za-z0-9_-]+)\/(.+)$/);
-      if (legacy) {
-        const root = decodedLegacyPreviewRoot(legacy[1]);
-        if (root !== undefined) path = root ? `${root}/${decodeURIComponent(legacy[2])}` : decodeURIComponent(legacy[2]);
-      } else if (url.hostname === "neural-labs.invalid") {
-        path = decodeURIComponent(url.pathname).replace(/^\/+/, "");
-      }
+  if (["http:", "https:"].includes(url.protocol) && LOOPBACK_PREVIEW_HOSTS.has(url.hostname)) {
+    const website = websiteEntryFromMessage(message);
+    if (website) {
+      const requestedEntry = decodeURIComponent(url.pathname).replace(/^\/+/, "") || website.entry;
+      path = `${website.root}/${requestedEntry}`;
     }
-  } catch {
-    return undefined;
+  } else {
+    const legacy = url.pathname.match(/^\/workspace\/preview\/([A-Za-z0-9_-]+)\/(.+)$/);
+    const trustedLegacyHost = href.startsWith("/workspace/preview/")
+      || url.hostname === "neural-labs.ai"
+      || (typeof window !== "undefined" && url.origin === window.location.origin);
+    if (legacy && trustedLegacyHost) {
+      const root = decodedLegacyPreviewRoot(legacy[1]);
+      if (root !== undefined) path = root ? `${root}/${decodeURIComponent(legacy[2])}` : decodeURIComponent(legacy[2]);
+    } else {
+      path = workspacePathFromMessageReference(href);
+    }
   }
-  const safePath = safeWebsitePath(path);
-  return safePath ? { name: safePath.split("/").at(-1) ?? "index.html", path: safePath, size: 0, mimeType: "text/html" } : undefined;
+  const safePath = workspacePathFromMessageReference(path);
+  if (!safePath || !/\.html?$/i.test(safePath)) return undefined;
+  return {
+    name: safePath.split("/").at(-1) ?? "index.html",
+    path: safePath,
+    size: 0,
+    mimeType: "text/html",
+  };
+}
+
+function isImageAttachment(attachment: Pick<NeuraAttachment, "name" | "type">): boolean {
+  return attachment.type.toLowerCase().startsWith("image/") || /\.(?:avif|bmp|gif|jpe?g|png|webp)$/i.test(attachment.name);
+}
+
+function attachmentSize(size: number | undefined): string {
+  if (size === undefined) return "Workspace file";
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
+  return `${(size / (1024 * 1024)).toFixed(size < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+}
+
+export function MessageAttachments({ attachments: items, className = "message-attachments" }: {
+  attachments: Array<NeuraAttachment | TeamAttachment>;
+  className?: string;
+}) {
+  return <div className={className}>{items.map((attachment, index) => {
+    const path = "path" in attachment ? attachment.path : undefined;
+    const directUrl = "url" in attachment ? attachment.url : undefined;
+    const downloadUrl = path ? workspaceDownloadUrl(path) : directUrl;
+    const imageUrl = isImageAttachment({ name: attachment.name, type: attachment.type ?? "" })
+      ? path ? workspaceContentUrl(path) : directUrl
+      : undefined;
+    const content = <>
+      {imageUrl ? <img src={imageUrl} alt={attachment.name} loading="lazy" /> : <Paperclip />}
+      <span className="attachment-copy"><strong>{attachment.name}</strong><small>{attachmentSize(attachment.size)}</small></span>
+    </>;
+    const key = `${path ?? directUrl ?? attachment.name}:${index}`;
+    return downloadUrl
+      ? <a className={imageUrl ? "attachment-card attachment-image" : "attachment-card"} key={key} href={downloadUrl} download={path ? attachment.name : undefined}>{content}</a>
+      : <div className="attachment-card" key={key}>{content}</div>;
+  })}</div>;
 }
 
 function approvalFromEvent(event: GatewayEvent): NeuraApproval | null {
@@ -219,8 +305,13 @@ function mergeHistoryWithLive(history: NeuraMessage[], live: NeuraMessage[]): Ne
   const ids = new Set(history.map((message) => message.id));
   for (const message of live) {
     if (ids.has(message.id)) continue;
-    const optimisticDuplicate = (message.id.startsWith("local:") || message.id.startsWith("run:")) && history.some((persisted) =>
-      persisted.role === message.role && persisted.text === message.text);
+    const duplicateIndex = (message.id.startsWith("local:") || message.id.startsWith("run:"))
+      ? merged.findIndex((persisted) => persisted.role === message.role && persisted.text === message.text)
+      : -1;
+    const optimisticDuplicate = duplicateIndex >= 0;
+    if (optimisticDuplicate && message.attachments?.length && !merged[duplicateIndex].attachments?.length) {
+      merged[duplicateIndex] = { ...merged[duplicateIndex], attachments: message.attachments };
+    }
     if (!optimisticDuplicate) merged.push(message);
   }
   return merged;
@@ -228,7 +319,9 @@ function mergeHistoryWithLive(history: NeuraMessage[], live: NeuraMessage[]): Ne
 
 function reconcilePersistedMessage(current: NeuraMessage[], message: NeuraMessage, runId?: string): NeuraMessage[] {
   const transient = runId && message.role === "assistant" ? current.find((candidate) => candidate.id === `run:${runId}`) : undefined;
-  const persisted = transient?.activities?.length && !message.activities?.length ? { ...message, activities: transient.activities } : message;
+  const optimisticUser = message.role === "user" ? current.find((candidate) => candidate.role === "user" && candidate.id.startsWith("local:") && candidate.text === message.text) : undefined;
+  let persisted = transient?.activities?.length && !message.activities?.length ? { ...message, activities: transient.activities } : message;
+  if (optimisticUser?.attachments?.length && !persisted.attachments?.length) persisted = { ...persisted, attachments: optimisticUser.attachments };
   let optimisticUserRemoved = false;
   const next = current.filter((candidate) => {
     if (candidate.id === persisted.id) return false;
@@ -248,7 +341,36 @@ function isTranscriptAtBottom(element: HTMLElement, threshold = 48): boolean {
 
 const unavailableTeamUser = { id: "", handle: "user", displayName: "User", role: "user" as const };
 
-export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neura", composeRequest, csrfToken = "", currentUser = unavailableTeamUser, onPreviewFile }: Props) {
+export function teamMessagePresentation(
+  message: Pick<TeamMessage, "authorKind" | "author">,
+  currentUserId: string,
+): "assistant" | "system" | "user" | "teammate" {
+  if (message.authorKind === "neura" || message.authorKind === "imported_neura") return "assistant";
+  if (message.authorKind === "system") return "system";
+  return message.author?.id === currentUserId ? "user" : "teammate";
+}
+
+export function teamAgentPhaseFromStatus(status: unknown): TeamAgentPhase | undefined {
+  return status === "queued" ? "starting" : status === "running" ? "working" : undefined;
+}
+
+export function invokesTeamAgent(body: string): boolean {
+  return /(?:^|[\s([{:;,])@neura\b/i.test(body)
+    || /(?:^|[\s([{:;,])\$(?!neura\b)[A-Za-z][A-Za-z0-9_-]*\b/i.test(body);
+}
+
+export function modelProviderErrorMessage(rawError: string): string {
+  if (/missing bearer|missing basic authentication/i.test(rawError)) {
+    return "Neura couldn't activate your ChatGPT connection. Open Personalization and try Resume; reconnect if the problem continues.";
+  }
+  if (/401|authentication|unauthorized|invalid.{0,20}(token|credential)|expired.{0,20}(token|credential)/i.test(rawError)) {
+    return "Your ChatGPT sign-in was rejected or expired. Reconnect it in Personalization, then try again.";
+  }
+  return rawError;
+}
+
+export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neura", composeRequest, csrfToken = "", currentUser = unavailableTeamUser, onPreviewFile, onOpenTeamTerminal }: Props) {
+  const appViewport = useAppViewport();
   const [initialUiState] = useState(() => neuraDeviceState(storageNamespace, storageArea));
   const [connection, setConnection] = useState<ConnectionState>("connecting");
   const [connectionError, setConnectionError] = useState<string>();
@@ -260,13 +382,17 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
   const [teamMessages, setTeamMessages] = useState<TeamMessage[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamDirectoryUser[]>([]);
   const [teamConnection, setTeamConnection] = useState<ConnectionState>("connecting");
-  const [teamAgentBusy, setTeamAgentBusy] = useState(false);
+  const [teamAgentPhase, setTeamAgentPhase] = useState<TeamAgentPhase>();
   const [teamAgentError, setTeamAgentError] = useState<string>();
   const [teamTyping, setTeamTyping] = useState<TeamDirectoryUser[]>([]);
   const [teamDraft, setTeamDraft] = useState("");
   const [teamAttachments, setTeamAttachments] = useState<TeamAttachment[]>([]);
   const [teamDialog, setTeamDialog] = useState<{ source?: SessionRow } | undefined>();
   const [manageChannel, setManageChannel] = useState<TeamChannel | undefined>();
+  const [teamTerminalOpening, setTeamTerminalOpening] = useState(false);
+  const [teamTerminals, setTeamTerminals] = useState<TerminalDescriptor[]>([]);
+  const [teamTerminalsLoading, setTeamTerminalsLoading] = useState(false);
+  const [teamTerminalsError, setTeamTerminalsError] = useState<string>();
   const [messages, setMessages] = useState<NeuraMessage[]>([]);
   const [activities, setActivities] = useState<NeuraActivity[]>([]);
   const [approvals, setApprovals] = useState<NeuraApproval[]>([]);
@@ -276,6 +402,7 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
   const [queuedPrompts, setQueuedPrompts] = useState<QueuedPrompt[]>([]);
   const [composerSubmitting, setComposerSubmitting] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(initialUiState.sidebarOpen);
+  const [terminalSidebarOpen, setTerminalSidebarOpen] = useState(initialUiState.terminalSidebarOpen);
   const [mobileDrawer, setMobileDrawer] = useState(false);
   const [showArchived, setShowArchived] = useState(initialUiState.showArchived);
   const [creatingSession, setCreatingSession] = useState(false);
@@ -284,6 +411,8 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
   const [skillsLoaded, setSkillsLoaded] = useState(false);
   const [skillTrigger, setSkillTrigger] = useState<SkillTrigger | null>(null);
   const [skillMenuIndex, setSkillMenuIndex] = useState(0);
+  const [teamSkillTrigger, setTeamSkillTrigger] = useState<SkillTrigger | null>(null);
+  const [teamSkillMenuIndex, setTeamSkillMenuIndex] = useState(0);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const selectedKeyRef = useRef(selectedKey);
   const subscribedKeyRef = useRef<string | undefined>(undefined);
@@ -297,7 +426,9 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
   const progressSequence = useRef(0);
   const runIdRef = useRef(runId);
   const fileInput = useRef<HTMLInputElement>(null);
+  const attachmentObjectUrls = useRef(new Set<string>());
   const composerInput = useRef<HTMLTextAreaElement>(null);
+  const teamComposerInput = useRef<HTMLTextAreaElement>(null);
   const teamFileInput = useRef<HTMLInputElement>(null);
   const teamSocket = useRef<WebSocket | undefined>(undefined);
   const teamReconnect = useRef<number | undefined>(undefined);
@@ -485,6 +616,8 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
             if (Array.isArray(value.users)) setTeamDirectory(value.users as TeamDirectoryUser[]);
           } else if (value.type === "snapshot" && value.channelId === selectedChannelRef.current && Array.isArray(value.messages)) {
             setTeamMessages(value.messages as TeamMessage[]);
+            const run = value.agentRun as { status?: string } | undefined;
+            setTeamAgentPhase(teamAgentPhaseFromStatus(run?.status));
           } else if (value.type === "message.created" && value.channelId === selectedChannelRef.current && value.message) {
             const message = value.message as TeamMessage;
             setTeamMessages((current) => current.some((item) => item.id === message.id)
@@ -494,7 +627,7 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
             void refreshTeamChannels();
           } else if (value.type === "agent.status" && value.channelId === selectedChannelRef.current) {
             const run = value.run as { status?: string; error?: string } | undefined;
-            setTeamAgentBusy(run?.status === "queued" || run?.status === "running");
+            setTeamAgentPhase(teamAgentPhaseFromStatus(run?.status));
             if (run?.status === "queued" || run?.status === "running" || run?.status === "completed") setTeamAgentError(undefined);
             if (run?.status === "failed") setTeamAgentError(run.error ?? "Neura could not complete that Team Chat turn.");
           } else if (value.type === "typing" && value.channelId === selectedChannelRef.current && value.user) {
@@ -507,6 +640,7 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
             setTeamMessages([]);
             notify("You no longer have access to that Team Chat.");
           } else if (value.type === "error" && typeof value.message === "string") {
+            setTeamAgentPhase(undefined);
             notify(value.message);
           }
         };
@@ -536,7 +670,7 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
 
   useEffect(() => {
     setTeamTyping([]);
-    setTeamAgentBusy(false);
+    setTeamAgentPhase(undefined);
     if (!selectedChannelId) {
       setTeamMessages([]);
       setTeamMembers([]);
@@ -561,6 +695,38 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
     const sequence = teamMessages.at(-1)!.sequence;
     void teamChatApi.markRead(csrfToken, selectedChannelId, sequence).catch(() => undefined);
   }, [csrfToken, selectedChannelId, teamMessages]);
+
+  useEffect(() => {
+    if (!selectedChannelId) {
+      setTeamTerminals([]);
+      setTeamTerminalsError(undefined);
+      setTeamTerminalsLoading(false);
+      return;
+    }
+    let active = true;
+    const refresh = async (initial = false) => {
+      if (initial) setTeamTerminalsLoading(true);
+      try {
+        const sessions = await listTerminals();
+        if (!active || selectedChannelRef.current !== selectedChannelId) return;
+        setTeamTerminals(sessions
+          .filter((session) => session.teamChannel?.id === selectedChannelId)
+          .sort((left, right) => Number(right.status === "running") - Number(left.status === "running") || right.createdAt - left.createdAt));
+        setTeamTerminalsError(undefined);
+      } catch (error) {
+        if (!active) return;
+        setTeamTerminalsError(error instanceof Error ? error.message : "Channel terminals could not be loaded.");
+      } finally {
+        if (active && initial) setTeamTerminalsLoading(false);
+      }
+    };
+    void refresh(true);
+    const interval = window.setInterval(() => void refresh(), 4_000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [selectedChannelId]);
 
   useEffect(() => {
     if (connection !== "connected") return;
@@ -643,7 +809,7 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
       transcriptFollowFrame.current = undefined;
       if (transcriptPinnedToBottom.current) scrollToLatest();
     });
-  }, [activities, messages, scrollToLatest, selectedChannelId, selectedKey, teamMessages]);
+  }, [activities, messages, scrollToLatest, selectedChannelId, selectedKey, teamAgentPhase, teamMessages]);
 
   useEffect(() => {
     const content = messageContent.current;
@@ -657,11 +823,13 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
 
   useEffect(() => () => {
     if (transcriptFollowFrame.current !== undefined) cancelAnimationFrame(transcriptFollowFrame.current);
+    for (const url of attachmentObjectUrls.current) URL.revokeObjectURL(url);
+    attachmentObjectUrls.current.clear();
   }, []);
 
   useEffect(() => {
-    writeDeviceState(storageNamespace, storageArea, { selectedKey, selectedChannelId, sidebarOpen, showArchived } satisfies NeuraDeviceState);
-  }, [selectedKey, selectedChannelId, showArchived, sidebarOpen, storageArea, storageNamespace]);
+    writeDeviceState(storageNamespace, storageArea, { selectedKey, selectedChannelId, sidebarOpen, terminalSidebarOpen, showArchived } satisfies NeuraDeviceState);
+  }, [selectedKey, selectedChannelId, showArchived, sidebarOpen, storageArea, storageNamespace, terminalSidebarOpen]);
 
   function handleGatewayEvent(event: GatewayEvent) {
     const payload = eventRecord(event);
@@ -713,6 +881,16 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
           ? { ...message, activities: completedActivities }
           : message;
         setMessages((current) => reconcilePersistedMessage(current, enriched, persisted.runId));
+      }
+      if (persisted.messages.some((message) => message.attachments?.some((attachment) => attachment.artifactId))) {
+        void gateway.resolveMessageAttachments(persisted.sessionKey, persisted.messages).then((resolved) => {
+          if (persisted.sessionKey !== selectedKeyRef.current && persisted.sessionKey !== subscribedKeyRef.current) return;
+          const byId = new Map(resolved.map((message) => [message.id, message.attachments]));
+          setMessages((current) => current.map((message) => {
+            const attachments = byId.get(message.id);
+            return attachments ? { ...message, attachments } : message;
+          }));
+        }).catch(() => undefined);
       }
       if (runFinished && finalAssistantIndex < 0 && completedActivities.length) {
         setMessages((current) => [...current, { id: `activity:${persisted.runId}`, role: "assistant", text: "", activities: completedActivities }]);
@@ -774,9 +952,7 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
         });
         if (state === "error") {
           const rawError = recordString(payload, "errorMessage") ?? "Neura could not finish that request";
-          const displayError = /401|missing bearer|authentication/i.test(rawError)
-            ? "Neura is not signed in to its model provider yet. An administrator needs to complete OpenClaw model setup."
-            : rawError;
+          const displayError = modelProviderErrorMessage(rawError);
           setMessages((current) => current.some((message) => message.id === `error:${eventRunId}`)
             ? current
             : [...current, { id: `error:${eventRunId}`, role: "system", text: displayError }]);
@@ -799,18 +975,8 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
   const privateSessions = visibleSessions.filter((session) => session.visibility === "draft");
   const pinnedTeamChannels = teamChannels.filter((channel) => channel.pinned);
   const regularTeamChannels = teamChannels.filter((channel) => !channel.pinned);
-  const matchingSkills = useMemo(() => {
-    if (!skillTrigger) return [];
-    const query = skillTrigger.query.toLowerCase().replaceAll("_", "-");
-    return skills
-      .filter((skill) => !query || `${skill.key} ${skill.name}`.toLowerCase().replaceAll("_", "-").includes(query))
-      .sort((left, right) => {
-        const leftStarts = left.key.toLowerCase().startsWith(query) || left.name.toLowerCase().startsWith(query);
-        const rightStarts = right.key.toLowerCase().startsWith(query) || right.name.toLowerCase().startsWith(query);
-        return Number(rightStarts) - Number(leftStarts) || left.name.localeCompare(right.name);
-      })
-      .slice(0, 10);
-  }, [skillTrigger, skills]);
+  const matchingSkills = useMemo(() => matchingSkillSuggestions(skills, skillTrigger), [skillTrigger, skills]);
+  const matchingTeamSkills = useMemo(() => matchingSkillSuggestions(skills, teamSkillTrigger), [skills, teamSkillTrigger]);
 
   const createConversation = async () => {
     if (creatingSession) return;
@@ -838,6 +1004,20 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
   const chooseTeamChannel = (channelId: string) => {
     setSelectedKey(undefined);
     setSelectedChannelId(channelId);
+  };
+
+  const openTeamTerminal = async (session?: TerminalDescriptor) => {
+    if (!selectedChannel || !onOpenTeamTerminal || teamTerminalOpening) return;
+    setTeamTerminalOpening(true);
+    try {
+      const opened = await onOpenTeamTerminal(selectedChannel, session);
+      if (opened) {
+        setTeamTerminals((current) => [opened, ...current.filter((candidate) => candidate.id !== opened.id)]);
+        setTerminalSidebarOpen(true);
+      }
+    } finally {
+      setTeamTerminalOpening(false);
+    }
   };
 
   const createTeamChannel = async (input: { name: string; audience: "restricted" | "everyone"; memberIds: string[] }, source?: SessionRow) => {
@@ -976,6 +1156,7 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
     }
     transcriptPinnedToBottom.current = true;
     setShowJumpToLatest(false);
+    if (invokesTeamAgent(body)) setTeamAgentPhase("starting");
     socket.send(JSON.stringify({
       type: "post",
       channelId: selectedChannel.id,
@@ -986,6 +1167,7 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
     socket.send(JSON.stringify({ type: "typing", channelId: selectedChannel.id, active: false }));
     setTeamDraft("");
     setTeamAttachments([]);
+    setTeamSkillTrigger(null);
   };
 
   const handleTeamDraft = (value: string) => {
@@ -999,22 +1181,71 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
     }, 1_500);
   };
 
+  const syncTeamSkillTrigger = (value: string, caret: number) => {
+    setTeamSkillTrigger(skillTriggerAt(value, caret));
+    setTeamSkillMenuIndex(0);
+  };
+
+  const selectTeamSkillSuggestion = (skill: SkillSuggestion) => {
+    if (!teamSkillTrigger) return;
+    const before = teamDraft.slice(0, teamSkillTrigger.start);
+    const after = teamDraft.slice(teamSkillTrigger.end);
+    const command = skillCommand(skill);
+    const separator = after.length === 0 || !/^\s/.test(after) ? " " : "";
+    const next = `${before}${command}${separator}${after}`;
+    const nextCaret = before.length + command.length + separator.length;
+    handleTeamDraft(next);
+    setTeamSkillTrigger(null);
+    window.requestAnimationFrame(() => {
+      teamComposerInput.current?.focus();
+      teamComposerInput.current?.setSelectionRange(nextCaret, nextCaret);
+    });
+  };
+
+  const handleTeamComposerKey = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (teamSkillTrigger && matchingTeamSkills.length > 0) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const direction = event.key === "ArrowDown" ? 1 : -1;
+        setTeamSkillMenuIndex((current) => (current + direction + matchingTeamSkills.length) % matchingTeamSkills.length);
+        return;
+      }
+      if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
+        event.preventDefault();
+        selectTeamSkillSuggestion(matchingTeamSkills[teamSkillMenuIndex % matchingTeamSkills.length]);
+        return;
+      }
+    }
+    if (event.key === "Escape" && teamSkillTrigger) {
+      event.preventDefault();
+      setTeamSkillTrigger(null);
+      return;
+    }
+    if (event.key !== "Enter" || event.shiftKey) return;
+    event.preventDefault();
+    sendTeamMessage();
+  };
+
   const selectFiles = (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
     const accepted = files.filter((file) => file.size <= 15 * 1024 * 1024);
     if (accepted.length !== files.length) notify("Files must be 15 MB or smaller.");
-    setAttachments((current) => [...current, ...accepted.map((file) => ({
-      id: crypto.randomUUID(),
-      file,
-      previewUrl: file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined,
-    }))]);
+    const next = accepted.map((file) => {
+      const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
+      if (previewUrl) attachmentObjectUrls.current.add(previewUrl);
+      return { id: crypto.randomUUID(), file, previewUrl };
+    });
+    setAttachments((current) => [...current, ...next]);
     event.target.value = "";
   };
 
   const removeAttachment = (id: string) => {
     setAttachments((current) => {
       const match = current.find((attachment) => attachment.id === id);
-      if (match?.previewUrl) URL.revokeObjectURL(match.previewUrl);
+      if (match?.previewUrl) {
+        URL.revokeObjectURL(match.previewUrl);
+        attachmentObjectUrls.current.delete(match.previewUrl);
+      }
       return current.filter((attachment) => attachment.id !== id);
     });
   };
@@ -1051,7 +1282,6 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
         setRunId(result.runId);
       }
       setSessions((current) => current.map((session) => session.key === selected.key ? { ...session, active: true } : session));
-      for (const attachment of outgoing) if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
     } catch (error) {
       setMessages((current) => current.filter((item) => item.id !== localId));
       restoreComposer(message, outgoing);
@@ -1089,7 +1319,10 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
       updateQueuedPrompts((current) => current.map((prompt) => prompt.id === queuedId
         ? { ...prompt, runId: result.runId, status: "queued" }
         : prompt));
-      for (const attachment of outgoing) if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
+      for (const attachment of outgoing) if (attachment.previewUrl) {
+        URL.revokeObjectURL(attachment.previewUrl);
+        attachmentObjectUrls.current.delete(attachment.previewUrl);
+      }
     } catch (error) {
       updateQueuedPrompts((current) => current.filter((prompt) => prompt.id !== queuedId));
       restoreComposer(message, outgoing);
@@ -1268,8 +1501,8 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
       {mobileDrawer && <><button className="drawer-scrim" type="button" aria-label="Close history" onClick={() => setMobileDrawer(false)} />{sidebar}</>}
       <main className="neura-main">
         <header className="neura-toolbar">
-          <button type="button" className="sidebar-toggle" onClick={() => window.innerWidth <= 760 ? setMobileDrawer(true) : setSidebarOpen(true)} aria-label="Open conversation history">
-            {window.innerWidth <= 760 ? <Menu /> : <PanelLeftOpen />}
+          <button type="button" className="sidebar-toggle" onClick={() => appViewport.mobile ? setMobileDrawer(true) : setSidebarOpen(true)} aria-label="Open conversation history">
+            {appViewport.mobile ? <Menu /> : <PanelLeftOpen />}
           </button>
           <div>
             <strong>{creatingSession ? "New conversation" : selectedChannel ? `# ${selectedChannel.name}` : selected?.title ?? "Neura"}</strong>
@@ -1281,7 +1514,9 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
                 : connection === "connected" ? selected && !sessionReady ? "Syncing conversation" : "Connected through OpenClaw" : connection}
             </span>
           </div>
-          {selectedChannel && selectedChannel.canManage && selectedChannel.audience === "restricted" && <button type="button" className="team-members-button" onClick={() => void openMemberManager(selectedChannel)}><Users />{teamMembers.length || selectedChannel.memberCount}</button>}
+          {selectedChannel?.canManage && selectedChannel.audience === "restricted" && <div className="team-toolbar-actions">
+            {selectedChannel.canManage && selectedChannel.audience === "restricted" && <button type="button" className="team-members-button" onClick={() => void openMemberManager(selectedChannel)}><Users />{teamMembers.length || selectedChannel.memberCount}</button>}
+          </div>}
         </header>
 
         <div className="message-stage">
@@ -1308,15 +1543,16 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
               {message.role === "assistant" && <div className="message-avatar">N</div>}
               <div className="message-body">
                 <span className="message-author">{message.role === "assistant" ? "Neura" : message.role === "user" ? "You" : "System"}</span>
-                {message.attachments && <div className="message-attachments">{message.attachments.map((attachment) => attachment.url
-                  ? <img key={attachment.name} src={attachment.url} alt={attachment.name} />
-                  : <span key={attachment.name}><Paperclip />{attachment.name}</span>)}</div>}
+                {message.attachments && message.attachments.length > 0 && <MessageAttachments attachments={message.attachments} />}
                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
                   a: ({ href, children }) => {
-                    const preview = message.role === "assistant" ? neuraWebsitePreviewFile(href, message.text) : undefined;
-                    if (preview) return <button type="button" className="message-preview-link" onClick={() => onPreviewFile ? onPreviewFile(preview) : notify("The desktop Preview app is unavailable.")} title="Open in desktop Preview">{children}</button>;
-                    return <a href={href} target="_blank" rel="noreferrer">{children}</a>;
+                    const websitePreview = message.role === "assistant" ? neuraWebsitePreviewFile(href, message.text) : undefined;
+                    if (websitePreview) return <button type="button" className="message-preview-link" onClick={() => onPreviewFile ? onPreviewFile(websitePreview) : notify("The desktop Preview app is unavailable.")} title="Open in desktop Preview">{children}</button>;
+                    const target = message.role === "assistant" ? resolveNeuraMessageLink(href, message.text) : href;
+                    const preview = target !== href;
+                    return <a href={target} target="_blank" rel="noreferrer" title={preview ? "Open website preview" : undefined}>{children}</a>;
                   },
+                  img: ({ src, alt }) => <img className="message-markdown-image" src={message.role === "assistant" ? resolveNeuraMessageImage(src) : src} alt={alt ?? "Shared image"} loading="lazy" />,
                 }}>{message.text}</ReactMarkdown>
                 {message.activities && message.activities.length > 0 && <NeuraActivityTimeline activities={message.activities} />}
                 {message.pending && <span className="typing-cursor" aria-label="Neura is responding" />}
@@ -1324,29 +1560,41 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
             </article>
           ))}
           {selectedChannel && teamMessages.length === 0 && (
-            <div className="neura-welcome compact"><div className="neura-orb"><Hash /></div><h1>#{selectedChannel.name}</h1><p>{selectedChannel.audience === "everyone" ? "Everyone with Neural Labs access can join this conversation." : "This is a private channel for invited teammates."} Type <strong>$Neura</strong> when you want the agent to join in.</p></div>
+            <div className="neura-welcome compact"><div className="neura-orb"><Hash /></div><h1>#{selectedChannel.name}</h1><p>{selectedChannel.audience === "everyone" ? "Everyone with Neural Labs access can join this conversation." : "This is a private channel for invited teammates."} Type <strong>@Neura</strong> when you want the agent to join in.</p></div>
           )}
           {selectedChannel && teamMessages.map((message) => {
             const neura = message.authorKind === "neura" || message.authorKind === "imported_neura";
             const system = message.authorKind === "system";
+            const presentation = teamMessagePresentation(message, currentUser.id);
             const author = neura ? "Neura" : system ? "System" : message.author?.displayName ?? "Former teammate";
-            return <article className={`message team-message message-${neura ? "assistant" : system ? "system" : "user"}`} key={message.id}>
+            return <article className={`message team-message message-${presentation}`} key={message.id}>
               {neura && <div className="message-avatar">N</div>}
               <div className="message-body">
                 <span className="message-author">{author}{message.author && <small>@{message.author.handle}</small>}</span>
-                {message.attachments.length > 0 && <div className="team-message-attachments">{message.attachments.map((attachment) => <a key={attachment.path} href={workspaceDownloadUrl(attachment.path)} download><Paperclip />{attachment.name}<small>{attachment.size ? `${Math.max(1, Math.round(attachment.size / 1024))} KB` : "Workspace file"}</small></a>)}</div>}
+                {message.attachments.length > 0 && <MessageAttachments attachments={message.attachments} className="message-attachments team-message-attachments" />}
                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
                   a: ({ href, children }) => {
-                    const preview = neura ? neuraWebsitePreviewFile(href, message.body) : undefined;
-                    if (preview) return <button type="button" className="message-preview-link" onClick={() => onPreviewFile ? onPreviewFile(preview) : notify("The desktop Preview app is unavailable.")} title="Open in desktop Preview">{children}</button>;
-                    return <a href={href} target="_blank" rel="noreferrer">{children}</a>;
+                    const websitePreview = neura ? neuraWebsitePreviewFile(href, message.body) : undefined;
+                    if (websitePreview) return <button type="button" className="message-preview-link" onClick={() => onPreviewFile ? onPreviewFile(websitePreview) : notify("The desktop Preview app is unavailable.")} title="Open in desktop Preview">{children}</button>;
+                    return <a href={neura ? resolveNeuraMessageLink(href, message.body) : href} target="_blank" rel="noreferrer">{children}</a>;
                   },
+                  img: ({ src, alt }) => <img className="message-markdown-image" src={neura ? resolveNeuraMessageImage(src) : src} alt={alt ?? "Shared image"} loading="lazy" />,
                 }}>{message.body}</ReactMarkdown>
                 {(message.activities?.length ?? 0) > 0 && <NeuraActivityTimeline activities={message.activities!.map((activity, index) => ({ ...activity, id: `${message.id}:${index}`, sessionKey: `team:${message.channelId}`, runId: message.agentRunId }))} />}
                 <time dateTime={message.createdAt}>{new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(message.createdAt))}</time>
               </div>
             </article>;
           })}
+          {selectedChannel && teamAgentPhase && <article className="message team-agent-loader message-assistant" role="status" aria-label={teamAgentPhase === "starting" ? "Neura is starting" : "Neura is working"}>
+            <div className="message-avatar">N</div>
+            <div className="message-body">
+              <span className="message-author">Neura</span>
+              <div className="team-agent-loader-status">
+                <span className="activity-spinner" aria-hidden="true" />
+                <span><strong>{teamAgentPhase === "starting" ? "Starting Neura…" : "Neura is working…"}</strong><small>{teamAgentPhase === "starting" ? "Preparing your personal agent for this team channel." : "Work continues even if you leave this channel or the app reconnects."}</small></span>
+              </div>
+            </div>
+          </article>}
           {!selectedChannel && activities.length > 0 && <NeuraActivityTimeline activities={activities} live={agentBusy} />}
           </>}
           </div>
@@ -1356,26 +1604,55 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
 
         {!creatingSession && selectedChannel && (
           <footer className="neura-composer-area team-composer-area">
-            {(teamAgentBusy || teamTyping.length > 0) && <div className="team-presence" role="status">
-              {teamAgentBusy && <span><span className="activity-spinner" />Neura is working…</span>}
+            {teamTyping.length > 0 && <div className="team-presence" role="status">
               {teamTyping.length > 0 && <span>{teamTyping.map((user) => `@${user.handle}`).join(", ")} {teamTyping.length === 1 ? "is" : "are"} typing…</span>}
             </div>}
             <div className="composer-shell">
-              {teamAttachments.length > 0 && <div className="composer-attachments">{teamAttachments.map((attachment) => <div key={attachment.path}><Paperclip /><span>{attachment.name}</span><button type="button" onClick={() => setTeamAttachments((current) => current.filter((item) => item.path !== attachment.path))} aria-label={`Remove ${attachment.name}`}><X /></button></div>)}</div>}
+              {teamSkillTrigger && <div className="skill-mention-menu" id="team-skill-suggestions" role="listbox" aria-label="Available Team Chat skills">
+                <div className="skill-mention-menu__heading" role="presentation"><strong>Skills</strong><span>Type to filter · Enter to add</span></div>
+                {!skillsLoaded && <p className="skill-mention-menu__empty">Loading skills…</p>}
+                {skillsLoaded && matchingTeamSkills.length === 0 && <p className="skill-mention-menu__empty">No matching enabled skills</p>}
+                {matchingTeamSkills.map((skill, index) => (
+                  <button
+                    type="button"
+                    role="option"
+                    id={`team-skill-option-${index}`}
+                    aria-selected={index === teamSkillMenuIndex}
+                    className={index === teamSkillMenuIndex ? "is-selected" : ""}
+                    key={skill.key}
+                    onMouseEnter={() => setTeamSkillMenuIndex(index)}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => selectTeamSkillSuggestion(skill)}
+                  >
+                    <span className="skill-mention-menu__mark">$</span>
+                    <span className="skill-mention-menu__copy"><strong>{skill.name}</strong><small>{skill.description}</small></span>
+                    <code>{skillCommand(skill)}</code>
+                  </button>
+                ))}
+              </div>}
+              {teamAttachments.length > 0 && <div className="composer-attachments">{teamAttachments.map((attachment) => <div key={attachment.path}>{isImageAttachment({ name: attachment.name, type: attachment.type ?? "" }) ? <img src={workspaceContentUrl(attachment.path)} alt="" /> : <Paperclip />}<span>{attachment.name}</span><button type="button" onClick={() => setTeamAttachments((current) => current.filter((item) => item.path !== attachment.path))} aria-label={`Remove ${attachment.name}`}><X /></button></div>)}</div>}
               <div className="composer-row">
                 <input ref={teamFileInput} type="file" multiple hidden onChange={(event) => void selectTeamFiles(event)} />
                 <button type="button" className="attach-button" disabled={teamConnection !== "connected"} onClick={() => teamFileInput.current?.click()} aria-label="Attach workspace files"><Paperclip /></button>
                 <textarea
+                  ref={teamComposerInput}
                   value={teamDraft}
-                  onChange={(event) => handleTeamDraft(event.target.value)}
-                  onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendTeamMessage(); } }}
+                  onChange={(event) => { handleTeamDraft(event.target.value); syncTeamSkillTrigger(event.target.value, event.target.selectionStart); }}
+                  onClick={(event) => syncTeamSkillTrigger(event.currentTarget.value, event.currentTarget.selectionStart)}
+                  onBlur={() => window.setTimeout(() => setTeamSkillTrigger(null), 100)}
+                  onKeyDown={handleTeamComposerKey}
                   rows={1}
-                  placeholder={`Message #${selectedChannel.name} · $Neura calls the agent`}
+                  placeholder={`Message #${selectedChannel.name} · $ lists skills`}
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-controls={teamSkillTrigger ? "team-skill-suggestions" : undefined}
+                  aria-expanded={Boolean(teamSkillTrigger)}
+                  aria-activedescendant={teamSkillTrigger && matchingTeamSkills.length > 0 ? `team-skill-option-${teamSkillMenuIndex % matchingTeamSkills.length}` : undefined}
                 />
                 <button type="button" className="send-button" onClick={sendTeamMessage} disabled={teamConnection !== "connected" || !teamDraft.trim() && teamAttachments.length === 0} aria-label="Send Team Chat message"><Send /></button>
               </div>
             </div>
-            <p className="composer-hint">Enter to send · Shift+Enter for a new line · $Neura invites the agent · @handle mentions a teammate</p>
+            <p className="composer-hint">Enter to send · Shift+Enter for a new line · $ lists and calls skills · @Neura invites the agent · @handle mentions a teammate</p>
           </footer>
         )}
 
@@ -1469,6 +1746,19 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
           </footer>
         )}
       </main>
+      {selectedChannel && <TeamTerminalSidebar
+        channel={selectedChannel}
+        members={teamMembers}
+        sessions={teamTerminals}
+        expanded={terminalSidebarOpen}
+        loading={teamTerminalsLoading}
+        error={teamTerminalsError}
+        creating={teamTerminalOpening}
+        disabled={!onOpenTeamTerminal}
+        onExpandedChange={setTerminalSidebarOpen}
+        onCreate={() => void openTeamTerminal()}
+        onOpen={(session) => void openTeamTerminal(session)}
+      />}
       {teamDialog && <TeamChannelDialog
         source={teamDialog.source}
         users={teamDirectory}
@@ -1485,6 +1775,74 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
       />}
     </div>
   );
+}
+
+export function TeamTerminalSidebar({ channel, members, sessions, expanded, loading, error, creating, disabled, onExpandedChange, onCreate, onOpen }: {
+  channel: Pick<TeamChannel, "id" | "name" | "memberCount">;
+  members: TeamDirectoryUser[];
+  sessions: TerminalDescriptor[];
+  expanded: boolean;
+  loading: boolean;
+  error?: string;
+  creating: boolean;
+  disabled: boolean;
+  onExpandedChange: (expanded: boolean) => void;
+  onCreate: () => void;
+  onOpen: (session: TerminalDescriptor) => void;
+}) {
+  const activeCount = sessions.filter((session) => session.status === "running").length;
+  return <aside className={`team-terminal-sidebar${expanded ? " is-expanded" : " is-collapsed"}`} aria-label={`Terminals for #${channel.name}`}>
+    {!expanded ? <>
+      <button type="button" className="team-terminal-rail-toggle" onClick={() => onExpandedChange(true)} aria-label={`Show terminals for #${channel.name}`} title="Channel terminals">
+        <TerminalSquare />
+        {activeCount > 0 && <span aria-label={`${activeCount} active terminal${activeCount === 1 ? "" : "s"}`}>{activeCount}</span>}
+      </button>
+      <button type="button" className="team-terminal-rail-create" onClick={onCreate} disabled={disabled || creating} aria-label={`Start a new terminal for #${channel.name}`} title="New channel terminal"><Plus /></button>
+      {activeCount > 0 && <i className="team-terminal-rail-live" title="A channel terminal is active" />}
+    </> : <>
+      <header className="team-terminal-sidebar__header">
+        <div className="team-terminal-sidebar__title"><span><TerminalSquare /></span><div><strong>Channel terminals</strong><small>#{channel.name}</small></div></div>
+        <div className="team-terminal-sidebar__actions">
+          <button type="button" onClick={onCreate} disabled={disabled || creating} aria-label={`Start a new terminal for #${channel.name}`} title="New channel terminal">{creating ? <span className="activity-spinner" /> : <Plus />}</button>
+          <button type="button" onClick={() => onExpandedChange(false)} aria-label="Collapse channel terminals" title="Collapse"><PanelRightClose /></button>
+        </div>
+      </header>
+      <div className="team-terminal-sidebar__summary">
+        <span><i className={activeCount > 0 ? "is-live" : ""} />{activeCount > 0 ? `${activeCount} active` : "No active sessions"}</span>
+        <small>{sessions.length} total</small>
+      </div>
+      <div className="team-terminal-channel-members">
+        <span className="team-terminal-avatars" aria-label={`${channel.memberCount} Team Chat member${channel.memberCount === 1 ? "" : "s"}`}>
+          {members.slice(0, 5).map((member) => <i key={member.id} title={`${member.displayName} (@${member.handle})`}>{personInitials(member.displayName)}</i>)}
+          {channel.memberCount > 5 && <i className="is-more">+{channel.memberCount - 5}</i>}
+        </span>
+        <span><strong>{channel.memberCount} members</strong><small>Can discover and join</small></span>
+      </div>
+      <div className="team-terminal-sidebar__sessions">
+        {loading && sessions.length === 0 && <div className="team-terminal-sidebar__empty" role="status"><span className="activity-spinner" /><strong>Checking terminals…</strong></div>}
+        {!loading && error && sessions.length === 0 && <div className="team-terminal-sidebar__empty is-error"><TerminalSquare /><strong>Terminals unavailable</strong><small>{error}</small></div>}
+        {!loading && !error && sessions.length === 0 && <div className="team-terminal-sidebar__empty"><TerminalSquare /><strong>No terminal sessions yet</strong><small>Start one to work together from this channel.</small><button type="button" onClick={onCreate} disabled={disabled || creating}><Plus />Start terminal</button></div>}
+        {sessions.map((session) => <button type="button" className={`team-terminal-session${session.status === "running" ? " is-active" : " is-ended"}`} onClick={() => onOpen(session)} disabled={creating} key={session.id} aria-label={`Open terminal ${session.title}`}>
+          <span className="team-terminal-session__status"><i /><strong>{session.status === "running" ? "Active" : "Ended"}</strong><time>{relativeTime(session.lastActivityAt || session.createdAt)}</time></span>
+          <span className="team-terminal-session__name">{session.title}</span>
+          <span className="team-terminal-session__meta"><code>{session.shell}</code><small>Started by {session.owner.label}</small></span>
+          <span className="team-terminal-session__people">
+            <span className="team-terminal-avatars" aria-label={`${session.participants.length} connected member${session.participants.length === 1 ? "" : "s"}`}>
+              {session.participants.slice(0, 4).map((participant) => <i key={participant.id} title={participant.label}>{personInitials(participant.label)}</i>)}
+              {session.participants.length > 4 && <i className="is-more">+{session.participants.length - 4}</i>}
+            </span>
+            <small>{session.participants.length > 0 ? `${session.participants.length} connected` : "No one connected"}</small>
+          </span>
+        </button>)}
+      </div>
+      <footer><PanelRightOpen /><span>Only members of this Team Chat can discover and join these terminals.</span></footer>
+    </>}
+  </aside>;
+}
+
+function personInitials(label: string): string {
+  const parts = label.trim().split(/\s+/).filter(Boolean);
+  return (parts.length > 1 ? `${parts[0][0]}${parts.at(-1)?.[0] ?? ""}` : label.slice(0, 2)).toUpperCase();
 }
 
 function NeuraSessionLoader({ stage }: { stage: "creating" | "connecting" }) {

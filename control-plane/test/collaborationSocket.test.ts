@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { WebSocket } from "ws";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { CollaborationStore, TeamMessage } from "../src/collaboration.js";
+import { invokesTeamAgent, type CollaborationStore, type TeamMessage } from "../src/collaboration.js";
 import { CollaborationSocketHub } from "../src/collaborationSocket.js";
 import type { UserRecord } from "../src/types.js";
 
@@ -48,6 +48,14 @@ function nextMessage(socket: WebSocket): Promise<Record<string, unknown>> {
 }
 
 describe("Team Chat WebSocket", () => {
+  it("treats @Neura and dollar skill commands as invocations without matching currency", () => {
+    expect(invokesTeamAgent("@Neura summarize this")).toBe(true);
+    expect(invokesTeamAgent("Can you check this, @neura?")).toBe(true);
+    expect(invokesTeamAgent("Use $deep-research on this question")).toBe(true);
+    expect(invokesTeamAgent("$Neura is no longer the agent mention")).toBe(false);
+    expect(invokesTeamAgent("Budget: $500")).toBe(false);
+  });
+
   it("requires an exact same-origin, one-use ticket and returns a membership-scoped snapshot", async () => {
     const ticket = "t".repeat(48);
     let ticketAvailable = true;
@@ -63,6 +71,15 @@ describe("Team Chat WebSocket", () => {
         if (requestedChannelId !== channelId) throw new Error("unexpected channel");
         return [message];
       }),
+      activeRun: vi.fn(async () => ({
+        id: "44444444-4444-4444-8444-444444444444",
+        channelId,
+        triggerMessageId: message.id,
+        status: "running" as const,
+        requestedBy: actor.id,
+        activities: [],
+        createdAt: "2026-09-01T12:00:01.000Z",
+      })),
       canUserAccess: vi.fn(async () => true),
     } as unknown as CollaborationStore;
     const hub = new CollaborationSocketHub(store, vi.fn());
@@ -88,6 +105,7 @@ describe("Team Chat WebSocket", () => {
         type: "snapshot",
         channelId,
         messages: [{ id: message.id, body: "Hello team" }],
+        agentRun: { channelId, status: "running" },
       });
 
       const reused = new WebSocket(socketUrl, { origin });

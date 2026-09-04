@@ -31,6 +31,11 @@ export type WorkspacePreviewFile = {
   mimeType: string;
 };
 
+export type WorkspaceVsCodeTarget = {
+  path: string;
+  type: "file" | "folder";
+};
+
 const PREVIEWABLE_EXTENSIONS = new Set([
   "aac", "avif", "bmp", "csv", "flac", "gif", "htm", "html", "ico", "jpeg", "jpg", "m4a", "m4v", "mov",
   "mp3", "mp4", "oga", "ogg", "ogv", "pdf", "png", "svg", "wav", "webm", "webp", "xlsx",
@@ -140,6 +145,14 @@ export function workspaceDownloadUrl(path: string): string {
 
 export function workspaceContentUrl(path: string): string {
   return `/workspace/api/files/content?${pathQuery(path)}`;
+}
+
+export function openWorkspaceInVsCode(path: string) {
+  return requestJson<{ opened: WorkspaceVsCodeTarget }>("/workspace/api/vscode/open", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
 }
 
 export function createWorkspaceWebsitePreview(path: string) {

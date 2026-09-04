@@ -15,18 +15,35 @@ Open Neura and use the **Team chats** section in the conversation sidebar.
   approved later.
 - Use `@handle` to mention a channel member. Each user can edit their unique
   handle in Settings → Personalization.
-- Use `$Neura` in a message to ask Neura to join the channel turn through the
-  message author's personal OpenAI account. The author first connects that
-  account in Settings → Personalization. An ordinary mention such as
-  `@salvador` does not invoke the agent.
-- Attachments are uploaded into the shared workspace under `team-uploads/` and
-  the channel message stores a reference to the file. The shared Files app can
+- Type `$` to open the same enabled-skill picker used in a private Neura chat.
+  Sending a `$skill-name` command asks Neura to run that skill through the
+  message author's personal OpenAI account. Use `@Neura` for a general request;
+  `$Neura` is not an agent mention. The author first connects that account in Settings →
+  Personalization. An ordinary mention such as `@salvador` does not invoke the
+  agent.
+- Images appear as embedded previews, while other attachments appear as
+  download cards. User attachments are uploaded into the shared workspace under
+  `team-uploads/`, and Neura can attach files it generated in the workspace.
+  The channel message stores a reference to the file. The shared Files app can
   therefore also see these files; channel membership is not a file ACL in V1.
+- Use the collapsed terminal rail on the right to see whether the channel has
+  active terminals. Expand it to see session status, channel-member bubbles,
+  and currently connected terminal participants. The plus action starts another
+  channel terminal; selecting a card joins that exact session. Restricted-channel
+  terminals are visible and joinable only by current channel members;
+  Everyone-channel terminals follow the active-user audience. The browser never
+  supplies or widens the terminal member list.
 
 Messages, typing indicators, membership changes, agent status, unread counts,
 and mentions update live over the authenticated Team Chat WebSocket. A lost
 connection is retried automatically. Draft text remains in the composer while
 the socket reconnects, and sending is disabled until live delivery is restored.
+When a Neura turn is queued, the transcript immediately shows a starting row;
+it changes to a working row when execution begins. The run is owned by the
+server, continues if the author switches channels, closes the browser, or is
+inactive, and is restored in the channel snapshot after reconnecting. A single
+turn may work for up to 10 minutes, exceeding the five-minute inactivity window,
+before the execution timeout ends it.
 
 ## Membership and channel management
 
@@ -48,17 +65,18 @@ the archive. A source conversation can be shared only once by its creator.
 
 ## Neura execution path
 
-`$Neura` queues a durable agent-run record and issues a random, short-lived
-capability. Only a hash of that capability is stored in PostgreSQL. The control
-plane sends the recent channel transcript and the run capability to the
-workspace's authenticated internal runner. The runner starts a headless
-OpenClaw execution on the message author's personal agent in the shared
-workspace. A missing, paused, or expired personal account fails the turn rather
-than falling back to the automation service account.
+`@Neura` or a `$skill-name` command queues a durable agent-run record and issues
+a random, short-lived capability. Only a hash of that capability is stored in
+PostgreSQL. The control plane sends the recent channel transcript and the run
+capability to the workspace's authenticated internal runner. The runner starts
+a headless OpenClaw execution on the message author's personal agent in the
+shared workspace. A missing, paused, or expired personal account fails the turn
+rather than falling back to the automation service account.
 
 For that process only, OpenClaw receives an MCP server configuration whose
 authorization header comes from the run capability. The built-in MCP surface
-can inspect channel metadata, read the current channel, and post as Neura. It
+can inspect channel metadata, read the current channel, and post as Neura with
+shared-workspace file references. It
 cannot select or access another channel. Neura receives up to 250 recent
 messages plus bounded, redacted plans, commands, file operations, and tool
 results from earlier Neura turns as handoff context. The same public work

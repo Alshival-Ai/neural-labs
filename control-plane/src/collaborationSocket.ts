@@ -133,12 +133,15 @@ export class CollaborationSocketHub {
     try {
       const event = parsed.data;
       if (event.type === "subscribe") {
-        const messages = await this.store.listMessages(socket.actor, event.channelId, undefined, TEAM_CHAT_LIMITS.messagesPerPage);
+        const [messages, agentRun] = await Promise.all([
+          this.store.listMessages(socket.actor, event.channelId, undefined, TEAM_CHAT_LIMITS.messagesPerPage),
+          this.store.activeRun(socket.actor, event.channelId),
+        ]);
         if (socket.channelId && socket.channelId !== event.channelId) {
           this.broadcastTyping(socket, socket.channelId, false);
         }
         socket.channelId = event.channelId;
-        send(socket, { type: "snapshot", channelId: event.channelId, messages });
+        send(socket, { type: "snapshot", channelId: event.channelId, messages, agentRun });
         return;
       }
       if (event.type === "typing") {

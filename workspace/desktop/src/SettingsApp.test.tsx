@@ -50,6 +50,20 @@ const mcp = {
   tools: ["google_places_search", "google_geocode_address", "search_gif", "pexels_search_photos"],
 };
 
+const plugins = {
+  plugins: [{
+    id: "neural-labs-tools",
+    name: "Neural Labs Tools",
+    description: "Private provider tools attached automatically to shared workspace agents.",
+    type: "mcp",
+    scope: "global",
+    ownership: "system",
+    editable: false,
+    ready: true,
+    mcp,
+  }],
+};
+
 const overview = {
   counts: { pending: 1, active: 1, activeAdmins: 1, inactive: 0 },
   authentication: { localEnabled: true, microsoftEnabled: true, microsoftAvailable: true, microsoftSource: "environment" },
@@ -94,6 +108,7 @@ beforeEach(() => {
     }
     if (url === "/api/admin/authentication" && method === "GET") return json(authentication);
     if (url === "/api/admin/authentication" && method === "PUT") return json({ ...authentication, localAuthEnabled: false, updatedAt: "2026-09-01T12:01:00.000Z" });
+    if (url === "/api/plugins" && method === "GET") return json(plugins);
     if (url === "/api/admin/mcp" && method === "GET") return json(mcp);
     if (url === "/api/workspace") return json(workspace);
     if (url === "/api/admin/workspace/provider" && method === "GET") return json(providerPairingStarted
@@ -114,7 +129,7 @@ afterEach(() => {
 });
 
 describe("Settings app", () => {
-  it("shows only Personalization to members without requesting admin data", async () => {
+  it("shows Personalization and Plugins to members without requesting admin data", async () => {
     const member = { ...admin, role: "user" as const, status: "active" as const, providers: ["local" as const] };
     render(<SettingsApp administrator={false} csrfToken="csrf-token" currentUserId={member.id} user={member} providers={["local"]} fontScale={100} onFontScaleChange={vi.fn()} onLogout={vi.fn()} />);
 
@@ -122,6 +137,11 @@ describe("Settings app", () => {
     expect(screen.getByText("Personal", { selector: ".settings-toolbar__scope" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Overview/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Users/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Plugins/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Plugins/ }));
+    expect(await screen.findByRole("heading", { name: "Neural Labs Tools" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Add plugin" }));
+    expect(screen.getByRole("button", { name: /^Global plugin/ })).toBeDisabled();
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/auth/providers", expect.anything()));
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).startsWith("/api/admin/"))).toBe(false);
   });
@@ -148,7 +168,7 @@ describe("Settings app", () => {
     expect(await screen.findByText("New Developer was updated.")).toBeInTheDocument();
   });
 
-  it("persists authentication changes and reports the workspace-local MCP", async () => {
+  it("persists authentication changes and presents the workspace MCP as a locked global plugin", async () => {
     const { unmount } = render(<SettingsApp csrfToken="csrf-token" currentUserId={admin.id} initialSection="authentication" />);
     const localLogin = await screen.findByRole("checkbox", { name: /Local login/ });
     fireEvent.click(localLogin);
@@ -159,14 +179,21 @@ describe("Settings app", () => {
     ));
 
     unmount();
-    render(<SettingsApp csrfToken="csrf-token" currentUserId={admin.id} initialSection="mcp" />);
+    render(<SettingsApp csrfToken="csrf-token" currentUserId={admin.id} initialSection="plugins" />);
+    expect(await screen.findByRole("heading", { name: "Plugins" })).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Neural Labs Tools" })).toBeInTheDocument();
-    expect(screen.getByText("All shared workspace agents")).toBeInTheDocument();
+    expect(screen.getByText(/cannot be edited, disconnected, or removed/)).toBeInTheDocument();
+    expect(screen.getByText("Global · all members")).toBeInTheDocument();
     expect(screen.getByText("google_geocode_address")).toBeInTheDocument();
     expect(screen.getByText("Public access").parentElement).toHaveTextContent("Disabled");
     expect(screen.queryByText("Public endpoints")).not.toBeInTheDocument();
     expect(screen.queryByText("Microsoft Entra OAuth")).not.toBeInTheDocument();
     expect(vi.mocked(fetch).mock.calls.some(([url, init]) => String(url) === "/api/admin/mcp" && init?.method === "PUT")).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Add plugin" }));
+    expect(screen.getByRole("heading", { name: "Add a plugin" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "MCP server" })).toBeInTheDocument();
+    expect(screen.getByText(/will not accept server URLs or credentials/)).toBeInTheDocument();
   });
 
   it("starts workspace-owned ChatGPT pairing", async () => {

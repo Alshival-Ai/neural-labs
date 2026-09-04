@@ -339,7 +339,7 @@ export function PersonalizationPanel({ user, providers: initialProviders, csrfTo
 
       <section className="settings-card user-settings-card user-settings-openai-card">
         <div className="user-settings-card__heading">
-          <div><span>Neura</span><h3>Your ChatGPT account</h3><p>Private chats and your $Neura calls in Team Chat run with your own account.</p></div>
+          <div><span>Neura</span><h3>Your ChatGPT account</h3><p>Private chats and your @Neura calls in Team Chat run with your own account.</p></div>
           <Bot />
         </div>
         <div className="user-settings-openai-status">

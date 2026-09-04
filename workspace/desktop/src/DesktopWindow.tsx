@@ -2,6 +2,7 @@ import { Minus, PanelTopOpen, PictureInPicture2, Square, X } from "lucide-react"
 import { type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { AppViewportProvider, appViewportForWidth } from "./appViewport";
 import { readDeviceState, writeDeviceState } from "./deviceState";
 import { clampBounds, initialBounds, moveBounds, resizeBounds, type Bounds, type ResizeEdge } from "./windowGeometry";
 
@@ -63,15 +64,19 @@ export function DesktopWindow({ title, icon, children, onMinimize, onClose, onAc
   const [bounds, setBounds] = useState(initial.bounds);
   const [maximized, setMaximized] = useState(controls === "all" && initial.maximized);
   const [narrow, setNarrow] = useState(() => window.innerWidth <= 760);
+  const [browserWidth, setBrowserWidth] = useState(() => (popoutContainer?.ownerDocument.defaultView ?? window).innerWidth);
   const [portalHost] = useState(() => {
     const host = document.createElement("div");
     host.className = "desktop-window-host";
     return host;
   });
   const inlineContainer = useRef<HTMLDivElement>(null);
+  const windowElement = useRef<HTMLElement>(null);
   const restoreBounds = useRef(bounds);
   const maximizedChange = useRef(onMaximizedChange);
+  const activateWindow = useRef(onActivate);
   maximizedChange.current = onMaximizedChange;
+  activateWindow.current = onActivate;
   const poppedOut = Boolean(popoutContainer);
 
   useLayoutEffect(() => {
@@ -86,6 +91,7 @@ export function DesktopWindow({ title, icon, children, onMinimize, onClose, onAc
   useEffect(() => {
     const browserWindow = popoutContainer?.ownerDocument.defaultView ?? window;
     const handleResize = () => {
+      setBrowserWidth(browserWindow.innerWidth);
       setNarrow(browserWindow.innerWidth <= 760);
       if (!popoutContainer) setBounds((current) => clampBounds(current, browserWindow.innerWidth, browserWindow.innerHeight));
     };
@@ -101,6 +107,78 @@ export function DesktopWindow({ title, icon, children, onMinimize, onClose, onAc
   useEffect(() => {
     maximizedChange.current?.(maximized && !narrow && !poppedOut);
   }, [maximized, narrow, poppedOut]);
+
+  useEffect(() => {
+    const surface = windowElement.current;
+    if (!surface || !activateWindow.current) return;
+    const frameCleanups = new Map<HTMLIFrameElement, () => void>();
+    const activate = () => activateWindow.current?.();
+    const attachFrame = (frame: HTMLIFrameElement) => {
+      if (frameCleanups.has(frame)) return;
+      let detachInner = () => {};
+      const attachInner = () => {
+        detachInner();
+        detachInner = () => {};
+        try {
+          const frameWindow = frame.contentWindow;
+          const frameDocument = frame.contentDocument;
+          if (!frameWindow || !frameDocument) return;
+          frameWindow.addEventListener("pointerdown", activate, true);
+          frameWindow.addEventListener("focus", activate, true);
+          frameDocument.addEventListener("focusin", activate, true);
+          detachInner = () => {
+            frameWindow.removeEventListener("pointerdown", activate, true);
+            frameWindow.removeEventListener("focus", activate, true);
+            frameDocument.removeEventListener("focusin", activate, true);
+          };
+        } catch {
+          // Cross-origin frames are covered by the outer focus/blur fallback.
+        }
+      };
+      frame.addEventListener("focus", activate);
+      frame.addEventListener("load", attachInner);
+      attachInner();
+      frameCleanups.set(frame, () => {
+        detachInner();
+        frame.removeEventListener("focus", activate);
+        frame.removeEventListener("load", attachInner);
+      });
+    };
+    const syncFrames = () => {
+      const currentFrames = new Set(surface.querySelectorAll("iframe"));
+      for (const [frame, cleanup] of frameCleanups) {
+        if (currentFrames.has(frame)) continue;
+        cleanup();
+        frameCleanups.delete(frame);
+      }
+      for (const frame of currentFrames) attachFrame(frame);
+    };
+    const detectFocusedFrame = () => {
+      const focused = surface.ownerDocument.activeElement;
+      if (focused?.tagName === "IFRAME" && surface.contains(focused)) activate();
+    };
+    const ownerWindow = surface.ownerDocument.defaultView;
+    const detectAfterBlur = () => ownerWindow?.setTimeout(detectFocusedFrame, 0);
+    const observer = new MutationObserver(syncFrames);
+    syncFrames();
+    observer.observe(surface, { childList: true, subtree: true });
+    surface.ownerDocument.addEventListener("focusin", detectFocusedFrame, true);
+    ownerWindow?.addEventListener("blur", detectAfterBlur);
+    return () => {
+      observer.disconnect();
+      surface.ownerDocument.removeEventListener("focusin", detectFocusedFrame, true);
+      ownerWindow?.removeEventListener("blur", detectAfterBlur);
+      for (const cleanup of frameCleanups.values()) cleanup();
+      frameCleanups.clear();
+    };
+  }, [popoutContainer]);
+
+  useEffect(() => {
+    const surface = windowElement.current;
+    if (!surface || active || poppedOut) return;
+    const focused = surface.ownerDocument.activeElement;
+    if (focused && surface.contains(focused) && "blur" in focused) (focused as HTMLElement).blur();
+  }, [active, poppedOut]);
 
   const beginPointerOperation = (
     event: ReactPointerEvent,
@@ -149,36 +227,42 @@ export function DesktopWindow({ title, icon, children, onMinimize, onClose, onAc
       ? ({ left: 0, top: 0, width: "100vw", height: "100dvh" } satisfies CSSProperties)
       : ({ left: bounds.x, top: bounds.y, width: bounds.width, height: bounds.height } satisfies CSSProperties);
   const style = { ...surfaceStyle, ...boundsStyle, zIndex } satisfies CSSProperties;
+  const appWidth = poppedOut || narrow || maximized ? browserWidth : bounds.width;
+  const appViewport = appViewportForWidth(appWidth);
 
   const windowContent = (
-    <section
-      className={`desktop-window${maximized ? " is-maximized" : ""}${narrow ? " is-mobile" : ""}${active || poppedOut ? " is-active" : ""}${poppedOut ? " is-popped-out" : ""}`}
-      style={style}
-      hidden={minimized}
-      aria-label={`${title} application`}
-      onPointerDownCapture={onActivate}
-      onFocusCapture={onActivate}
-    >
-      <header className="window-titlebar" onPointerDown={(event) => beginPointerOperation(event, "move")} onDoubleClick={controls === "all" && !poppedOut ? toggleMaximize : undefined}>
-        <div className="window-identity">{icon}<strong>{title}</strong></div>
-        <div className="window-controls" onPointerDown={(event) => event.stopPropagation()}>
-          {controls === "all" && !poppedOut && <button type="button" className="window-minimize" onClick={onMinimize} aria-label={`Minimize ${title}`} title="Minimize"><Minus /></button>}
-          {controls === "all" && !poppedOut && <button type="button" className="window-maximize" onClick={toggleMaximize} aria-label={maximized ? `Restore ${title}` : `Maximize ${title}`} title={maximized ? "Restore" : "Maximize"}><Square /></button>}
-          {controls === "all" && !poppedOut && onPopOut && <button type="button" className="window-popout" onClick={onPopOut} aria-label={`Pop out ${title}`} title="Open in a separate browser window"><PictureInPicture2 /></button>}
-          {controls === "all" && poppedOut && onPopIn && <button type="button" className="window-popin" onClick={onPopIn} aria-label={`Pop ${title} back into desktop`} title="Return to Neural Labs desktop"><PanelTopOpen /></button>}
-          <button type="button" className="window-close" onClick={onClose} aria-label={`Close ${title}`} title="Close"><X /></button>
-        </div>
-      </header>
-      <div className="window-content">{children}</div>
-      {!narrow && !maximized && !poppedOut && EDGES.map((edge) => (
-        <div
-          key={edge}
-          className={`resize-handle resize-${edge}`}
-          aria-hidden="true"
-          onPointerDown={(event) => beginPointerOperation(event, edge)}
-        />
-      ))}
-    </section>
+    <AppViewportProvider width={appWidth}>
+      <section
+        ref={windowElement}
+        className={`desktop-window${maximized ? " is-maximized" : ""}${narrow ? " is-mobile" : ""}${active || poppedOut ? " is-active" : ""}${poppedOut ? " is-popped-out" : ""}`}
+        style={style}
+        hidden={minimized}
+        aria-label={`${title} application`}
+        data-app-viewport={appViewport.mode}
+        onPointerDownCapture={onActivate}
+        onFocusCapture={onActivate}
+      >
+        <header className="window-titlebar" onPointerDown={(event) => beginPointerOperation(event, "move")} onDoubleClick={controls === "all" && !poppedOut ? toggleMaximize : undefined}>
+          <div className="window-identity">{icon}<strong>{title}</strong></div>
+          <div className="window-controls" onPointerDown={(event) => event.stopPropagation()}>
+            {controls === "all" && !poppedOut && <button type="button" className="window-minimize" onClick={onMinimize} aria-label={`Minimize ${title}`} title="Minimize"><Minus /></button>}
+            {controls === "all" && !poppedOut && <button type="button" className="window-maximize" onClick={toggleMaximize} aria-label={maximized ? `Restore ${title}` : `Maximize ${title}`} title={maximized ? "Restore" : "Maximize"}><Square /></button>}
+            {controls === "all" && !poppedOut && onPopOut && <button type="button" className="window-popout" onClick={onPopOut} aria-label={`Pop out ${title}`} title="Open in a separate browser window"><PictureInPicture2 /></button>}
+            {controls === "all" && poppedOut && onPopIn && <button type="button" className="window-popin" onClick={onPopIn} aria-label={`Pop ${title} back into desktop`} title="Return to Neural Labs desktop"><PanelTopOpen /></button>}
+            <button type="button" className="window-close" onClick={onClose} aria-label={`Close ${title}`} title="Close"><X /></button>
+          </div>
+        </header>
+        <div className="window-content">{children}</div>
+        {!narrow && !maximized && !poppedOut && EDGES.map((edge) => (
+          <div
+            key={edge}
+            className={`resize-handle resize-${edge}`}
+            aria-hidden="true"
+            onPointerDown={(event) => beginPointerOperation(event, edge)}
+          />
+        ))}
+      </section>
+    </AppViewportProvider>
   );
 
   return (

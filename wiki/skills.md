@@ -25,9 +25,9 @@ and raw package source are two views of the same collaborative document.
 - text files below `references/` and `scripts/`; and
 - uploaded binary files below `assets/`.
 
-Choose **Open in Editor** from any source file to work on the same live Yjs
-document in the desktop Editor. Builder and Editor changes remain synchronized
-and autosaved; opening the Editor does not create a second copy.
+Edit unpublished package source in the builder's collaborative source view.
+Those Yjs drafts are not ordinary workspace files; after publication, their
+files can be opened from Files in VS Code.
 
 Changes autosave to server-side draft state. They do not affect the live skill
 catalog until an authorized user chooses **Publish**. Validation checks the

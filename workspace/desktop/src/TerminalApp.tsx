@@ -6,15 +6,20 @@ import {
   ArrowRight,
   Braces,
   Check,
+  ChevronDown,
   Clipboard,
   Columns2,
   Copy,
-  Crown,
   Eraser,
   GitBranch,
+  Headphones,
+  Mic,
+  MicOff,
   MoreHorizontal,
   Palette,
+  PhoneOff,
   Plus,
+  Radio,
   RefreshCw,
   Rows2,
   Search,
@@ -44,12 +49,15 @@ import {
   TerminalRequestError,
   terminalSocketUrl,
   type TerminalDescriptor,
-  type TerminalController,
+  type TerminalLayoutLeader,
   type TerminalParticipant,
+  type TerminalVoiceMode,
+  type TerminalVoiceParticipant,
 } from "./terminalApi";
 import { readDeviceState, writeDeviceState } from "./deviceState";
 import { FontSizeControl } from "./FontSizeControl";
 import { DESKTOP_FONT_SCALE_DEFAULT, normalizeDesktopFontScale } from "./fontScale";
+import { useTeamVoice } from "./useTeamVoice";
 import "./terminal-app.css";
 
 type TerminalSplitDirection = "vertical" | "horizontal";
@@ -62,6 +70,7 @@ export type TerminalAppProps = {
   storageArea?: string;
   fontScale?: number;
   onFontScaleChange?: (value: number) => void;
+  openRequest?: { id: string; session: TerminalDescriptor };
 };
 
 const SOCKET_RETRY_MAX_MS = 15_000;
@@ -104,12 +113,17 @@ function sessionInitials(title: string): string {
   return initials.toUpperCase() || "TM";
 }
 
+function voiceMemberCount(session: TerminalDescriptor): number {
+  return new Set(session.voiceParticipants.map((participant) => participant.id)).size;
+}
+
 type TerminalDeviceState = {
   activeId?: string;
   secondaryId?: string;
   splitDirection: TerminalSplitDirection;
   activePane: "primary" | "secondary";
   hiddenTeamIds: string[];
+  voiceMode: TerminalVoiceMode;
 };
 
 function nonceAwareDocument(source: Document): Document {
@@ -132,7 +146,7 @@ function nonceAwareDocument(source: Document): Document {
 
 function terminalDeviceState(storageNamespace: string | undefined, storageArea: string): TerminalDeviceState {
   const stored = readDeviceState(storageNamespace, storageArea);
-  if (!stored || typeof stored !== "object") return { splitDirection: "vertical", activePane: "primary", hiddenTeamIds: [] };
+  if (!stored || typeof stored !== "object") return { splitDirection: "vertical", activePane: "primary", hiddenTeamIds: [], voiceMode: "muted" };
   const value = stored as Record<string, unknown>;
   return {
     activeId: typeof value.activeId === "string" ? value.activeId : undefined,
@@ -140,6 +154,7 @@ function terminalDeviceState(storageNamespace: string | undefined, storageArea: 
     splitDirection: value.splitDirection === "horizontal" ? "horizontal" : "vertical",
     activePane: value.activePane === "secondary" ? "secondary" : "primary",
     hiddenTeamIds: Array.isArray(value.hiddenTeamIds) ? value.hiddenTeamIds.filter((id): id is string => typeof id === "string").slice(0, 32) : [],
+    voiceMode: value.voiceMode === "open-mic" || value.voiceMode === "push-to-talk" ? value.voiceMode : "muted",
   };
 }
 
@@ -159,7 +174,7 @@ export function isTerminalInsertToggle(event: Pick<KeyboardEvent, "code" | "ctrl
   return event.code === "Insert" && !event.ctrlKey && !event.metaKey && !event.shiftKey;
 }
 
-export function TerminalApp({ workspaceName = "Workspace", notify, storageNamespace, storageArea = "terminal", fontScale = DESKTOP_FONT_SCALE_DEFAULT, onFontScaleChange }: TerminalAppProps) {
+export function TerminalApp({ workspaceName = "Workspace", notify, storageNamespace, storageArea = "terminal", fontScale = DESKTOP_FONT_SCALE_DEFAULT, onFontScaleChange, openRequest }: TerminalAppProps) {
   const [initialUiState] = useState(() => terminalDeviceState(storageNamespace, storageArea));
   const [sessions, setSessions] = useState<TerminalDescriptor[]>([]);
   const [loading, setLoading] = useState(true);
@@ -168,6 +183,7 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
   const [splitDirection, setSplitDirection] = useState<TerminalSplitDirection>(initialUiState.splitDirection);
   const [activePane, setActivePane] = useState<"primary" | "secondary">(initialUiState.activePane);
   const [hiddenTeamIds, setHiddenTeamIds] = useState<Set<string>>(() => new Set(initialUiState.hiddenTeamIds));
+  const [voiceMode, setVoiceMode] = useState<TerminalVoiceMode>(initialUiState.voiceMode);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [launchpadOpen, setLaunchpadOpen] = useState(true);
@@ -178,6 +194,7 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
   const [notice, setNotice] = useState<string>();
   const [error, setError] = useState<string>();
   const initialized = useRef(false);
+  const lastOpenRequest = useRef<string | undefined>(undefined);
   const sessionsRef = useRef<TerminalDescriptor[]>([]);
   const recoveryPending = useRef(false);
   const teamTitleInputId = useId();
@@ -203,6 +220,22 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
   }, []);
 
   sessionsRef.current = sessions;
+
+  useEffect(() => {
+    if (!openRequest || lastOpenRequest.current === openRequest.id) return;
+    lastOpenRequest.current = openRequest.id;
+    mergeSession(openRequest.session);
+    setHiddenTeamIds((current) => {
+      const updated = new Set(current);
+      updated.delete(openRequest.session.id);
+      return updated;
+    });
+    setActiveId(openRequest.session.id);
+    setActivePane("primary");
+    setLaunchpadOpen(false);
+    setTeamCreatorOpen(false);
+    setRailPreview(undefined);
+  }, [mergeSession, openRequest]);
 
   const recoverPersonalTerminal = useCallback(async () => {
     if (recoveryPending.current) return;
@@ -238,12 +271,13 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
       try {
         const available = await listTerminals();
         if (cancelled) return;
-        const runningPersonal = available.find((session) => session.scope === "personal" && session.status === "running");
-        setSessions(available);
-        setActiveId((current) => available.some((session) => session.id === current && session.status === "running" && (session.scope === "personal" || !hiddenTeamIds.has(session.id)))
+        const known = [...available, ...sessionsRef.current.filter((session) => !available.some((candidate) => candidate.id === session.id))];
+        const runningPersonal = known.find((session) => session.scope === "personal" && session.status === "running");
+        setSessions(known);
+        setActiveId((current) => known.some((session) => session.id === current && session.status === "running" && (session.scope === "personal" || !hiddenTeamIds.has(session.id)))
           ? current
-          : runningPersonal?.id ?? available.find((session) => session.status === "running" && (session.scope === "personal" || !hiddenTeamIds.has(session.id)))?.id);
-        setSecondaryId((current) => available.some((session) => session.id === current) ? current : undefined);
+          : runningPersonal?.id ?? known.find((session) => session.status === "running" && (session.scope === "personal" || !hiddenTeamIds.has(session.id)))?.id);
+        setSecondaryId((current) => known.some((session) => session.id === current) ? current : undefined);
       } catch (caught) {
         if (!cancelled) setError(caught instanceof Error ? caught.message : "Terminal sessions could not be loaded.");
       } finally {
@@ -299,8 +333,9 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
       splitDirection,
       activePane: secondarySession ? activePane : "primary",
       hiddenTeamIds: [...hiddenTeamIds].filter((id) => sessions.some((session) => session.id === id && session.scope === "team")),
+      voiceMode,
     } satisfies TerminalDeviceState);
-  }, [activeId, activePane, hiddenTeamIds, loading, secondarySession, sessions, splitDirection, storageArea, storageNamespace]);
+  }, [activeId, activePane, hiddenTeamIds, loading, secondarySession, sessions, splitDirection, storageArea, storageNamespace, voiceMode]);
 
   useEffect(() => {
     if (activeSession && activeId !== activeSession.id) setActiveId(activeSession.id);
@@ -468,7 +503,7 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
           <span className="terminal-toolbar__mark"><TerminalSquare /></span>
           <span><strong>Terminal</strong><small><i />persistent workspace shells</small></span>
         </div>
-        <div className="terminal-toolbar__context" aria-label="Terminal context"><span>{showLaunchpad ? "workspace runtime" : activeSession.scope === "team" ? "team runtime" : "private runtime"}</span><strong>{showLaunchpad ? "Choose a shell" : activeSession.cwd}</strong></div>
+        <div className="terminal-toolbar__context" aria-label="Terminal context"><span>{showLaunchpad ? "workspace runtime" : activeSession.teamChannel ? `#${activeSession.teamChannel.name}` : activeSession.scope === "team" ? "team runtime" : "private runtime"}</span><strong>{showLaunchpad ? "Choose a shell" : activeSession.cwd}</strong></div>
         <div className="terminal-toolbar__actions">
           <button type="button" onClick={openLaunchpad} aria-label="New terminal" aria-pressed={showLaunchpad} title="Open New Terminal"><Plus /><span>New</span></button>
           <i aria-hidden="true" />
@@ -496,7 +531,7 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
             </div>}
             <div className="terminal-session-rail__group is-team" aria-label="Team sessions">
               <span className="terminal-sr-only">Team sessions</span>
-              {runningTeamSessions.map((session) => <button type="button" className={!showLaunchpad && activeSession?.id === session.id ? "is-active" : ""} aria-label={`Open team session ${session.title}`} aria-current={!showLaunchpad && activeSession?.id === session.id ? "page" : undefined} aria-describedby={railPreview?.sessionId === session.id ? railPreviewId : undefined} key={session.id} onMouseEnter={(event) => previewTeamSession(event, session)} onMouseLeave={(event) => { if (document.activeElement !== event.currentTarget) setRailPreview(undefined); }} onFocus={(event) => previewTeamSession(event, session)} onBlur={() => setRailPreview(undefined)} onClick={() => joinTeam(session)}><span>{sessionInitials(session.title)}</span><i />{session.participants.length > 0 && <small>{session.participants.length}</small>}</button>)}
+              {runningTeamSessions.map((session) => <button type="button" className={!showLaunchpad && activeSession?.id === session.id ? "is-active" : ""} aria-label={`Open team session ${session.title}${voiceMemberCount(session) > 0 ? `, ${voiceMemberCount(session)} in voice` : ""}`} aria-current={!showLaunchpad && activeSession?.id === session.id ? "page" : undefined} aria-describedby={railPreview?.sessionId === session.id ? railPreviewId : undefined} key={session.id} onMouseEnter={(event) => previewTeamSession(event, session)} onMouseLeave={(event) => { if (document.activeElement !== event.currentTarget) setRailPreview(undefined); }} onFocus={(event) => previewTeamSession(event, session)} onBlur={() => setRailPreview(undefined)} onClick={() => joinTeam(session)}><span>{sessionInitials(session.title)}</span><i />{session.participants.length > 0 && <small>{session.participants.length}</small>}{voiceMemberCount(session) > 0 && <b title={`${voiceMemberCount(session)} in voice`}><Headphones />{voiceMemberCount(session)}</b>}</button>)}
               {!loading && runningTeamSessions.length === 0 && <span className="terminal-session-rail__empty" title="No live team sessions"><Users /></span>}
             </div>
           </div>
@@ -506,8 +541,8 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
         </nav>
 
         {previewedTeamSession && <aside id={railPreviewId} className="terminal-session-preview" role="tooltip" style={{ top: railPreview?.top }}>
-          <header><span>{sessionInitials(previewedTeamSession.title)}</span><div><strong>{previewedTeamSession.title}</strong><small>{previewedTeamSession.participants.length} connected</small></div></header>
-          <div>{previewedTeamSession.participants.length > 0 ? previewedTeamSession.participants.map((participant) => <span className={previewedTeamSession.controller?.id === participant.id ? "is-controller" : ""} key={participant.id}>{previewedTeamSession.controller?.id === participant.id && <Crown />}{participant.label}{participant.connections > 1 && <small>×{participant.connections}</small>}</span>) : <em>No one is connected yet</em>}</div>
+          <header><span>{sessionInitials(previewedTeamSession.title)}</span><div><strong>{previewedTeamSession.title}</strong><small>{previewedTeamSession.participants.length} connected{voiceMemberCount(previewedTeamSession) > 0 ? ` · ${voiceMemberCount(previewedTeamSession)} in voice` : ""}</small></div></header>
+          <div>{previewedTeamSession.participants.length > 0 ? previewedTeamSession.participants.map((participant) => <span key={participant.id}>{previewedTeamSession.voiceParticipants.some((voiceParticipant) => voiceParticipant.id === participant.id) && <Headphones />}{participant.label}{participant.connections > 1 && <small>×{participant.connections}</small>}</span>) : <em>No one is connected yet</em>}</div>
         </aside>}
 
         {showLaunchpad ? (
@@ -533,14 +568,14 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
                 <div className="terminal-launchpad__section-heading"><span><Users /></span><div><h2 id="terminal-team-sessions-title">Team sessions</h2><p>{loading ? "Checking the workspace…" : `${runningTeamSessions.length} live now`}</p></div><div className="terminal-launchpad__heading-actions"><button type="button" className="terminal-launchpad__add-team" aria-expanded={teamCreatorOpen} aria-controls={teamCreatorId} disabled={Boolean(creatingScope)} onClick={() => teamCreatorOpen ? setTeamCreatorOpen(false) : openTeamCreator()}>+ Team</button><button type="button" className="terminal-launchpad__refresh" aria-label="Refresh terminal sessions" disabled={loading} onClick={() => void retryDiscovery()}><RefreshCw className={loading ? "terminal-spin" : ""} /></button></div></div>
                 {teamCreatorOpen && <form id={teamCreatorId} className="terminal-launchpad__team-composer" aria-label="Create a team terminal" onSubmit={(event) => void createTeam(event)}>
                   <label htmlFor={teamTitleInputId}>Team terminal name</label>
-                  <p>Everyone in this workspace can join, watch, and take a turn driving.</p>
+                  <p>Everyone in this workspace can join and type together in the same live shell.</p>
                   <div><input ref={teamTitleInputRef} id={teamTitleInputId} value={teamTitle} onChange={(event) => setTeamTitle(event.target.value)} maxLength={60} placeholder="e.g. Release room" /><button type="submit" disabled={Boolean(creatingScope)}>{creatingScope === "team" ? <RefreshCw className="terminal-spin" /> : <Users />}{creatingScope === "team" ? "Starting…" : "Start Team"}</button><button type="button" aria-label="Cancel team terminal creation" disabled={Boolean(creatingScope)} onClick={() => { setTeamCreatorOpen(false); setTeamTitle(""); }}><X /></button></div>
                 </form>}
                 <div className="terminal-launchpad__session-list">
                   {loading ? <><i className="terminal-launchpad__skeleton" /><i className="terminal-launchpad__skeleton" /></> : runningTeamSessions.length > 0 ? runningTeamSessions.map((session) => (
                     <button type="button" key={session.id} onClick={() => joinTeam(session)}>
                       <i className="is-running" />
-                      <span><strong>{session.title}</strong><small>{session.participants.length} connected · started by {session.owner.label}</small></span>
+                      <span><strong>{session.title}</strong><small>{session.teamChannel ? `#${session.teamChannel.name} · ` : ""}{session.participants.length} connected{voiceMemberCount(session) > 0 ? ` · ${voiceMemberCount(session)} in voice` : ""} · started by {session.owner.label}</small></span>
                       <em>{hiddenTeamIds.has(session.id) ? "Join" : "Open"}<ArrowRight /></em>
                     </button>
                   )) : (
@@ -556,14 +591,14 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
         </main>
         ) : activeSession && (
         <main className={`terminal-workspace${secondarySession ? ` is-split is-${splitDirection}` : ""}`}>
-          <LiveTerminalPane session={activeSession} active={activePane === "primary"} fontSize={Math.round(18 * normalizeDesktopFontScale(fontScale) / 100)} searchQuery={activePane === "primary" ? searchQuery : ""} onActivate={() => setActivePane("primary")} onDescriptorChange={mergeSession} onUnavailable={() => handleSessionUnavailable(activeSession)} onEndTeam={() => void terminateTeam(activeSession)} onClose={() => void closeSession(activeSession)} />
-          {secondarySession && <LiveTerminalPane session={secondarySession} active={activePane === "secondary"} fontSize={Math.round(18 * normalizeDesktopFontScale(fontScale) / 100)} searchQuery={activePane === "secondary" ? searchQuery : ""} onActivate={() => setActivePane("secondary")} onDescriptorChange={mergeSession} onUnavailable={() => handleSessionUnavailable(secondarySession)} onEndTeam={() => void terminateTeam(secondarySession)} onClose={() => { setSecondaryId(undefined); setActivePane("primary"); }} />}
+          <LiveTerminalPane session={activeSession} active={activePane === "primary"} fontSize={Math.round(18 * normalizeDesktopFontScale(fontScale) / 100)} searchQuery={activePane === "primary" ? searchQuery : ""} voiceMode={voiceMode} onVoiceModeChange={setVoiceMode} onActivate={() => setActivePane("primary")} onDescriptorChange={mergeSession} onUnavailable={() => handleSessionUnavailable(activeSession)} onEndTeam={() => void terminateTeam(activeSession)} onClose={() => void closeSession(activeSession)} />
+          {secondarySession && <LiveTerminalPane session={secondarySession} active={activePane === "secondary"} fontSize={Math.round(18 * normalizeDesktopFontScale(fontScale) / 100)} searchQuery={activePane === "secondary" ? searchQuery : ""} voiceMode={voiceMode} onVoiceModeChange={setVoiceMode} onActivate={() => setActivePane("secondary")} onDescriptorChange={mergeSession} onUnavailable={() => handleSessionUnavailable(secondarySession)} onEndTeam={() => void terminateTeam(secondarySession)} onClose={() => { setSecondaryId(undefined); setActivePane("primary"); }} />}
         </main>
         )}
       </div>
 
       {!showLaunchpad && activeSession && <footer className="terminal-statusbar">
-        <div className="terminal-statusbar__primary"><span><GitBranch />workspace</span><span className={activeSession.scope === "team" ? "is-team" : ""}><Braces />{activeSession.scope === "team" ? "shared · one driver" : "private"}</span></div>
+        <div className="terminal-statusbar__primary"><span><GitBranch />workspace</span><span className={activeSession.scope === "team" ? "is-team" : ""}><Braces />{activeSession.scope === "team" ? "shared · live input" : "private"}</span></div>
         <div className="terminal-statusbar__details"><span title="High-contrast ANSI truecolor profile"><Palette />Neural Spectrum</span><span>{activeSession.shell}</span><span>UTF-8</span><span>{activeSession.cols} × {activeSession.rows}</span><span>{activeSession.participants.length} connected</span>{onFontScaleChange && <FontSizeControl className="terminal-statusbar__zoom" value={fontScale} onChange={onFontScaleChange} />}</div>
       </footer>}
     </section>
@@ -575,6 +610,8 @@ type LiveTerminalPaneProps = {
   active: boolean;
   fontSize: number;
   searchQuery: string;
+  voiceMode: TerminalVoiceMode;
+  onVoiceModeChange: (mode: TerminalVoiceMode) => void;
   onActivate: () => void;
   onDescriptorChange: (session: TerminalDescriptor) => void;
   onUnavailable: () => void;
@@ -582,7 +619,7 @@ type LiveTerminalPaneProps = {
   onClose: () => void;
 };
 
-function LiveTerminalPane({ session, active, fontSize, searchQuery, onActivate, onDescriptorChange, onUnavailable, onEndTeam, onClose }: LiveTerminalPaneProps) {
+function LiveTerminalPane({ session, active, fontSize, searchQuery, voiceMode, onVoiceModeChange, onActivate, onDescriptorChange, onUnavailable, onEndTeam, onClose }: LiveTerminalPaneProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XTerm | undefined>(undefined);
   const fitRef = useRef<FitAddon | undefined>(undefined);
@@ -599,34 +636,36 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, onActivate, 
   const connectRef = useRef<() => void>(() => undefined);
   const descriptorRef = useRef(session);
   const lastSentSize = useRef({ cols: session.cols, rows: session.rows });
-  const canControlRef = useRef(session.scope === "personal");
+  const canResizeRef = useRef(session.scope === "personal");
   const activeRef = useRef(active);
   const [connectionStatus, setConnectionStatus] = useState<PaneConnectionStatus>(session.status === "exited" ? "exited" : "connecting");
   const [participants, setParticipants] = useState<TerminalParticipant[]>(session.participants);
-  const [controller, setController] = useState<TerminalController | null>(session.controller);
+  const [layoutLeader, setLayoutLeader] = useState<TerminalLayoutLeader | null>(session.layoutLeader);
   const [inputMode, setInputMode] = useState<"insert" | "overwrite">("insert");
   const [typingActors, setTypingActors] = useState<Record<string, string>>({});
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
+  const [voiceMenuOpen, setVoiceMenuOpen] = useState(false);
   const [reactions, setReactions] = useState<Array<{ id: string; emoji: string; label: string }>>([]);
   const typingTimers = useRef(new Map<string, number>());
   const reactionTimers = useRef(new Map<string, number>());
 
-  const hasControl = session.scope === "personal" || Boolean(connectionId.current && controller?.connectionId === connectionId.current);
+  const hasLayoutControl = session.scope === "personal" || Boolean(connectionId.current && layoutLeader?.connectionId === connectionId.current);
   const typingLabels = Object.values(typingActors);
   descriptorRef.current = session;
-  canControlRef.current = hasControl;
+  canResizeRef.current = hasLayoutControl;
   activeRef.current = active;
 
   const writeSocket = useCallback((payload: object) => {
     if (socketRef.current?.readyState === WebSocket.OPEN) socketRef.current.send(JSON.stringify(payload));
   }, []);
+  const voice = useTeamVoice({ sessionId: session.id, mode: voiceMode, onModeChange: onVoiceModeChange, send: writeSocket });
 
   const resizeToHost = useCallback(() => {
     if (!fitRef.current || !terminalRef.current) return;
     try {
       fitRef.current.fit();
       const next = { cols: terminalRef.current.cols, rows: terminalRef.current.rows };
-      if (!canControlRef.current) return;
+      if (!canResizeRef.current) return;
       if (next.cols === lastSentSize.current.cols && next.rows === lastSentSize.current.rows) return;
       lastSentSize.current = next;
       writeSocket({ type: "resize", ...next });
@@ -662,11 +701,12 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, onActivate, 
     reconnectAttempt.current = 0;
     ticketRequestPending.current = false;
     setParticipants(session.participants);
-    setController(session.controller);
+    setLayoutLeader(session.layoutLeader);
     setInputMode("insert");
     setTypingActors({});
     setReactions([]);
     setReactionPickerOpen(false);
+    setVoiceMenuOpen(false);
     setConnectionStatus(session.status === "exited" ? "exited" : "connecting");
     const terminal = new XTerm({
       cols: session.cols,
@@ -706,9 +746,7 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, onActivate, 
       if (isTerminalInsertToggle(event)) setInputMode((current) => current === "insert" ? "overwrite" : "insert");
       return true;
     });
-    const dataSubscription = terminal.onData((data) => {
-      if (canControlRef.current) writeSocket({ type: "input", data });
-    });
+    const dataSubscription = terminal.onData((data) => writeSocket({ type: "input", data }));
     let resizeFrame: number | undefined;
     let observedWidth = 0;
     let observedHeight = 0;
@@ -763,14 +801,15 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, onActivate, 
             connectionId.current = String(message.connectionId);
             viewerId.current = (message.viewer as { id?: string } | undefined)?.id;
             setParticipants(next.participants);
-            setController(next.controller);
+            setLayoutLeader(next.layoutLeader);
+            voice.handleReady(connectionId.current, next.voiceParticipants ?? []);
             descriptorRef.current = next;
             onDescriptorChange(next);
             if (message.mode === "replay") terminal.reset();
             setConnectionStatus("connected");
             reconnectAttempt.current = 0;
             window.requestAnimationFrame(() => {
-              terminal.options.disableStdin = next.scope === "team" && next.controller?.connectionId !== connectionId.current;
+              terminal.options.disableStdin = false;
               resizeToHost();
               if (activeRef.current) terminal.focus();
             });
@@ -786,20 +825,38 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, onActivate, 
             }
           } else if (message.type === "presence") {
             const nextParticipants = message.participants as TerminalParticipant[];
-            const nextController = message.controller as TerminalController | null;
+            const nextVoiceParticipants = (message.voiceParticipants as TerminalVoiceParticipant[] | undefined) ?? [];
+            const nextLayoutLeader = message.layoutLeader as TerminalLayoutLeader | null;
             setParticipants(nextParticipants);
-            setController(nextController);
-            terminal.options.disableStdin = descriptorRef.current.scope === "team" && nextController?.connectionId !== connectionId.current;
-            const next = { ...descriptorRef.current, participants: nextParticipants, controller: nextController };
+            setLayoutLeader(nextLayoutLeader);
+            voice.handlePresence(nextVoiceParticipants);
+            terminal.options.disableStdin = false;
+            const next = { ...descriptorRef.current, participants: nextParticipants, voiceParticipants: nextVoiceParticipants, layoutLeader: nextLayoutLeader };
             descriptorRef.current = next;
             onDescriptorChange(next);
+          } else if (message.type === "voice-presence") {
+            const nextVoiceParticipants = (message.participants as TerminalVoiceParticipant[] | undefined) ?? [];
+            voice.handlePresence(nextVoiceParticipants);
+            const next = { ...descriptorRef.current, voiceParticipants: nextVoiceParticipants };
+            descriptorRef.current = next;
+            onDescriptorChange(next);
+          } else if (message.type === "voice-config") {
+            voice.handleConfig((message.iceServers as RTCIceServer[] | undefined) ?? []);
+          } else if (message.type === "voice-signal") {
+            const actor = message.actor as { id?: string; label?: string } | undefined;
+            const fromConnectionId = String(message.fromConnectionId ?? "");
+            if (actor?.id && actor.label && message.signal && typeof message.signal === "object") {
+              voice.handleSignal(fromConnectionId, { id: actor.id, label: actor.label }, message.signal);
+            }
+          } else if (message.type === "voice-error") {
+            voice.handleError(String(message.message ?? "Voice chat is unavailable."));
           } else if (message.type === "layout") {
-            const nextController = message.controller as TerminalController | null;
-            setController(nextController);
+            const nextLayoutLeader = message.layoutLeader as TerminalLayoutLeader | null;
+            setLayoutLeader(nextLayoutLeader);
             const nextSize = { cols: Number(message.cols), rows: Number(message.rows) };
             lastSentSize.current = nextSize;
             window.requestAnimationFrame(resizeToHost);
-            const next = { ...descriptorRef.current, cols: Number(message.cols), rows: Number(message.rows), controller: nextController };
+            const next = { ...descriptorRef.current, cols: Number(message.cols), rows: Number(message.rows), layoutLeader: nextLayoutLeader };
             descriptorRef.current = next;
             onDescriptorChange(next);
           } else if (message.type === "input-activity") {
@@ -844,6 +901,7 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, onActivate, 
         socket.onclose = () => {
           clearSocketReadyTimer();
           if (socketRef.current === socket) socketRef.current = undefined;
+          voice.handleDisconnected();
           if (!effectDisposed) scheduleReconnect();
         };
         socket.onerror = () => socket.close();
@@ -903,7 +961,7 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, onActivate, 
 
   useEffect(() => {
     window.requestAnimationFrame(resizeToHost);
-  }, [hasControl, resizeToHost]);
+  }, [hasLayoutControl, resizeToHost]);
 
   useEffect(() => {
     if (active && connectionStatus === "connected") terminalRef.current?.focus();
@@ -925,35 +983,44 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, onActivate, 
     connectRef.current();
   };
 
-  const claimControl = () => {
-    writeSocket({ type: "claim-control" });
-    terminalRef.current?.focus();
-  };
-
   const sendReaction = (emoji: typeof TEAM_REACTIONS[number]) => {
     writeSocket({ type: "reaction", emoji });
     setReactionPickerOpen(false);
     terminalRef.current?.focus();
   };
 
+  const chooseVoiceMode = (nextMode: TerminalVoiceMode) => {
+    onVoiceModeChange(nextMode);
+    if (nextMode !== "push-to-talk") voice.stopTalking();
+  };
+
+  const voiceMemberCount = new Set(voice.participants.map((participant) => participant.id)).size;
+
   return (
     <section className={`terminal-pane${active ? " is-active" : ""}`} aria-label={`${session.title} terminal pane`} onFocusCapture={onActivate} onMouseDown={() => { onActivate(); terminalRef.current?.focus(); }}>
       <header className="terminal-pane__header">
         <div className={`terminal-pane__session is-${session.scope}`}><i /><strong>{session.shell}</strong><span>{session.cwd}</span>{session.scope === "team" && <em><Users />shared</em>}</div>
         {typingLabels.length > 0 && <span className="terminal-pane__typing">{typingLabels.length === 1 ? `${typingLabels[0]} is typing…` : `${typingLabels.length} teammates are typing…`}</span>}
-        <span className={`terminal-pane__mode is-${hasControl ? inputMode : "view"}`} title={hasControl ? "Insert toggles Insert/Overwrite mode" : "Take control to type"}>{hasControl ? (inputMode === "insert" ? "INS" : "OVR") : "VIEW"}</span>
+        <span className={`terminal-pane__mode is-${inputMode}`} title="Insert toggles Insert/Overwrite mode">{inputMode === "insert" ? "INS" : "OVR"}</span>
         <span className={`terminal-pane__state is-${connectionStatus}`}><i />{connectionStatus}</span>
         <div className="terminal-pane__actions">
           <button type="button" aria-label={`Copy selection from ${session.title}`} title="Copy selection" onClick={() => void copySelection()}><Copy /></button>
           <button type="button" aria-label={`Paste into ${session.title}`} title="Paste" onClick={() => void pasteClipboard()}><Clipboard /></button>
           <button type="button" aria-label={`Clear ${session.title}`} title="Clear terminal" onClick={() => terminalRef.current?.clear()}><Eraser /></button>
-          {session.scope === "team" && !hasControl && <button type="button" className="terminal-pane__claim" aria-label={`Take control of ${session.title}`} title="Take control and type" onClick={claimControl}><Crown /></button>}
           {connectionStatus !== "connected" && connectionStatus !== "exited" && <button type="button" aria-label={`Reconnect ${session.title}`} title="Reconnect now" onClick={reconnectNow}><RefreshCw /></button>}
           {session.scope === "team" && session.canTerminate && <button type="button" aria-label={`End ${session.title} for everyone`} title="End for everyone" onClick={onEndTeam}><Users /><X /></button>}
           <button type="button" aria-label={`Close ${session.title} pane`} title={session.scope === "team" ? "Leave terminal" : "End terminal"} onClick={onClose}><X /></button>
         </div>
       </header>
-      {session.scope === "team" && <div className="terminal-pane__presence"><span><Users />{participants.length} connected</span>{participants.map((participant) => <i className={controller?.id === participant.id ? "is-controller" : ""} key={participant.id} title={`${participant.label} · ${participant.connections} view${participant.connections === 1 ? "" : "s"}`}>{participant.label.slice(0, 2).toUpperCase()}</i>)}<small><Crown />{hasControl ? "Your turn" : controller ? `${controller.label} is driving` : "Waiting for a driver"}</small><div className="terminal-pane__reaction-picker"><button type="button" aria-label="Send a team reaction" aria-expanded={reactionPickerOpen} title="Send an emoji sticker" onClick={() => setReactionPickerOpen((open) => !open)}><SmilePlus /></button>{reactionPickerOpen && <div role="menu" aria-label="Team reactions">{TEAM_REACTIONS.map((emoji) => <button type="button" role="menuitem" aria-label={`Send ${emoji}`} key={emoji} onClick={() => sendReaction(emoji)}>{emoji}</button>)}</div>}</div></div>}
+      {session.scope === "team" && <div className="terminal-pane__presence"><span><Users />{participants.length} connected</span>{participants.map((participant) => <i key={participant.id} title={`${participant.label} · ${participant.connections} view${participant.connections === 1 ? "" : "s"}`}>{participant.label.slice(0, 2).toUpperCase()}</i>)}<small><Wifi />Live input · everyone can type</small><div className={`terminal-pane__voice is-${voice.status}`}>
+        <audio ref={voice.audioRef} autoPlay playsInline aria-hidden="true" />
+        {voice.status === "idle" || voice.status === "error" ? <button type="button" className="terminal-pane__voice-join" disabled={connectionStatus !== "connected"} aria-label={`Join voice chat in ${session.title}`} title="Join voice chat" onClick={() => void voice.join()}><Headphones /><span>Join voice</span></button> : <button type="button" className="terminal-pane__voice-state" aria-label={`Voice chat connected with ${voiceMemberCount} ${voiceMemberCount === 1 ? "person" : "people"}`} title={`${voiceMemberCount} in voice`} onClick={() => { voice.resumeAudio(); setVoiceMenuOpen((open) => !open); }}><Headphones /><span>{voice.status === "joining" ? "Connecting…" : voiceMemberCount}</span></button>}
+        {voice.status === "connected" && voiceMode === "push-to-talk" && <button type="button" className={`terminal-pane__push-to-talk${voice.talking ? " is-talking" : ""}`} aria-label="Hold to talk" title="Hold to talk" onPointerDown={(event) => { event.currentTarget.setPointerCapture?.(event.pointerId); voice.startTalking(); }} onPointerUp={voice.stopTalking} onPointerCancel={voice.stopTalking} onLostPointerCapture={voice.stopTalking} onKeyDown={(event) => { if (!event.repeat && (event.key === " " || event.key === "Enter")) { event.preventDefault(); voice.startTalking(); } }} onKeyUp={(event) => { if (event.key === " " || event.key === "Enter") { event.preventDefault(); voice.stopTalking(); } }} onBlur={voice.stopTalking}><Radio /><span>{voice.talking ? "Talking" : "Hold"}</span></button>}
+        <button type="button" className="terminal-pane__voice-settings" aria-label="Voice chat settings" aria-expanded={voiceMenuOpen} title="Voice chat settings" onClick={() => { voice.resumeAudio(); setVoiceMenuOpen((open) => !open); }}>{voiceMode === "muted" ? <MicOff /> : <Mic />}<ChevronDown /></button>
+        {voiceMenuOpen && <section className="terminal-voice-panel" aria-label="Voice chat settings"><header><span><Headphones /></span><div><strong>Voice chat</strong><small>{voice.status === "connected" ? `${voiceMemberCount} ${voiceMemberCount === 1 ? "person" : "people"} here` : "Join this terminal's room"}</small></div></header><div className="terminal-voice-modes" role="radiogroup" aria-label="Microphone mode">{([[
+          "muted", "Muted", "Listen without sharing your microphone", MicOff,
+        ], ["open-mic", "Open mic", "Keep your microphone on", Mic], ["push-to-talk", "Push to talk", "Speak only while holding the talk button", Radio]] as const).map(([value, label, detail, Icon]) => <button type="button" role="radio" aria-checked={voiceMode === value} className={voiceMode === value ? "is-selected" : ""} key={value} onClick={() => chooseVoiceMode(value)}><Icon /><span><strong>{label}</strong><small>{detail}</small></span></button>)}</div>{voice.error && <p role="alert">{voice.error}</p>}{voice.participants.length > 0 && <div className="terminal-voice-people">{voice.participants.map((participant) => <span key={participant.connectionId}><i>{participant.label.slice(0, 2).toUpperCase()}</i><strong>{participant.label}</strong>{participant.mode === "muted" ? <MicOff /> : participant.mode === "push-to-talk" ? <Radio /> : <Mic />}</span>)}</div>}<footer>{voice.status === "connected" || voice.status === "joining" ? <button type="button" className="is-leave" onClick={() => { voice.leave(); setVoiceMenuOpen(false); }}><PhoneOff />Leave voice</button> : <button type="button" className="is-join" disabled={connectionStatus !== "connected"} onClick={() => void voice.join()}><Headphones />Join voice</button>}</footer></section>}
+      </div><div className="terminal-pane__reaction-picker"><button type="button" aria-label="Send a team reaction" aria-expanded={reactionPickerOpen} title="Send an emoji sticker" onClick={() => setReactionPickerOpen((open) => !open)}><SmilePlus /></button>{reactionPickerOpen && <div role="menu" aria-label="Team reactions">{TEAM_REACTIONS.map((emoji) => <button type="button" role="menuitem" aria-label={`Send ${emoji}`} key={emoji} onClick={() => sendReaction(emoji)}>{emoji}</button>)}</div>}</div></div>}
       <div className="terminal-pane__canvas">{session.scope === "team" && reactions.length > 0 && <div className="terminal-pane__reactions" aria-live="polite">{reactions.map((reaction) => <span className="terminal-pane__reaction" aria-label={`${reaction.label} reacted with ${reaction.emoji}`} key={reaction.id}><span className="terminal-pane__reaction-burst" aria-hidden="true"><b>{reaction.emoji}</b><small>{reaction.label}</small></span></span>)}</div>}<div ref={hostRef} className="terminal-xterm" aria-label={`${session.title} interactive terminal`} /></div>
     </section>
   );

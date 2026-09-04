@@ -39,7 +39,7 @@
 .preview-sheet-table tbody th { position: sticky; z-index: 1; left: 0; min-width: 3rem; color: #77787f; background: #f1f2f4; text-align: right; font-weight: 520; }
 .preview-sheet-table thead th:first-child { z-index: 3; left: 0; }
 
-@media (max-width: 620px) {
+@container app-window (max-width: 620px) {
   .preview-toolbar { min-height: 3.25rem; padding-left: .7rem; }
   .preview-toolbar-actions > a, .preview-toolbar-actions > button { width: 2.35rem; height: 2.35rem; justify-content: center; padding: 0; font-size: 0; }
   .preview-toolbar-actions svg { width: 1rem; height: 1rem; }

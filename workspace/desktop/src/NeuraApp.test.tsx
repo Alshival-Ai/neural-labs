@@ -1,8 +1,9 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { neuraWebsitePreviewFile, NeuraApp } from "./NeuraApp";
+import { invokesTeamAgent, MessageAttachments, modelProviderErrorMessage, neuraWebsitePreviewFile, NeuraApp, TeamTerminalSidebar, teamAgentPhaseFromStatus, teamMessagePresentation } from "./NeuraApp";
 import type { NeuraGateway } from "./openclaw";
+import type { TerminalDescriptor } from "./terminalApi";
 import type { ConnectionState, GatewayEvent, SessionRow } from "./types";
 
 const session: SessionRow = {
@@ -131,6 +132,42 @@ afterAll(() => {
 afterEach(cleanup);
 
 describe("Neura realtime conversation", () => {
+  it("directs personal provider failures to Personalization without blaming an administrator", () => {
+    expect(modelProviderErrorMessage("401 Unauthorized: Missing bearer or basic authentication in header"))
+      .toBe("Neura couldn't activate your ChatGPT connection. Open Personalization and try Resume; reconnect if the problem continues.");
+    expect(modelProviderErrorMessage("401 Unauthorized: invalid token"))
+      .toBe("Your ChatGPT sign-in was rejected or expired. Reconnect it in Personalization, then try again.");
+    expect(modelProviderErrorMessage("The model timed out"))
+      .toBe("The model timed out");
+  });
+
+  it("uses direct-chat bubbles for the current user's Team Chat messages", () => {
+    const currentUser = { id: "user-current", handle: "maya", displayName: "Maya", role: "user" as const };
+    const teammate = { id: "user-teammate", handle: "alex", displayName: "Alex", role: "user" as const };
+
+    expect(teamMessagePresentation({ authorKind: "user", author: currentUser }, currentUser.id)).toBe("user");
+    expect(teamMessagePresentation({ authorKind: "imported_user", author: currentUser }, currentUser.id)).toBe("user");
+    expect(teamMessagePresentation({ authorKind: "user", author: teammate }, currentUser.id)).toBe("teammate");
+    expect(teamMessagePresentation({ authorKind: "neura" }, currentUser.id)).toBe("assistant");
+    expect(teamMessagePresentation({ authorKind: "system" }, currentUser.id)).toBe("system");
+  });
+
+  it("recognizes @Neura and Team Chat skill commands as agent invocations", () => {
+    expect(invokesTeamAgent("@Neura help the team")).toBe(true);
+    expect(invokesTeamAgent("Could you help, @neura?")).toBe(true);
+    expect(invokesTeamAgent("Please use $local-business-website-builder for this")).toBe(true);
+    expect(invokesTeamAgent("$Neura is no longer the agent mention")).toBe(false);
+    expect(invokesTeamAgent("The total is $100")).toBe(false);
+    expect(invokesTeamAgent("email@example.org$skill")).toBe(false);
+  });
+
+  it("maps durable Team Chat run states to visible loader phases", () => {
+    expect(teamAgentPhaseFromStatus("queued")).toBe("starting");
+    expect(teamAgentPhaseFromStatus("running")).toBe("working");
+    expect(teamAgentPhaseFromStatus("completed")).toBeUndefined();
+    expect(teamAgentPhaseFromStatus("failed")).toBeUndefined();
+  });
+
   it("shows a focused loader until a newly created OpenClaw conversation is ready", async () => {
     const gateway = new FakeGateway();
     let releaseCreate: () => void = () => {};
@@ -166,6 +203,55 @@ describe("Neura realtime conversation", () => {
     expect(await screen.findByRole("dialog", { name: "Create Team Chat" })).toBeInTheDocument();
     expect(screen.getByText("Invited teammates")).toBeInTheDocument();
     expect(screen.getByText("Everyone")).toBeInTheDocument();
+  });
+
+  it("shows channel terminal activity and connected member bubbles in a collapsible rail", () => {
+    const onCreate = vi.fn();
+    const onOpen = vi.fn();
+    const onExpandedChange = vi.fn();
+    const terminal: TerminalDescriptor = {
+      id: "terminal-one",
+      title: "#release · terminal 1",
+      scope: "team",
+      shell: "zsh",
+      cwd: "~/workspace",
+      status: "running",
+      createdAt: Date.now() - 60_000,
+      lastActivityAt: Date.now() - 5_000,
+      cols: 120,
+      rows: 34,
+      sequence: 4,
+      exitCode: null,
+      owner: { label: "Maya Chen" },
+      owned: true,
+      canTerminate: true,
+      participants: [
+        { id: "maya", label: "Maya Chen", connections: 1 },
+        { id: "alex", label: "Alex Rivera", connections: 1 },
+      ],
+      voiceParticipants: [],
+      layoutLeader: null,
+      teamChannel: { id: "channel-one", name: "release" },
+    };
+
+    const members = [
+      { id: "maya", handle: "maya", displayName: "Maya Chen", role: "user" as const },
+      { id: "alex", handle: "alex", displayName: "Alex Rivera", role: "user" as const },
+    ];
+    const view = render(<TeamTerminalSidebar channel={{ id: "channel-one", name: "release", memberCount: 2 }} members={members} sessions={[terminal]} expanded={false} loading={false} creating={false} disabled={false} onExpandedChange={onExpandedChange} onCreate={onCreate} onOpen={onOpen} />);
+    expect(screen.getByLabelText("1 active terminal")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Start a new terminal for #release" }));
+    expect(onCreate).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Show terminals for #release" }));
+    expect(onExpandedChange).toHaveBeenCalledWith(true);
+
+    view.rerender(<TeamTerminalSidebar channel={{ id: "channel-one", name: "release", memberCount: 2 }} members={members} sessions={[terminal]} expanded loading={false} creating={false} disabled={false} onExpandedChange={onExpandedChange} onCreate={onCreate} onOpen={onOpen} />);
+    expect(screen.getByText("Channel terminals")).toBeInTheDocument();
+    expect(screen.getByText("Can discover and join")).toBeInTheDocument();
+    expect(screen.getByText("2 connected")).toBeInTheDocument();
+    expect(screen.getByLabelText("2 connected members")).toHaveTextContent("MCAR");
+    fireEvent.click(screen.getByRole("button", { name: "Open terminal #release · terminal 1" }));
+    expect(onOpen).toHaveBeenCalledWith(terminal);
   });
 
   it("subscribes before history and renders live streamed and durable replies", async () => {
@@ -387,7 +473,17 @@ describe("Neura realtime conversation", () => {
     fireEvent.click(link);
     expect(onPreviewFile).toHaveBeenCalledWith({ name: "index.html", path: "tiny-site/index.html", size: 0, mimeType: "text/html" });
     expect(neuraWebsitePreviewFile("https://neural-labs.ai/workspace/preview/aGVsbG8td29ybGQ/index.html", "")).toMatchObject({ path: "hello-world/index.html" });
-    expect(neuraWebsitePreviewFile("tiny-site/index.html", "")).toMatchObject({ path: "tiny-site/index.html" });
+  });
+
+  it("renders image attachments as previews and other files as download cards", () => {
+    const { container } = render(<MessageAttachments attachments={[
+      { path: "team-uploads/mockup.png", name: "mockup.png", type: "image/png", size: 2048 },
+      { path: "team-uploads/brief.pdf", name: "brief.pdf", type: "application/pdf", size: 4096 },
+    ]} />);
+    expect(screen.getByRole("img", { name: "mockup.png" })).toHaveAttribute("src", "/workspace/api/files/content?path=team-uploads%2Fmockup.png");
+    expect(screen.getByRole("link", { name: /mockup\.png/i })).toHaveAttribute("href", "/workspace/api/files/download?path=team-uploads%2Fmockup.png");
+    expect(screen.getByRole("link", { name: /brief\.pdf/i })).toHaveAttribute("href", "/workspace/api/files/download?path=team-uploads%2Fbrief.pdf");
+    expect(container.querySelectorAll("img")).toHaveLength(1);
   });
 
   it("steers the active run even after an intermediate assistant message is persisted", async () => {

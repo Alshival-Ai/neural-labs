@@ -81,6 +81,8 @@ services:
       CONTROL_PLANE_WORKSPACE_TEAM_AGENT_URL: http://workspace:18790/internal/neura/team-run
       CONTROL_PLANE_WORKSPACE_OPENCLAW_VERSION: ${NEURAL_LABS_OPENCLAW_VERSION:-2026.8.2}
       CONTROL_PLANE_WORKSPACE_CODEX_VERSION: ${NEURAL_LABS_CODEX_VERSION:-0.152.0}
+      CONTROL_PLANE_TURN_URLS: ${NEURAL_LABS_TURN_URLS:-}
+      CONTROL_PLANE_TURN_SECRET: ${NEURAL_LABS_TURN_SECRET}
     ports:
       - "${NEURAL_LABS_BIND_ADDRESS:-127.0.0.1}:${CONTROL_PLANE_PORT:-4174}:4174"
     networks:
@@ -120,6 +122,8 @@ services:
       GOOGLE_PLACES_API_KEY: ${GOOGLE_PLACES_API_KEY:-}
       KLIPY_API_KEY: ${KLIPY_API_KEY:-}
       PEXELS_API_KEY: ${PEXELS_API_KEY:-}
+      NEURAL_LABS_TURN_CREDENTIAL_URL: http://control-plane:4174/internal/turn-credentials
+      NEURAL_LABS_TEAM_CHANNEL_ACCESS_URL: http://control-plane:4174/internal/team-terminal/access
     cap_drop:
       - ALL
     cap_add:
@@ -150,6 +154,36 @@ services:
       - workspace-openclaw-auth:/home/node/.config/openclaw
     networks:
       - workspace-ingress
+
+  turn:
+    image: ${NEURAL_LABS_TURN_IMAGE:-coturn/coturn:4.17.2-r0@sha256:aa68aab64a3b929d57fc2924c98ea447bf996cf8dade2508e7b71eaf23f1f14e}
+    restart: unless-stopped
+    network_mode: host
+    read_only: true
+    tmpfs:
+      - /run:size=4m,mode=1777
+      - /tmp:size=4m,mode=1777
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    environment:
+      TURN_REALM: ${NEURAL_LABS_TURN_HOST:-neural-labs.example.com}
+      TURN_EXTERNAL_IP: ${NEURAL_LABS_TURN_EXTERNAL_IP:-203.0.113.10}
+      TURN_RELAY_IP: ${NEURAL_LABS_TURN_RELAY_IP:-192.0.2.10}
+      TURN_PORT: ${NEURAL_LABS_TURN_PORT:-3478}
+      TURN_MIN_PORT: ${NEURAL_LABS_TURN_MIN_PORT:-49160}
+      TURN_MAX_PORT: ${NEURAL_LABS_TURN_MAX_PORT:-49200}
+      TURN_AUTH_SECRET: ${NEURAL_LABS_TURN_SECRET}
+    volumes:
+      - ../turn/entrypoint.sh:/usr/local/bin/neural-labs-turn:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/neural-labs-turn"]
+    healthcheck:
+      test: ["CMD", "sh", "-c", "kill -0 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
 
 volumes:
   postgres-data:

@@ -42,6 +42,20 @@ export type McpSettings = {
   tools: string[];
 };
 
+export type PluginCatalog = {
+  plugins: Array<{
+    id: string;
+    name: string;
+    description: string;
+    type: "mcp";
+    scope: "private" | "global";
+    ownership: "user" | "workspace" | "system";
+    editable: boolean;
+    ready: boolean;
+    mcp: McpSettings;
+  }>;
+};
+
 export type WorkspaceStatus = {
   available: boolean;
   shared: true;

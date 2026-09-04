@@ -65,7 +65,7 @@ const team = descriptor({
   owned: false,
   canTerminate: false,
   participants: [{ id: "ada", label: "ada", connections: 1 }, { id: "salvador", label: "salvador", connections: 2 }],
-  controller: { id: "ada", label: "ada", connectionId: "ada-connection" },
+  layoutLeader: { id: "ada", label: "ada", connectionId: "ada-connection" },
 });
 let created = 1;
 let unavailableTicketIds = new Set<string>();
@@ -88,7 +88,8 @@ function descriptor(overrides: Partial<TerminalDescriptor>): TerminalDescriptor 
     owned: true,
     canTerminate: true,
     participants: [],
-    controller: null,
+    voiceParticipants: [],
+    layoutLeader: null,
     ...overrides,
   };
 }
@@ -134,6 +135,7 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
   document.head.querySelector('meta[name="csp-nonce"]')?.remove();
+  Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: undefined });
   vi.unstubAllGlobals();
 });
 
@@ -176,6 +178,22 @@ describe("Terminal app", () => {
     expect(await screen.findByRole("button", { name: "Open team session Incident room" })).toHaveAttribute("aria-current", "page");
   });
 
+  it("opens a Team Chat-scoped terminal requested by the Neura app", async () => {
+    const channelSession = descriptor({
+      id: "channel-terminal-1",
+      title: "#private-release",
+      scope: "team",
+      teamChannel: { id: "55555555-5555-4555-8555-555555555555", name: "private-release" },
+      owned: false,
+      canTerminate: false,
+    });
+    render(<TerminalApp openRequest={{ id: "open-channel-terminal", session: channelSession }} />);
+
+    expect(await screen.findByLabelText("#private-release interactive terminal")).toBeInTheDocument();
+    expect(screen.getByLabelText("Terminal context")).toHaveTextContent("#private-release");
+    expect(screen.getByRole("button", { name: "Open team session #private-release" })).toHaveAttribute("aria-current", "page");
+  });
+
   it("keeps team creation on New Terminal and routes the rail shortcut there", async () => {
     render(<TerminalApp />);
     await screen.findByRole("heading", { name: "New Terminal" });
@@ -197,7 +215,7 @@ describe("Terminal app", () => {
 
     fireEvent.mouseEnter(sessionButton);
     let preview = screen.getByRole("tooltip");
-    expect(within(preview).getByText("ada")).toHaveClass("is-controller");
+    expect(within(preview).getByText("ada")).toBeInTheDocument();
     expect(within(preview).getByText("salvador")).toBeInTheDocument();
     expect(within(preview).getByText("×2")).toBeInTheDocument();
 
@@ -262,7 +280,7 @@ describe("Terminal app", () => {
     await waitFor(() => expect(terminal.options.fontSize).toBe(20));
   });
 
-  it("keeps a Team Terminal visible while another participant drives it", async () => {
+  it("lets every Team Terminal participant type without taking control", async () => {
     render(<TerminalApp />);
     fireEvent.click(await screen.findByRole("button", { name: "Open team session Release room" }));
     await waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
@@ -272,21 +290,15 @@ describe("Terminal app", () => {
     const shared = descriptor({
       ...team,
       participants: [{ id: "ada", label: "ada", connections: 1 }, { id: "salvador", label: "salvador", connections: 1 }],
-      controller: { id: "salvador", label: "salvador", connectionId: "salvador-connection" },
+      layoutLeader: { id: "salvador", label: "salvador", connectionId: "salvador-connection" },
     });
     socket.onmessage?.({ data: JSON.stringify({ type: "ready", mode: "replay", connectionId: "ada-connection", viewer: { id: "ada", label: "ada" }, session: shared }) });
     socket.onmessage?.({ data: JSON.stringify({ type: "replay", sequence: 1, data: "salvador@workspace:~ % " }) });
 
     expect(screen.getByLabelText("Release room interactive terminal")).toBeInTheDocument();
-    expect(await screen.findByText("salvador is driving")).toBeInTheDocument();
-    expect(terminal.options.disableStdin).toBe(true);
-    terminal.emitData("blocked");
-    expect(socket.send).not.toHaveBeenCalledWith(JSON.stringify({ type: "input", data: "blocked" }));
-
-    fireEvent.click(screen.getByRole("button", { name: "Take control of Release room" }));
-    expect(socket.send).toHaveBeenCalledWith(JSON.stringify({ type: "claim-control" }));
-    socket.onmessage?.({ data: JSON.stringify({ type: "presence", participants: shared.participants, controller: { id: "ada", label: "ada", connectionId: "ada-connection" } }) });
-    expect(await screen.findByText("Your turn")).toBeInTheDocument();
+    expect(await screen.findByText("Live input · everyone can type")).toBeInTheDocument();
+    expect(terminal.options.disableStdin).toBe(false);
+    expect(screen.queryByRole("button", { name: "Take control of Release room" })).not.toBeInTheDocument();
     terminal.emitData("pwd\r");
     expect(socket.send).toHaveBeenCalledWith(JSON.stringify({ type: "input", data: "pwd\r" }));
   });
@@ -311,6 +323,69 @@ describe("Terminal app", () => {
 
     act(() => vi.advanceTimersByTime(1800));
     expect(screen.queryByLabelText("salvador reacted with 🚀")).not.toBeInTheDocument();
+  });
+
+  it("joins Team Terminal voice muted and supports open mic and push to talk", async () => {
+    const microphoneTrack = { enabled: false, id: "microphone-1", readyState: "live", stop: vi.fn() };
+    const microphoneStream = {
+      getAudioTracks: () => [microphoneTrack],
+      getTracks: () => [microphoneTrack],
+    } as unknown as MediaStream;
+    const getUserMedia = vi.fn(async () => microphoneStream);
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia } });
+    const peerConfigurations: RTCConfiguration[] = [];
+    vi.stubGlobal("RTCPeerConnection", class {
+      connectionState = "new";
+      signalingState = "stable";
+      onicecandidate = null;
+      ontrack = null;
+      onconnectionstatechange = null;
+      constructor(configuration: RTCConfiguration) { peerConfigurations.push(configuration); }
+      addTransceiver() { return { sender: { replaceTrack: vi.fn() } }; }
+      close() {}
+    });
+
+    render(<TerminalApp />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open team session Release room" }));
+    await waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
+    const socket = MockWebSocket.instances[0];
+    socket.readyState = MockWebSocket.OPEN;
+    socket.onmessage?.({ data: JSON.stringify({ type: "ready", mode: "replay", connectionId: "ada-connection", viewer: { id: "ada", label: "ada" }, session: team }) });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Join voice chat in Release room" }));
+    expect(getUserMedia).not.toHaveBeenCalled();
+    expect(socket.send).toHaveBeenCalledWith(JSON.stringify({ type: "voice-join", mode: "muted" }));
+
+    const iceServers = [{ urls: ["turn:neural-labs.example.com:3478?transport=udp"], username: "123:ada", credential: "temporary" }];
+    act(() => socket.onmessage?.({ data: JSON.stringify({ type: "voice-config", iceServers }) }));
+    act(() => socket.onmessage?.({ data: JSON.stringify({ type: "voice-presence", participants: [{ connectionId: "ada-connection", id: "ada", label: "ada", mode: "muted" }] }) }));
+    expect(await screen.findByRole("button", { name: "Voice chat connected with 1 person" })).toBeInTheDocument();
+    act(() => socket.onmessage?.({ data: JSON.stringify({ type: "voice-presence", participants: [{ connectionId: "ada-connection", id: "ada", label: "ada", mode: "muted" }, { connectionId: "aaron-connection", id: "aaron", label: "aaron", mode: "muted" }] }) }));
+    expect(peerConfigurations).toEqual([{ iceServers }]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Voice chat settings" }));
+    fireEvent.click(screen.getByRole("radio", { name: /Push to talk/ }));
+    await waitFor(() => expect(getUserMedia).toHaveBeenCalledWith({
+      audio: { autoGainControl: true, echoCancellation: true, noiseSuppression: true },
+      video: false,
+    }));
+    await waitFor(() => expect(socket.send).toHaveBeenCalledWith(JSON.stringify({ type: "voice-mode", mode: "push-to-talk" })));
+
+    const talk = screen.getByRole("button", { name: "Hold to talk" });
+    Object.defineProperty(talk, "setPointerCapture", { configurable: true, value: vi.fn() });
+    fireEvent.pointerDown(talk, { pointerId: 1 });
+    expect(microphoneTrack.enabled).toBe(true);
+    fireEvent.pointerUp(talk, { pointerId: 1 });
+    expect(microphoneTrack.enabled).toBe(false);
+    fireEvent.keyDown(talk, { key: " " });
+    expect(microphoneTrack.enabled).toBe(true);
+    fireEvent.keyUp(talk, { key: " " });
+    expect(microphoneTrack.enabled).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Leave voice" }));
+    expect(socket.send).toHaveBeenCalledWith(JSON.stringify({ type: "voice-leave" }));
+    expect(microphoneTrack.stop).toHaveBeenCalled();
+    expect(await screen.findByRole("button", { name: "Join voice chat in Release room" })).toBeInTheDocument();
   });
 
   it("opens a fresh WebSocket when switching away from an exited shell", async () => {

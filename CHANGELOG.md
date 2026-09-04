@@ -5,11 +5,49 @@ Versioning and Git tags in the form `vMAJOR.MINOR.PATCH`.
 
 ## [Unreleased]
 
-### Fixed
+### Changed
 
-- Open static-site links from Files and Neura in the desktop Preview app and
-  serve their local assets through short-lived, sandbox-compatible launch
-  capabilities instead of rendering HTML as plain text.
+- VS Code replaces the standalone Editor in the desktop dock and Files workflow.
+  New files and text/code files open in the existing code-server window, every
+  file has an **Open in VS Code** action, and folder context menus can open the
+  selected directory in VS Code. Previously saved Editor windows migrate to VS
+  Code when desktop state is restored.
+- Team Chat now uses `@Neura` for general agent turns while retaining `$skill-name`
+  commands. Personal and Team Chat render image attachments inline and other
+  files as download cards; Team Neura can attach generated workspace artifacts.
+- Neura-generated static-site links now open the desktop Preview app. Website
+  previews use short-lived, user-bound launch capabilities instead of reusable
+  folder-encoded URLs, and the sandbox no longer permits remote assets or popups.
+
+- Settings now presents agent extensions as **Plugins**, available to every
+  active member and divided into private, user-owned plugins and global,
+  administrator-managed workspace plugins. The former MCP screen is a locked
+  global **Neural Labs Tools** system plugin with its live health and tool
+  inventory intact.
+- The add-plugin experience previews connection-only MCP plugins, including
+  scope selection, authentication, discovery, and permission review, without
+  accepting server URLs or credentials before the secure broker is built.
+- Team Terminal input is now live for every connected participant. The former
+  driver handoff, spectator mode, and **Take control** action have been removed;
+  concurrent keystrokes reach the shared PTY in server arrival order.
+- PTY resizing remains stable through an invisible layout leader that transfers
+  automatically when its browser disconnects.
+- Team Terminal WebRTC voice now prefers direct media and falls back to a
+  self-hosted coturn relay over UDP or TCP.
+
+### Security and operations
+
+- The VS Code open handoff accepts only authenticated, same-origin POSTs and
+  resolves existing nonsymlink workspace paths before navigating the requesting
+  developer's own embedded workbench. It cannot address paths outside the
+  shared workspace and adds no listener or host mount.
+- TURN uses authenticated one-hour HMAC credentials with pseudonymous user
+  keys. The relay has allocation and bandwidth quotas, a narrow UDP range, no
+  administrative CLI or database, and cannot relay to private, loopback,
+  carrier-NAT, link-local, or multicast destinations.
+- Deployment now requires public TCP/UDP forwarding for the TURN listener and
+  UDP forwarding for the configured relay range. No database migration is
+  required.
 
 ## [0.3.2] - 2026-09-03
 
