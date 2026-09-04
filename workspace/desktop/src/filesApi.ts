@@ -142,22 +142,19 @@ export function workspaceContentUrl(path: string): string {
   return `/workspace/api/files/content?${pathQuery(path)}`;
 }
 
-function validPreviewPath(value: string, { allowEmpty = false } = {}): boolean {
-  if (allowEmpty && value === "") return true;
+export function createWorkspaceWebsitePreview(path: string) {
+  if (!validPreviewPath(path)) return Promise.reject(new Error("The website preview path is invalid."));
+  const separator = path.lastIndexOf("/");
+  const root = separator < 0 ? "" : path.slice(0, separator);
+  const entry = separator < 0 ? path : path.slice(separator + 1);
+  return requestJson<{ url: string; expiresAt: string }>("/workspace/api/previews", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ root, entry }),
+  });
+}
+
+function validPreviewPath(value: string): boolean {
   if (!value || value.includes("\\") || value.startsWith("/")) return false;
   return value.split("/").every((segment) => Boolean(segment) && segment !== "." && segment !== "..");
-}
-
-function base64Url(value: string): string {
-  const bytes = new TextEncoder().encode(value);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
-}
-
-export function workspacePreviewUrl(root: string, entry = "index.html"): string | undefined {
-  if (!validPreviewPath(root, { allowEmpty: true }) || !validPreviewPath(entry)) return undefined;
-  const encodedEntry = entry.split("/").map((segment) => encodeURIComponent(segment)).join("/");
-  const encodedRoot = root ? base64Url(root) : "root";
-  return `/workspace/preview/${encodedRoot}/${encodedEntry}`;
 }

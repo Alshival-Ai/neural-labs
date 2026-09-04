@@ -54,12 +54,13 @@ maximized, closed, and restored with the rest of the per-device desktop state.
 
 ## Website previews
 
-Opening an `.html` file loads an authenticated URL below `/workspace/preview/`
+Opening an `.html` file mints a short-lived preview launch and loads its URL
 inside the desktop Preview window. The containing folder becomes the preview
 root, so relative CSS, JavaScript, image, font, and media paths stay inside that
 folder. Root-level HTML is also supported, using the shared workspace as its
 preview root. Put a site's entry point and assets in their own folder when it
-should not resolve neighboring workspace files.
+should not resolve neighboring workspace files. The Preview window reloads when
+a file in that site root changes and also provides a manual reload control.
 
 This route previews static project output. It does not proxy a Vite, Next.js,
 or other development server, and it does not make a container loopback URL such
@@ -67,12 +68,10 @@ as `http://127.0.0.1:4173` public. Build framework projects to static output or
 open their generated HTML entry point until an isolated development-server
 proxy is added.
 
-Neura should finish website work with a Markdown link to the authenticated
-preview route and identify the entry point as `Page: folder/index.html`. For
-older replies that contain a loopback link plus that entry-point line, the chat
-renderer replaces the unusable loopback destination with the matching static
-preview URL. This lets a user click Neura's original link and open the preview
-directly while preserving external links unchanged.
+Neura should finish website work with a Markdown link to the entry point and
+identify it as `Page: folder/index.html`. The chat renderer opens relative HTML
+links, legacy preview links, and loopback links accompanied by that marker in
+the desktop Preview app. External links remain ordinary browser links.
 
 Uploads stream directly into the workspace and are committed atomically so a
 partial upload does not appear as the requested filename. The default limit is
@@ -89,15 +88,22 @@ target, symbolic links, and non-file filesystem objects. Downloads use
 `Content-Disposition: attachment` and `nosniff` rather than serving uploaded
 HTML or scripts as application assets.
 
-The separate website preview and inline-content routes are authenticated and
-read-only. A website preview token identifies the containing workspace
-directory; every requested asset is resolved beneath it with the same traversal
-and symbolic-link checks as Files. Preview HTML receives a CSP sandbox that
-permits page scripts and ordinary UI interaction but blocks network connections,
-form submission, top-level navigation, plugins, and access to the Neural Labs
-application origin. The inline route allowlists only supported passive media,
-PDF, CSV, and XLSX types; uploaded SVG receives an additional no-script CSP.
-Responses are not cached or indexed.
+The preview launch endpoint and inline-content route are authenticated and
+read-only. A launch returns a random 192-bit bearer capability that identifies
+one workspace directory, expires after 15 idle minutes, and lives only in the
+workspace process. Nginx permits only the capability asset route around session
+authentication and strips cookies, authorization, and identity headers before
+proxying it. Every requested asset is still resolved beneath its selected root
+with the same traversal and symbolic-link checks as Files.
+
+Preview HTML receives a CSP sandbox that permits local page scripts and ordinary
+UI interaction but blocks network connections, form submission, top-level
+navigation, plugins, popups, remote assets, and access to the Neural Labs
+application origin. Because the sandbox gives the document an opaque origin,
+its local assets are allowed only from that preview capability's exact URL
+prefix. The inline route allowlists only supported passive media, PDF, CSV, and
+XLSX types; uploaded SVG receives an additional no-script CSP. Responses are
+not cached or indexed.
 
 Nginx runs the same control-plane authentication subrequest used by the desktop
 before proxying `/workspace/api/files*`, including the event stream. It replaces

@@ -46,11 +46,18 @@ describe("Preview app", () => {
     ]);
   });
 
-  it("renders root HTML inside the authenticated sandboxed website route", () => {
+  it("mints a private launch and renders HTML inside the sandboxed desktop preview", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      url: "/workspace/preview/private-launch-token-123456789/index.html",
+      expiresAt: "2026-09-03T12:15:00.000Z",
+    }), { status: 201, headers: { "Content-Type": "application/json" } }));
     const { container } = render(<PreviewApp file={previewFile("index.html", "text/html")} />);
-    const frame = screen.getByTitle("Preview of index.html");
-    expect(frame).toHaveAttribute("src", "/workspace/preview/root/index.html");
-    expect(frame).toHaveAttribute("sandbox", "allow-scripts allow-modals allow-popups allow-downloads");
+    const frame = await screen.findByTitle("Preview of index.html");
+    expect(fetch).toHaveBeenCalledWith("/workspace/api/previews", expect.objectContaining({ method: "POST", credentials: "same-origin" }));
+    expect(frame).toHaveAttribute("src", "/workspace/preview/private-launch-token-123456789/index.html");
+    expect(frame).toHaveAttribute("sandbox", "allow-scripts allow-modals allow-downloads");
+    screen.getByRole("button", { name: "Reload" }).click();
+    await waitFor(() => expect(frame).toHaveAttribute("src", "/workspace/preview/private-launch-token-123456789/index.html?reload=1"));
     expect(container.querySelector('.preview-toolbar a[download="index.html"]')).toHaveAttribute("href", "/workspace/api/files/download?path=index.html");
   });
 

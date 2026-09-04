@@ -406,15 +406,28 @@ test("confines authenticated file operations to the shared workspace root", asyn
 
 test("serves authenticated, sandboxed website previews confined to one workspace folder", async () => {
   const app = await fixture();
-  const previewRoot = Buffer.from("projects/site").toString("base64url");
-  const previewBase = `${app.origin}/workspace/preview/${previewRoot}`;
   try {
-    assert.equal((await fetch(`${previewBase}/`)).status, 401);
+    const launchResponse = await fetch(`${app.origin}/workspace/api/previews`, {
+      method: "POST",
+      headers: { ...workspaceHeaders, Origin: "https://neural-labs.example.com", "Content-Type": "application/json" },
+      body: JSON.stringify({ root: "projects/site", entry: "index.html" }),
+    });
+    assert.equal(launchResponse.status, 201);
+    const launch = await launchResponse.json();
+    assert.match(launch.url, /^\/workspace\/preview\/[A-Za-z0-9_-]{32}\/index\.html$/);
+    const previewBase = `${app.origin}${launch.url.replace(/\/index\.html$/, "")}`;
 
-    const page = await fetch(`${previewBase}/`, { headers: workspaceHeaders });
+    const capabilityPage = await fetch(`${previewBase}/`);
+    assert.equal(capabilityPage.status, 200);
+    assert.match(await capabilityPage.text(), /Preview works/);
+    assert.equal((await fetch(`${previewBase}/`, { headers: { "X-Forwarded-User": "user-2" } })).status, 404);
+    assert.equal((await fetch(`${app.origin}/workspace/preview/${Buffer.from("projects/site").toString("base64url")}/index.html`, { headers: workspaceHeaders })).status, 404);
+    assert.equal((await fetch(`${app.origin}/workspace/api/previews`, { method: "POST", headers: { ...workspaceHeaders, Origin: "https://evil.example", "Content-Type": "application/json" }, body: "{}" })).status, 403);
+
+    const page = await fetch(`${previewBase}/`);
     assert.equal(page.status, 200);
     assert.match(page.headers.get("content-type"), /^text\/html/);
-    assert.equal(page.headers.get("access-control-allow-origin"), "*");
+    assert.equal(page.headers.get("access-control-allow-origin"), null);
     assert.equal(page.headers.get("cache-control"), "private, no-store");
     assert.equal(page.headers.get("x-robots-tag"), "noindex, nofollow, noarchive");
     assert.equal(page.headers.get("x-frame-options"), null);
@@ -422,34 +435,48 @@ test("serves authenticated, sandboxed website previews confined to one workspace
     assert.match(policy, /sandbox allow-scripts/);
     assert.match(policy, /connect-src 'none'/);
     assert.match(policy, /frame-ancestors 'self'/);
+    const capabilityAssetSource = `https://neural-labs.example.com${launch.url.replace(/index\.html$/, "")}`;
+    assert.ok(policy.includes(`style-src ${capabilityAssetSource} 'unsafe-inline'`));
+    assert.ok(policy.includes(`script-src ${capabilityAssetSource} 'unsafe-inline' 'unsafe-eval' blob:`));
+    assert.ok(policy.includes(`img-src ${capabilityAssetSource} data: blob:`));
+    assert.doesNotMatch(policy, /default-src 'self'/);
+    assert.doesNotMatch(policy, /allow-popups/);
     assert.match(await page.text(), /Preview works/);
 
-    const stylesheet = await fetch(`${previewBase}/styles.css`, { headers: workspaceHeaders });
+    const stylesheet = await fetch(`${previewBase}/styles.css`);
     assert.equal(stylesheet.status, 200);
     assert.match(stylesheet.headers.get("content-type"), /^text\/css/);
     assert.equal(await stylesheet.text(), "button { color: rebeccapurple; }\n");
 
     await writeFile(path.join(app.workspaceRoot, "index.html"), "<!doctype html><h1>Root preview works</h1>");
-    const rootPage = await fetch(`${app.origin}/workspace/preview/root/index.html`, { headers: workspaceHeaders });
+    const rootLaunch = await fetch(`${app.origin}/workspace/api/previews`, {
+      method: "POST",
+      headers: { ...workspaceHeaders, Origin: "https://neural-labs.example.com", "Content-Type": "application/json" },
+      body: JSON.stringify({ root: "", entry: "index.html" }),
+    }).then((response) => response.json());
+    const rootPage = await fetch(`${app.origin}${rootLaunch.url}`);
     assert.equal(rootPage.status, 200);
     assert.match(await rootPage.text(), /Root preview works/);
 
-    const head = await fetch(`${previewBase}/index.html`, { method: "HEAD", headers: workspaceHeaders });
+    const head = await fetch(`${previewBase}/index.html`, { method: "HEAD" });
     assert.equal(head.status, 200);
     assert.equal(await head.text(), "");
     assert.equal((await fetch(`${previewBase}/index.html`, { method: "POST", headers: workspaceHeaders })).status, 405);
 
-    const fileRoot = Buffer.from("notes.md").toString("base64url");
-    const invalidRoot = await fetch(`${app.origin}/workspace/preview/${fileRoot}/index.html`, { headers: workspaceHeaders });
+    const invalidRoot = await fetch(`${app.origin}/workspace/api/previews`, {
+      method: "POST",
+      headers: { ...workspaceHeaders, Origin: "https://neural-labs.example.com", "Content-Type": "application/json" },
+      body: JSON.stringify({ root: "notes.md", entry: "index.html" }),
+    });
     assert.equal(invalidRoot.status, 400);
     assert.equal((await invalidRoot.json()).error.code, "not_a_directory");
 
-    const traversal = await fetch(`${previewBase}/%2e%2e%2fnotes.md`, { headers: workspaceHeaders });
+    const traversal = await fetch(`${previewBase}/%2e%2e%2fnotes.md`);
     assert.equal(traversal.status, 400);
     assert.equal((await traversal.json()).error.code, "invalid_path");
 
     await symlink("../../notes.md", path.join(app.workspaceRoot, "projects", "site", "leak.txt"));
-    const symlinkResponse = await fetch(`${previewBase}/leak.txt`, { headers: workspaceHeaders });
+    const symlinkResponse = await fetch(`${previewBase}/leak.txt`);
     assert.equal(symlinkResponse.status, 400);
     assert.equal((await symlinkResponse.json()).error.code, "invalid_path");
   } finally {

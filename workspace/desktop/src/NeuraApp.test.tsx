@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { NeuraApp } from "./NeuraApp";
+import { neuraWebsitePreviewFile, NeuraApp } from "./NeuraApp";
 import type { NeuraGateway } from "./openclaw";
 import type { ConnectionState, GatewayEvent, SessionRow } from "./types";
 
@@ -362,9 +362,10 @@ describe("Neura realtime conversation", () => {
     expect(screen.queryByRole("listbox", { name: "Available skills" })).not.toBeInTheDocument();
   });
 
-  it("opens Neura's loopback website links through the authenticated preview route", async () => {
+  it("opens Neura's website links in the desktop Preview app", async () => {
     const gateway = new FakeGateway();
-    render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
+    const onPreviewFile = vi.fn();
+    render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} onPreviewFile={onPreviewFile} />);
 
     await waitFor(() => expect(screen.getByPlaceholderText("Message Neura…")).toBeEnabled());
     act(() => gateway.emit({ event: "session.message", payload: {
@@ -381,9 +382,12 @@ describe("Neura realtime conversation", () => {
       },
     } }));
 
-    const link = await screen.findByRole("link", { name: "Open the website" });
-    expect(link).toHaveAttribute("href", "/workspace/preview/dGlueS1zaXRl/index.html");
-    expect(link).toHaveAttribute("title", "Open website preview");
+    const link = screen.getByRole("button", { name: "Open the website" });
+    expect(link).toHaveAttribute("title", "Open in desktop Preview");
+    fireEvent.click(link);
+    expect(onPreviewFile).toHaveBeenCalledWith({ name: "index.html", path: "tiny-site/index.html", size: 0, mimeType: "text/html" });
+    expect(neuraWebsitePreviewFile("https://neural-labs.ai/workspace/preview/aGVsbG8td29ybGQ/index.html", "")).toMatchObject({ path: "hello-world/index.html" });
+    expect(neuraWebsitePreviewFile("tiny-site/index.html", "")).toMatchObject({ path: "tiny-site/index.html" });
   });
 
   it("steers the active run even after an intermediate assistant message is persisted", async () => {

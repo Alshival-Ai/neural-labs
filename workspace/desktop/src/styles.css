@@ -420,6 +420,8 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, summary:focus-vis
 .message-body pre code { padding: 0; background: transparent; }
 .message-body a { color: var(--blue); }
 .message-user .message-body a { color: #76e7ff; }
+.message-preview-link { display: inline; padding: 0; border: 0; color: var(--accent); background: transparent; cursor: pointer; font: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.message-preview-link:hover { color: #5a35d4; }
 .neura-activity-timeline { width: min(47rem, 100%); overflow: hidden; margin: -.25rem auto 1.25rem; border: 1px solid rgba(123, 77, 255, .15); border-radius: 11px; background: rgba(255, 255, 255, .56); box-shadow: 0 7px 22px rgba(31, 29, 42, .04); }
 .message-body > .neura-activity-timeline { width: 100%; margin: .72rem 0 0; }
 .neura-activity-timeline[data-state="running"] { border-color: rgba(8, 169, 239, .24); background: linear-gradient(100deg, rgba(8, 169, 239, .055), rgba(123, 77, 255, .045)); }

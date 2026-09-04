@@ -27,7 +27,7 @@ import remarkGfm from "remark-gfm";
 
 import { activitiesFromGatewayEvent, eventRecord, eventText, messagesFromSessionEvent, NeuraGateway } from "./openclaw";
 import { readDeviceState, writeDeviceState } from "./deviceState";
-import { createWorkspaceFolder, uploadWorkspaceFile, workspaceDownloadUrl, workspacePreviewUrl } from "./filesApi";
+import { createWorkspaceFolder, uploadWorkspaceFile, workspaceDownloadUrl, type WorkspacePreviewFile } from "./filesApi";
 import { listCustomSkills } from "./skillsApi";
 import { teamChatApi, teamSocketUrl, type TeamAttachment, type TeamChannel, type TeamDirectoryUser, type TeamMessage } from "./teamChat";
 import type {
@@ -48,6 +48,7 @@ type Props = {
   composeRequest?: { id: string; text: string };
   csrfToken?: string;
   currentUser?: { id: string; handle: string; displayName: string; role: "admin" | "user" };
+  onPreviewFile?: (file: WorkspacePreviewFile) => void;
 };
 
 type NeuraDeviceState = { selectedKey?: string; selectedChannelId?: string; sidebarOpen: boolean; showArchived: boolean };
@@ -137,21 +138,52 @@ function websiteEntryFromMessage(message: string): { root: string; entry: string
   return website;
 }
 
-export function resolveNeuraMessageLink(href: string | undefined, message: string): string | undefined {
-  if (!href) return href;
+function decodedLegacyPreviewRoot(token: string): string | undefined {
+  if (token === "root") return "";
+  try {
+    const standard = token.replaceAll("-", "+").replaceAll("_", "/").padEnd(Math.ceil(token.length / 4) * 4, "=");
+    const binary = atob(standard);
+    return new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(binary, (character) => character.charCodeAt(0)));
+  } catch {
+    return undefined;
+  }
+}
+
+function safeWebsitePath(value: string | undefined): string | undefined {
+  if (!value || value.startsWith("/") || value.includes("\\")) return undefined;
+  const segments = value.split("/");
+  if (segments.some((segment) => !/^[A-Za-z0-9._-]+$/.test(segment) || segment === "." || segment === "..")) return undefined;
+  return /\.html?$/i.test(segments.at(-1) ?? "") ? value : undefined;
+}
+
+export function neuraWebsitePreviewFile(href: string | undefined, message: string): WorkspacePreviewFile | undefined {
+  if (!href) return undefined;
+  const relativeReference = !/^[A-Za-z][A-Za-z0-9+.-]*:/.test(href) && !href.startsWith("//");
   let url: URL;
   try {
     url = new URL(href, "https://neural-labs.invalid");
   } catch {
-    return href;
+    return undefined;
   }
-  if (!["http:", "https:"].includes(url.protocol) || !LOOPBACK_PREVIEW_HOSTS.has(url.hostname)) return href;
-
-  const website = websiteEntryFromMessage(message);
-  if (!website) return href;
-  const requestedEntry = decodeURIComponent(url.pathname).replace(/^\/+/, "");
-  const preview = workspacePreviewUrl(website.root, requestedEntry || website.entry);
-  return preview ? `${preview}${url.search}${url.hash}` : href;
+  let path: string | undefined;
+  try {
+    if (["http:", "https:"].includes(url.protocol) && LOOPBACK_PREVIEW_HOSTS.has(url.hostname)) {
+      const website = websiteEntryFromMessage(message);
+      if (website) path = `${website.root}/${decodeURIComponent(url.pathname).replace(/^\/+/, "") || website.entry}`;
+    } else if (relativeReference || href.startsWith("/workspace/preview/") || url.hostname === "neural-labs.ai" || (typeof window !== "undefined" && url.origin === window.location.origin)) {
+      const legacy = url.pathname.match(/^\/workspace\/preview\/([A-Za-z0-9_-]+)\/(.+)$/);
+      if (legacy) {
+        const root = decodedLegacyPreviewRoot(legacy[1]);
+        if (root !== undefined) path = root ? `${root}/${decodeURIComponent(legacy[2])}` : decodeURIComponent(legacy[2]);
+      } else if (url.hostname === "neural-labs.invalid") {
+        path = decodeURIComponent(url.pathname).replace(/^\/+/, "");
+      }
+    }
+  } catch {
+    return undefined;
+  }
+  const safePath = safeWebsitePath(path);
+  return safePath ? { name: safePath.split("/").at(-1) ?? "index.html", path: safePath, size: 0, mimeType: "text/html" } : undefined;
 }
 
 function approvalFromEvent(event: GatewayEvent): NeuraApproval | null {
@@ -216,7 +248,7 @@ function isTranscriptAtBottom(element: HTMLElement, threshold = 48): boolean {
 
 const unavailableTeamUser = { id: "", handle: "user", displayName: "User", role: "user" as const };
 
-export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neura", composeRequest, csrfToken = "", currentUser = unavailableTeamUser }: Props) {
+export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neura", composeRequest, csrfToken = "", currentUser = unavailableTeamUser, onPreviewFile }: Props) {
   const [initialUiState] = useState(() => neuraDeviceState(storageNamespace, storageArea));
   const [connection, setConnection] = useState<ConnectionState>("connecting");
   const [connectionError, setConnectionError] = useState<string>();
@@ -1281,9 +1313,9 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
                   : <span key={attachment.name}><Paperclip />{attachment.name}</span>)}</div>}
                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
                   a: ({ href, children }) => {
-                    const target = message.role === "assistant" ? resolveNeuraMessageLink(href, message.text) : href;
-                    const preview = target !== href;
-                    return <a href={target} target="_blank" rel="noreferrer" title={preview ? "Open website preview" : undefined}>{children}</a>;
+                    const preview = message.role === "assistant" ? neuraWebsitePreviewFile(href, message.text) : undefined;
+                    if (preview) return <button type="button" className="message-preview-link" onClick={() => onPreviewFile ? onPreviewFile(preview) : notify("The desktop Preview app is unavailable.")} title="Open in desktop Preview">{children}</button>;
+                    return <a href={href} target="_blank" rel="noreferrer">{children}</a>;
                   },
                 }}>{message.text}</ReactMarkdown>
                 {message.activities && message.activities.length > 0 && <NeuraActivityTimeline activities={message.activities} />}
@@ -1303,7 +1335,13 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
               <div className="message-body">
                 <span className="message-author">{author}{message.author && <small>@{message.author.handle}</small>}</span>
                 {message.attachments.length > 0 && <div className="team-message-attachments">{message.attachments.map((attachment) => <a key={attachment.path} href={workspaceDownloadUrl(attachment.path)} download><Paperclip />{attachment.name}<small>{attachment.size ? `${Math.max(1, Math.round(attachment.size / 1024))} KB` : "Workspace file"}</small></a>)}</div>}
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.body}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+                  a: ({ href, children }) => {
+                    const preview = neura ? neuraWebsitePreviewFile(href, message.body) : undefined;
+                    if (preview) return <button type="button" className="message-preview-link" onClick={() => onPreviewFile ? onPreviewFile(preview) : notify("The desktop Preview app is unavailable.")} title="Open in desktop Preview">{children}</button>;
+                    return <a href={href} target="_blank" rel="noreferrer">{children}</a>;
+                  },
+                }}>{message.body}</ReactMarkdown>
                 {(message.activities?.length ?? 0) > 0 && <NeuraActivityTimeline activities={message.activities!.map((activity, index) => ({ ...activity, id: `${message.id}:${index}`, sessionKey: `team:${message.channelId}`, runId: message.agentRunId }))} />}
                 <time dateTime={message.createdAt}>{new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(message.createdAt))}</time>
               </div>

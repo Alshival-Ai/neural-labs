@@ -33,6 +33,8 @@ const ASSET_TYPES = new Map([
 
 const CSP_NONCE_MARKER = "__NEURAL_LABS_CSP_NONCE__";
 const PREVIEW_PREFIX = "/workspace/preview/";
+const PREVIEW_LAUNCH_PATH = "/workspace/api/previews";
+const PREVIEW_LAUNCH_TTL_MS = 15 * 60 * 1000;
 // @xterm/xterm 6.0.0 creates two library-global styles outside its
 // documentOverride path: an initially empty shared sheet and its pinned base
 // rules. Keep these exact hashes in sync with the pinned xterm dependency.
@@ -62,21 +64,21 @@ function contentSecurityPolicy(nonce) {
   ].join("; ");
 }
 
-function previewContentSecurityPolicy() {
+function previewContentSecurityPolicy(assetSource) {
   return [
-    "default-src 'self' data: blob: https:",
-    "base-uri 'self'",
+    "default-src 'none'",
+    "base-uri 'none'",
     "connect-src 'none'",
     "form-action 'none'",
     "frame-ancestors 'self'",
-    "font-src 'self' data: https:",
-    "img-src 'self' data: blob: https:",
-    "media-src 'self' data: blob: https:",
+    `font-src ${assetSource} data:`,
+    `img-src ${assetSource} data: blob:`,
+    `media-src ${assetSource} data: blob:`,
     "object-src 'none'",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https:",
-    "style-src 'self' 'unsafe-inline' https:",
-    "worker-src 'self' blob:",
-    "sandbox allow-scripts allow-modals allow-popups allow-downloads",
+    `script-src ${assetSource} 'unsafe-inline' 'unsafe-eval' blob:`,
+    `style-src ${assetSource} 'unsafe-inline'`,
+    `worker-src ${assetSource} blob:`,
+    "sandbox allow-scripts allow-modals allow-downloads",
   ].join("; ");
 }
 
@@ -153,20 +155,17 @@ function parsePreviewRequest(pathname) {
   const encoded = pathname.slice(PREVIEW_PREFIX.length);
   const separator = encoded.indexOf("/");
   if (separator < 1) {
-    throw new WorkspaceFileError(400, "invalid_preview", "A website folder is required for preview");
+    throw new WorkspaceFileError(404, "preview_not_found", "This preview is unavailable");
   }
-  const rootToken = encoded.slice(0, separator);
-  if (!/^[A-Za-z0-9_-]+$/.test(rootToken)) {
-    throw new WorkspaceFileError(400, "invalid_preview", "The preview website folder is invalid");
+  const launchToken = encoded.slice(0, separator);
+  if (!/^[A-Za-z0-9_-]{32}$/.test(launchToken)) {
+    throw new WorkspaceFileError(404, "preview_not_found", "This preview is unavailable");
   }
   try {
-    const rootBytes = rootToken === "root" ? null : Buffer.from(rootToken, "base64url");
-    if (rootBytes && (!rootBytes.length || rootBytes.toString("base64url") !== rootToken)) throw new Error("invalid token");
-    const root = rootBytes ? new TextDecoder("utf-8", { fatal: true }).decode(rootBytes) : "";
     const rawPath = encoded.slice(separator + 1);
     const requestedPath = decodeURIComponent(rawPath || "index.html");
     return {
-      root,
+      launchToken,
       path: requestedPath.endsWith("/") ? `${requestedPath}index.html` : requestedPath,
     };
   } catch {
@@ -233,8 +232,7 @@ function sendInlinePreview(response, file, method, rangeHeader) {
   else file.stream(range || undefined).on("error", () => response.destroy()).pipe(response);
 }
 
-function sendPreview(response, file, method) {
-  response.setHeader("Access-Control-Allow-Origin", "*");
+function sendPreview(response, file, method, assetSource) {
   response.setHeader("Cache-Control", "private, no-store");
   response.setHeader("Content-Length", file.size);
   response.setHeader("Content-Type", file.mimeType);
@@ -244,7 +242,7 @@ function sendPreview(response, file, method) {
   response.setHeader("X-Content-Type-Options", "nosniff");
   response.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
   if (file.mimeType.startsWith("text/html")) {
-    response.setHeader("Content-Security-Policy", previewContentSecurityPolicy());
+    response.setHeader("Content-Security-Policy", previewContentSecurityPolicy(assetSource));
   }
   response.writeHead(200);
   if (method === "HEAD") response.end();
@@ -359,6 +357,7 @@ export function createWorkspaceHttpServer({
   });
   const fileEvents = createWorkspaceFileEvents({ root: workspaceRoot });
   const terminals = terminalManager ?? new WorkspaceTerminalManager({ workspaceRoot });
+  const previewLaunches = new Map();
   const server = createServer(async (request, response) => {
     const method = request.method ?? "GET";
     const url = new URL(request.url ?? "/", "http://workspace.local");
@@ -447,11 +446,42 @@ export function createWorkspaceHttpServer({
       return;
     }
 
-    if (pathname.startsWith(PREVIEW_PREFIX)) {
-      if (typeof request.headers["x-forwarded-user"] !== "string" || !request.headers["x-forwarded-user"].trim()) {
+    if (pathname === PREVIEW_LAUNCH_PATH) {
+      const userId = typeof request.headers["x-forwarded-user"] === "string" ? request.headers["x-forwarded-user"].trim() : "";
+      if (!userId) {
         sendJson(response, 401, { error: { code: "unauthorized", message: "Authentication is required" } }, method);
         return;
       }
+      if (method !== "POST") {
+        response.setHeader("Allow", "POST");
+        sendJson(response, 405, { error: { code: "method_not_allowed", message: "Method not allowed" } }, method);
+        return;
+      }
+      if (request.headers.origin !== publicOrigin) {
+        sendJson(response, 403, { error: { code: "same_origin_required", message: "A same-origin request is required" } }, method);
+        return;
+      }
+      try {
+        const body = await readJsonBody(request, 16 * 1024);
+        const root = typeof body?.root === "string" ? body.root : "";
+        const entry = typeof body?.entry === "string" ? body.entry : "index.html";
+        const verification = await files.preview(root, entry);
+        verification.stream().destroy();
+        const now = Date.now();
+        for (const [token, launch] of previewLaunches) if (launch.expiresAt <= now) previewLaunches.delete(token);
+        const launchToken = randomBytes(24).toString("base64url");
+        const expiresAt = now + PREVIEW_LAUNCH_TTL_MS;
+        previewLaunches.set(launchToken, { userId, root, expiresAt });
+        const encodedEntry = entry.split("/").map((segment) => encodeURIComponent(segment)).join("/");
+        sendJson(response, 201, { url: `${PREVIEW_PREFIX}${launchToken}/${encodedEntry}`, expiresAt: new Date(expiresAt).toISOString() }, method);
+      } catch (error) {
+        fileApiError(response, error, method);
+      }
+      return;
+    }
+
+    if (pathname.startsWith(PREVIEW_PREFIX)) {
+      const userId = typeof request.headers["x-forwarded-user"] === "string" ? request.headers["x-forwarded-user"].trim() : "";
       if (method !== "GET" && method !== "HEAD") {
         response.setHeader("Allow", "GET, HEAD");
         sendJson(response, 405, { error: { code: "method_not_allowed", message: "Method not allowed" } }, method);
@@ -459,8 +489,15 @@ export function createWorkspaceHttpServer({
       }
       try {
         const preview = parsePreviewRequest(pathname);
-        const file = await files.preview(preview.root, preview.path);
-        sendPreview(response, file, method);
+        const launch = previewLaunches.get(preview.launchToken);
+        if (!launch || (userId && launch.userId !== userId) || launch.expiresAt <= Date.now()) {
+          if (launch?.expiresAt <= Date.now()) previewLaunches.delete(preview.launchToken);
+          throw new WorkspaceFileError(404, "preview_not_found", "This preview is unavailable");
+        }
+        launch.expiresAt = Date.now() + PREVIEW_LAUNCH_TTL_MS;
+        const file = await files.preview(launch.root, preview.path);
+        const assetSource = new URL(`${PREVIEW_PREFIX}${preview.launchToken}/`, publicOrigin).href;
+        sendPreview(response, file, method, assetSource);
       } catch (error) {
         fileApiError(response, error, method);
       }

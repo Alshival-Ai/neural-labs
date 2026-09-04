@@ -37,3 +37,4 @@
 - [ADR 0012: Collaborative Skill Builder and automation read model](adr/0012-collaborative-skill-builder-and-automation-read-model.md)
 - [ADR 0013: Personal Neura OpenAI accounts](adr/0013-personal-neura-openai-accounts.md)
 - [ADR 0014: Microsoft-bootstrapped passkeys](adr/0014-microsoft-bootstrapped-passkeys.md)
+- [ADR 0017: Private desktop site previews](adr/0017-private-desktop-site-previews.md)

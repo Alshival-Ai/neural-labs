@@ -5,6 +5,12 @@ Versioning and Git tags in the form `vMAJOR.MINOR.PATCH`.
 
 ## [Unreleased]
 
+### Fixed
+
+- Open static-site links from Files and Neura in the desktop Preview app and
+  serve their local assets through short-lived, sandbox-compatible launch
+  capabilities instead of rendering HTML as plain text.
+
 ## [0.3.2] - 2026-09-03
 
 ### Changed

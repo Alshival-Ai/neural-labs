@@ -53,6 +53,14 @@ fi
 grep -q 'auth_request /_workspace_auth' "${nginx_file}"
 grep -q 'neural_labs_workspace_desktop' "${nginx_file}"
 grep -q 'proxy_set_header Upgrade \$http_upgrade' "${nginx_file}"
+preview_location="$(sed -n '/location \^~ \/workspace\/preview\//,/^    }/p' "${nginx_file}")"
+grep -q 'proxy_pass http://neural_labs_workspace_desktop' <<<"${preview_location}"
+grep -q 'proxy_set_header Cookie ""' <<<"${preview_location}"
+grep -q 'proxy_set_header X-Forwarded-User ""' <<<"${preview_location}"
+if grep -q 'auth_request' <<<"${preview_location}"; then
+  echo "preview capability reads must not depend on browser session cookies" >&2
+  exit 1
+fi
 grep -A2 'location = /mcp' "${nginx_file}" | grep -q 'return 404'
 [[ "$(grep -c 'client_max_body_size 2g' "${nginx_file}")" -ge 3 ]]
 if grep -Eq 'privileged:[[:space:]]*true|/var/run/docker.sock|/home/data-team|/root:' "${compose_file}"; then

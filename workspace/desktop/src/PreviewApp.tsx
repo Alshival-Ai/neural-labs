@@ -1,10 +1,11 @@
-import { Download, FileWarning, LoaderCircle, Maximize2, Table2 } from "lucide-react";
+import { Download, FileWarning, LoaderCircle, Maximize2, RefreshCw, Table2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import {
+  createWorkspaceWebsitePreview,
+  subscribeWorkspaceFiles,
   workspaceContentUrl,
   workspaceDownloadUrl,
-  workspacePreviewUrl,
   type WorkspacePreviewFile,
 } from "./filesApi";
 import "./preview-app.css";
@@ -36,13 +37,6 @@ export function previewKindFor(file: WorkspacePreviewFile): PreviewKind {
   if (extension === "xlsx") return "spreadsheet";
   if (extension === "csv") return "csv";
   return "unsupported";
-}
-
-function websiteUrl(file: WorkspacePreviewFile): string | undefined {
-  const separator = file.path.lastIndexOf("/");
-  const root = separator < 0 ? "" : file.path.slice(0, separator);
-  const entry = separator < 0 ? file.path : file.path.slice(separator + 1);
-  return workspacePreviewUrl(root, entry);
 }
 
 function columnLabel(index: number): string {
@@ -189,16 +183,53 @@ function CsvPreview({ file }: { file: WorkspacePreviewFile }) {
 
 export function PreviewApp({ file }: { file: WorkspacePreviewFile }) {
   const kind = useMemo(() => previewKindFor(file), [file]);
+  const [htmlUrl, setHtmlUrl] = useState<string>();
+  const [htmlError, setHtmlError] = useState<string>();
+  const [htmlRevision, setHtmlRevision] = useState(0);
   const contentUrl = workspaceContentUrl(file.path);
-  const htmlUrl = kind === "html" ? websiteUrl(file) : undefined;
+  useEffect(() => {
+    let cancelled = false;
+    setHtmlUrl(undefined);
+    setHtmlError(undefined);
+    setHtmlRevision(0);
+    if (kind !== "html") return () => { cancelled = true; };
+    void createWorkspaceWebsitePreview(file.path).then((preview) => {
+      if (!cancelled) setHtmlUrl(preview.url);
+    }).catch((error) => {
+      if (!cancelled) setHtmlError(error instanceof Error ? error.message : "The website preview could not be opened.");
+    });
+    return () => { cancelled = true; };
+  }, [file.path, kind]);
+  useEffect(() => {
+    if (kind !== "html" || typeof EventSource !== "function") return undefined;
+    const separator = file.path.lastIndexOf("/");
+    const root = separator < 0 ? "" : file.path.slice(0, separator);
+    let refreshTimer = 0;
+    const unsubscribe = subscribeWorkspaceFiles((change) => {
+      const changedInsideSite = change.paths.some((changedPath) =>
+        root ? changedPath === root || changedPath.startsWith(`${root}/`) : !changedPath.includes("/"));
+      if (!changedInsideSite) return;
+      window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => setHtmlRevision((current) => current + 1), 180);
+    });
+    return () => {
+      window.clearTimeout(refreshTimer);
+      unsubscribe();
+    };
+  }, [file.path, kind]);
+  const liveHtmlUrl = htmlUrl && htmlRevision > 0 ? `${htmlUrl}?reload=${htmlRevision}` : htmlUrl;
   return <div className="preview-app">
     <header className="preview-toolbar">
-      <div><span>{kind === "spreadsheet" || kind === "csv" ? "Spreadsheet" : kind === "html" ? "Web page" : kind[0].toUpperCase() + kind.slice(1)}</span><strong>{file.name}</strong></div>
-      <a href={workspaceDownloadUrl(file.path)} download={file.name}><Download />Download</a>
+      <div><span>{kind === "spreadsheet" || kind === "csv" ? "Spreadsheet" : kind === "html" ? "Web page · live preview" : kind[0].toUpperCase() + kind.slice(1)}</span><strong>{file.name}</strong></div>
+      <div className="preview-toolbar-actions">
+        {kind === "html" && <button type="button" onClick={() => setHtmlRevision((current) => current + 1)}><RefreshCw />Reload</button>}
+        <a href={workspaceDownloadUrl(file.path)} download={file.name}><Download />Download</a>
+      </div>
     </header>
     <main className={`preview-canvas is-${kind}`}>
       {kind === "image" && <img src={contentUrl} alt={file.name} />}
-      {kind === "html" && htmlUrl && <iframe src={htmlUrl} title={`Preview of ${file.name}`} sandbox="allow-scripts allow-modals allow-popups allow-downloads" />}
+      {kind === "html" && !htmlUrl && <PreviewStatus message={htmlError ?? "Creating a private preview…"} error={Boolean(htmlError)} />}
+      {kind === "html" && liveHtmlUrl && <iframe src={liveHtmlUrl} title={`Preview of ${file.name}`} sandbox="allow-scripts allow-modals allow-downloads" />}
       {kind === "pdf" && <iframe src={contentUrl} title={`Preview of ${file.name}`} />}
       {kind === "video" && <video src={contentUrl} controls preload="metadata">Your browser cannot play this video.</video>}
       {kind === "audio" && <div className="preview-audio"><span><Maximize2 /></span><strong>{file.name}</strong><audio src={contentUrl} controls preload="metadata">Your browser cannot play this audio file.</audio></div>}
