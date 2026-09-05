@@ -9,6 +9,7 @@ import { createWorkspaceHttpServer } from "/usr/local/lib/neural-labs/http-serve
 import { createProviderAuthController } from "/usr/local/lib/neural-labs/provider-auth.mjs";
 import { createGatewayAdminRequest, PersonalOpenAIManager } from "/usr/local/lib/neural-labs/personal-openai.mjs";
 import { runTeamAgent } from "/usr/local/lib/neural-labs/team-agent.mjs";
+import { createVoiceService } from "/usr/local/lib/neural-labs/voice.mjs";
 
 const gatewayPort = parsePort(process.env.OPENCLAW_GATEWAY_PORT, 18789);
 const statusPort = parsePort(process.env.NEURAL_LABS_WORKSPACE_STATUS_PORT, 18790);
@@ -35,6 +36,7 @@ const workspaceControlToken = process.env.NEURAL_LABS_WORKSPACE_CONTROL_TOKEN?.t
 if (!workspaceControlToken || workspaceControlToken.length < 32) {
   throw new Error("NEURAL_LABS_WORKSPACE_CONTROL_TOKEN must contain at least 32 characters");
 }
+const voiceService = createVoiceService({ safetySecret: workspaceControlToken });
 const turnCredentialUrl = new URL(
   process.env.NEURAL_LABS_TURN_CREDENTIAL_URL ?? "http://control-plane:4174/internal/turn-credentials",
 );
@@ -373,6 +375,7 @@ const workspaceServer = createWorkspaceHttpServer({
   openclawModelReady,
   providerAuth,
   personalOpenAI,
+  voiceService,
   workspaceControlToken,
   openclawVersion: process.env.NEURAL_LABS_OPENCLAW_VERSION ?? "unknown",
   codexVersion: process.env.NEURAL_LABS_CODEX_VERSION ?? "unknown",

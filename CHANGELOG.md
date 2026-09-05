@@ -7,6 +7,13 @@ Versioning and Git tags in the form `vMAJOR.MINOR.PATCH`.
 
 ### Changed
 
+- Neura private chats now have a wave control for a five-minute, live WebRTC
+  voice conversation. Team Chat's wave control records a voice memo, stores a
+  playable workspace attachment, transcribes it, and sends the transcript as
+  an `@Neura` turn so the agent receives the spoken context.
+- Neura opens on its new-chat screen when the newest conversation has been idle
+  for at least three hours. Returning again without new activity does not keep
+  resetting the user's selection, and an active run is always preserved.
 - VS Code replaces the standalone Editor in the desktop dock and Files workflow.
   New files and text/code files open in the existing code-server window, every
   file has an **Open in VS Code** action, and folder context menus can open the
@@ -37,6 +44,9 @@ Versioning and Git tags in the form `vMAJOR.MINOR.PATCH`.
 
 ### Security and operations
 
+- Voice provider credentials remain server-side. The new voice routes require
+  an authenticated same-origin request, constrain SDP and audio sizes, and use
+  a pseudonymous safety identifier; deployment must provide `OPENAI_API_KEY`.
 - The VS Code open handoff accepts only authenticated, same-origin POSTs and
   resolves existing nonsymlink workspace paths before navigating the requesting
   developer's own embedded workbench. It cannot address paths outside the

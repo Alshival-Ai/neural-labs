@@ -122,6 +122,10 @@ services:
       GOOGLE_PLACES_API_KEY: ${GOOGLE_PLACES_API_KEY:-}
       KLIPY_API_KEY: ${KLIPY_API_KEY:-}
       PEXELS_API_KEY: ${PEXELS_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      NEURAL_LABS_REALTIME_MODEL: ${NEURAL_LABS_REALTIME_MODEL:-gpt-realtime-2.1-mini}
+      NEURAL_LABS_REALTIME_VOICE: ${NEURAL_LABS_REALTIME_VOICE:-marin}
+      NEURAL_LABS_TRANSCRIPTION_MODEL: ${NEURAL_LABS_TRANSCRIPTION_MODEL:-gpt-transcribe}
       NEURAL_LABS_TURN_CREDENTIAL_URL: http://control-plane:4174/internal/turn-credentials
       NEURAL_LABS_TEAM_CHANNEL_ACCESS_URL: http://control-plane:4174/internal/team-terminal/access
     cap_drop:

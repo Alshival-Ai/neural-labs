@@ -1,7 +1,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { invokesTeamAgent, MessageAttachments, modelProviderErrorMessage, neuraWebsitePreviewFile, NeuraApp, TeamTerminalSidebar, teamAgentPhaseFromStatus, teamMessagePresentation } from "./NeuraApp";
+import { invokesTeamAgent, MessageAttachments, modelProviderErrorMessage, NEURA_FRESH_START_AFTER_MS, neuraWebsitePreviewFile, NeuraApp, staleChatActivityForFreshStart, TeamTerminalSidebar, teamAgentPhaseFromStatus, teamMessagePresentation } from "./NeuraApp";
+import { writeDeviceState } from "./deviceState";
 import type { NeuraGateway } from "./openclaw";
 import type { TerminalDescriptor } from "./terminalApi";
 import type { ConnectionState, GatewayEvent, SessionRow } from "./types";
@@ -23,6 +24,7 @@ class FakeGateway {
   readonly sends: Array<{ message: string; queueMode: "steer" | "followup" }> = [];
   readonly createdSession: SessionRow = { ...session, key: "agent:main:neura:new", sessionId: "session-new", title: "New conversation" };
   sessionActive = false;
+  sessions: SessionRow[] = [session];
   createGate?: Promise<void>;
   historyGates = new Map<string, Promise<void>>();
   private sendSequence = 0;
@@ -42,7 +44,7 @@ class FakeGateway {
 
   async listSessions() {
     this.calls.push("sessions.list");
-    return [{ ...session, active: this.sessionActive }];
+    return this.sessions.map((row) => ({ ...row, active: this.sessionActive || row.active }));
   }
 
   async protectLegacyPrivateSessions(sessions: SessionRow[]) {
@@ -132,6 +134,35 @@ afterAll(() => {
 afterEach(cleanup);
 
 describe("Neura realtime conversation", () => {
+  it("opens on the new-chat screen after three hours without chat activity", async () => {
+    const gateway = new FakeGateway();
+    const oldActivityAt = Date.now() - NEURA_FRESH_START_AFTER_MS;
+    gateway.sessions = [{ ...session, updatedAt: oldActivityAt }];
+    writeDeviceState("stale-chat-user", "neura.test", {
+      selectedKey: session.key,
+      sidebarOpen: true,
+      terminalSidebarOpen: false,
+      showArchived: false,
+    });
+
+    const view = render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} active storageNamespace="stale-chat-user" storageArea="neura.test" />);
+
+    expect(await screen.findByText("Work with Neura")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start a conversation" })).toBeInTheDocument();
+    expect(gateway.calls).not.toContain(`history:${session.key}`);
+
+    view.rerender(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} active={false} storageNamespace="stale-chat-user" storageArea="neura.test" />);
+    view.rerender(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} active storageNamespace="stale-chat-user" storageArea="neura.test" />);
+    expect(screen.getByText("Work with Neura")).toBeInTheDocument();
+  });
+
+  it("keeps recent and active conversations selected", () => {
+    const now = Date.now();
+    expect(staleChatActivityForFreshStart([{ ...session, updatedAt: now - NEURA_FRESH_START_AFTER_MS + 1 }], undefined, now)).toBeUndefined();
+    expect(staleChatActivityForFreshStart([{ ...session, active: true, updatedAt: now - NEURA_FRESH_START_AFTER_MS }], undefined, now)).toBeUndefined();
+    expect(staleChatActivityForFreshStart([{ ...session, updatedAt: now - NEURA_FRESH_START_AFTER_MS }], now - NEURA_FRESH_START_AFTER_MS, now)).toBeUndefined();
+  });
+
   it("directs personal provider failures to Personalization without blaming an administrator", () => {
     expect(modelProviderErrorMessage("401 Unauthorized: Missing bearer or basic authentication in header"))
       .toBe("Neura couldn't activate your ChatGPT connection. Open Personalization and try Resume; reconnect if the problem continues.");

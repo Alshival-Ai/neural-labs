@@ -17,6 +17,7 @@ validate:
 	node --check workspace/provider-auth.mjs
 	node --check workspace/personal-openai.mjs
 	node --check workspace/team-agent.mjs
+	node --check workspace/voice.mjs
 	node --check workspace/terminal-manager.mjs
 	node --check mcp/dist/local.js
 	npm --prefix workspace/desktop run validate

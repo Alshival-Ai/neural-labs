@@ -26,6 +26,10 @@ Open Neura and use the **Team chats** section in the conversation sidebar.
   `team-uploads/`, and Neura can attach files it generated in the workspace.
   The channel message stores a reference to the file. The shared Files app can
   therefore also see these files; channel membership is not a file ACL in V1.
+- Use the wave control to record a voice memo. Tap it again to stop and send.
+  Neural Labs stores a playable audio attachment, transcribes the memo through
+  the server-side OpenAI provider, and posts the transcript as an `@Neura` turn
+  so spoken instructions are included in agent context.
 - Use the collapsed terminal rail on the right to see whether the channel has
   active terminals. Expand it to see session status, channel-member bubbles,
   and currently connected terminal participants. The plus action starts another

@@ -1,6 +1,7 @@
 import {
   Archive,
   ArchiveRestore,
+  AudioWaveform,
   Check,
   ChevronDown,
   Globe2,
@@ -36,6 +37,7 @@ import { createWorkspaceFolder, uploadWorkspaceFile, workspaceContentUrl, worksp
 import { listCustomSkills } from "./skillsApi";
 import { teamChatApi, teamSocketUrl, type TeamAttachment, type TeamChannel, type TeamDirectoryUser, type TeamMessage } from "./teamChat";
 import { listTerminals, type TerminalDescriptor } from "./terminalApi";
+import { exchangeRealtimeOffer, supportedRecorderMimeType, transcribeVoiceMemo, voiceMemoExtension } from "./voiceApi";
 import type {
   ComposerAttachment,
   ConnectionState,
@@ -50,6 +52,7 @@ import type {
 type Props = {
   gateway: NeuraGateway;
   notify: (message: string) => void;
+  active?: boolean;
   storageNamespace?: string;
   storageArea?: string;
   composeRequest?: { id: string; text: string };
@@ -59,10 +62,12 @@ type Props = {
   onOpenTeamTerminal?: (channel: Pick<TeamChannel, "id" | "name">, session?: TerminalDescriptor) => Promise<TerminalDescriptor | undefined> | TerminalDescriptor | undefined;
 };
 
-type NeuraDeviceState = { selectedKey?: string; selectedChannelId?: string; sidebarOpen: boolean; terminalSidebarOpen: boolean; showArchived: boolean };
+type NeuraDeviceState = { selectedKey?: string; selectedChannelId?: string; freshStartForActivityAt?: number; sidebarOpen: boolean; terminalSidebarOpen: boolean; showArchived: boolean };
 type SkillSuggestion = { key: string; name: string; description: string };
 type SkillTrigger = { start: number; end: number; query: string };
 type TeamAgentPhase = "starting" | "working";
+type PrivateVoiceState = "idle" | "connecting" | "live";
+type TeamVoiceState = "idle" | "recording" | "transcribing" | "sending";
 type QueuedPrompt = {
   id: string;
   sessionKey: string;
@@ -125,10 +130,30 @@ function neuraDeviceState(storageNamespace: string | undefined, storageArea: str
   return {
     selectedKey: typeof value.selectedKey === "string" ? value.selectedKey.slice(0, 500) : undefined,
     selectedChannelId: typeof value.selectedChannelId === "string" ? value.selectedChannelId.slice(0, 100) : undefined,
+    freshStartForActivityAt: typeof value.freshStartForActivityAt === "number" && Number.isFinite(value.freshStartForActivityAt)
+      ? value.freshStartForActivityAt
+      : undefined,
     sidebarOpen: value.sidebarOpen !== false,
     terminalSidebarOpen: value.terminalSidebarOpen === true,
     showArchived: value.showArchived === true,
   };
+}
+
+export const NEURA_FRESH_START_AFTER_MS = 3 * 60 * 60 * 1_000;
+
+export function staleChatActivityForFreshStart(
+  sessions: SessionRow[],
+  handledActivityAt: number | undefined,
+  now = Date.now(),
+): number | undefined {
+  const available = sessions.filter((session) => !session.archived);
+  if (available.some((session) => session.active)) return undefined;
+  const latestActivityAt = available.reduce<number | undefined>(
+    (latest, session) => latest === undefined || session.updatedAt > latest ? session.updatedAt : latest,
+    undefined,
+  );
+  if (latestActivityAt === undefined || latestActivityAt === handledActivityAt) return undefined;
+  return now - latestActivityAt >= NEURA_FRESH_START_AFTER_MS ? latestActivityAt : undefined;
 }
 
 function relativeTime(timestamp: number): string {
@@ -243,6 +268,10 @@ function isImageAttachment(attachment: Pick<NeuraAttachment, "name" | "type">): 
   return attachment.type.toLowerCase().startsWith("image/") || /\.(?:avif|bmp|gif|jpe?g|png|webp)$/i.test(attachment.name);
 }
 
+function isAudioAttachment(attachment: Pick<NeuraAttachment, "name" | "type">): boolean {
+  return attachment.type.toLowerCase().startsWith("audio/") || /\.(?:m4a|mp3|oga|ogg|wav|webm)$/i.test(attachment.name);
+}
+
 function attachmentSize(size: number | undefined): string {
   if (size === undefined) return "Workspace file";
   if (size < 1024) return `${size} B`;
@@ -261,13 +290,18 @@ export function MessageAttachments({ attachments: items, className = "message-at
     const imageUrl = isImageAttachment({ name: attachment.name, type: attachment.type ?? "" })
       ? path ? workspaceContentUrl(path) : directUrl
       : undefined;
+    const audioUrl = isAudioAttachment({ name: attachment.name, type: attachment.type ?? "" })
+      ? path ? workspaceContentUrl(path) : directUrl
+      : undefined;
     const content = <>
-      {imageUrl ? <img src={imageUrl} alt={attachment.name} loading="lazy" /> : <Paperclip />}
+      {imageUrl ? <img src={imageUrl} alt={attachment.name} loading="lazy" /> : audioUrl ? <audio controls preload="metadata" src={audioUrl} /> : <Paperclip />}
       <span className="attachment-copy"><strong>{attachment.name}</strong><small>{attachmentSize(attachment.size)}</small></span>
     </>;
     const key = `${path ?? directUrl ?? attachment.name}:${index}`;
     return downloadUrl
-      ? <a className={imageUrl ? "attachment-card attachment-image" : "attachment-card"} key={key} href={downloadUrl} download={path ? attachment.name : undefined}>{content}</a>
+      ? audioUrl
+        ? <div className="attachment-card attachment-audio" key={key}>{content}<a href={downloadUrl} download={path ? attachment.name : undefined}>Download</a></div>
+        : <a className={imageUrl ? "attachment-card attachment-image" : "attachment-card"} key={key} href={downloadUrl} download={path ? attachment.name : undefined}>{content}</a>
       : <div className="attachment-card" key={key}>{content}</div>;
   })}</div>;
 }
@@ -369,7 +403,7 @@ export function modelProviderErrorMessage(rawError: string): string {
   return rawError;
 }
 
-export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neura", composeRequest, csrfToken = "", currentUser = unavailableTeamUser, onPreviewFile, onOpenTeamTerminal }: Props) {
+export function NeuraApp({ gateway, notify, active = true, storageNamespace, storageArea = "neura", composeRequest, csrfToken = "", currentUser = unavailableTeamUser, onPreviewFile, onOpenTeamTerminal }: Props) {
   const appViewport = useAppViewport();
   const [initialUiState] = useState(() => neuraDeviceState(storageNamespace, storageArea));
   const [connection, setConnection] = useState<ConnectionState>("connecting");
@@ -377,6 +411,7 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [selectedKey, setSelectedKey] = useState<string | undefined>(initialUiState.selectedKey);
   const [selectedChannelId, setSelectedChannelId] = useState<string | undefined>(initialUiState.selectedChannelId);
+  const [freshStartForActivityAt, setFreshStartForActivityAt] = useState<number | undefined>(initialUiState.freshStartForActivityAt);
   const [teamChannels, setTeamChannels] = useState<TeamChannel[]>([]);
   const [teamDirectory, setTeamDirectory] = useState<TeamDirectoryUser[]>([]);
   const [teamMessages, setTeamMessages] = useState<TeamMessage[]>([]);
@@ -387,6 +422,9 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
   const [teamTyping, setTeamTyping] = useState<TeamDirectoryUser[]>([]);
   const [teamDraft, setTeamDraft] = useState("");
   const [teamAttachments, setTeamAttachments] = useState<TeamAttachment[]>([]);
+  const [privateVoiceState, setPrivateVoiceState] = useState<PrivateVoiceState>("idle");
+  const [teamVoiceState, setTeamVoiceState] = useState<TeamVoiceState>("idle");
+  const [teamVoiceSeconds, setTeamVoiceSeconds] = useState(0);
   const [teamDialog, setTeamDialog] = useState<{ source?: SessionRow } | undefined>();
   const [manageChannel, setManageChannel] = useState<TeamChannel | undefined>();
   const [teamTerminalOpening, setTeamTerminalOpening] = useState(false);
@@ -417,6 +455,9 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
   const selectedKeyRef = useRef(selectedKey);
   const subscribedKeyRef = useRef<string | undefined>(undefined);
   const sessionsRequestRef = useRef(0);
+  const initialSessionRefreshPending = useRef(true);
+  const wasActive = useRef(active);
+  const freshStartForActivityAtRef = useRef(freshStartForActivityAt);
   const messageScroll = useRef<HTMLDivElement>(null);
   const messageContent = useRef<HTMLDivElement>(null);
   const transcriptPinnedToBottom = useRef(true);
@@ -433,6 +474,15 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
   const teamSocket = useRef<WebSocket | undefined>(undefined);
   const teamReconnect = useRef<number | undefined>(undefined);
   const teamTypingTimer = useRef<number | undefined>(undefined);
+  const privateVoicePeer = useRef<RTCPeerConnection | undefined>(undefined);
+  const privateVoiceStream = useRef<MediaStream | undefined>(undefined);
+  const privateVoiceTimer = useRef<number | undefined>(undefined);
+  const privateVoiceAudio = useRef<HTMLAudioElement | undefined>(undefined);
+  const teamVoiceRecorder = useRef<MediaRecorder | undefined>(undefined);
+  const teamVoiceStream = useRef<MediaStream | undefined>(undefined);
+  const teamVoiceChunks = useRef<Blob[]>([]);
+  const teamVoiceTimer = useRef<number | undefined>(undefined);
+  const teamVoiceStartedAt = useRef(0);
   const selectedChannelRef = useRef(selectedChannelId);
   const lastComposeRequest = useRef<string | undefined>(undefined);
   const queuedPromptsRef = useRef<QueuedPrompt[]>([]);
@@ -442,9 +492,65 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
   const agentBusy = Boolean(runId || selected?.active);
   const sessionQueue = queuedPrompts.filter((prompt) => prompt.sessionKey === selectedKey);
 
+  const stopPrivateVoice = useCallback(() => {
+    if (privateVoiceTimer.current) window.clearTimeout(privateVoiceTimer.current);
+    privateVoiceTimer.current = undefined;
+    privateVoicePeer.current?.close();
+    privateVoiceStream.current?.getTracks().forEach((track) => track.stop());
+    if (privateVoiceAudio.current) privateVoiceAudio.current.srcObject = null;
+    privateVoicePeer.current = undefined;
+    privateVoiceStream.current = undefined;
+    privateVoiceAudio.current = undefined;
+    setPrivateVoiceState("idle");
+  }, []);
+
+  const togglePrivateVoice = async () => {
+    if (privateVoiceState !== "idle") {
+      stopPrivateVoice();
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia || typeof RTCPeerConnection === "undefined") {
+      notify("This browser does not support Neura voice chat.");
+      return;
+    }
+    setPrivateVoiceState("connecting");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      privateVoiceStream.current = stream;
+      const peer = new RTCPeerConnection();
+      privateVoicePeer.current = peer;
+      stream.getTracks().forEach((track) => peer.addTrack(track, stream));
+      const audio = document.createElement("audio");
+      audio.autoplay = true;
+      privateVoiceAudio.current = audio;
+      peer.ontrack = (event) => { audio.srcObject = event.streams[0] ?? null; };
+      peer.onconnectionstatechange = () => {
+        if (["failed", "closed", "disconnected"].includes(peer.connectionState)) stopPrivateVoice();
+      };
+      const events = peer.createDataChannel("oai-events");
+      events.addEventListener("open", () => events.send(JSON.stringify({
+        type: "response.create",
+        response: { instructions: "Greet the user briefly as Neura, then ask how you can help." },
+      })));
+      const offer = await peer.createOffer();
+      await peer.setLocalDescription(offer);
+      const { answer, maxSeconds } = await exchangeRealtimeOffer(offer.sdp ?? "");
+      await peer.setRemoteDescription({ type: "answer", sdp: answer });
+      setPrivateVoiceState("live");
+      privateVoiceTimer.current = window.setTimeout(() => {
+        stopPrivateVoice();
+        notify("The five-minute Neura voice session has ended.");
+      }, maxSeconds * 1_000);
+    } catch (error) {
+      stopPrivateVoice();
+      notify(error instanceof Error ? error.message : "Could not start Neura voice. Check microphone access and try again.");
+    }
+  };
+
   selectedKeyRef.current = selectedKey;
   selectedChannelRef.current = selectedChannelId;
   runIdRef.current = runId;
+  freshStartForActivityAtRef.current = freshStartForActivityAt;
 
   const updateQueuedPrompts = (update: (current: QueuedPrompt[]) => QueuedPrompt[]) => {
     const next = update(queuedPromptsRef.current);
@@ -551,6 +657,17 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
         runIdRef.current = undefined;
         setRunId(undefined);
       }
+      if (initialSessionRefreshPending.current) {
+        initialSessionRefreshPending.current = false;
+        const staleActivityAt = staleChatActivityForFreshStart(next, freshStartForActivityAtRef.current);
+        if (staleActivityAt !== undefined) {
+          freshStartForActivityAtRef.current = staleActivityAt;
+          setFreshStartForActivityAt(staleActivityAt);
+          setSelectedChannelId(undefined);
+          setSelectedKey(undefined);
+          return;
+        }
+      }
       setSelectedKey((current) => selectedChannelRef.current
         ? undefined
         : current && next.some((session) => session.key === current)
@@ -573,6 +690,18 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
       removeEvents();
     };
   }, []);
+
+  useEffect(() => {
+    const becameActive = active && !wasActive.current;
+    wasActive.current = active;
+    if (!becameActive) return;
+    const staleActivityAt = staleChatActivityForFreshStart(sessions, freshStartForActivityAtRef.current);
+    if (staleActivityAt === undefined) return;
+    freshStartForActivityAtRef.current = staleActivityAt;
+    setFreshStartForActivityAt(staleActivityAt);
+    setSelectedChannelId(undefined);
+    setSelectedKey(undefined);
+  }, [active, sessions]);
 
   const refreshTeamChannels = useCallback(async () => {
     try {
@@ -763,7 +892,7 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
   }, [selectedChannelId, selectedKey]);
 
   useEffect(() => {
-    if (!selectedKey || selectedChannelId || connection !== "connected") {
+    if (initialSessionRefreshPending.current || !selectedKey || selectedChannelId || connection !== "connected") {
       setSessionReady(false);
       return;
     }
@@ -825,11 +954,23 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
     if (transcriptFollowFrame.current !== undefined) cancelAnimationFrame(transcriptFollowFrame.current);
     for (const url of attachmentObjectUrls.current) URL.revokeObjectURL(url);
     attachmentObjectUrls.current.clear();
+    if (privateVoiceTimer.current) window.clearTimeout(privateVoiceTimer.current);
+    privateVoicePeer.current?.close();
+    privateVoiceStream.current?.getTracks().forEach((track) => track.stop());
+    if (teamVoiceTimer.current) window.clearInterval(teamVoiceTimer.current);
+    const recorder = teamVoiceRecorder.current;
+    if (recorder) recorder.onstop = null;
+    if (recorder?.state === "recording") recorder.stop();
+    teamVoiceStream.current?.getTracks().forEach((track) => track.stop());
   }, []);
 
   useEffect(() => {
-    writeDeviceState(storageNamespace, storageArea, { selectedKey, selectedChannelId, sidebarOpen, terminalSidebarOpen, showArchived } satisfies NeuraDeviceState);
-  }, [selectedKey, selectedChannelId, showArchived, sidebarOpen, storageArea, storageNamespace, terminalSidebarOpen]);
+    if (selectedChannelId) stopPrivateVoice();
+  }, [selectedChannelId, stopPrivateVoice]);
+
+  useEffect(() => {
+    writeDeviceState(storageNamespace, storageArea, { selectedKey, selectedChannelId, freshStartForActivityAt, sidebarOpen, terminalSidebarOpen, showArchived } satisfies NeuraDeviceState);
+  }, [freshStartForActivityAt, selectedKey, selectedChannelId, showArchived, sidebarOpen, storageArea, storageNamespace, terminalSidebarOpen]);
 
   function handleGatewayEvent(event: GatewayEvent) {
     const payload = eventRecord(event);
@@ -1146,28 +1287,127 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
     }
   };
 
-  const sendTeamMessage = () => {
-    const body = teamDraft.trim();
-    if (!selectedChannel || (!body && teamAttachments.length === 0)) return;
+  const postTeamMessage = (body: string, messageAttachments: TeamAttachment[], channel = selectedChannel): boolean => {
+    if (!channel || (!body && messageAttachments.length === 0)) return false;
     const socket = teamSocket.current;
     if (!socket || socket.readyState !== WebSocket.OPEN) {
       notify("Team Chat is reconnecting. Your draft has been kept.");
-      return;
+      return false;
     }
     transcriptPinnedToBottom.current = true;
     setShowJumpToLatest(false);
     if (invokesTeamAgent(body)) setTeamAgentPhase("starting");
     socket.send(JSON.stringify({
       type: "post",
-      channelId: selectedChannel.id,
+      channelId: channel.id,
       clientRequestId: crypto.randomUUID(),
       body,
-      attachments: teamAttachments,
+      attachments: messageAttachments,
     }));
-    socket.send(JSON.stringify({ type: "typing", channelId: selectedChannel.id, active: false }));
+    socket.send(JSON.stringify({ type: "typing", channelId: channel.id, active: false }));
+    return true;
+  };
+
+  const sendTeamMessage = () => {
+    const body = teamDraft.trim();
+    if (!postTeamMessage(body, teamAttachments)) return;
     setTeamDraft("");
     setTeamAttachments([]);
     setTeamSkillTrigger(null);
+  };
+
+  const stopTeamVoiceMemo = () => {
+    const recorder = teamVoiceRecorder.current;
+    if (recorder?.state === "recording") recorder.stop();
+  };
+
+  const toggleTeamVoiceMemo = async () => {
+    if (teamVoiceState === "recording") {
+      stopTeamVoiceMemo();
+      return;
+    }
+    if (teamVoiceState !== "idle" || !selectedChannel) return;
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      notify("This browser does not support recording voice memos.");
+      return;
+    }
+    const channel = selectedChannel;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      teamVoiceStream.current = stream;
+      teamVoiceChunks.current = [];
+      const mimeType = supportedRecorderMimeType();
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      teamVoiceRecorder.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) teamVoiceChunks.current.push(event.data);
+      };
+      recorder.onerror = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        if (teamVoiceTimer.current) window.clearInterval(teamVoiceTimer.current);
+        setTeamVoiceState("idle");
+        notify("The voice memo could not be recorded.");
+      };
+      recorder.onstop = async () => {
+        if (teamVoiceTimer.current) window.clearInterval(teamVoiceTimer.current);
+        teamVoiceTimer.current = undefined;
+        stream.getTracks().forEach((track) => track.stop());
+        teamVoiceStream.current = undefined;
+        const audio = new Blob(teamVoiceChunks.current, { type: recorder.mimeType || mimeType || "audio/webm" });
+        teamVoiceChunks.current = [];
+        if (!audio.size) {
+          setTeamVoiceState("idle");
+          notify("The voice memo was empty.");
+          return;
+        }
+        if (audio.size > 25 * 1024 * 1024) {
+          setTeamVoiceState("idle");
+          notify("Voice memos must be 25 MB or smaller.");
+          return;
+        }
+        try {
+          setTeamVoiceState("transcribing");
+          const transcript = await transcribeVoiceMemo(audio);
+          setTeamVoiceState("sending");
+          await createWorkspaceFolder("", "team-uploads").catch(() => undefined);
+          const extension = voiceMemoExtension(audio.type);
+          const storedName = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}-voice-memo.${extension}`;
+          const file = new File([audio], storedName, { type: audio.type });
+          const uploaded = await uploadWorkspaceFile("team-uploads", file);
+          const attachment: TeamAttachment = {
+            path: uploaded.item.path,
+            name: `Voice memo.${extension}`,
+            type: audio.type,
+            size: audio.size,
+          };
+          const body = `@Neura\n\nVoice memo transcript:\n${transcript}`;
+          if (!postTeamMessage(body, [attachment], channel)) {
+            setTeamDraft(body);
+            setTeamAttachments((current) => [...current, attachment]);
+          }
+        } catch (error) {
+          notify(error instanceof Error ? error.message : "Could not send the voice memo.");
+        } finally {
+          teamVoiceRecorder.current = undefined;
+          setTeamVoiceState("idle");
+          setTeamVoiceSeconds(0);
+        }
+      };
+      teamVoiceStartedAt.current = Date.now();
+      setTeamVoiceSeconds(0);
+      setTeamVoiceState("recording");
+      recorder.start(1_000);
+      teamVoiceTimer.current = window.setInterval(() => {
+        const seconds = Math.floor((Date.now() - teamVoiceStartedAt.current) / 1_000);
+        setTeamVoiceSeconds(seconds);
+        if (seconds >= 300) stopTeamVoiceMemo();
+      }, 1_000);
+    } catch (error) {
+      teamVoiceStream.current?.getTracks().forEach((track) => track.stop());
+      teamVoiceStream.current = undefined;
+      setTeamVoiceState("idle");
+      notify(error instanceof Error ? error.message : "Could not access the microphone.");
+    }
   };
 
   const handleTeamDraft = (value: string) => {
@@ -1634,6 +1874,14 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
               <div className="composer-row">
                 <input ref={teamFileInput} type="file" multiple hidden onChange={(event) => void selectTeamFiles(event)} />
                 <button type="button" className="attach-button" disabled={teamConnection !== "connected"} onClick={() => teamFileInput.current?.click()} aria-label="Attach workspace files"><Paperclip /></button>
+                <button
+                  type="button"
+                  className={`voice-button${teamVoiceState === "recording" ? " is-live" : ""}`}
+                  onClick={() => void toggleTeamVoiceMemo()}
+                  disabled={teamVoiceState !== "recording" && (teamConnection !== "connected" || teamVoiceState !== "idle")}
+                  aria-label={teamVoiceState === "recording" ? "Stop and send voice memo" : teamVoiceState === "transcribing" ? "Transcribing voice memo" : teamVoiceState === "sending" ? "Sending voice memo" : "Record a Team Chat voice memo"}
+                  title={teamVoiceState === "recording" ? `Stop and send voice memo · ${Math.floor(teamVoiceSeconds / 60)}:${String(teamVoiceSeconds % 60).padStart(2, "0")}` : "Record a voice memo"}
+                ><AudioWaveform /></button>
                 <textarea
                   ref={teamComposerInput}
                   value={teamDraft}
@@ -1652,7 +1900,7 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
                 <button type="button" className="send-button" onClick={sendTeamMessage} disabled={teamConnection !== "connected" || !teamDraft.trim() && teamAttachments.length === 0} aria-label="Send Team Chat message"><Send /></button>
               </div>
             </div>
-            <p className="composer-hint">Enter to send · Shift+Enter for a new line · $ lists and calls skills · @Neura invites the agent · @handle mentions a teammate</p>
+            <p className="composer-hint">{teamVoiceState === "recording" ? `Recording voice memo · ${Math.floor(teamVoiceSeconds / 60)}:${String(teamVoiceSeconds % 60).padStart(2, "0")} · tap the wave to send` : teamVoiceState === "transcribing" ? "Transcribing voice memo for Neura…" : teamVoiceState === "sending" ? "Sending voice memo to the team…" : "Enter to send · Shift+Enter for a new line · the wave records a voice memo · @Neura invites the agent"}</p>
           </footer>
         )}
 
@@ -1720,6 +1968,14 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
               <div className="composer-row">
                 <input ref={fileInput} type="file" multiple hidden onChange={selectFiles} />
                 <button type="button" className="attach-button" disabled={!sessionReady} onClick={() => fileInput.current?.click()} aria-label="Attach files or images"><Paperclip /></button>
+                <button
+                  type="button"
+                  className={`voice-button${privateVoiceState === "live" ? " is-live" : ""}${privateVoiceState === "connecting" ? " is-connecting" : ""}`}
+                  onClick={() => void togglePrivateVoice()}
+                  disabled={privateVoiceState === "idle" && !sessionReady}
+                  aria-label={privateVoiceState === "live" ? "End private Neura voice chat" : privateVoiceState === "connecting" ? "Cancel private Neura voice chat" : "Start private Neura voice chat"}
+                  title={privateVoiceState === "live" ? "End voice chat" : "Start a private voice chat with Neura"}
+                ><AudioWaveform /></button>
                 <textarea
                   ref={composerInput}
                   disabled={!sessionReady}
@@ -1742,7 +1998,7 @@ export function NeuraApp({ gateway, notify, storageNamespace, storageArea = "neu
                 </div>
               </div>
             </div>
-            <p className="composer-hint">Enter to {agentBusy ? "steer now" : "send"} · Ctrl/Cmd+Enter to {agentBusy ? "queue next" : "send"} · Shift+Enter for a new line</p>
+            <p className="composer-hint">{privateVoiceState === "live" ? "Private voice chat is live · tap the wave to end" : privateVoiceState === "connecting" ? "Connecting private voice chat…" : <>Enter to {agentBusy ? "steer now" : "send"} · Ctrl/Cmd+Enter to {agentBusy ? "queue next" : "send"} · the wave starts voice chat</>}</p>
           </footer>
         )}
       </main>

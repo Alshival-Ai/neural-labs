@@ -40,3 +40,5 @@
 - [ADR 0015: WebRTC Team Terminal voice](adr/0015-team-terminal-webrtc-voice.md)
 - [ADR 0016: Team Chat-scoped terminals](adr/0016-team-chat-scoped-terminals.md)
 - [ADR 0017: Private desktop site previews](adr/0017-private-desktop-site-previews.md)
+- [ADR 0018: Private Neura generated media](adr/0018-private-neura-generated-media.md)
+- [ADR 0019: Neura OpenAI voice](adr/0019-neura-openai-voice.md)

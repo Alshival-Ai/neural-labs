@@ -21,6 +21,7 @@ import {
   attachVsCodeWebSocketBridge,
   proxyVsCodeHttp,
 } from "./vscode-proxy.mjs";
+import { MAX_REALTIME_SDP_BYTES, MAX_VOICE_MEMO_BYTES, VoiceError } from "./voice.mjs";
 
 const ASSET_TYPES = new Map([
   [".css", "text/css; charset=utf-8"],
@@ -321,6 +322,18 @@ async function readJsonBody(request, limit = 8192) {
   }
 }
 
+async function readBinaryBody(request, limit, code = "request_too_large", message = "The request is too large") {
+  const chunks = [];
+  let size = 0;
+  for await (const value of request) {
+    const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
+    size += chunk.length;
+    if (size > limit) throw new VoiceError(413, code, message);
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
 async function readTextBody(request, limit) {
   const chunks = [];
   let size = 0;
@@ -361,6 +374,15 @@ function terminalApiError(response, error, method) {
   sendJson(response, 500, { error: { code: "internal_error", message: "The terminal operation failed" } }, method);
 }
 
+function voiceApiError(response, error, method) {
+  if (error instanceof VoiceError) {
+    sendJson(response, error.status, { error: { code: error.code, message: error.message } }, method);
+    return;
+  }
+  console.error("Workspace voice API error", error instanceof Error ? error.message : error);
+  sendJson(response, 500, { error: { code: "internal_error", message: "The voice operation failed" } }, method);
+}
+
 export function createWorkspaceHttpServer({
   desktopRoot,
   workspaceRoot,
@@ -385,6 +407,7 @@ export function createWorkspaceHttpServer({
   openclawModelReady,
   providerAuth,
   personalOpenAI,
+  voiceService,
   workspaceControlToken,
   openclawVersion,
   codexVersion,
@@ -610,6 +633,45 @@ export function createWorkspaceHttpServer({
         await relayNeuraMedia(response, method, gatewayMediaOrigin, parseNeuraMediaRequest(url), gatewayMediaFetch);
       } catch (error) {
         fileApiError(response, error, method);
+      }
+      return;
+    }
+
+    if (pathname === "/workspace/api/neura/realtime/call" || pathname === "/workspace/api/neura/transcriptions") {
+      const userId = typeof request.headers["x-forwarded-user"] === "string" ? request.headers["x-forwarded-user"].trim() : "";
+      if (!userId) {
+        sendJson(response, 401, { error: { code: "unauthorized", message: "Authentication is required" } }, method);
+        return;
+      }
+      if (method !== "POST") {
+        response.setHeader("Allow", "POST");
+        sendJson(response, 405, { error: { code: "method_not_allowed", message: "Method not allowed" } }, method);
+        return;
+      }
+      if (request.headers.origin !== publicOrigin) {
+        sendJson(response, 403, { error: { code: "same_origin_required", message: "A same-origin request is required" } }, method);
+        return;
+      }
+      if (!voiceService) {
+        sendJson(response, 503, { error: { code: "voice_not_configured", message: "Voice is not configured for Neural Labs yet" } }, method);
+        return;
+      }
+      try {
+        if (pathname.endsWith("/realtime/call")) {
+          const bytes = await readBinaryBody(request, MAX_REALTIME_SDP_BYTES, "invalid_webrtc_offer", "The WebRTC voice offer is invalid");
+          const answer = await voiceService.createRealtimeCall({ offer: bytes.toString("utf8"), userId });
+          response.setHeader("Cache-Control", "no-store");
+          response.setHeader("Content-Type", "application/sdp");
+          response.setHeader("X-Neural-Labs-Voice-Max-Seconds", "300");
+          response.writeHead(201);
+          response.end(answer);
+        } else {
+          const bytes = await readBinaryBody(request, MAX_VOICE_MEMO_BYTES, "voice_memo_too_large", "Voice memos must be 25 MB or smaller");
+          const text = await voiceService.transcribeVoiceMemo({ bytes, mimeType: request.headers["content-type"], userId });
+          sendJson(response, 200, { text }, method);
+        }
+      } catch (error) {
+        voiceApiError(response, error, method);
       }
       return;
     }

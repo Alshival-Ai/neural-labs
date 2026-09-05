@@ -547,6 +547,9 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, summary:focus-vis
 .message-attachments .attachment-card > svg { width: .95rem; height: .95rem; color: var(--accent); }
 .message-attachments .attachment-card.attachment-image { width: min(22rem, 100%); display: block; padding: .3rem; }
 .message-attachments .attachment-image > img { width: 100%; max-height: 18rem; display: block; border-radius: 7px; object-fit: contain; background: rgba(11, 12, 17, .04); }
+.message-attachments .attachment-card.attachment-audio { width: min(22rem, 100%); grid-template-columns: minmax(0, 1fr) auto; }
+.attachment-audio audio { width: 100%; min-width: 12rem; height: 2rem; grid-column: 1 / -1; }
+.attachment-audio > a { color: var(--accent); font-size: var(--desktop-font-body, 13px); text-decoration: none; }
 .attachment-copy { min-width: 0; display: grid; gap: .08rem; padding: 0; border: 0; background: transparent; }
 .attachment-image .attachment-copy { padding: .4rem .28rem .2rem; }
 .attachment-copy strong, .attachment-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -645,12 +648,16 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, summary:focus-vis
 .composer-row textarea { min-width: 0; max-height: 9rem; min-height: 2.15rem; flex: 1; resize: none; overflow-y: auto; padding: .48rem .4rem; border: 0; outline: none; color: var(--ink); background: transparent; font-size: var(--desktop-font-subheading, 16px); line-height: 1.5; }
 .composer-row textarea::placeholder { color: #92939a; }
 .composer-row textarea:disabled { color: #92939a; cursor: wait; }
-.attach-button, .stop-button { width: 2.15rem; height: 2.15rem; display: grid; place-items: center; flex: 0 0 auto; padding: 0; border: 0; border-radius: 9px; color: #77787e; background: transparent; cursor: pointer; }
-.attach-button:hover, .stop-button:hover { color: var(--ink); background: rgba(11, 12, 17, .06); }
-.attach-button:disabled { opacity: .35; cursor: wait; }
-.attach-button:disabled:hover { color: #77787e; background: transparent; }
+.attach-button, .stop-button, .voice-button { width: 2.15rem; height: 2.15rem; display: grid; place-items: center; flex: 0 0 auto; padding: 0; border: 0; border-radius: 9px; color: #77787e; background: transparent; cursor: pointer; }
+.attach-button:hover, .stop-button:hover, .voice-button:hover { color: var(--ink); background: rgba(11, 12, 17, .06); }
+.attach-button:disabled, .voice-button:disabled { opacity: .35; cursor: wait; }
+.attach-button:disabled:hover, .voice-button:disabled:hover { color: #77787e; background: transparent; }
 .stop-button { color: var(--danger); }
-.attach-button svg, .stop-button svg, .send-button svg { width: .92rem; height: .92rem; }
+.voice-button { position: relative; color: var(--accent); }
+.voice-button.is-live { color: #fff; background: var(--danger); box-shadow: 0 0 0 3px rgba(200, 63, 80, .13); animation: voice-pulse 1.5s ease-in-out infinite; }
+.voice-button.is-connecting { color: var(--accent); background: rgba(123, 77, 255, .1); }
+.attach-button svg, .stop-button svg, .voice-button svg, .send-button svg { width: .92rem; height: .92rem; }
+@keyframes voice-pulse { 50% { box-shadow: 0 0 0 6px rgba(200, 63, 80, .08); } }
 .split-send { position: relative; display: flex; flex: 0 0 auto; }
 .send-button { width: 2.15rem; height: 2.15rem; display: grid; place-items: center; padding: 0; border: 0; border-radius: 9px; color: #fff; background: var(--ink); box-shadow: 2px 2px 0 var(--amber); cursor: pointer; }
 .send-button:disabled { opacity: .32; cursor: default; }

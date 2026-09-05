@@ -62,6 +62,24 @@ explicitly copy a private conversation into a restricted or Everyone channel,
 and `@Neura` invokes the message author's personal OpenClaw agent only for that
 channel turn.
 
+## Voice
+
+The wave control has deliberately different behavior in each chat scope. In a
+private chat it opens a live, two-way WebRTC audio session directly between the
+browser and OpenAI Realtime. The authenticated workspace server exchanges only
+the browser's SDP offer for an SDP answer, keeps the standard OpenAI API key on
+the server, and ends the session after five minutes. The user can end it sooner
+with the same wave control.
+
+In Team Chat, the wave records a voice memo instead of opening a live call.
+Tapping it again stops recording. The memo is sent to the workspace server for
+OpenAI transcription, saved under `team-uploads/` as a playable channel
+attachment, and posted with its transcript as an `@Neura` message. The visible
+transcript therefore becomes durable Team Chat history and is included in the
+same bounded context used for that Neura turn. Both paths fail closed when the
+server-side `OPENAI_API_KEY` is absent; this key is separate from personal
+ChatGPT OAuth credentials.
+
 ## Personal OpenAI connection
 
 Open **Settings → Personalization → Your ChatGPT account** to connect through

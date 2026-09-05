@@ -20,7 +20,7 @@ const mcpStatusFixture = (ready = true) => ({
   tools: ["google_places_search", "search_gif", "pexels_search_photos"],
 });
 
-async function fixture(ready = true, { maxUploadBytes, maxTextBytes, mcpReady = true, codeServerReady = true, runTeamAgent, personalOpenAI, turnCredentialProvider, teamChannelAuthorizer, terminalHeartbeatMs, gatewayMediaOrigin, gatewayMediaFetch } = {}) {
+async function fixture(ready = true, { maxUploadBytes, maxTextBytes, mcpReady = true, codeServerReady = true, runTeamAgent, personalOpenAI, voiceService, turnCredentialProvider, teamChannelAuthorizer, terminalHeartbeatMs, gatewayMediaOrigin, gatewayMediaFetch } = {}) {
   const desktopRoot = await mkdtemp(path.join(tmpdir(), "neural-labs-desktop-test-"));
   const workspaceRoot = path.join(desktopRoot, "workspace-root");
   await mkdir(path.join(desktopRoot, "assets"));
@@ -53,6 +53,7 @@ async function fixture(ready = true, { maxUploadBytes, maxTextBytes, mcpReady = 
       cancel: () => ({ provider: "openai", state: "disconnected" }),
     },
     personalOpenAI,
+    voiceService,
     workspaceControlToken: "workspace-control-token-at-least-thirty-two-characters",
     openclawVersion: "2026.8.2",
     codexVersion: "0.152.0",
@@ -74,6 +75,58 @@ async function fixture(ready = true, { maxUploadBytes, maxTextBytes, mcpReady = 
     },
   };
 }
+
+test("brokers authenticated same-origin private voice and team transcription requests", async () => {
+  const calls = [];
+  const app = await fixture(true, {
+    voiceService: {
+      createRealtimeCall: async (input) => {
+        calls.push({ type: "realtime", ...input });
+        return "v=0\r\no=answer\r\n";
+      },
+      transcribeVoiceMemo: async (input) => {
+        calls.push({ type: "transcription", ...input });
+        return "Recorded team update";
+      },
+    },
+  });
+  try {
+    const unauthenticated = await fetch(`${app.origin}/workspace/api/neura/realtime/call`, { method: "POST", body: "v=0\r\n" });
+    assert.equal(unauthenticated.status, 401);
+
+    const wrongOrigin = await fetch(`${app.origin}/workspace/api/neura/realtime/call`, {
+      method: "POST",
+      headers: { "X-Forwarded-User": "maya-id", Origin: "https://wrong.example" },
+      body: "v=0\r\n",
+    });
+    assert.equal(wrongOrigin.status, 403);
+
+    const realtime = await fetch(`${app.origin}/workspace/api/neura/realtime/call`, {
+      method: "POST",
+      headers: { "X-Forwarded-User": "maya-id", Origin: "https://neural-labs.example.com", "Content-Type": "application/sdp" },
+      body: "v=0\r\no=offer\r\n",
+    });
+    assert.equal(realtime.status, 201);
+    assert.equal(realtime.headers.get("content-type"), "application/sdp");
+    assert.equal(realtime.headers.get("x-neural-labs-voice-max-seconds"), "300");
+    assert.equal(await realtime.text(), "v=0\r\no=answer\r\n");
+
+    const transcription = await fetch(`${app.origin}/workspace/api/neura/transcriptions`, {
+      method: "POST",
+      headers: { "X-Forwarded-User": "maya-id", Origin: "https://neural-labs.example.com", "Content-Type": "audio/webm" },
+      body: Buffer.from("memo"),
+    });
+    assert.equal(transcription.status, 200);
+    assert.deepEqual(await transcription.json(), { text: "Recorded team update" });
+    assert.equal(calls[0].userId, "maya-id");
+    assert.equal(calls[0].offer, "v=0\r\no=offer\r\n");
+    assert.equal(calls[1].userId, "maya-id");
+    assert.equal(calls[1].mimeType, "audio/webm");
+    assert.deepEqual(calls[1].bytes, Buffer.from("memo"));
+  } finally {
+    await app.close();
+  }
+});
 
 test("relays only authenticated, ticketed Neura media through the workspace origin", async () => {
   const requests = [];
