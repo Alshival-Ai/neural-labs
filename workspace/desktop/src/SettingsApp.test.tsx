@@ -139,9 +139,10 @@ describe("Settings app", () => {
     expect(screen.queryByRole("button", { name: /^Users/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Plugins/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /^Plugins/ }));
-    expect(await screen.findByRole("heading", { name: "Neural Labs Tools" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "View details for Neural Labs Tools" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add plugin" }));
     expect(screen.getByRole("button", { name: /^Global plugin/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: /^Security/ }));
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/auth/providers", expect.anything()));
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).startsWith("/api/admin/"))).toBe(false);
   });
@@ -181,6 +182,7 @@ describe("Settings app", () => {
     unmount();
     render(<SettingsApp csrfToken="csrf-token" currentUserId={admin.id} initialSection="plugins" />);
     expect(await screen.findByRole("heading", { name: "Plugins" })).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "View details for Neural Labs Tools" }));
     expect(await screen.findByRole("heading", { name: "Neural Labs Tools" })).toBeInTheDocument();
     expect(screen.getByText(/cannot be edited, disconnected, or removed/)).toBeInTheDocument();
     expect(screen.getByText("Global · all members")).toBeInTheDocument();
@@ -190,10 +192,11 @@ describe("Settings app", () => {
     expect(screen.queryByText("Microsoft Entra OAuth")).not.toBeInTheDocument();
     expect(vi.mocked(fetch).mock.calls.some(([url, init]) => String(url) === "/api/admin/mcp" && init?.method === "PUT")).toBe(false);
 
+    fireEvent.click(screen.getByRole("button", { name: "All plugins" }));
     fireEvent.click(screen.getByRole("button", { name: "Add plugin" }));
     expect(screen.getByRole("heading", { name: "Add a plugin" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "MCP server" })).toBeInTheDocument();
-    expect(screen.getByText(/will not accept server URLs or credentials/)).toBeInTheDocument();
+    expect(screen.getByText(/Server URLs and credentials cannot be submitted/)).toBeInTheDocument();
   });
 
   it("starts workspace-owned ChatGPT pairing", async () => {

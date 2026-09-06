@@ -6,6 +6,7 @@ export interface ProviderConfig {
   pexelsApiKey?: string;
   projectsRoot: string;
   downloadSigningKey: Buffer;
+  terminalApi?: { url: URL; token: string };
   notificationApi?: { url: URL; token: string };
 }
 
@@ -43,6 +44,7 @@ export function loadProviderConfig(
     )
       .update("neural-labs/pexels-download-token/v1")
       .digest(),
+    terminalApi: { url: new URL(`http://127.0.0.1:${optional(env, "NEURAL_LABS_WORKSPACE_STATUS_PORT") ?? "18790"}/internal/terminal-agent`), token: workspaceToken },
     notificationApi: {
       url: new URL(optional(env, "NEURAL_LABS_SMS_NOTIFICATION_URL") ?? "http://control-plane:4174/internal/plugins/twilio/send"),
       token: workspaceToken,

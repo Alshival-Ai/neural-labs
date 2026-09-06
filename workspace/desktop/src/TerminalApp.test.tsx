@@ -233,6 +233,8 @@ describe("Terminal app", () => {
 
     expect(await screen.findByLabelText("#private-release interactive terminal")).toBeInTheDocument();
     expect(screen.getByLabelText("Terminal context")).toHaveTextContent("#private-release");
+    expect(screen.getByRole("button", { name: "Send a GIF reaction" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send a team reaction" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open team session #private-release" })).toHaveAttribute("aria-current", "page");
   });
 
@@ -354,7 +356,7 @@ describe("Terminal app", () => {
     socket.onmessage?.({ data: JSON.stringify({ type: "ready", mode: "replay", connectionId: "ada-connection", viewer: { id: "ada", label: "ada" }, session: team }) });
 
     fireEvent.click(screen.getByRole("button", { name: "Send a team reaction" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Send 🚀" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send 🚀" }));
     expect(socket.send).toHaveBeenCalledWith(JSON.stringify({ type: "reaction", emoji: "🚀" }));
 
     vi.useFakeTimers();
@@ -365,6 +367,14 @@ describe("Terminal app", () => {
 
     act(() => vi.advanceTimersByTime(1800));
     expect(screen.queryByLabelText("salvador reacted with 🚀")).not.toBeInTheDocument();
+    act(() => socket.onmessage?.({ data: JSON.stringify({ type: "reaction", kind: "gif", id: "gif-reaction", actor: { label: "ada" }, gif: { id: "gif-1", title: "Celebration", url: "https://static.klipy.com/qa.gif", preview: "https://static.klipy.com/qa.gif", still: null } }) }));
+    expect(screen.getByLabelText("ada reacted with Celebration")).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(4999));
+    expect(screen.getByLabelText("ada reacted with Celebration")).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.queryByLabelText("ada reacted with Celebration")).not.toBeInTheDocument();
+    act(() => socket.onmessage?.({ data: JSON.stringify({ type: "reaction-error", message: "Please wait a moment before sending another reaction" }) }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Please wait a moment");
   });
 
   it("joins Team Terminal voice muted and supports open mic and push to talk", async () => {
@@ -503,4 +513,20 @@ describe("Neural Spectrum terminal profile", () => {
     expect(NEURAL_TERMINAL_THEME.blue).not.toBe(NEURAL_TERMINAL_THEME.background);
     expect(NEURAL_TERMINAL_THEME.selectionForeground).toBe("#ffffff");
   });
+});
+
+it("reports focused terminal context and acknowledges readiness before interactive execution", async () => {
+  const focused = vi.fn();
+  const session = descriptor({ ...personal, agentMode: "shared", canControlAgent: true });
+  render(<TerminalApp active onFocusSession={focused} openRequest={{ id: "agent-open", session }} />);
+  await waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
+  expect(focused).toHaveBeenCalledWith(expect.objectContaining({ id: personal.id }));
+  const socket = MockWebSocket.instances[0];
+  expect(socket.send).not.toHaveBeenCalledWith(JSON.stringify({ type: "client-ready" }));
+  act(() => { socket.readyState = MockWebSocket.OPEN; socket.onmessage?.({ data: JSON.stringify({ type: "ready", session, connectionId: "agent-test", mode: "replay" }) }); });
+  expect(socket.send).toHaveBeenCalledWith(JSON.stringify({ type: "client-ready" }));
+  expect(screen.getByText("Neura can read and type")).toBeInTheDocument();
+  act(() => { socket.onmessage?.({ data: JSON.stringify({ type: "agent-participation", mode: "status-only", active: false }) }); });
+  expect(screen.getByText("Neura: status only")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Enable Neura" })).toBeInTheDocument();
 });

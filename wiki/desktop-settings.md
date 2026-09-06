@@ -4,9 +4,10 @@ Neural Labs settings live inside the shared desktop at `/workspace`. Every
 active user receives the **Settings** cog in the dock. The account menu is kept
 small and contains only the sign-out action.
 
-Members open Settings with **Personalization**, **Model Provider**, and **Plugins**. Personalization
-controls their device-local desktop font size, shows their account identity,
-lets them link available sign-in methods. Model Provider connects or pauses the personal
+Members open Settings with **Personalization**, **Security**, **Model Provider**,
+and **Plugins**. Personalization controls device-local desktop font size, account
+identity, and notification preferences. Security manages personal sign-in methods,
+passkeys, and verified phone numbers. Model Provider connects or pauses the personal
 ChatGPT account and configures private Neura model/reasoning defaults. Plugins separates private,
 user-owned connections from global workspace capabilities. Administrators
 receive those same areas plus the control-plane areas below.
@@ -20,7 +21,7 @@ path redirect active users to `/workspace`.
 
 ## Settings areas
 
-Personalization also provides a private phone-number card: enter an international
+**Personal → Security** provides a private phone-number card: enter an international
 number, agree to a verification SMS, and submit the six-digit code. The card
 supports code autofill, resend cooldown, expiry/attempt errors, replacing the
 number without losing the existing verification, and confirmed removal. Pending
@@ -35,7 +36,8 @@ Twilio settings documented in [ADR 0022](adr/0022-profile-phone-verification.md)
 
 | Area | Purpose |
 |---|---|
-| Personalization | Per-user desktop font size, account identity, phone verification, linked sign-in methods, and sign out |
+| Personalization | Per-user desktop font size, account identity, notification preferences, and sign out |
+| Security | Personal sign-in methods, passkeys, and verified phone management |
 | Model Provider | Personal ChatGPT connection, follow-latest or pinned agent model, supported reasoning levels, and Claude availability notice |
 | Plugins | Private plugins attached only to the member's agents and global plugins available to every workspace member |
 | Overview | Account counts, authentication state, plugin state, runtime health, and recent audit events |
@@ -116,6 +118,35 @@ preview. They deliberately accept no URL or credential until the isolated
 credential broker, OAuth callback handling, tool review, confirmation policy,
 and per-agent attachment controls are implemented.
 
+## Plugin cards and API keys
+
+Plugins opens on compact cards for **Neural Labs Tools**, **Twilio SMS/MMS**,
+**Google Maps**, **KLIPY**, and **Pexels**. Select a card for its connection details;
+**All plugins** returns to the selected scope filter. Every member can inspect
+status. Administrators manage the shared connections. Neural Labs Tools remains
+a locked system plugin, and Add plugin remains a preview for future installations.
+
+For Google Maps, KLIPY, or Pexels, enter an API key and select **Save key**, then
+**Check connection** once the configuration has applied. Saved keys are encrypted
+and never returned to the browser. Google Maps uses one key with separate Places
+and Geocoding checks, so a partial setup reports which capability needs attention.
+Connection checks make small read-only provider requests, which may consume quota.
+
+Saved keys take priority over deployment environment settings. **Disconnect**
+removes the saved key and disables that service, including any environment key.
+**Use deployment configuration** explicitly removes the Settings override and
+restores environment-based configuration. Both actions require confirmation.
+Changes normally apply within 15 seconds without restarting the workspace;
+status distinguishes applying, configured but unchecked, connected, and failed
+checks. During a configuration-service outage, tools retain their last confirmed
+configuration for at most 60 seconds, then become unavailable until it recovers.
+
+Phone verification stays in Security; the **Agent SMS/MMS updates** preference
+stays in Personalization. Adding a phone does not opt into notifications. Open
+Settings windows refresh phone state after a change, including removal.
+See [ADR 0029](adr/0029-settings-provider-credentials.md) for credential handling
+and runtime propagation.
+
 ## Application boundaries
 
 ### Personal model provider cards
@@ -148,7 +179,9 @@ by the mocked UI, API, runtime, or responsive browser tests.
 The `console/` bundle now owns only login, signup, and pending approval pages.
 The role-aware Settings application is built into `workspace/desktop/` and uses
 the existing control-plane APIs. No additional service or port is introduced.
-Legacy `/account` requests redirect to the desktop with Personalization open.
+Legacy `/account` requests and account-link callbacks open Security in the desktop.
+`/workspace?settings=security` opens it directly; existing
+`?settings=personalization` links continue to open Personalization.
 
 Nginx authenticates `/workspace` with the control-plane subrequest before
 serving the desktop. The same session cookie is then used for the same-origin

@@ -8,7 +8,7 @@ do not inherit each other's layout.
 The desktop restores:
 
 - open and minimized application windows, including multiple windows per app;
-- window stacking order, position, size, and maximized state;
+- window stacking order, position, size, left/right snapping, and maximized state;
 - Files location, navigation mode, and list/grid preference;
 - Neura's selected conversation, sidebar, and archive visibility;
 - Settings navigation; and
@@ -52,11 +52,40 @@ iframe into the same window activation path. Cross-origin preview frames use
 the browser's outer iframe-focus signal. This keeps clicking inside an embedded
 app equivalent to clicking any other desktop window.
 
-Maximizing the active window expands it edge-to-edge and enters focus mode. The
-desktop topbar and dock slide away while the window expands. Move the pointer to
-the top or bottom screen edge, or move keyboard focus into either bar, to reveal
-it temporarily. Activating a non-maximized window exits focus mode without
-changing the maximized window's saved state.
+The desktop has no top bar or top-edge reveal zone. Maximized and split windows
+use the entire viewport height on mouse and touch devices; phone windows also
+start at the top edge. Open **Settings** from the app bar for account details,
+**Sign out**, and live workspace status. The clock and home branding no longer
+occupy desktop space.
+
+Drag a title bar to the left or right edge to preview a full-height half-screen
+layout, or to the top edge to preview maximization. Release to apply. The top
+wins at corners; moving away removes the preview. Escape, pointer cancellation,
+or losing browser focus cancels the operation and restores the starting layout.
+Snapping is available above 760 pixels browser width; narrower screens retain
+the mobile single-window layout.
+
+Side snaps reach the bottom edge without reserving dock space. The dock hides
+when a snapped or maximized window is active. Reveal it at the bottom edge, by
+keyboard focus, or with the **Show dock** button on wide touch-only screens.
+A freeform active window restores the floating dock. Phone layouts retain their
+visible dock. Shell hover reveals are suppressed during window manipulation.
+
+Right-click the maximize button, or focus it and press Arrow Down or Shift+F10,
+to open **Snap left**, **Snap right**, **Maximize**, and **Restore**. Arrow keys
+navigate the menu; Escape closes it. Clicking the maximize button or
+double-clicking the title bar still toggles maximization. Maximizing a snapped
+window remembers that side for the next maximize-button Restore; the menu's
+Restore returns directly to the last freeform bounds.
+
+Dragging a snapped or maximized title bar restores its freeform size beneath the
+pointer and continues moving. A title-bar click without movement keeps its
+placement. Resizing a snapped window turns it into a freeform window. Other
+windows are not automatically moved or resized. Snapped geometry adapts to the
+viewport, and temporarily narrowing the browser to the mobile layout does not
+replace its saved desktop placement. Old saved freeform/maximized layouts remain
+compatible. Short desktop viewports allow smaller window heights to keep controls
+reachable. Reduced-motion preferences disable shell and window animations.
 
 Right-click an integrated app's dock icon to create a new window, minimize or
 restore the app, or close its window set. Each new window has independent
@@ -73,7 +102,8 @@ the most recent external window. Closing an external browser window returns the
 app to the desktop automatically, while the app title bar's close control closes
 the app as usual.
 
-Pop-out placement is intentionally temporary device state. Reloading or closing
+Returning a pop-out restores its desktop placement, including a saved left/right
+snap. Pop-out placement is intentionally temporary device state. Reloading or closing
 the Neural Labs desktop closes its child browser windows, and the next desktop
 load restores those apps inside the desktop. A browser may require pop-ups to be
 allowed for the Neural Labs origin. The pop-out uses the authenticated,

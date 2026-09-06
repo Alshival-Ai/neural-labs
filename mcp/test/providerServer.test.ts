@@ -442,3 +442,32 @@ describe("workspace provider MCP", () => {
     await application.close();
   });
 });
+
+it("advertises interactive terminal tools and forwards only scoped requests", async () => {
+  const fetchFn = vi.fn(async (_url: unknown, init?: RequestInit) => {
+    expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer internal-terminal-test-key");
+    const body = JSON.parse(String(init?.body));
+    expect(body.tool).toBe("read_terminal");
+    expect(body.input.contextToken).toBe(`nlt_${"a".repeat(43)}`);
+    return Response.json({ terminalId: "55555555-5555-4555-8555-555555555555", output: "build failed", nextSequence: 2, status: "running" });
+  });
+  const application = createProviderApplication({ ...await config(), terminalApi: { url: new URL("http://127.0.0.1:18790/internal/terminal-agent"), token: "internal-terminal-test-key" } }, fetchFn as typeof fetch);
+  try {
+    const health = await request(application.app).get("/healthz").expect(200);
+    expect(health.body.tools).toEqual(expect.arrayContaining(["list_terminals", "open_terminal", "read_terminal", "send_terminal_input"]));
+    expect(health.text).not.toContain("internal-terminal-test-key");
+    const result = await callTool(application, "read_terminal", { contextToken: `nlt_${"a".repeat(43)}`, waitMs: 0 });
+    expect(result).toMatchObject({ result: { structuredContent: { output: "build failed" } } });
+    const invalid = await callTool(application, "send_terminal_input", { contextToken: `nlt_${"a".repeat(43)}`, text: "hello", interrupt: true });
+    expect(JSON.stringify(invalid)).toMatch(/error|isError/);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  } finally { await application.close(); }
+});
+
+it("returns terminal access errors without claiming a launch succeeded", async () => {
+  const application = createProviderApplication({ ...await config(), terminalApi: { url: new URL("http://127.0.0.1:18790/internal/terminal-agent"), token: "internal-terminal-test-key" } }, vi.fn(async () => Response.json({ error: { message: "Open the Neural Labs desktop" } }, { status: 409 })) as typeof fetch);
+  try {
+    const result = await callTool(application, "open_terminal", { contextToken: `nlt_${"a".repeat(43)}`, requestId: "request-1" });
+    expect(result).toMatchObject({ result: { isError: true, content: [{ text: "Open the Neural Labs desktop" }] } });
+  } finally { await application.close(); }
+});

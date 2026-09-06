@@ -62,7 +62,7 @@ describe("profile phone settings", () => {
     );
     const code = await screen.findByLabelText("Six-digit verification code");
     expect(code).toHaveAttribute("autocomplete", "one-time-code");
-    expect(code).toHaveFocus();
+    await waitFor(() => expect(code).toHaveFocus());
     expect(screen.getByRole("button", { name: /Resend in/ })).toBeDisabled();
     const options = fetch.mock.calls[1]![1]!;
     expect(new Headers(options.headers).get("X-CSRF-Token")).toBe("csrf-test");
@@ -164,5 +164,37 @@ describe("profile phone settings", () => {
     expect(
       screen.getByRole("button", { name: "Send verification code" }),
     ).toBeDisabled();
+  });
+});
+
+describe("notification preferences separated from Security", () => {
+  it("links to Security when no number is verified and contains no verification form", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(json(empty));
+    const open = vi.fn();
+    render(<PhoneSettings csrfToken="csrf" view="notifications" onOpenSecurity={open} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add phone in Security" }));
+    expect(open).toHaveBeenCalledOnce();
+    expect(screen.queryByLabelText("Phone number", { selector: "input" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  });
+  it("refreshes other Settings windows after verification and notification changes", async () => {
+    let current = empty;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      if (init?.method === "POST") current = { ...empty, phoneNumber: "+12025550123", verifiedAt: new Date().toISOString() };
+      if (init?.method === "PUT") current = { ...current, notificationsEnabled: true };
+      return json(current);
+    });
+    const view = render(<><PhoneSettings csrfToken="csrf" /><PhoneSettings csrfToken="csrf" view="notifications" /></>);
+    const number = await screen.findByLabelText("Phone number", { selector: "input" });
+    fireEvent.change(number, { target: { value: "+12025550123" } });
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "Send verification code" }));
+    const toggle = await screen.findByRole("checkbox", { name: /Agent SMS/ });
+    fireEvent.click(toggle);
+    await waitFor(() => expect(toggle).toBeChecked());
+    expect(screen.queryByRole("button", { name: "Add phone in Security" })).not.toBeInTheDocument();
+    view.unmount();
+    render(<PhoneSettings csrfToken="csrf" view="notifications" />);
+    expect(await screen.findByRole("checkbox", { name: /Agent SMS/ })).toBeChecked();
   });
 });

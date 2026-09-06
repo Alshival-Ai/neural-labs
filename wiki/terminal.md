@@ -83,8 +83,26 @@ line wrapping, and layout leadership passes automatically when it disconnects.
 
 Presence avatars identify connected teammates, and brief typing attribution
 makes collaborative command entry easy to follow.
-The smile action sends an ephemeral emoji sticker to every connected viewer.
-Stickers are rate-limited, are not written into the PTY, and are not persisted.
+The right rail contains separate **Emoji** and **GIF** controls. The full emoji
+picker offers search, categories, skin tones, and eight quick reactions. GIFs use
+KLIPY featured results and search, with Load more for additional results. GIF
+search explicitly requests no content filter; provider catalog/account restrictions
+still apply. Missing KLIPY configuration disables GIF search while emoji remains
+available. Provider errors offer Retry.
+
+Selecting a reaction sends it to connected viewers of that Team Terminal and
+returns focus to the shell. Emoji lasts 1.8 seconds; GIFs last five seconds. Each
+shows the sender's name, with at most three reactions on screen. Reduced-motion
+users see still previews or text. No reaction writes to the PTY, enters the output
+replay, or creates saved history. Emoji has a 400ms sender cooldown and GIFs have
+a two-second cooldown, shared across that sender's connections to the terminal.
+
+Pickers support keyboard navigation, Escape to close, and touch controls. Compact
+panes open a picker over the app area; opening it does not resize the shell.
+Short mobile windows hide the secondary status bar and the passive Neura helper
+line to leave space for the shell and reaction rail. Active Neura participation
+and participation controls remain visible. These controls apply to Team Terminals,
+including those opened inside Neura; personal shells have no reaction sidebar.
 Raw input is not duplicated into a social event: terminal echo is the source of
 visible typed text, which preserves normal no-echo behavior for password prompts.
 
@@ -173,3 +191,53 @@ The broader shared-workspace trust model still applies: every approved developer
 can modify shared files, and passwordless `sudo` grants root only inside the
 workspace container. Personal terminal visibility does not make shared files or
 container credentials private from other mutually trusted developers.
+
+## Working with Neura
+
+Neura can open Terminal for an interactive session **with you**, run a command,
+read recent output, and type into the same process. Ordinary background commands
+continue to use the agent's command-execution tools.
+
+You can also open Terminal yourself, run a command, switch to Neura, and ask about
+it. Each message automatically includes snapshots of the three terminal sessions
+you most recently created, focused, or typed in. Each snapshot includes metadata
+and up to 4 KiB of eligible recent output, including output from before Neura
+opened. There is no selector to manage. Background logs, reconnects, and Neura's
+own tool activity do not move terminals ahead of the ones you are using.
+
+Snapshots stay fixed for the submitted message, including queued messages. Neura
+can fetch more of the existing session buffer when needed and asks which terminal
+only when the request is ambiguous. Agent input always names an explicit terminal
+ID. Removed sessions disappear from future context. Neura does not run continuously
+in the background.
+
+Personal terminals are available in their owner's private chats. Team Terminals
+are available in their own Team Chat and in current members' private chats. Team
+context is never automatically carried into another channel. Access is checked
+again for each tool operation. Asking a question permits inspection; Neura's
+instructions require an action request before typing.
+
+**Neura can read and type** means agent participation is available. The additional
+participation indicator appears when a tool is accessing the session. **Pause
+Neura** switches to status-only access and blocks agent input. The owner controls
+personal sessions; a Team Terminal's creator or an administrator controls its
+shared setting. All connected viewers see changes.
+
+Output produced while paused is never available through subsequent Neura reads,
+even after sharing resumes. It remains visible in the human terminal. Already
+shared output cannot be withdrawn from an existing conversation. Output sharing
+includes anything a program echoes; there is no automatic secret detection.
+Credential sessions opened by Neura must start in status-only mode. Enter secrets
+directly into the program's masked prompt. Masking depends on the program, and
+Terminal is not a credential store.
+
+History is bounded to the existing 2 MiB session buffer and is discarded when the
+session is removed or the workspace restarts. Reads report gaps and truncation.
+No persistent terminal recording is added. Neura cannot recover discarded output
+or attach to an unrelated background command.
+
+Interactive launches require a connected desktop. One desktop claims the launch,
+focusing or restoring its Terminal window; the command starts only after that
+terminal completes its ready handshake. Unconnected launches expire after 30
+seconds. Repeating the same request ID checks the original launch without running
+the command again.

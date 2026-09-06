@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { validateChatSendParams } from "@openclaw/gateway-protocol";
+import { describe, expect, it, vi } from "vitest";
 
-import { activitiesFromGatewayEvent, normalizeNeuraHistory, workspaceNeuraMediaUrl } from "./openclaw";
+import { NeuraGateway, activitiesFromGatewayEvent, normalizeNeuraHistory, workspaceNeuraMediaUrl } from "./openclaw";
 
 describe("Neura Gateway projections", () => {
   it("reconstructs safe command and thinking steps from durable history", () => {
@@ -220,4 +221,43 @@ describe("Neura Gateway projections", () => {
       size: 4_096,
     }]);
   });
+});
+
+describe("Native proposed plan metadata", () => {
+  it("distinguishes completed native plans from user text and ordinary task progress", () => {
+    const signature = JSON.stringify({ v: 1, phase: "final_answer", proposedPlan: true });
+    const messages = normalizeNeuraHistory([
+      { role: "user", id: "u", content: [{ type: "text", text: "A user plan", textSignature: signature }] },
+      { role: "assistant", id: "a", content: [{ type: "text", text: "<proposed_plan>Ordinary text</proposed_plan>" }] },
+      { role: "assistant", id: "p", content: [{ type: "text", text: "The native plan", textSignature: signature }] },
+    ], "private");
+    expect(messages.filter((message) => message.proposedPlan).map((message) => message.id)).toEqual(["p"]);
+  });
+});
+
+it("removes native media marker lines only when backed by attachment metadata", () => {
+  const attachment = { type: "attachment", attachment: { kind: "image", label: "photo.png", mimeType: "image/png", url: "data:image/png;base64,aGVsbG8=" } };
+  const result = normalizeNeuraHistory([
+    { role: "user", content: [{ type: "text", text: "Keep this caption\n[media attached: media://inbound/photo]" }, attachment], __openclaw: { media: [{ url: "media://inbound/photo" }] } },
+    { role: "user", content: [{ type: "text", text: "photo.png" }, attachment] },
+    { role: "user", content: [{ type: "text", text: "[media attached: unknown]" }, attachment] },
+  ], "chat");
+  expect(result[0].text).toBe("Keep this caption");
+  expect(result[1].text).toBe("photo.png");
+  expect(result[2].text).toBe("[media attached: unknown]");
+});
+
+
+it("sends plans through the published unmodified chat schema", async () => {
+  const request = vi.fn().mockResolvedValue({ runId: "r" });
+  const gateway = Object.assign(Object.create(NeuraGateway.prototype), { client: { request }, agentId: "main" }) as NeuraGateway;
+  await gateway.send({ key: "agent:main:neura:test", sessionId: "s", title: "Test", updatedAt: 0, archived: false, active: false, visibility: "draft" },
+    "Please implement the following plan:\n\nInspect the data.", [], "steer", { idempotencyKey: "retry-key" });
+  expect(request).toHaveBeenCalledOnce();
+  const [method, params] = request.mock.calls[0];
+  expect(method).toBe("chat.send");
+  expect(validateChatSendParams(params)).toBe(true);
+  expect(params).not.toHaveProperty("expectedCollaborationMode");
+  expect(params).not.toHaveProperty("implementationPlanMessageId");
+  expect(params.idempotencyKey).toBe("retry-key");
 });

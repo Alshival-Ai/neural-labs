@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const gatewayMocks = vi.hoisted(() => ({ start: vi.fn(), setAgentId: vi.fn() }));
@@ -51,6 +51,7 @@ function renderDesktop(role: "admin" | "user", { accountAuthenticated = true, ac
       id: "channel-terminal-1", title: "#private-release", scope: "team", status: "running",
       teamChannel: { id: "55555555-5555-4555-8555-555555555555", name: "private-release" },
     } });
+    if (url === "/workspace/api/terminal-agent/claim") return json({ session: { id: "agent-terminal", title: "Interactive work", scope: "personal", status: "running" } });
     if (url === "/workspace/api/vscode/open" && method === "POST") {
       const body = JSON.parse(String(init?.body ?? "{}")) as { path?: string };
       return json({ opened: { path: body.path, type: "file" } });
@@ -98,8 +99,12 @@ function renderDesktop(role: "admin" | "user", { accountAuthenticated = true, ac
   return render(<App />);
 }
 
+async function waitForDesktop() {
+  await waitFor(() => expect(document.querySelector("#desktop-canvas")).toHaveAttribute("aria-busy", "false"));
+}
+
 async function openTerminalFromDock() {
-  await screen.findByText("Workspace ready");
+  await waitForDesktop();
   fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
   return screen.findByLabelText("Terminal application");
 }
@@ -140,7 +145,7 @@ afterEach(() => {
 });
 
 describe("desktop admin navigation", () => {
-  it("recovers the shared workspace badge after a temporary deployment outage", async () => {
+  it("recovers workspace status in Settings after a temporary deployment outage", async () => {
     let workspaceRequests = 0;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
@@ -155,14 +160,16 @@ describe("desktop admin navigation", () => {
     });
 
     render(<App />);
+    await waitForDesktop();
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(await screen.findByText("offline")).toBeInTheDocument();
     document.dispatchEvent(new Event("visibilitychange"));
-    expect(await screen.findByText("Workspace ready")).toBeInTheDocument();
+    expect(await screen.findByText("ready")).toBeInTheDocument();
   });
 
   it("uses one browser-selected responsive wallpaper without speculative preloads", async () => {
     const view = renderDesktop("user");
-    await screen.findByText("Workspace ready");
+    await waitForDesktop();
     const picture = view.container.querySelector("picture.desktop-wallpaper");
     expect(picture).toBeInTheDocument();
     expect(picture?.querySelectorAll("source")).toHaveLength(2);
@@ -174,7 +181,7 @@ describe("desktop admin navigation", () => {
     if (state === "invalid") localStorage.setItem(key, "{invalid");
     if (state === "empty") localStorage.setItem(key, JSON.stringify({ windows: [] }));
     const view = renderDesktop("user");
-    await screen.findByText("Workspace ready");
+    await waitForDesktop();
 
     await waitFor(() => expect(JSON.parse(localStorage.getItem(key)!)).toEqual({ windows: [] }));
     expect(view.container.querySelector(".desktop-window")).not.toBeInTheDocument();
@@ -201,13 +208,13 @@ describe("desktop admin navigation", () => {
     await waitFor(() => expect(JSON.parse(localStorage.getItem(deviceStateKey("user-id", "desktop"))!)).toEqual({ windows: [] }));
     view.unmount();
     const restored = render(<App />);
-    await screen.findByText("Workspace ready");
+    await waitForDesktop();
     expect(restored.container.querySelector(".desktop-window")).not.toBeInTheDocument();
   });
 
   it("creates and opens a channel-scoped terminal from Neura Team Chat", async () => {
     renderDesktop("user");
-    await screen.findByText("Workspace ready");
+    await waitForDesktop();
     fireEvent.click(screen.getByRole("button", { name: "Neura" }));
     fireEvent.click(await screen.findByRole("button", { name: "Open mock Team Chat terminal" }));
 
@@ -329,7 +336,7 @@ describe("desktop admin navigation", () => {
 
   it("opens embedded VS Code from the dock and keeps its live frame mounted while minimized", async () => {
     renderDesktop("user");
-    await screen.findByText("Workspace ready");
+    await waitForDesktop();
     fireEvent.click(screen.getByRole("button", { name: "VS Code" }));
 
     const vsCodeWindow = await screen.findByLabelText("VS Code application");
@@ -373,7 +380,7 @@ describe("desktop admin navigation", () => {
 
   it("keeps stack positions unique after closing a middle window", async () => {
     renderDesktop("user");
-    await screen.findByText("Workspace ready");
+    await waitForDesktop();
     fireEvent.click(screen.getByRole("button", { name: "Files" }));
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     const filesWindow = await screen.findByLabelText("Files application");
@@ -389,7 +396,9 @@ describe("desktop admin navigation", () => {
   it("opens administrator and personal settings from the shared Settings cog", async () => {
     renderDesktop("admin");
     const settingsButton = await screen.findByRole("button", { name: "Settings" });
-    fireEvent.click(screen.getByRole("button", { name: "AD" }));
+    await waitForDesktop();
+    expect(document.querySelector(".topbar")).toBeNull();
+    expect(document.querySelector(".shell-reveal-zone--top")).toBeNull();
     expect(screen.queryByRole("button", { name: "User Settings" })).not.toBeInTheDocument();
     fireEvent.click(settingsButton);
     const settingsWindow = await screen.findByLabelText("Settings application");
@@ -398,11 +407,12 @@ describe("desktop admin navigation", () => {
     fireEvent.click(await within(settingsWindow).findByRole("button", { name: /^Personalization/ }));
     expect((await within(settingsWindow).findAllByText("admin@example.org")).length).toBeGreaterThan(0);
     expect(within(settingsWindow).getByRole("button", { name: /^Overview/ })).toBeInTheDocument();
+    expect(within(settingsWindow).getByRole("button", { name: "Sign out" })).toBeInTheDocument();
   });
 
-  it("opens a Personalization-only Settings app for regular users", async () => {
+  it("opens personal Settings without administrator controls for regular users", async () => {
     renderDesktop("user");
-    await screen.findByText("Workspace ready");
+    await waitForDesktop();
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     const settingsWindow = await screen.findByLabelText("Settings application");
     expect(await within(settingsWindow).findByRole("heading", { name: "Personalization" })).toBeInTheDocument();
@@ -413,7 +423,7 @@ describe("desktop admin navigation", () => {
   it("restores and persists the per-user desktop font size", async () => {
     localStorage.setItem(deviceStateKey("user-id", "appearance"), JSON.stringify({ fontScale: 140 }));
     const view = renderDesktop("user");
-    await screen.findByText("Workspace ready");
+    await waitForDesktop();
     await waitFor(() => expect(view.container.querySelector<HTMLElement>(".desktop")?.style.getPropertyValue("--desktop-font-body")).toBe("18.2px"));
 
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
@@ -424,26 +434,26 @@ describe("desktop admin navigation", () => {
     expect(view.container.querySelector<HTMLElement>(".desktop")?.style.getPropertyValue("--desktop-font-title")).toBe("30px");
   });
 
-  it("opens Settings Personalization after an account or identity-link redirect", async () => {
-    window.history.pushState({}, "", "/workspace?settings=personalization&success=Microsoft+identity+linked");
+  it.each([["security", "Security"], ["personalization", "Personalization"]])("opens the %s Settings deep link and preserves callback feedback", async (section, heading) => {
+    window.history.pushState({}, "", `/workspace?settings=${section}&success=Microsoft+identity+linked`);
     renderDesktop("user");
 
     const settingsWindow = await screen.findByLabelText("Settings application");
-    expect(await within(settingsWindow).findByRole("heading", { name: "Personalization" })).toBeInTheDocument();
+    expect(await within(settingsWindow).findByRole("heading", { name: heading })).toBeInTheDocument();
     expect(await within(settingsWindow).findByText("Microsoft identity linked")).toBeInTheDocument();
     expect(window.location.search).toBe("");
   });
 
   it("exposes Settings and read-only Automations to regular users", async () => {
     renderDesktop("user");
-    expect(await screen.findByText("Workspace ready")).toBeInTheDocument();
+    await waitForDesktop();
     expect(screen.getByRole("button", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Automations" })).toBeInTheDocument();
   });
 
   it("routes the Automations dock icon into the canonical Skills window", async () => {
     renderDesktop("user");
-    await screen.findByText("Workspace ready");
+    await waitForDesktop();
     fireEvent.click(screen.getByRole("button", { name: "Automations" }));
     const skillsWindow = await screen.findByLabelText("Skills & Automations application");
     expect(await within(skillsWindow).findByTestId("skills-live-view")).toHaveTextContent("Skills section: automations");
@@ -452,7 +462,7 @@ describe("desktop admin navigation", () => {
 
   it("opens a shared text file from Files in VS Code", async () => {
     renderDesktop("user");
-    await screen.findByText("Workspace ready");
+    await waitForDesktop();
     fireEvent.click(screen.getByRole("button", { name: "Files" }));
     const browser = await screen.findByRole("region", { name: "Workspace" });
     const notes = await within(browser).findByRole("row", { name: /notes\.md/i });
@@ -471,7 +481,7 @@ describe("desktop admin navigation", () => {
 
   it("opens a common binary file in a dedicated desktop preview window", async () => {
     renderDesktop("user");
-    await screen.findByText("Workspace ready");
+    await waitForDesktop();
     fireEvent.click(screen.getByRole("button", { name: "Files" }));
     const browser = await screen.findByRole("region", { name: "Workspace" });
     fireEvent.doubleClick(await within(browser).findByRole("row", { name: /photo\.png/i }));
@@ -483,7 +493,7 @@ describe("desktop admin navigation", () => {
 
   it("raises clicked windows, toggles dock minimization, and manages multiple windows", async () => {
     renderDesktop("user");
-    await screen.findByText("Workspace ready");
+    await waitForDesktop();
     fireEvent.click(screen.getByRole("button", { name: "Files" }));
     fireEvent.click(screen.getByRole("button", { name: "VS Code" }));
 
@@ -532,7 +542,7 @@ describe("desktop admin navigation", () => {
 
   it("keeps the live Neura transcript mounted while its window is minimized", async () => {
     renderDesktop("user");
-    await screen.findByText("Workspace ready");
+    await waitForDesktop();
     fireEvent.click(screen.getByRole("button", { name: "Neura" }));
     const neuraWindow = await screen.findByLabelText("Neura application");
     const liveView = await within(neuraWindow).findByTestId("neura-live-view");
@@ -546,9 +556,21 @@ describe("desktop admin navigation", () => {
     expect(within(neuraWindow).getByTestId("neura-live-view")).toBe(liveView);
   });
 
+  it("hides the dock for the active snapped window and returns to normal after restore", async () => {
+    const view = renderDesktop("user");
+    const terminal = await openTerminalFromDock();
+    const maximize = within(terminal).getByRole("button", { name: "Maximize Terminal" });
+    fireEvent.keyDown(maximize, { key: "ArrowDown" });
+    fireEvent.click(within(terminal).getByRole("menuitem", { name: "Snap left" }));
+    await waitFor(() => expect(view.container.querySelector(".desktop")).toHaveClass("has-maximized-window"));
+    fireEvent.keyDown(maximize, { key: "ArrowDown" });
+    fireEvent.click(within(terminal).getByRole("menuitem", { name: "Restore" }));
+    await waitFor(() => expect(view.container.querySelector(".desktop")).not.toHaveClass("has-maximized-window"));
+  });
+
   it("turns an active maximized window into edge-to-edge focus mode", async () => {
     const view = renderDesktop("user");
-    await screen.findByText("Workspace ready");
+    await waitForDesktop();
     fireEvent.click(screen.getByRole("button", { name: "Files" }));
     const filesWindow = await screen.findByLabelText("Files application");
 
@@ -559,7 +581,7 @@ describe("desktop admin navigation", () => {
     expect(filesWindow.style.top).toBe("0px");
     expect(filesWindow.style.width).toBe("100vw");
     expect(filesWindow.style.height).toBe("100dvh");
-    expect(view.container.querySelectorAll(".shell-reveal-zone")).toHaveLength(2);
+    expect(view.container.querySelectorAll(".shell-reveal-zone--bottom")).toHaveLength(1);
 
     fireEvent.click(screen.getByRole("button", { name: "VS Code" }));
     await screen.findByLabelText("VS Code application");
@@ -573,7 +595,7 @@ describe("desktop admin navigation", () => {
 
   it("restores per-user desktop visibility after a fresh mount", async () => {
     const first = renderDesktop("user");
-    await screen.findByText("Workspace ready");
+    await waitForDesktop();
     fireEvent.click(screen.getByRole("button", { name: "Files" }));
     fireEvent.click(screen.getByRole("button", { name: "VS Code" }));
     fireEvent.click(screen.getByRole("button", { name: "VS Code" }));
@@ -598,4 +620,29 @@ describe("desktop admin navigation", () => {
     expect(screen.queryByLabelText("Editor application")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Editor" })).not.toBeInTheDocument();
   });
+});
+
+it("opens and restores Terminal when Neura's desktop launch arrives", async () => {
+  const streams: EventTarget[] = [];
+  class FakeEvents extends EventTarget {
+    close = vi.fn();
+    constructor() { super(); streams.push(this); }
+  }
+  vi.stubGlobal("EventSource", FakeEvents);
+  try {
+    renderDesktop("user");
+    await waitForDesktop();
+    await waitFor(() => expect(streams).toHaveLength(1));
+    await act(async () => streams[0].dispatchEvent(new MessageEvent("open-terminal", { data: JSON.stringify({ requestId: "request-first" }) })));
+    const terminal = await screen.findByLabelText("Terminal application");
+    expect(await within(terminal).findByTestId("terminal-live-view")).toHaveTextContent("agent-terminal");
+    fireEvent.click(within(terminal).getByRole("button", { name: "Minimize Terminal" }));
+    expect(terminal).toHaveAttribute("hidden");
+    await act(async () => streams[0].dispatchEvent(new MessageEvent("open-terminal", { data: JSON.stringify({ requestId: "request-second" }) })));
+    await waitFor(() => expect(terminal).not.toHaveAttribute("hidden"));
+    expect(screen.getAllByLabelText("Terminal application")).toHaveLength(1);
+    const claims = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).endsWith("/terminal-agent/claim"));
+    expect(claims).toHaveLength(2);
+    expect(JSON.parse(String(claims[0][1]?.body))).toMatchObject({ requestId: "request-first", desktopId: expect.any(String) });
+  } finally { cleanup(); vi.unstubAllGlobals(); }
 });

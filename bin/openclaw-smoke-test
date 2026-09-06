@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+image="${1:-}"
+[[ $# == 1 && ( "${image}" =~ @sha256:[a-f0-9]{64}$ || "${image}" =~ ^sha256:[a-f0-9]{64}$ ) ]] || {
+  echo 'Usage: bin/openclaw-smoke-test IMAGE@sha256:DIGEST (pull the reviewed image first)' >&2
+  exit 1
+}
+# Deliberately no tenant volumes, credentials, published ports or network.
+# --pull never makes discovery/review an explicit step, separate from this test.
+docker run --rm --pull never --network none --read-only --user node \
+  --tmpfs /tmp:rw,nosuid,nodev,size=128m \
+  --mount "type=bind,src=${repository_root}/tests/openclaw-cli-smoke.mjs,dst=/probe/tests/openclaw-cli-smoke.mjs,readonly" \
+  --mount "type=bind,src=${repository_root}/workspace/native-config-batch.mjs,dst=/probe/workspace/native-config-batch.mjs,readonly" \
+  --entrypoint node "${image}" /probe/tests/openclaw-cli-smoke.mjs

@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { migrations } from "../src/migrations.js";
 import { Database } from "../src/database.js";
 import { CollaborationStore } from "../src/collaboration.js";
 
@@ -28,6 +29,33 @@ integration("PostgreSQL account state", () => {
     if (adminPool) {
       await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
       await adminPool.end();
+    }
+  });
+
+  it("upgrades attachment-only messages without rewriting historical captions", async () => {
+    const upgradeSchema = `chat_upgrade_${randomUUID().replaceAll("-", "")}`;
+    await adminPool.query(`CREATE SCHEMA ${upgradeSchema}`);
+    const upgradePool = new Pool({ connectionString: databaseUrl, options: `-c search_path=${upgradeSchema}` });
+    const upgrade = new Database(upgradePool);
+    try {
+      await upgradePool.query("CREATE TABLE schema_migrations(version integer PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())");
+      for (const migration of migrations.filter((entry) => entry.version < 10)) {
+        await upgradePool.query(migration.sql);
+        await upgradePool.query("INSERT INTO schema_migrations(version) VALUES ($1)", [migration.version]);
+      }
+      const owner = await upgrade.createLocalUser({ email: "chat-upgrade@example.org", displayName: "Chat upgrade", passwordHash: "test-only" });
+      const store = new CollaborationStore(upgradePool);
+      const channel = await store.createChannel(owner, { name: "Attachment upgrade", audience: "everyone", memberIds: [] });
+      const attachment = { path: "uploads/photo.png", name: "photo.png", type: "image/png", size: 12 };
+      const old = await store.postMessage(owner, { channelId: channel.channel.id, body: "photo.png", attachments: [attachment], clientRequestId: randomUUID(), invokeAgent: false });
+      await upgrade.migrate();
+      await upgrade.migrate();
+      expect((await upgradePool.query("SELECT body FROM team_messages WHERE id = $1", [old.message.id])).rows[0].body).toBe("photo.png");
+      const next = await store.postMessage(owner, { channelId: channel.channel.id, body: "", attachments: [attachment], clientRequestId: randomUUID(), invokeAgent: false });
+      expect(next.message.body).toBe("");
+    } finally {
+      await upgrade.close();
+      await adminPool.query(`DROP SCHEMA IF EXISTS ${upgradeSchema} CASCADE`);
     }
   });
 
@@ -186,6 +214,21 @@ integration("PostgreSQL account state", () => {
         code: "channel_not_found",
       });
 
+      const attachment = { path: "reports/chart.png", name: "chart.png", type: "image/png", size: 2048 };
+      const attachmentOnly = await store.postMessage(member, {
+        channelId: created.channel.id, body: "", attachments: [attachment], clientRequestId: randomUUID(), invokeAgent: false,
+      });
+      expect(attachmentOnly.message.body).toBe("");
+      const captioned = await store.postMessage(member, {
+        channelId: created.channel.id, body: "chart.png", attachments: [attachment], clientRequestId: randomUUID(), invokeAgent: false,
+      });
+      expect(captioned.message.body).toBe("chart.png");
+      await expect(store.postMessage(member, {
+        channelId: created.channel.id, body: "", attachments: [], clientRequestId: randomUUID(), invokeAgent: false,
+      })).rejects.toMatchObject({ status: 422 });
+      await expect(collaborationDatabase.pool.query(
+        "INSERT INTO team_messages(id, channel_id, author_kind, body) VALUES ($1, $2, 'system', '')", [randomUUID(), created.channel.id],
+      )).rejects.toMatchObject({ code: "23514" });
       const posted = await store.postMessage(member, {
         channelId: created.channel.id,
         body: `(@${owner.handle}), please review this with @Neura.`,
@@ -194,7 +237,7 @@ integration("PostgreSQL account state", () => {
       });
       expect(posted.message.mentions).toEqual([owner.id]);
       expect(posted.run?.status).toBe("queued");
-      expect((await store.listChannels(owner))[0]).toMatchObject({ unreadCount: 1, mentionCount: 1 });
+      expect((await store.listChannels(owner))[0]).toMatchObject({ unreadCount: 3, mentionCount: 1 });
 
       const capability = posted.run!.capability;
       expect(await store.claimRun(posted.run!.id)).toMatchObject({ status: "running" });

@@ -1,15 +1,17 @@
 import { ArrowLeft, Check, Clipboard, ExternalLink, MessageSquareText, RefreshCw, ShieldCheck, Smartphone } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 
 import { settingsMutationHeaders, settingsRequest, type TwilioPluginStatus } from "./settingsApi";
 import "./twilio-plugin.css";
 
-export function TwilioPluginCard({ initial, csrfToken }: { initial: TwilioPluginStatus; csrfToken: string }) {
-  const [status, setStatus] = useState(initial);
+export function TwilioPluginCard({ initial, csrfToken, detailOnly = false, onBack, onStatus }: { initial: TwilioPluginStatus; csrfToken: string; detailOnly?: boolean; onBack?: () => void; onStatus?: (status: TwilioPluginStatus) => void }) {
+  const [status, updateStatus] = useState(initial);
+  const setStatus = (next: TwilioPluginStatus) => { updateStatus(next); onStatus?.(next); };
   const [details, setDetails] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  useEffect(() => { updateStatus(initial); }, [initial]);
 
   async function probe() {
     setBusy(true); setError(""); setNotice("");
@@ -55,7 +57,7 @@ export function TwilioPluginCard({ initial, csrfToken }: { initial: TwilioPlugin
     finally { setBusy(false); }
   }
 
-  if (!details) {
+  if (!details && !detailOnly) {
     return <button className="twilio-plugin-card" type="button" onClick={() => setDetails(true)}>
       <span className="twilio-plugin-card__mark"><MessageSquareText /></span>
       <span className="twilio-plugin-card__copy"><small>Global channel · SMS/MMS</small><strong>{status.name}</strong><span>{status.description}</span></span>
@@ -64,7 +66,7 @@ export function TwilioPluginCard({ initial, csrfToken }: { initial: TwilioPlugin
   }
 
   return <section className="twilio-plugin-detail">
-    <button className="settings-back-button" type="button" onClick={() => setDetails(false)}><ArrowLeft />All plugins</button>
+    <button className="settings-back-button" type="button" onClick={() => onBack ? onBack() : setDetails(false)}><ArrowLeft />All plugins</button>
     <header><div className="twilio-plugin-detail__mark"><MessageSquareText /></div><div><span>Global channel plugin</span><h2>Twilio SMS/MMS</h2><p>One workspace sender. Verified members can text their private Neura; proactive messages require each member’s opt-in.</p></div></header>
     {error && <p className="settings-error-note" role="alert">{error}</p>}
     {notice && <p className="settings-success-note" role="status"><Check />{notice}</p>}

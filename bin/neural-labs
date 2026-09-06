@@ -9,6 +9,7 @@ compose_environment_example="${repository_root}/.env.example"
 legacy_compose_environment="${repository_root}/deploy/compose/.env"
 legacy_secrets_directory="${repository_root}/deploy/secrets"
 backup_root="${NEURAL_LABS_BACKUP_ROOT:-$(dirname -- "${repository_root}")/backups/neural-labs}"
+last_backup_directory=""
 
 die() {
   echo "Error: $*" >&2
@@ -333,7 +334,9 @@ EOF
 
 command_up() {
   require_docker
+  require_command node
   validate_deployment_config
+  node "${repository_root}/bin/openclaw-release.mjs" check --env "${compose_environment}"
   note "Building and starting the Neural Labs cluster"
   compose up -d --build --remove-orphans
   compose ps
@@ -467,6 +470,7 @@ command_backup() {
   cp -- "${compose_environment}" "${staging}/neural-labs.env"
   chmod -R go-rwx "${staging}"
   mv -- "${staging}" "${final}"
+  last_backup_directory="${final}"
   note "Backup created at ${final}"
   echo "Encrypt and move this recovery set off-host. No automatic retention is applied."
 }
@@ -520,6 +524,22 @@ command_restore() {
 
 command_workspace() {
   local subcommand="${1:-help}"
+  case "${subcommand}" in
+    release-check)
+      require_command node
+      if [[ -f "${compose_environment}" ]]; then
+        node "${repository_root}/bin/openclaw-release.mjs" check --env "${compose_environment}"
+      else
+        node "${repository_root}/bin/openclaw-release.mjs" check
+      fi
+      return
+      ;;
+    check-update)
+      require_command node
+      node "${repository_root}/bin/openclaw-release.mjs" inspect
+      return
+      ;;
+  esac
   require_docker
   [[ -f "${compose_environment}" ]] || die "run bin/neural-labs init first"
   case "${subcommand}" in
@@ -562,7 +582,10 @@ Commands:
                Connect OpenClaw to a ChatGPT/Codex subscription with device code
   openclaw-configure
                Configure OpenClaw model and channel providers interactively
-  update       Back up, rebuild, and replace only the workspace
+  release-check
+               Check reviewed pins and deployment overrides without Docker
+  check-update Discover upstream versions without changing any pins or services
+  update       Check pins, build, back up, and replace only the workspace
 EOF
       ;;
     *) die "unknown workspace command: ${subcommand}" ;;
@@ -570,20 +593,46 @@ EOF
 }
 
 command_workspace_update() {
-  local control_plane_port control_plane_status current_image rollback_tag timestamp
+  local control_plane_port control_plane_status current_image rollback_tag timestamp container_id record_directory
   require_command curl
+  require_command node
   validate_deployment_config
-  note "Creating a pre-update backup"
-  command_backup
-  current_image="$(compose images -q workspace 2>/dev/null | head -n 1)"
+  node "${repository_root}/bin/openclaw-release.mjs" check --env "${compose_environment}"
+  # Capture the running image, not whichever image a mutable build tag names.
+  container_id="$(compose ps -q workspace)"
+  [[ -n "${container_id}" ]] || die "workspace update requires an existing workspace; use up for a new installation"
+  current_image="$(docker inspect --format '{{.Image}}' "${container_id}")"
+  timestamp="$(date -u +'%Y%m%dT%H%M%SZ')"
   if [[ -n "${current_image}" ]]; then
-    timestamp="$(date -u +'%Y%m%dT%H%M%SZ')"
     rollback_tag="neural-labs-workspace:rollback-${timestamp}"
     docker image tag "${current_image}" "${rollback_tag}"
     note "Retained the previous workspace image as ${rollback_tag}"
   fi
+  note "Building the candidate before interrupting the running workspace"
   compose build workspace
-  compose up -d --no-deps --force-recreate workspace
+  note "Creating a pre-update backup"
+  command_backup
+  record_directory="${backup_root}/workspace-update-${timestamp}"
+  mkdir -p -m 0700 -- "${record_directory}"
+  printf 'services:\n  workspace:\n    image: %s\n' "${current_image}" >"${record_directory}/rollback-images.yaml"
+  # Retain the actual old runtime labels as well as its image. A candidate's
+  # .env can already contain new versions when this command is invoked.
+  printf '    environment:\n' >>"${record_directory}/rollback-images.yaml"
+  docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${container_id}" |
+    while IFS= read -r assignment; do
+      case "${assignment}" in
+        NEURAL_LABS_OPENCLAW_VERSION=*|NEURAL_LABS_CODEX_VERSION=*)
+          [[ "${assignment#*=}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]] || exit 1
+          printf '      %s: "%s"\n' "${assignment%%=*}" "${assignment#*=}"
+          ;;
+      esac
+    done >>"${record_directory}/rollback-images.yaml"
+  chmod 0600 "${record_directory}/rollback-images.yaml"
+  cp -- "${repository_root}/workspace/openclaw-release.json" "${record_directory}/release.json"
+  printf '%s\n' "${last_backup_directory}" >"${record_directory}/backup-path.txt"
+  note "Previous image recorded in ${record_directory}/rollback-images.yaml"
+  echo "Image rollback alone is not a database downgrade. Review the release migration notes before restoring state."
+  compose up -d --no-deps --no-build --pull never --force-recreate workspace
   wait_for_health workspace-desktop "http://127.0.0.1:$(env_value WORKSPACE_DESKTOP_PORT || printf '4181')/healthz"
   control_plane_port="$(env_value CONTROL_PLANE_PORT || printf '4174')"
   control_plane_status="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 \
@@ -595,11 +644,15 @@ command_workspace_update() {
 
 command_update() {
   require_docker
+  require_command node
   validate_deployment_config
+  node "${repository_root}/bin/openclaw-release.mjs" check --env "${compose_environment}"
+  note "Building candidates before interrupting running services"
+  compose build
   note "Creating a pre-update backup"
   command_backup
-  note "Building and replacing services"
-  compose up -d --build --remove-orphans
+  note "Replacing services with the built images"
+  compose up -d --no-build --pull never --remove-orphans
   command_doctor
 }
 

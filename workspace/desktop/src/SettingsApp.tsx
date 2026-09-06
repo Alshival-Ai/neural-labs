@@ -1,3 +1,4 @@
+import { PluginCardsPanel } from "./PluginCardsPanel";
 import {
   Activity,
   ArrowLeft,
@@ -45,6 +46,7 @@ import {
 import { readDeviceState, writeDeviceState } from "./deviceState";
 import {
   PersonalizationPanel,
+  SecurityPanel,
   type PersonalizationIdentityProvider,
   type PersonalizationNotice,
   type PersonalizationUser,
@@ -56,10 +58,11 @@ import { PersonalProviderConnection } from "./PersonalProviderConnection";
 import { VoiceSettingsPanel } from "./VoiceSettingsPanel";
 import { TwilioPluginCard } from "./TwilioPluginCard";
 
-export type SettingsSection = "personalization" | "model-provider" | "plugins" | "overview" | "users" | "authentication" | "workspace" | "audit" | "about";
+export type SettingsSection = "personalization" | "security" | "model-provider" | "plugins" | "overview" | "users" | "authentication" | "workspace" | "audit" | "about";
 
 export type SettingsAppProps = {
   administrator?: boolean;
+  workspaceStatus?: string;
   csrfToken: string;
   currentUserId: string;
   user?: PersonalizationUser;
@@ -85,6 +88,7 @@ function settingsDeviceState(storageNamespace: string | undefined, storageArea: 
 }
 
 const PERSONALIZATION_NAVIGATION = { id: "personalization", label: "Personalization", description: "Your desktop and account", icon: Type, accent: "violet" } satisfies { id: SettingsSection; label: string; description: string; icon: LucideIcon; accent: string };
+const SECURITY_NAVIGATION = { id: "security", label: "Security", description: "Sign-in and verified phone", icon: ShieldCheck, accent: "amber" } satisfies { id: SettingsSection; label: string; description: string; icon: LucideIcon; accent: string };
 const MODEL_PROVIDER_NAVIGATION = { id: "model-provider", label: "Model Provider", description: "Your agent connection", icon: Bot, accent: "coral" } satisfies { id: SettingsSection; label: string; description: string; icon: LucideIcon; accent: string };
 
 const PLUGINS_NAVIGATION = { id: "plugins", label: "Plugins", description: "Private and global tools", icon: PlugZap, accent: "violet" } satisfies { id: SettingsSection; label: string; description: string; icon: LucideIcon; accent: string };
@@ -122,8 +126,8 @@ function initials(value: string): string {
   return (parts.length > 1 ? `${parts[0][0]}${parts[parts.length - 1][0]}` : value.slice(0, 2)).toUpperCase();
 }
 
-export function SettingsApp({ administrator = true, csrfToken, currentUserId, user, providers = [], initialNotice, initialSection, sectionRequest, fontScale = 100, onFontScaleChange = () => undefined, onLogout = () => undefined, storageNamespace, storageArea = "settings" }: SettingsAppProps) {
-  const navigation = administrator ? [PERSONALIZATION_NAVIGATION, MODEL_PROVIDER_NAVIGATION, PLUGINS_NAVIGATION, ...ADMIN_NAVIGATION] : [PERSONALIZATION_NAVIGATION, MODEL_PROVIDER_NAVIGATION, PLUGINS_NAVIGATION];
+export function SettingsApp({ administrator = true, workspaceStatus, csrfToken, currentUserId, user, providers = [], initialNotice, initialSection, sectionRequest, fontScale = 100, onFontScaleChange = () => undefined, onLogout = () => undefined, storageNamespace, storageArea = "settings" }: SettingsAppProps) {
+  const navigation = administrator ? [PERSONALIZATION_NAVIGATION, SECURITY_NAVIGATION, MODEL_PROVIDER_NAVIGATION, PLUGINS_NAVIGATION, ...ADMIN_NAVIGATION] : [PERSONALIZATION_NAVIGATION, SECURITY_NAVIGATION, MODEL_PROVIDER_NAVIGATION, PLUGINS_NAVIGATION];
   const allowedSections = new Set(navigation.map((item) => item.id));
   const fallbackSection: SettingsSection = administrator ? "overview" : "personalization";
   const [initialUiState] = useState(() => initialSection && allowedSections.has(initialSection)
@@ -136,7 +140,6 @@ export function SettingsApp({ administrator = true, csrfToken, currentUserId, us
   const [overviewError, setOverviewError] = useState<string>();
   const [users, setUsers] = useState<AdminUser[]>();
   const [authentication, setAuthentication] = useState<AuthenticationSettings>();
-  const [plugins, setPlugins] = useState<PluginCatalog>();
   const [workspace, setWorkspace] = useState<WorkspaceStatus>();
   const [provider, setProvider] = useState<WorkspaceProviderAuth>();
   const [audit, setAudit] = useState<AuditEvent[]>();
@@ -180,14 +183,9 @@ export function SettingsApp({ administrator = true, csrfToken, currentUserId, us
   }, []);
 
   useEffect(() => {
-    if (section === "plugins" && !plugins) {
-      void settingsRequest<PluginCatalog>("/api/plugins")
-        .then(setPlugins)
-        .catch((error: unknown) => setNotice({ tone: "error", message: errorMessage(error, "Plugins could not be loaded.") }));
-    }
     if (!administrator) return;
     void refreshOverview();
-  }, [administrator, plugins, refreshOverview, section]);
+  }, [administrator, refreshOverview, section]);
 
   useEffect(() => {
     if (!administrator) return;
@@ -207,7 +205,7 @@ export function SettingsApp({ administrator = true, csrfToken, currentUserId, us
         .then((result) => setAudit(result.events))
         .catch((error: unknown) => setNotice({ tone: "error", message: errorMessage(error, "Audit events could not be loaded.") }));
     }
-  }, [administrator, audit, authentication, plugins, provider, refreshWorkspace, section, users, workspace]);
+  }, [administrator, audit, authentication, provider, refreshWorkspace, section, users, workspace]);
 
   useEffect(() => {
     if (!administrator || section !== "workspace" || (provider?.state !== "starting" && provider?.state !== "awaiting_user")) return;
@@ -238,7 +236,7 @@ export function SettingsApp({ administrator = true, csrfToken, currentUserId, us
         </header>
         <nav>
           <span>Personal</span>
-          {[PERSONALIZATION_NAVIGATION, MODEL_PROVIDER_NAVIGATION].map(({ id, label, description, icon: Icon, accent }) => (
+          {[PERSONALIZATION_NAVIGATION, SECURITY_NAVIGATION, MODEL_PROVIDER_NAVIGATION].map(({ id, label, description, icon: Icon, accent }) => (
             <button type="button" className={`is-${accent}${section === id ? " is-active" : ""}`} aria-current={section === id ? "page" : undefined} key={id} onClick={() => chooseSection(id)}>
               <i><Icon /></i><span><strong>{label}</strong><small>{description}</small></span><ChevronRight />
             </button>
@@ -256,24 +254,25 @@ export function SettingsApp({ administrator = true, csrfToken, currentUserId, us
           ))}</>}
         </nav>
         {administrator ? <div className="settings-sidebar__health">
-          <div><span><i className={overview?.workspace.status === "ready" ? "" : "is-offline"} />Workspace</span><strong>{overview?.workspace.status ?? "Checking"}</strong></div>
+          <div><span><i className={(workspaceStatus ?? overview?.workspace.status) === "ready" ? "" : "is-offline"} />Workspace</span><strong>{workspaceStatus ?? overview?.workspace.status ?? "Checking"}</strong></div>
           <small>Administrative mutations are rechecked by the control plane.</small>
-        </div> : <div className="settings-sidebar__health"><div><span><UserRound />Your account</span><strong>{user?.displayName ?? "Member"}</strong></div><small>Personalization changes affect only your signed-in desktop.</small></div>}
+        </div> : <div className="settings-sidebar__health"><div><span><UserRound />Your account</span><strong>{user?.displayName ?? "Member"}</strong></div><div><span><i className={workspaceStatus === "ready" ? "" : "is-offline"} />Workspace</span><strong>{workspaceStatus ?? "Checking"}</strong></div><small>Personalization changes affect only your signed-in desktop.</small></div>}
       </aside>
 
       <main className="settings-main">
         <header className="settings-toolbar">
           <button type="button" className="settings-icon-button settings-toolbar__menu" aria-label="Open settings navigation" onClick={() => setMobileNavigation(true)}><Menu /></button>
           <div><span>Settings</span><ChevronRight /><strong>{currentNavigation.label}</strong></div>
-          <span className="settings-toolbar__scope">{administrator ? <ShieldCheck /> : <UserRound />}{administrator ? "Administrator" : section === "plugins" ? "Workspace member" : "Personal"}</span>
+          <span className="settings-toolbar__scope">{ADMIN_NAVIGATION.some((item) => item.id === section) ? <ShieldCheck /> : <UserRound />}{ADMIN_NAVIGATION.some((item) => item.id === section) ? "Administrator" : section === "plugins" ? "Workspace" : "Personal"}</span>
         </header>
 
         <div className="settings-feedback">{notice && <div className={`settings-notice is-${notice.tone}`} role={notice.tone === "error" ? "alert" : "status"}><span>{notice.message}</span><button type="button" aria-label="Dismiss message" onClick={() => setNotice(undefined)}><X /></button></div>}</div>
 
         <div className="settings-scroll">
-          {section === "personalization" && user && <PersonalizationPanel user={user} providers={providers} csrfToken={csrfToken} initialNotice={initialNotice} fontScale={fontScale} onFontScaleChange={onFontScaleChange} onLogout={onLogout} />}
+          {section === "personalization" && user && <PersonalizationPanel onOpenSecurity={() => chooseSection("security")} user={user} providers={providers} csrfToken={csrfToken} initialNotice={initialNotice} fontScale={fontScale} onFontScaleChange={onFontScaleChange} onLogout={onLogout} />}
+          {section === "security" && user && <SecurityPanel onOpenSecurity={() => chooseSection("security")} user={user} providers={providers} csrfToken={csrfToken} initialNotice={initialNotice} fontScale={fontScale} onFontScaleChange={onFontScaleChange} onLogout={onLogout} />}
           {section === "model-provider" && <ModelProviderPanel csrfToken={csrfToken} />}
-          {section === "plugins" && <PluginsPanel catalog={plugins} administrator={administrator} csrfToken={csrfToken} />}
+          {section === "plugins" && <PluginCardsPanel administrator={administrator} csrfToken={csrfToken} renderSystem={(plugin) => <SystemPluginDetails plugin={plugin} />} />}
           {administrator && section === "overview" && <OverviewPanel overview={overview} error={overviewError} onNavigate={chooseSection} onRefresh={() => void refreshOverview()} />}
           {administrator && section === "users" && <UsersPanel users={users} currentUserId={currentUserId} csrfToken={csrfToken} onUsers={setUsers} onNotice={setNotice} onMutated={refreshAfterMutation} />}
           {administrator && section === "authentication" && <AuthenticationPanel settings={authentication} csrfToken={csrfToken} onSettings={setAuthentication} onNotice={setNotice} onMutated={refreshAfterMutation} />}
@@ -510,60 +509,14 @@ function AuthenticationForm({ settings, csrfToken, onSettings, onNotice, onMutat
   );
 }
 
-function PluginsPanel({ catalog, administrator, csrfToken }: { catalog?: PluginCatalog; administrator: boolean; csrfToken: string }) {
-  const [adding, setAdding] = useState(false);
-  const [scope, setScope] = useState<"all" | "private" | "global">("all");
-  const [newScope, setNewScope] = useState<"private" | "global">("private");
-  if (!catalog) return <LoadingPanel label="Loading plugins" />;
-
-  const privatePlugins = catalog.plugins.filter((plugin) => plugin.scope === "private");
-  const globalPlugins = catalog.plugins.filter((plugin) => plugin.scope === "global");
-  const toolCount = catalog.plugins.reduce((total, plugin) => total + (plugin.type === "mcp" ? plugin.mcp.tools.length : 0), 0);
-
-  if (adding) {
-    return (
-      <div className="settings-panel">
-        <button className="settings-back-button" type="button" onClick={() => setAdding(false)}><ArrowLeft />All plugins</button>
-        <SectionHeader eyebrow="New integration" title="Add a plugin" description="Install capabilities for your agents or the whole workspace." icon={Plus} />
-        <div className="settings-plugin-scope-picker" aria-label="Plugin scope">
-          <button type="button" className={newScope === "private" ? "is-active" : ""} onClick={() => setNewScope("private")}><UserRound /><span><strong>Private plugin</strong><small>Only your agents · your credentials</small></span><Check /></button>
-          <button type="button" className={newScope === "global" ? "is-active" : ""} disabled={!administrator} onClick={() => setNewScope("global")}><Users /><span><strong>Global plugin</strong><small>Every member · administrator managed</small></span>{administrator ? <Check /> : <LockKeyhole />}</button>
-        </div>
-        <section className="settings-card settings-connector-choice">
-          <div className="settings-connector-choice__icon"><Server /></div>
-          <div><span>Connection-only plugin</span><h2>MCP server</h2><p>Attach a remote Model Context Protocol server and authenticate it for {newScope === "private" ? "your own agents" : "everyone in the workspace"}.</p><div><code>OAuth</code><code>Access token</code><code>Streamable HTTP</code></div></div>
-          <span className="settings-connector-planned">In development</span>
-        </section>
-        <section className="settings-connector-roadmap">
-          <div><span>1</span><strong>Discover</strong><small>Validate its HTTPS URL and inspect tools.</small></div>
-          <div><span>2</span><strong>Authenticate</strong><small>{newScope === "private" ? "Connect your own account." : "Configure workspace credentials."}</small></div>
-          <div><span>3</span><strong>Review access</strong><small>Choose tools and confirmation rules.</small></div>
-        </section>
-        <p className="settings-trust-note"><ShieldCheck />This installation flow is a product preview. Neural Labs will not accept server URLs or credentials until the isolated credential broker and per-plugin permission controls are available.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="settings-panel">
-      <div className="settings-connectors-heading"><SectionHeader eyebrow="Agent extensions" title="Plugins" description="Skills, services, and MCP tools installed privately or across the workspace." icon={PlugZap} /><button className="settings-button is-primary" type="button" onClick={() => setAdding(true)}><Plus />Add plugin</button></div>
-      <div className="settings-connector-summary" aria-label="Plugin summary"><div><strong>{privatePlugins.length}</strong><span>Private</span></div><div><strong>{globalPlugins.length}</strong><span>Global</span></div><div><strong>{toolCount}</strong><span>Tools available</span></div></div>
-      <div className="settings-plugin-tabs" role="tablist" aria-label="Plugin scope"><button type="button" role="tab" aria-selected={scope === "all"} className={scope === "all" ? "is-active" : ""} onClick={() => setScope("all")}>All</button><button type="button" role="tab" aria-selected={scope === "private"} className={scope === "private" ? "is-active" : ""} onClick={() => setScope("private")}>Private</button><button type="button" role="tab" aria-selected={scope === "global"} className={scope === "global" ? "is-active" : ""} onClick={() => setScope("global")}>Global</button></div>
-
-      {(scope === "all" || scope === "private") && <section className="settings-plugin-group" aria-labelledby="private-plugins-title"><div className="settings-plugin-group__heading"><div><span><UserRound />Private</span><h2 id="private-plugins-title">Your plugins</h2><p>Only your agents can use these connections. Credentials belong to your account.</p></div></div>{privatePlugins.length === 0 && <button className="settings-plugin-empty" type="button" onClick={() => { setNewScope("private"); setAdding(true); }}><span><Plus /></span><div><strong>Add your first private plugin</strong><small>Connect personal services such as notes, calendars, or project tools without sharing your account.</small></div><ChevronRight /></button>}</section>}
-
-      {(scope === "all" || scope === "global") && <section className="settings-plugin-group" aria-labelledby="global-plugins-title"><div className="settings-plugin-group__heading"><div><span><Users />Global</span><h2 id="global-plugins-title">Workspace plugins</h2><p>Available to every member. Administrators manage installation and shared access.</p></div></div>{globalPlugins.map((plugin) => {
-        if (plugin.type === "channel") return <TwilioPluginCard key={plugin.id} initial={plugin} csrfToken={csrfToken} />;
-        const mcp = plugin.mcp;
+function SystemPluginDetails({ plugin }: { plugin: Extract<PluginCatalog["plugins"][number], { type: "mcp" }> }) {
+  const mcp = plugin.mcp;
         return <section className="settings-card settings-connector-card" key={plugin.id}>
           <header><div className="settings-connector-card__mark"><PlugZap /></div><div className="settings-connector-card__identity"><span>Built in · MCP</span><h2>{plugin.name}</h2><p>{plugin.description}</p></div><div className="settings-connector-card__states"><span className="settings-locked-state"><LockKeyhole />System</span><span className={`settings-service-state${plugin.ready ? " is-ready" : ""}`}><i />{plugin.ready ? "Connected" : "Offline"}</span></div></header>
           <p className="settings-connector-lock-note"><LockKeyhole />Installed with Neural Labs. This global system plugin cannot be edited, disconnected, or removed.</p>
           <div className="settings-mcp-grid settings-connector-details"><section><div className="settings-card__heading"><div><span>Attachment</span><h2>Shared OpenClaw agents</h2><p>Supplied to every shared agent automatically.</p></div><Bot /></div><dl className="settings-detail-list"><div><dt>Server name</dt><dd><code>{mcp.agentServerName}</code></dd></div><div><dt>Scope</dt><dd>Global · all members</dd></div><div><dt>Transport</dt><dd>{mcp.transport}</dd></div><div><dt>Internal endpoint</dt><dd><code>{mcp.endpoint}</code></dd></div><div><dt>Public access</dt><dd>Disabled</dd></div></dl></section><section><div className="settings-card__heading"><div><span>Provider readiness</span><h2>Credentials loaded</h2><p>Secret material is never returned here.</p></div><CloudCog /></div><div className="settings-system-list"><ServiceRow label="Google Places" ready={mcp.providers.googlePlaces} value={mcp.providers.googlePlaces ? "Configured" : "Missing"} /><ServiceRow label="Google Geocoding" ready={mcp.providers.googleGeocoding} value={mcp.providers.googleGeocoding ? "Configured" : "Missing"} /><ServiceRow label="KLIPY" ready={mcp.providers.klipy} value={mcp.providers.klipy ? "Configured" : "Missing"} /><ServiceRow label="Pexels" ready={mcp.providers.pexels} value={mcp.providers.pexels ? "Configured" : "Missing"} /></div></section></div>
           <div className="settings-connector-tools"><div><span>Registered capabilities</span><strong>{mcp.tools.length} tools available</strong></div><div className="settings-tool-list">{mcp.tools.length ? mcp.tools.map((tool) => <code key={tool}>{tool}</code>) : <p className="settings-card-note">No provider tools are currently registered.</p>}</div></div>
         </section>;
-      })}{administrator && <button className="settings-connector-add-card" type="button" onClick={() => { setNewScope("global"); setAdding(true); }}><span><Plus /></span><div><strong>Add a global plugin</strong><small>Install tools and services for everyone in the workspace.</small></div><ChevronRight /></button>}</section>}
-    </div>
-  );
 }
 
 function WorkspacePanel({ workspace, provider, csrfToken, onProvider, onNotice, onRefresh }: { workspace?: WorkspaceStatus; provider?: WorkspaceProviderAuth; csrfToken: string; onProvider: (provider: WorkspaceProviderAuth) => void; onNotice: NoticeSetter; onRefresh: () => void }) {

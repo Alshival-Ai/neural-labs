@@ -1,5 +1,5 @@
 import type { ControlPlaneConfig } from "./config.js";
-import type { CollaborationStore, TeamAgentRun } from "./collaboration.js";
+import type { CollaborationStore, TeamAgentInvocation } from "./collaboration.js";
 import type { CollaborationEvent } from "./server.js";
 
 export function buildPrompt(context: NonNullable<Awaited<ReturnType<CollaborationStore["runContext"]>>>): string {
@@ -38,7 +38,7 @@ export function buildPrompt(context: NonNullable<Awaited<ReturnType<Collaboratio
 }
 
 export class TeamAgentProcessor {
-  private readonly queue: Array<TeamAgentRun & { capability: string }> = [];
+  private readonly queue: Array<TeamAgentInvocation> = [];
   private active = 0;
 
   constructor(
@@ -49,7 +49,7 @@ export class TeamAgentProcessor {
     private readonly concurrency = 2,
   ) {}
 
-  enqueue(run: TeamAgentRun & { capability: string }): void {
+  enqueue(run: TeamAgentInvocation): void {
     this.queue.push(run);
     this.drain();
   }
@@ -65,7 +65,7 @@ export class TeamAgentProcessor {
     }
   }
 
-  private async execute(run: TeamAgentRun & { capability: string }): Promise<void> {
+  private async execute(run: TeamAgentInvocation): Promise<void> {
     try {
       const claimed = await this.store.claimRun(run.id);
       if (!claimed) return;
@@ -80,7 +80,7 @@ export class TeamAgentProcessor {
           "Content-Type": "application/json",
           Authorization: `Bearer ${this.config.workspace.controlToken}`,
         },
-        body: JSON.stringify({ prompt: buildPrompt(context), capability: run.capability, userId: run.requestedBy, runId: run.id, ...(run.modelSettings ? { modelSettings: run.modelSettings } : {}) }),
+        body: JSON.stringify({ channelId: run.channelId, ...(run.terminalContextToken ? { terminalContextToken: run.terminalContextToken } : {}), prompt: buildPrompt(context), capability: run.capability, userId: run.requestedBy, runId: run.id, ...(run.modelSettings ? { modelSettings: run.modelSettings } : {}) }),
         signal: AbortSignal.timeout(10 * 60 * 1000),
       });
       const payload = await response.json().catch(() => undefined) as { reply?: unknown; activities?: unknown; error?: { message?: unknown } } | undefined;

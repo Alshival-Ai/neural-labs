@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import "./explorer.css";
 
 export function ExplorerDialog({
   title,

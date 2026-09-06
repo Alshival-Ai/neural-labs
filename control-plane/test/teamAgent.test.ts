@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { CollaborationStore, TeamAgentRun } from "../src/collaboration.js";
+import type { CollaborationStore, TeamAgentInvocation } from "../src/collaboration.js";
 import type { ControlPlaneConfig } from "../src/config.js";
 import { buildPrompt, TeamAgentProcessor } from "../src/teamAgent.js";
 
@@ -16,7 +16,7 @@ describe("Team Chat personal Neura runner", () => {
     expect(prompt).toContain("Triggering message (summon): @Neura when is the release?");
   });
   it("runs with the message author's account and persists public work details", async () => {
-    const run: TeamAgentRun & { capability: string } = {
+    const run: TeamAgentInvocation = {
       id: "11111111-1111-4111-8111-111111111111",
       channelId: "22222222-2222-4222-8222-222222222222",
       triggerMessageId: "33333333-3333-4333-8333-333333333333",
@@ -55,10 +55,10 @@ describe("Team Chat personal Neura runner", () => {
     } } as ControlPlaneConfig;
     const processor = new TeamAgentProcessor(store, config, vi.fn(), fetchFn, 1);
 
-    processor.enqueue(run);
+    processor.enqueue({ ...run, terminalContextToken: `nlt_${"a".repeat(43)}` });
     await vi.waitFor(() => expect(finishRun).toHaveBeenCalled());
 
-    expect(requestBody).toMatchObject({ userId: run.requestedBy, runId: run.id, capability: run.capability });
+    expect(requestBody).toMatchObject({ terminalContextToken: `nlt_${"a".repeat(43)}`, userId: run.requestedBy, runId: run.id, capability: run.capability });
     expect(String(requestBody?.prompt)).toContain("@maya: @Neura summarize this");
     expect(String(requestBody?.prompt)).toContain("chart.png (reports/chart.png · image/png)");
     expect(String(requestBody?.prompt)).toContain("neural_labs_post_channel_message");

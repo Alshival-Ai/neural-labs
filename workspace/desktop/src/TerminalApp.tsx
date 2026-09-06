@@ -1,3 +1,5 @@
+import { TerminalReactionSidebar, ReactionOverlays, safeGifUrl, type ReactionSelection, type TeamReaction } from "./TerminalReactions";
+import { setTerminalParticipation } from "./terminalAgentApi";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { Terminal as XTerm, type ITheme } from "@xterm/xterm";
@@ -25,7 +27,6 @@ import {
   RefreshCw,
   Rows2,
   Search,
-  SmilePlus,
   TerminalSquare,
   Users,
   Wifi,
@@ -76,11 +77,12 @@ export type TerminalAppProps = {
   fontScale?: number;
   onFontScaleChange?: (value: number) => void;
   openRequest?: { id: string; session: TerminalDescriptor };
+  active?: boolean;
+  onFocusSession?: (session: TerminalDescriptor) => void;
 };
 
 const SOCKET_RETRY_MAX_MS = 15_000;
 const SOCKET_READY_TIMEOUT_MS = 10_000;
-const TEAM_REACTIONS = ["👍", "🎉", "🚀", "🔥", "❤️", "👏", "😂", "👀"] as const;
 const REACTION_DISPLAY_MS = 1800;
 
 export const NEURAL_TERMINAL_THEME: ITheme = {
@@ -179,7 +181,7 @@ export function isTerminalInsertToggle(event: Pick<KeyboardEvent, "code" | "ctrl
   return event.code === "Insert" && !event.ctrlKey && !event.metaKey && !event.shiftKey;
 }
 
-export function TerminalApp({ workspaceName = "Workspace", notify, storageNamespace, storageArea = "terminal", fontScale = DESKTOP_FONT_SCALE_DEFAULT, onFontScaleChange, openRequest }: TerminalAppProps) {
+export function TerminalApp({ workspaceName = "Workspace", notify, storageNamespace, storageArea = "terminal", fontScale = DESKTOP_FONT_SCALE_DEFAULT, onFontScaleChange, openRequest, onFocusSession, active = false }: TerminalAppProps) {
   const viewport = useAppViewport();
   const appRoot = useRef<HTMLElement>(null);
   const sessionsDrawerId = useId();
@@ -336,6 +338,9 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
   const activeSession = visibleSessions.find((session) => session.id === activeId) ?? visibleSessions[0];
   const secondarySession = sessions.find((session) => session.id === secondaryId);
   const focusedSession = activePane === "secondary" && secondarySession ? secondarySession : activeSession;
+  const focusedSessionRef = useRef(focusedSession);
+  focusedSessionRef.current = focusedSession;
+  useEffect(() => { if (active && focusedSessionRef.current) onFocusSession?.(focusedSessionRef.current); }, [active, focusedSession?.id, onFocusSession]);
   const teamSessions = sessions.filter((session) => session.scope === "team");
 
   useEffect(() => {
@@ -516,7 +521,7 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
   const previewedTeamSession = runningTeamSessions.find((session) => session.id === railPreview?.sessionId);
 
   return (
-    <section ref={appRoot} className={`terminal-app${viewport.mobile ? " is-mobile" : ""}`} aria-label="Developer terminal">
+    <section ref={appRoot} className={`terminal-app${viewport.mobile ? " is-mobile" : ""}`} aria-label="Developer terminal" onFocusCapture={() => { if (focusedSession) onFocusSession?.(focusedSession); }}>
       <header className="terminal-toolbar">
         {viewport.mobile && <button type="button" className="terminal-mobile-sessions" aria-label="Open terminal sessions" aria-expanded={sessionsDrawerOpen} aria-controls={sessionsDrawerId} onClick={() => setSessionsDrawerOpen(true)}><Menu /></button>}
         <div className="terminal-toolbar__identity">
@@ -544,6 +549,11 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
       </AppDrawer>}
 
       <div className="terminal-banners">
+      {!showLaunchpad && focusedSession && <div className="terminal-neura-participation" role="status">
+        {focusedSession.agentActive && <strong>Neura is participating · </strong>}<span>{focusedSession.agentMode === "status-only" ? "Neura: status only" : "Neura can read and type"}</span>
+        {focusedSession.canControlAgent && <button type="button" onClick={() => void setTerminalParticipation(focusedSession.id, focusedSession.agentMode === "status-only" ? "shared" : "status-only").then(mergeSession).catch((error) => report(error.message))}>{focusedSession.agentMode === "status-only" ? "Enable Neura" : "Pause Neura"}</button>}
+      </div>}
+
         {viewport.mobile && !showLaunchpad && secondarySession && <div className="terminal-mobile-panes" role="tablist" aria-label="Terminal panes"><button type="button" role="tab" aria-selected={activePane === "primary"} onClick={() => setActivePane("primary")}>{activeSession?.title}</button><button type="button" role="tab" aria-selected={activePane === "secondary"} onClick={() => setActivePane("secondary")}>{secondarySession.title}</button></div>}
         {!showLaunchpad && searchOpen && <div className="terminal-search"><Search /><label className="terminal-sr-only" htmlFor="terminal-search-input">Search terminal output</label><input id="terminal-search-input" autoFocus value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Find in active terminal" /><span>Live buffer search</span><button type="button" aria-label="Close terminal search" onClick={() => { setSearchOpen(false); setSearchQuery(""); }}><X /></button></div>}
         {error && <div className="terminal-notice is-error" role="alert"><X /><span>{error}</span><button type="button" aria-label="Dismiss terminal error" onClick={() => setError(undefined)}><X /></button></div>}
@@ -621,8 +631,8 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
         </main>
         ) : activeSession && (
         <main className={`terminal-workspace${secondarySession ? ` is-split is-${splitDirection}` : ""}`}>
-          <LiveTerminalPane session={activeSession} active={activePane === "primary"} fontSize={Math.round(18 * normalizeDesktopFontScale(fontScale) / 100)} searchQuery={activePane === "primary" ? searchQuery : ""} voiceMode={voiceMode} onVoiceModeChange={setVoiceMode} onActivate={() => setActivePane("primary")} onDescriptorChange={mergeSession} onUnavailable={() => handleSessionUnavailable(activeSession)} onEndTeam={() => void terminateTeam(activeSession)} onClose={() => void closeSession(activeSession)} />
-          {secondarySession && <LiveTerminalPane session={secondarySession} active={activePane === "secondary"} fontSize={Math.round(18 * normalizeDesktopFontScale(fontScale) / 100)} searchQuery={activePane === "secondary" ? searchQuery : ""} voiceMode={voiceMode} onVoiceModeChange={setVoiceMode} onActivate={() => setActivePane("secondary")} onDescriptorChange={mergeSession} onUnavailable={() => handleSessionUnavailable(secondarySession)} onEndTeam={() => void terminateTeam(secondarySession)} onClose={() => { setSecondaryId(undefined); setActivePane("primary"); }} />}
+          <LiveTerminalPane session={activeSession} active={activePane === "primary"} fontSize={Math.round(18 * normalizeDesktopFontScale(fontScale) / 100)} searchQuery={activePane === "primary" ? searchQuery : ""} voiceMode={voiceMode} onVoiceModeChange={setVoiceMode} onActivate={() => { setActivePane("primary"); onFocusSession?.(activeSession); }} onDescriptorChange={mergeSession} onUnavailable={() => handleSessionUnavailable(activeSession)} onEndTeam={() => void terminateTeam(activeSession)} onClose={() => void closeSession(activeSession)} />
+          {secondarySession && <LiveTerminalPane session={secondarySession} active={activePane === "secondary"} fontSize={Math.round(18 * normalizeDesktopFontScale(fontScale) / 100)} searchQuery={activePane === "secondary" ? searchQuery : ""} voiceMode={voiceMode} onVoiceModeChange={setVoiceMode} onActivate={() => { setActivePane("secondary"); onFocusSession?.(secondarySession); }} onDescriptorChange={mergeSession} onUnavailable={() => handleSessionUnavailable(secondarySession)} onEndTeam={() => void terminateTeam(secondarySession)} onClose={() => { setSecondaryId(undefined); setActivePane("primary"); }} />}
         </main>
         )}
       </div>
@@ -653,6 +663,7 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, voiceMode, o
   const viewport = useAppViewport();
   const mobileRef = useRef(viewport.mobile);
   mobileRef.current = viewport.mobile;
+  const [neuraLastInput, setNeuraLastInput] = useState<number>();
   const [controlKey, setControlKey] = useState(false);
   const controlKeyRef = useRef(false);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
@@ -680,9 +691,9 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, voiceMode, o
   const [layoutLeader, setLayoutLeader] = useState<TerminalLayoutLeader | null>(session.layoutLeader);
   const [inputMode, setInputMode] = useState<"insert" | "overwrite">("insert");
   const [typingActors, setTypingActors] = useState<Record<string, string>>({});
-  const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
+  const [reactionError, setReactionError] = useState("");
   const [voiceMenuOpen, setVoiceMenuOpen] = useState(false);
-  const [reactions, setReactions] = useState<Array<{ id: string; emoji: string; label: string }>>([]);
+  const [reactions, setReactions] = useState<TeamReaction[]>([]);
   const typingTimers = useRef(new Map<string, number>());
   const reactionTimers = useRef(new Map<string, number>());
 
@@ -748,7 +759,7 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, voiceMode, o
     setInputMode("insert");
     setTypingActors({});
     setReactions([]);
-    setReactionPickerOpen(false);
+    setReactionError("");
     setVoiceMenuOpen(false);
     controlKeyRef.current = false;
     setControlKey(false);
@@ -863,13 +874,20 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, voiceMode, o
             descriptorRef.current = next;
             onDescriptorChange(next);
             if (message.mode === "replay") terminal.reset();
+            socket.send(JSON.stringify({ type: "client-ready" }));
             setConnectionStatus("connected");
             reconnectAttempt.current = 0;
             window.requestAnimationFrame(() => {
               terminal.options.disableStdin = false;
               resizeToHost();
-              if (activeRef.current && !mobileRef.current) terminal.focus();
+              if (activeRef.current && !mobileRef.current && !document.activeElement?.closest(".terminal-reaction-dialog")) terminal.focus();
             });
+          } else if (message.type === "agent-participation") {
+            const next = { ...descriptorRef.current, agentMode: message.mode as "shared" | "status-only", agentActive: message.active === true };
+            descriptorRef.current = next;
+            onDescriptorChange(next);
+          } else if (message.type === "agent-input") {
+            setNeuraLastInput(Number(message.at));
           } else if (message.type === "replay") {
             terminal.reset();
             terminal.write(String(message.data ?? ""));
@@ -933,15 +951,18 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, voiceMode, o
             typingTimers.current.set(actor.id, timer);
           } else if (message.type === "reaction") {
             const id = String(message.id ?? "");
-            const actor = message.actor as { label?: string };
+            const actor = message.actor as { label?: string } | undefined;
             const emoji = String(message.emoji ?? "");
-            if (!id || !actor.label || !TEAM_REACTIONS.includes(emoji as typeof TEAM_REACTIONS[number])) return;
-            setReactions((current) => [...current.slice(-2), { id, emoji, label: actor.label as string }]);
+            const gif = message.kind === "gif" ? message.gif as TeamReaction["gif"] : undefined;
+            if (!id || !actor?.label || (gif ? !safeGifUrl(gif.url) : !emoji || emoji.length > 40)) return;
+            setReactions((current) => [...current.slice(-2), { id, emoji, ...(gif ? { gif } : {}), label: actor.label as string }]);
             const timer = window.setTimeout(() => {
               reactionTimers.current.delete(id);
               setReactions((current) => current.filter((reaction) => reaction.id !== id));
-            }, REACTION_DISPLAY_MS);
+            }, gif ? 5000 : REACTION_DISPLAY_MS);
             reactionTimers.current.set(id, timer);
+          } else if (message.type === "reaction-error") {
+            setReactionError(String(message.message ?? "Reaction could not be sent"));
           } else if (message.type === "exit") {
             terminalEnded.current = true;
             setConnectionStatus("exited");
@@ -1023,7 +1044,7 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, voiceMode, o
   }, [hasLayoutControl, resizeToHost]);
 
   useEffect(() => {
-    if (active && connectionStatus === "connected" && !viewport.mobile) terminalRef.current?.focus();
+    if (active && connectionStatus === "connected" && !viewport.mobile && !document.activeElement?.closest(".terminal-reaction-dialog")) terminalRef.current?.focus();
     if (active) window.requestAnimationFrame(resizeToHost);
     else { controlKeyRef.current = false; setControlKey(false); setKeyboardOpen(false); }
   }, [active, connectionStatus, viewport.mobile, resizeToHost]);
@@ -1044,9 +1065,9 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, voiceMode, o
     connectRef.current();
   };
 
-  const sendReaction = (emoji: typeof TEAM_REACTIONS[number]) => {
-    writeSocket({ type: "reaction", emoji });
-    setReactionPickerOpen(false);
+  const sendReaction = (selection: ReactionSelection) => {
+    if (socketRef.current?.readyState !== WebSocket.OPEN) { setReactionError("Reconnect to send reactions"); return; }
+    writeSocket({ type: "reaction", ...selection });
     terminalRef.current?.focus();
   };
 
@@ -1058,9 +1079,10 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, voiceMode, o
   const voiceMemberCount = new Set(voice.participants.map((participant) => participant.id)).size;
 
   return (
-    <section className={`terminal-pane${active ? " is-active" : ""}`} aria-label={`${session.title} terminal pane`} onFocusCapture={onActivate} onMouseDown={(event) => { if ((event.target as HTMLElement).closest("button,input,select,summary")) return; onActivate(); if (!viewport.mobile) terminalRef.current?.focus(); }}>
+    <section className={`terminal-pane${active ? " is-active" : ""}`} aria-label={`${session.title} terminal pane`} onFocusCapture={onActivate} onMouseDown={(event) => { if ((event.target as HTMLElement).closest("button,input,select,summary,[role=dialog]")) return; onActivate(); if (!viewport.mobile) terminalRef.current?.focus(); }}>
       <header className="terminal-pane__header">
         <div className={`terminal-pane__session is-${session.scope}`}><i /><strong title={session.title}>{viewport.mobile ? session.title : session.shell}</strong><span>{session.cwd}</span>{session.scope === "team" && <em><Users />shared</em>}</div>
+        {neuraLastInput && <span className="terminal-pane__typing" title={new Date(neuraLastInput).toLocaleTimeString()}>Neura sent input</span>}
         {typingLabels.length > 0 && <span className="terminal-pane__typing">{typingLabels.length === 1 ? `${typingLabels[0]} is typing…` : `${typingLabels.length} teammates are typing…`}</span>}
         <span className={`terminal-pane__mode is-${inputMode}`} title="Insert toggles Insert/Overwrite mode">{inputMode === "insert" ? "INS" : "OVR"}</span>
         <span className={`terminal-pane__state is-${connectionStatus}`}><i />{connectionStatus}</span>
@@ -1081,8 +1103,12 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, voiceMode, o
         {voiceMenuOpen && <section className="terminal-voice-panel" aria-label="Voice chat settings"><header><span><Headphones /></span><div><strong>Voice chat</strong><small>{voice.status === "connected" ? `${voiceMemberCount} ${voiceMemberCount === 1 ? "person" : "people"} here` : "Join this terminal's room"}</small></div></header><div className="terminal-voice-modes" role="radiogroup" aria-label="Microphone mode">{([[
           "muted", "Muted", "Listen without sharing your microphone", MicOff,
         ], ["open-mic", "Open mic", "Keep your microphone on", Mic], ["push-to-talk", "Push to talk", "Speak only while holding the talk button", Radio]] as const).map(([value, label, detail, Icon]) => <button type="button" role="radio" aria-checked={voiceMode === value} className={voiceMode === value ? "is-selected" : ""} key={value} onClick={() => chooseVoiceMode(value)}><Icon /><span><strong>{label}</strong><small>{detail}</small></span></button>)}</div>{voice.error && <p role="alert">{voice.error}</p>}{voice.participants.length > 0 && <div className="terminal-voice-people">{voice.participants.map((participant) => <span key={participant.connectionId}><i>{participant.label.slice(0, 2).toUpperCase()}</i><strong>{participant.label}</strong>{participant.mode === "muted" ? <MicOff /> : participant.mode === "push-to-talk" ? <Radio /> : <Mic />}</span>)}</div>}<footer>{voice.status === "connected" || voice.status === "joining" ? <button type="button" className="is-leave" onClick={() => { voice.leave(); setVoiceMenuOpen(false); }}><PhoneOff />Leave voice</button> : <button type="button" className="is-join" disabled={connectionStatus !== "connected"} onClick={() => void voice.join()}><Headphones />Join voice</button>}</footer></section>}
-      </div><div className="terminal-pane__reaction-picker"><button type="button" aria-label="Send a team reaction" aria-expanded={reactionPickerOpen} title="Send an emoji sticker" onClick={() => setReactionPickerOpen((open) => !open)}><SmilePlus /></button>{reactionPickerOpen && <div role="menu" aria-label="Team reactions">{TEAM_REACTIONS.map((emoji) => <button type="button" role="menuitem" aria-label={`Send ${emoji}`} key={emoji} onClick={() => sendReaction(emoji)}>{emoji}</button>)}</div>}</div></div>}
-      <div className="terminal-pane__canvas">{session.scope === "team" && reactions.length > 0 && <div className="terminal-pane__reactions" aria-live="polite">{reactions.map((reaction) => <span className="terminal-pane__reaction" aria-label={`${reaction.label} reacted with ${reaction.emoji}`} key={reaction.id}><span className="terminal-pane__reaction-burst" aria-hidden="true"><b>{reaction.emoji}</b><small>{reaction.label}</small></span></span>)}</div>}<div ref={hostRef} className="terminal-xterm" aria-label={`${session.title} interactive terminal`} /></div>
+      </div></div>}
+      <div className={`terminal-pane__canvas${session.scope === "team" ? " has-reaction-rail" : ""}`}>
+        {session.scope === "team" && <ReactionOverlays reactions={reactions} />}
+        <div ref={hostRef} className="terminal-xterm" aria-label={`${session.title} interactive terminal`} />
+        {session.scope === "team" && <TerminalReactionSidebar key={session.id} terminalId={session.id} connected={connectionStatus === "connected"} send={sendReaction} error={reactionError} dismissError={() => setReactionError("")} />}
+      </div>
       {clipboardError && <div className="terminal-clipboard-notice" role="status"><span>{clipboardError}</span><button type="button" aria-label="Dismiss clipboard message" onClick={() => setClipboardError("")}><X /></button></div>}
       {viewport.mobile && <div className="terminal-touch-keys" role="toolbar" aria-label={`Touch keys for ${session.title}`}>
         <button type="button" aria-label={keyboardOpen ? "Hide terminal keyboard" : "Show terminal keyboard"} aria-pressed={keyboardOpen} onPointerDown={(event) => event.preventDefault()} onClick={() => { if (keyboardOpen) terminalRef.current?.blur(); else terminalRef.current?.focus(); setKeyboardOpen(!keyboardOpen); }}><KeyboardIcon /><span>Keyboard</span></button>

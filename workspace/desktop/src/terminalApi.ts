@@ -34,6 +34,9 @@ export type TerminalDescriptor = {
   rows: number;
   sequence: number;
   exitCode: number | null;
+  agentMode?: "shared" | "status-only";
+  agentActive?: boolean;
+  canControlAgent?: boolean;
   owner: { label: string };
   owned: boolean;
   canTerminate: boolean;
@@ -109,4 +112,10 @@ export function terminalSocketUrl(path: string): string {
   const url = new URL(path, window.location.href);
   url.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return url.toString();
+}
+
+export type TerminalGif = { id: string; token: string; title: string; url: string; preview: string; still: string | null };
+export function searchTerminalGifs(terminalId: string, query: string, pos: string, signal: AbortSignal): Promise<{ results: TerminalGif[]; next: string }> {
+  const params = new URLSearchParams({ q: query, pos });
+  return terminalRequest(`/workspace/api/terminals/${encodeURIComponent(terminalId)}/gifs?${params}`, { signal });
 }

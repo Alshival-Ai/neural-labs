@@ -1,3 +1,6 @@
+import { ProviderRuntime } from "/usr/local/lib/neural-labs/mcp/dist/providerRuntime.js";
+import { loadProviderConfig } from "/usr/local/lib/neural-labs/mcp/dist/providerConfig.js";
+import { installTerminalGuidance } from "/usr/local/lib/neural-labs/terminal-guidance.mjs";
 import { execFile, spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { constants } from "node:fs";
@@ -9,6 +12,8 @@ import { createWorkspaceHttpServer } from "/usr/local/lib/neural-labs/http-serve
 import { browserConfigurationOperations } from "/usr/local/lib/neural-labs/browser-config.mjs";
 import { createProviderAuthController } from "/usr/local/lib/neural-labs/provider-auth.mjs";
 import { verifyCodexRuntime } from "/usr/local/lib/neural-labs/codex-runtime.mjs";
+import { openclawRelease, verifyOpenClawRuntime, isOfficialSmsInstallation } from "/usr/local/lib/neural-labs/openclaw-runtime.mjs";
+import { gatewayIsolationOperations } from "/usr/local/lib/neural-labs/gateway-isolation.mjs";
 import { createGatewayAdminRequest, PersonalOpenAIManager } from "/usr/local/lib/neural-labs/personal-openai.mjs";
 import { runTeamAgent } from "/usr/local/lib/neural-labs/team-agent.mjs";
 import { createVoiceService } from "/usr/local/lib/neural-labs/voice.mjs";
@@ -17,6 +22,7 @@ import { ModelPolicies } from "/usr/local/lib/neural-labs/model-policies.mjs";
 import { TeamOpenAI } from "/usr/local/lib/neural-labs/team-openai.mjs";
 import { agentEnvironment, importWorkspaceApiKey } from "/usr/local/lib/neural-labs/provider-environment.mjs";
 
+const openclawRuntime = await verifyOpenClawRuntime();
 const gatewayPort = parsePort(process.env.OPENCLAW_GATEWAY_PORT, 18789);
 const statusPort = parsePort(process.env.NEURAL_LABS_WORKSPACE_STATUS_PORT, 18790);
 const mcpPort = parsePort(process.env.NEURAL_LABS_WORKSPACE_MCP_PORT, 8792);
@@ -129,10 +135,9 @@ function ensureOfficialSmsPlugin() {
         if (result.status !== 0) throw new Error("Could not retire the legacy SMS plugin load path");
       }
     }
-    const listed = runOpenClaw(["plugins", "list", "--json"], { quiet: true });
-    const plugin = listed.status === 0 ? JSON.parse(listed.stdout).plugins?.find((entry) => entry.id === "sms") : undefined;
-    if (plugin?.origin === "global" && plugin.version === "2026.8.2") return;
-    const installed = runOpenClaw(["plugins", "install", "@openclaw/sms@2026.8.2", "--pin", "--force", "--accept-capabilities"], { quiet: true });
+    const inspected = runOpenClaw(["plugins", "inspect", "sms", "--json"], { quiet: true });
+    if (inspected.status === 0 && isOfficialSmsInstallation(JSON.parse(inspected.stdout))) return;
+    const installed = runOpenClaw(["plugins", "install", `@openclaw/sms@${openclawRelease.version}`, "--pin", "--force", "--accept-capabilities"], { quiet: true });
     if (installed.status !== 0) throw new Error("Official SMS plugin installation failed");
   } finally { process.umask(previousUmask); }
 }
@@ -209,6 +214,7 @@ function configureGateway(twilioConfig) {
   runOpenClaw(["config", "unset", "gateway.controlUi.basePath"], { quiet: true });
 
   const operations = [
+    ...gatewayIsolationOperations(),
     { path: "gateway.mode", value: "local" },
     { path: "gateway.bind", value: "lan" },
     { path: "gateway.port", value: gatewayPort },
@@ -402,6 +408,7 @@ async function mcpStatus() {
     return {
       ...unavailableMcpStatus(),
       ready: status?.status === "ok",
+      providerConfiguration: status?.providerConfiguration,
       providers: status?.providers ?? unavailableMcpStatus().providers,
       tools: Array.isArray(status?.tools) ? status.tools : [],
     };
@@ -411,6 +418,7 @@ async function mcpStatus() {
 }
 
 await seedShellProfiles();
+await installTerminalGuidance(workspaceRoot);
 ensureOfficialSmsPlugin();
 let twilioRuntimeConfig = await fetchTwilioConfig();
 configureGateway(twilioRuntimeConfig);
@@ -452,8 +460,8 @@ const personalOpenAI = new PersonalOpenAIManager({
   gatewayRequest: gatewayAdminRequest,
 });
 const teamOpenAI = new TeamOpenAI(personalOpenAI);
-const codexRuntime = await verifyCodexRuntime(process.env.NEURAL_LABS_CODEX_VERSION);
-const modelCatalog = new ModelCatalog({ gatewayRequest: gatewayAdminRequest, personalOpenAI, teamOpenAI, runtime: codexRuntime });
+await verifyCodexRuntime(process.env.NEURAL_LABS_CODEX_VERSION);
+const modelCatalog = new ModelCatalog({ gatewayRequest: gatewayAdminRequest, personalOpenAI, teamOpenAI, runtime: { name: "OpenClaw", version: openclawRuntime.version } });
 const modelPolicies = new ModelPolicies({ personalOpenAI, catalog: modelCatalog, teamOpenAI });
 const workspaceMcp = spawn(
   process.execPath,
@@ -475,6 +483,8 @@ const codeServer = spawn(
   { stdio: "inherit" },
 );
 
+const apiProviderRuntime = new ProviderRuntime(loadProviderConfig(process.env), process.env.NEURAL_LABS_PROVIDER_CONFIG_URL ?? "http://control-plane:4174/internal/plugins/providers/config", workspaceControlToken);
+await apiProviderRuntime.start();
 const workspaceServer = createWorkspaceHttpServer({
   desktopRoot,
   workspaceRoot,
@@ -484,6 +494,7 @@ const workspaceServer = createWorkspaceHttpServer({
   codeServerOrigin,
   codeServerReady,
   mcpStatus,
+  apiProviderRuntime,
   providerAuthenticated,
   credentialSource: () => providerStatus.credentialSource,
   openclawModelReady,
@@ -494,7 +505,7 @@ const workspaceServer = createWorkspaceHttpServer({
   teamOpenAI,
   voiceService,
   workspaceControlToken,
-  openclawVersion: process.env.NEURAL_LABS_OPENCLAW_VERSION ?? "unknown",
+  openclawVersion: openclawRuntime.version,
   codexVersion: process.env.NEURAL_LABS_CODEX_VERSION ?? "unknown",
   maxUploadBytes,
   personalSkillsRoot,
@@ -524,6 +535,14 @@ const workspaceServer = createWorkspaceHttpServer({
     });
     if (!response.ok) throw new Error(`Team Chat access service returned HTTP ${response.status}`);
     return response.json();
+  },
+  terminalActorResolver: async (actorId) => {
+    const response = await fetch("http://control-plane:4174/internal/terminal-actor", {
+      method: "POST", headers: { Authorization: `Bearer ${workspaceControlToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ actorId }), signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) return null;
+    return (await response.json()).actor;
   },
   runTeamAgent: async (input) => {
     const agentId = input.modelSettings ? await teamOpenAI.prepareRun() : await personalOpenAI.prepareRun(input.userId);
@@ -581,6 +600,7 @@ function stop(signal) {
   teamOpenAI.cancel();
   workspaceServer.close();
   gateway.kill(signal);
+  apiProviderRuntime.close();
   workspaceMcp.kill(signal);
   codeServer.kill(signal);
   setTimeout(() => gateway.kill("SIGKILL"), 10_000).unref();

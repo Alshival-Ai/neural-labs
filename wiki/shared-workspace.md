@@ -17,9 +17,9 @@ only on loopback.
 
 ## Versions and resources
 
-The initial release pins:
+The reviewed release pins:
 
-- OpenClaw `2026.8.2` using the official multi-architecture image digest;
+- OpenClaw `2026.9.2` using the official multi-architecture image digest;
 - Codex CLI `0.152.0` as an exact npm package version;
 - code-server `4.133.0` from checksum-verified architecture-specific release
   archives; and
@@ -167,10 +167,12 @@ sudo bin/neural-labs workspace update
 ```
 
 The workspace update command creates a complete backup, retains the previous
-image under a timestamped rollback tag, rebuilds, recreates only the workspace,
-and checks its loopback health endpoint. Version discovery is never automatic;
-review a stable release, update the exact version and immutable digest together,
-then invoke the command.
+image under a timestamped rollback tag, and records its immutable image ID.
+It checks the reviewed release pins and builds before downtime, then backs up,
+recreates only the workspace and checks its loopback health endpoint. Version
+discovery never changes pins automatically. Follow the
+[OpenClaw upgrade guide](openclaw-upgrades.md) to review upstream compatibility,
+integration packages, state migrations and recovery before promotion.
 
 ## Trust warning
 

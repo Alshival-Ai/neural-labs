@@ -43,3 +43,6 @@ as clickable URLs.
 - The relay cannot be used as a general-purpose proxy because its upstream host,
   path shape, query key, methods, redirects, and response media types are all
   constrained.
+
+User-requested saves into the shared workspace and explicit browser-download
+disposition are described in [ADR 0026](0026-chat-attachment-workspace-saves.md).

@@ -82,6 +82,8 @@ export type TeamAgentRun = {
   modelSettings?: { model: string; effort: string; agentId: string; revision: number };
 };
 
+export type TeamAgentInvocation = TeamAgentRun & { capability: string; terminalContextToken?: string };
+
 export type TeamTerminalAccess = {
   allowed: true;
   channel: { id: string; name: string; audience: ChannelAudience };
@@ -671,7 +673,7 @@ export class CollaborationStore {
       const body = input.body.trim();
       const safeAttachments = assertAttachments(input.attachments);
       if (!body && safeAttachments.length === 0) throw new CollaborationError(422, "message_required", "Write a message or attach a workspace file.");
-      const normalizedBody = body || safeAttachments.map((item) => item.name).join(", ");
+      const normalizedBody = body;
       const existing = await client.query<MessageRow>(
         `${MESSAGE_SELECT} WHERE m.author_user_id = $1 AND m.client_request_id = $2 GROUP BY m.sequence, m.id, u.id`,
         [actor.id, input.clientRequestId],
@@ -758,7 +760,7 @@ export class CollaborationStore {
     const message = await this.insertMessage(this.pool, {
       channelId: run.channel_id,
       authorKind: "neura",
-      body: normalizedBody || safeAttachments.map((item) => item.name).join(", "),
+      body: normalizedBody,
       attachments: safeAttachments,
       agentRunId: run.id,
     });

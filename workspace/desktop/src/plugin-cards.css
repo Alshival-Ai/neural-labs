@@ -1,0 +1,13 @@
+.plugin-card-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); }
+.plugin-cards-panel .provider-card-main { min-height: 240px; }
+.plugin-card-scope { color: var(--settings-muted, #98a2b5); font-size: 12px; }
+.plugin-card-action { margin-top: auto; padding-top: 12px; color: var(--settings-cyan, #67e8f9); }
+.plugin-provider-details { padding: 20px; min-width: 0; }
+.plugin-key-form { display: grid; gap: 12px; margin: 16px 0; }
+.plugin-key-form label { display: grid; gap: 8px; }
+.plugin-key-form input { min-width: 0; width: 100%; min-height: 44px; padding: 10px; color: inherit; background: var(--settings-white, #fffefa); border: 1px solid var(--settings-line, #d6d4dd); border-radius: 8px; font: inherit; }
+.plugin-provider-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.plugin-capability { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--settings-line, #d6d4dd); }
+.plugin-capability span { overflow-wrap: anywhere; }
+.plugin-cards-panel .settings-button, .plugin-cards-panel .settings-back-button, .plugin-cards-panel [role=tab] { min-height: 44px; }
+@container app-window (max-width: 500px) { .plugin-card-grid { grid-template-columns: minmax(0, 1fr); } .plugin-provider-details { padding: 12px; } }

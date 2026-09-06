@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+[[ $# == 2 ]] || { echo 'Usage: bin/openclaw-upgrade-smoke BASE_DIGEST CANDIDATE_WORKSPACE_DIGEST' >&2; exit 1; }
+for image in "$@"; do
+  [[ "${image}" =~ @sha256:[a-f0-9]{64}$ || "${image}" =~ ^sha256:[a-f0-9]{64}$ ]] || {
+    echo 'Use immutable, already pulled/built images.' >&2; exit 1;
+  }
+done
+base_image="$1"
+candidate_image="$2"
+scratch="$(mktemp -d)"
+volumes=()
+cleanup() {
+  for volume in "${volumes[@]}"; do docker volume rm "${volume}" >/dev/null || true; done
+  rm -rf -- "${scratch}"
+}
+trap cleanup EXIT
+new_volume() {
+  local name="$1"
+  if docker volume inspect "${name}" >/dev/null 2>&1; then echo 'Probe volume collision' >&2; exit 1; fi
+  docker volume create --label neural-labs.purpose=synthetic-upgrade-check "${name}" >/dev/null
+  volumes+=("${name}")
+  docker run --rm --pull never --network none --read-only --user 0 \
+    --mount "type=volume,src=${name},dst=/state" --entrypoint chown "${base_image}" 1000:1000 /state
+}
+run_phase() {
+  local image="$1" volume="$2" mode="$3"
+  docker run --rm --pull never --network none --read-only --user node \
+    --tmpfs /tmp:rw,nosuid,nodev,size=512m \
+    --mount "type=volume,src=${volume},dst=/state" \
+    --mount "type=bind,src=${repository_root}/tests/openclaw-migration-smoke.mjs,dst=/probe.mjs,readonly" \
+    -e "PROBE_MODE=${mode}" -e NEURAL_LABS_UPGRADE_PROBE=synthetic --entrypoint node "${image}" /probe.mjs
+}
+probe_prefix="neural-upgrade-probe-$(date -u +%Y%m%dT%H%M%SZ)-${RANDOM}"
+new_volume "${probe_prefix}-candidate"
+run_phase "${base_image}" "${probe_prefix}-candidate" seed
+docker run --rm --pull never --network none --read-only --user node \
+  --mount "type=volume,src=${probe_prefix}-candidate,dst=/state,readonly" \
+  --entrypoint tar "${base_image}" -C /state -cf - . >"${scratch}/synthetic-before.tar"
+run_phase "${candidate_image}" "${probe_prefix}-candidate" candidate
+new_volume "${probe_prefix}-restore"
+docker run --rm -i --pull never --network none --read-only --user 0 \
+  --mount "type=volume,src=${probe_prefix}-restore,dst=/state" \
+  --entrypoint tar "${base_image}" -C /state -xf - <"${scratch}/synthetic-before.tar"
+run_phase "${base_image}" "${probe_prefix}-restore" restore
+docker run --rm --pull never --network none --read-only --user node \
+  --tmpfs /tmp:rw,nosuid,nodev,size=512m \
+  --mount "type=bind,src=${repository_root}/tests/openclaw-role-smoke.mjs,dst=/probe.mjs,readonly" \
+  --entrypoint node "${candidate_image}" /probe.mjs
+# A registry-origin record is required for trusted SMS ingress. Download the
+# official package before starting any Gateway; the actual webhook test is offline.
+new_volume "${probe_prefix}-sms"
+echo 'Downloading the pinned official SMS package into synthetic test state'
+docker run --rm --pull never --read-only --user node \
+  --tmpfs /tmp:rw,nosuid,nodev,size=512m \
+  --mount "type=volume,src=${probe_prefix}-sms,dst=/state" \
+  --mount "type=bind,src=${repository_root}/tests/openclaw-sms-smoke.mjs,dst=/probe.mjs,readonly" \
+  -e PROBE_MODE=install -e NEURAL_LABS_UPGRADE_PROBE=synthetic \
+  --entrypoint node "${candidate_image}" /probe.mjs
+docker run --rm --pull never --network none --read-only --user node \
+  --tmpfs /tmp:rw,nosuid,nodev,size=512m \
+  --mount "type=volume,src=${probe_prefix}-sms,dst=/state" \
+  --mount "type=bind,src=${repository_root}/tests/openclaw-sms-smoke.mjs,dst=/probe.mjs,readonly" \
+  -e PROBE_MODE=verify -e NEURAL_LABS_UPGRADE_PROBE=synthetic \
+  --entrypoint node "${candidate_image}" /probe.mjs

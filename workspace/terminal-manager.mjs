@@ -1,6 +1,9 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import os from "node:os";
+import emojiData from "@emoji-mart/data" with { type: "json" };
+import { realpath, stat } from "node:fs/promises";
+import { EventEmitter } from "node:events";
 import path from "node:path";
 
 import * as pty from "node-pty";
@@ -19,7 +22,7 @@ const MAX_INPUT_BYTES = 64 * 1024;
 const MAX_BUFFERED_SOCKET_BYTES = 1024 * 1024;
 const TICKET_TTL_MS = 60_000;
 const HEARTBEAT_MS = 25_000;
-const TEAM_REACTIONS = new Set(["👍", "🎉", "🚀", "🔥", "❤️", "👏", "😂", "👀"]);
+const TEAM_REACTIONS = new Set(Object.values(emojiData.emojis).flatMap((emoji) => emoji.skins.map((skin) => skin.native)));
 const REACTION_COOLDOWN_MS = 400;
 
 export class TerminalError extends Error {
@@ -39,6 +42,7 @@ export class WorkspaceTerminalManager {
     spawnPty = (file, args, options) => pty.spawn(file, args, options),
     turnCredentialProvider = async () => [],
     teamChannelAuthorizer = async () => null,
+    gifProvider,
   } = {}) {
     if (!workspaceRoot) throw new Error("workspaceRoot is required");
     this.workspaceRoot = workspaceRoot;
@@ -47,7 +51,13 @@ export class WorkspaceTerminalManager {
     this.spawnPty = spawnPty;
     this.turnCredentialProvider = turnCredentialProvider;
     this.teamChannelAuthorizer = teamChannelAuthorizer;
+    this.gifProvider = gifProvider;
+    this.gifSelections = new Map();
+    this.reactionRates = new Map();
     this.sessions = new Map();
+    this.interactionSequence = 0;
+    this.events = new EventEmitter();
+    this.events.setMaxListeners(0);
     this.tickets = new Map();
     this.cleanupTimer = setInterval(() => this.cleanupTickets(), 30_000);
     this.cleanupTimer.unref?.();
@@ -94,18 +104,14 @@ export class WorkspaceTerminalManager {
       ? normalizeTitle(`#${teamChannel.name} · terminal ${channelIndex}`, "Team Chat terminal")
       : normalizeTitle(input.title, scope === "team" ? `Team shell ${defaultIndex}` : `shell ${defaultIndex}`);
     const terminalId = randomUUID();
-    let processHandle;
-    try {
-      processHandle = this.spawnPty(this.shell, shellArguments(this.shell), {
-        name: "xterm-256color",
-        cols: size.cols,
-        rows: size.rows,
-        cwd: this.workspaceRoot,
-        env: terminalEnvironment(this.shell, this.workspaceRoot, { actor, scope, terminalId }),
-      });
-    } catch (error) {
-      console.error("Workspace PTY failed to start", error instanceof Error ? error.message : error);
-      throw new TerminalError(503, "terminal_unavailable", "The terminal could not be started");
+    const root = await realpath(this.workspaceRoot);
+    const cwd = input.cwd ? await realpath(path.resolve(root, input.cwd)).catch(() => null) : root;
+    if (!cwd || (cwd !== root && !cwd.startsWith(`${root}${path.sep}`)) || !(await stat(cwd)).isDirectory()) {
+      throw new TerminalError(422, "invalid_cwd", "Choose an existing directory inside the workspace");
+    }
+    const command = input.command;
+    if (command !== undefined && (typeof command !== "string" || !command.trim() || Buffer.byteLength(command) > 64 * 1024 || command.includes("\0"))) {
+      throw new TerminalError(422, "invalid_command", "The terminal command is invalid");
     }
 
     const timestamp = this.now();
@@ -117,7 +123,14 @@ export class WorkspaceTerminalManager {
       ownerLabel: actor.label,
       channelId,
       channelName: teamChannel?.name ?? null,
-      process: processHandle,
+      process: null,
+      cwd,
+      command,
+      agentMode: input.agentMode === "status-only" ? "status-only" : "shared",
+      agentActiveUntil: 0,
+      actor,
+      deferred: input.deferred === true,
+      deferredUntil: input.deferredUntil,
       status: "running",
       createdAt: timestamp,
       lastActivityAt: timestamp,
@@ -127,24 +140,60 @@ export class WorkspaceTerminalManager {
       backlogBytes: 0,
       backlog: [],
       connections: new Map(),
+      interactions: new Map(),
       layoutConnectionId: null,
       exitCode: null,
       exitSignal: null,
     };
 
-    processHandle.onData((data) => this.recordOutput(session, String(data ?? "")));
-    processHandle.onExit(({ exitCode, signal }) => {
+    this.sessions.set(session.id, session);
+    this.recordInteraction(session, actor);
+    if (!session.deferred) {
+      try { this.start(session); } catch (error) { this.sessions.delete(session.id); throw error; }
+    }
+    return this.snapshot(actor, session);
+  }
+
+  start(session) {
+    if (session.process || session.status !== "running") return;
+    if (session.deferredUntil && session.deferredUntil <= this.now()) {
+      this.destroy(session);
+      throw new TerminalError(409, "launch_expired", "The terminal launch expired before connecting");
+    }
+    try {
+      session.process = this.spawnPty(this.shell, session.command === undefined ? shellArguments(this.shell) : ["-lc", session.command], {
+        name: "xterm-256color", cols: session.cols, rows: session.rows, cwd: session.cwd,
+        env: terminalEnvironment(this.shell, this.workspaceRoot, { actor: session.actor, scope: session.scope, terminalId: session.id }),
+      });
+    } catch {
+      session.status = "exited";
+      this.events.emit(session.id);
+      throw new TerminalError(503, "terminal_unavailable", "The terminal could not be started");
+    }
+    session.command = undefined;
+    session.process.onData((data) => this.recordOutput(session, String(data ?? "")));
+    session.process.onExit(({ exitCode, signal }) => {
       session.status = "exited";
       session.exitCode = Number.isInteger(exitCode) ? exitCode : null;
       session.exitSignal = Number.isInteger(signal) ? signal : null;
       session.lastActivityAt = this.now();
-      this.broadcast(session, {
-        type: "exit",
-        exitCode: session.exitCode,
-        signal: session.exitSignal,
-      });
+      this.broadcast(session, { type: "exit", exitCode: session.exitCode, signal: session.exitSignal });
+      this.events.emit(session.id);
     });
-    this.sessions.set(session.id, session);
+    this.events.emit(session.id);
+  }
+
+  async setAgentMode(actor, id, mode) {
+    const session = await this.get(actor, id);
+    if (!session) throw new TerminalError(404, "terminal_not_found", "Terminal session not found");
+    if (session.ownerId !== actor.id && !(session.scope === "team" && actor.role === "admin")) {
+      throw new TerminalError(403, "terminal_forbidden", "Only the creator or an administrator can change Neura participation");
+    }
+    if (!["shared", "status-only"].includes(mode)) throw new TerminalError(422, "invalid_mode", "Invalid Neura participation mode");
+    session.agentMode = mode;
+    session.agentActiveUntil = 0;
+    this.broadcast(session, { type: "agent-participation", mode, active: false });
+    this.events.emit(session.id);
     return this.snapshot(actor, session);
   }
 
@@ -210,12 +259,24 @@ export class WorkspaceTerminalManager {
     if (voiceChanged) this.broadcastVoicePresence(session);
   }
 
+  recordInteraction(session, actor, sequence = ++this.interactionSequence) {
+    session.interactions.set(actor.id, Math.max(sequence, session.interactions.get(actor.id) ?? 0));
+  }
+
+  async focusSession(actor, id) {
+    const sequence = ++this.interactionSequence;
+    const session = await this.get(actor, id);
+    if (!session) throw new TerminalError(404, "terminal_not_found", "Terminal session not found");
+    this.recordInteraction(session, actor, sequence);
+  }
+
   input(session, connection, data) {
     if (session.status !== "running") return;
     const input = String(data ?? "");
     if (!input || Buffer.byteLength(input, "utf8") > MAX_INPUT_BYTES) return;
     session.lastActivityAt = this.now();
-    session.process.write(input);
+    if (!connection.agent) this.recordInteraction(session, connection.actor);
+    session.process?.write(input);
     const timestamp = this.now();
     if (session.scope === "team" && timestamp - connection.lastTypingAt >= 500) {
       connection.lastTypingAt = timestamp;
@@ -234,24 +295,66 @@ export class WorkspaceTerminalManager {
     if (size.cols === session.cols && size.rows === session.rows) return true;
     session.cols = size.cols;
     session.rows = size.rows;
-    session.process.resize(size.cols, size.rows);
+    session.process?.resize(size.cols, size.rows);
     this.broadcastLayout(session);
     return true;
   }
 
-  react(session, connection, value) {
-    if (session.scope !== "team") return;
-    const emoji = String(value ?? "");
-    const timestamp = this.now();
-    if (!TEAM_REACTIONS.has(emoji) || timestamp - connection.lastReactionAt < REACTION_COOLDOWN_MS) return;
-    connection.lastReactionAt = timestamp;
-    this.broadcast(session, {
-      type: "reaction",
-      id: randomUUID(),
-      emoji,
-      actor: { id: connection.actor.id, label: connection.actor.label },
-      at: timestamp,
+  async gifCatalog(actor, terminalId, query = "", pos = "") {
+    const session = this.sessions.get(terminalId);
+    if (!session || session.scope !== "team" || !await this.canAccess(actor, session)) {
+      throw new TerminalError(404, "terminal_not_found", "Team Terminal not found");
+    }
+    if (!this.gifProvider?.configured) throw new TerminalError(503, "gif_unavailable", "GIF search is unavailable: KLIPY is not configured");
+    if (typeof query !== "string" || query.length > 160 || typeof pos !== "string" || pos.length > 512) {
+      throw new TerminalError(422, "invalid_search", "Search must be at most 160 characters");
+    }
+    const providerRevision = this.gifProvider.revision;
+    let page;
+    try { page = await this.gifProvider.catalog(query, pos); }
+    catch { throw new TerminalError(502, "gif_provider_error", "KLIPY could not load GIFs. Please try again"); }
+    if (!await this.canAccess(actor, session)) throw new TerminalError(404, "terminal_not_found", "Team Terminal not found");
+    if (this.gifProvider.revision !== providerRevision || !this.gifProvider.configured) {
+      throw new TerminalError(503, "gif_configuration_changed", "GIF configuration changed. Search again");
+    }
+    this.cleanupTickets();
+    const results = page.results.map((gif) => {
+      const token = randomBytes(24).toString("base64url");
+      this.gifSelections.set(token, { actorId: actor.id, terminalId, gif, query, expiresAt: this.now() + 600_000 });
+      return { ...gif, token };
     });
+    while (this.gifSelections.size > 2000) this.gifSelections.delete(this.gifSelections.keys().next().value);
+    return { results, next: page.next };
+  }
+
+  async react(session, connection, value) {
+    const fail = (message) => sendSocket(connection.socket, { type: "reaction-error", message });
+    if (session.scope !== "team" || !await this.canAccess(connection.actor, session)) {
+      fail("You no longer have access to this Team Terminal");
+      return;
+    }
+    const message = typeof value === "string" ? { emoji: value } : value;
+    const gif = message?.kind === "gif";
+    // Consult the live provider first; rotation or lease expiry invalidates cached selections.
+    const selection = gif && this.gifProvider?.configured ? this.gifSelections.get(message.token) : null;
+    if (gif ? !selection || selection.actorId !== connection.actor.id || selection.terminalId !== session.id || selection.expiresAt <= this.now() : !TEAM_REACTIONS.has(message?.emoji)) {
+      fail(gif ? "This GIF selection expired. Search again to send it" : "Choose an emoji from the picker");
+      return;
+    }
+    const timestamp = this.now();
+    const rateKey = `${session.id}:${connection.actor.id}:${gif ? "gif" : "emoji"}`;
+    const previous = this.reactionRates.get(rateKey);
+    if (previous !== undefined && timestamp - previous < (gif ? 2000 : REACTION_COOLDOWN_MS)) {
+      fail("Please wait a moment before sending another reaction");
+      return;
+    }
+    this.reactionRates.set(rateKey, timestamp);
+    this.broadcast(session, {
+      type: "reaction", id: randomUUID(),
+      ...(gif ? { kind: "gif", gif: selection.gif } : { emoji: message.emoji }),
+      actor: { id: connection.actor.id, label: connection.actor.label }, at: timestamp,
+    });
+    if (gif) void this.gifProvider.share(selection.gif.id, selection.query).catch(() => {});
   }
 
   async joinVoice(session, connection, mode) {
@@ -347,7 +450,10 @@ export class WorkspaceTerminalManager {
       title: session.title,
       scope: session.scope,
       shell: path.basename(session.process?.process || this.shell),
-      cwd: "~/workspace",
+      cwd: session.cwd,
+      agentMode: session.agentMode,
+      agentActive: session.agentActiveUntil > this.now(),
+      canControlAgent: session.ownerId === actor.id || (session.scope === "team" && actor.role === "admin"),
       status: session.status,
       createdAt: session.createdAt,
       lastActivityAt: session.lastActivityAt,
@@ -367,6 +473,8 @@ export class WorkspaceTerminalManager {
 
   cleanupTickets() {
     const timestamp = this.now();
+    for (const [token, selection] of this.gifSelections) if (selection.expiresAt <= timestamp) this.gifSelections.delete(token);
+    for (const [key, at] of this.reactionRates) if (timestamp - at >= 2000) this.reactionRates.delete(key);
     for (const [token, ticket] of this.tickets) {
       if (ticket.expiresAt <= timestamp) this.tickets.delete(token);
     }
@@ -378,6 +486,8 @@ export class WorkspaceTerminalManager {
       this.destroy(session);
     }
     this.tickets.clear();
+    this.gifSelections.clear();
+    this.reactionRates.clear();
   }
 
   async canAccess(actor, session) {
@@ -416,6 +526,7 @@ export class WorkspaceTerminalManager {
 
   destroy(session) {
     this.sessions.delete(session.id);
+    this.events.emit(session.id);
     for (const [token, ticket] of this.tickets) {
       if (ticket.terminalId === session.id) this.tickets.delete(token);
     }
@@ -424,21 +535,30 @@ export class WorkspaceTerminalManager {
       connection.socket.close(1000, "Terminal ended");
     }
     session.connections.clear();
-    if (session.status === "running") session.process.kill();
+    if (session.status === "running") session.process?.kill();
   }
 
   recordOutput(session, data) {
     if (!data) return;
     session.sequence += 1;
     session.lastActivityAt = this.now();
-    const chunk = { sequence: session.sequence, data, bytes: Buffer.byteLength(data, "utf8") };
+    const chunk = { sequence: session.sequence, data, bytes: Buffer.byteLength(data, "utf8"), agentVisible: session.agentMode === "shared" };
+    // A single PTY chunk must not defeat the bounded history limit.
+    if (chunk.bytes > MAX_BACKLOG_BYTES) {
+      const bytes = Buffer.from(data);
+      let offset = bytes.length - MAX_BACKLOG_BYTES;
+      while ((bytes[offset] & 0xc0) === 0x80) offset += 1;
+      chunk.data = bytes.subarray(offset).toString("utf8");
+      chunk.bytes = Buffer.byteLength(chunk.data);
+    }
     session.backlog.push(chunk);
     session.backlogBytes += chunk.bytes;
     while (session.backlogBytes > MAX_BACKLOG_BYTES && session.backlog.length > 1) {
       const removed = session.backlog.shift();
       session.backlogBytes -= removed.bytes;
     }
-    this.broadcast(session, { type: "output", sequence: chunk.sequence, data: chunk.data });
+    this.broadcast(session, { type: "output", sequence: chunk.sequence, data });
+    this.events.emit(session.id);
   }
 
   broadcast(session, payload) {
@@ -552,9 +672,12 @@ export function attachTerminalWebSocket(server, { manager, publicOrigin, heartbe
         socket.close(1008, "Invalid terminal message");
         return;
       }
+      if (message?.type === "client-ready") {
+        try { manager.start(session); } catch { socket.close(1011, "Terminal could not start"); }
+      }
       if (message?.type === "input") manager.input(session, connection, message.data);
       else if (message?.type === "resize") manager.resize(session, connection, message.cols, message.rows);
-      else if (message?.type === "reaction") manager.react(session, connection, message.emoji);
+      else if (message?.type === "reaction") void manager.react(session, connection, message).catch(() => sendSocket(socket, { type: "reaction-error", message: "Reaction could not be sent" }));
       else if (message?.type === "voice-join") void manager.joinVoice(session, connection, message.mode);
       else if (message?.type === "voice-leave") manager.leaveVoice(session, connection);
       else if (message?.type === "voice-mode") manager.setVoiceMode(session, connection, message.mode);

@@ -18,7 +18,39 @@ button and drawer, leaving the conversation full-width.
 The composer grows with a multiline draft, has larger touch targets, and stays
 above the visual viewport's keyboard boundary and the floating desktop dock.
 Long code blocks and tables scroll within the transcript rather than widening
-the app. Plain Enter adds a newline on phones; the send button submits.
+the app. Shift+Enter adds a newline; the visible send controls also work on phones.
+
+## Planning and sending in private chats
+
+Private chats have a **Normal / Draft plan** selector. Draft plan sends an ordinary
+request asking Neura to propose steps before implementation. This is an advisory
+prompt: it does not restrict tools or enforce Codex's native Plan mode. Existing
+tool permissions and approvals still apply. The choice is local to the current
+browser tab and conversation; refreshing returns the composer to Normal.
+
+**Implement plan** sends the latest completed plan back as a normal chat request
+and keeps your unsent draft. Plan cards are reconstructed from durable chat
+messages after reconnecting. A later user message makes the earlier plan inactive.
+Old proposed-plan signatures remain readable for existing history.
+
+With focus in the composer:
+
+- **Enter** sends when idle and steers the current run when Neura is working.
+- **Ctrl/Cmd+Enter** queues a follow-up during a run, or sends when idle.
+- **Shift+Enter** inserts a newline.
+- **Ctrl/Cmd+Shift+P** switches between Normal and Draft plan when idle.
+- **Tab / Shift+Tab** navigate controls; plain Tab or Enter can accept a skill suggestion.
+
+During a run, visible **Steer** and **Queue** controls offer the same actions on
+touch screens. Stop remains available separately. The UI disables drafting
+selection while its run or queue is busy; this is not a cross-tab runtime policy.
+Queued planning requests retain their ordinary message text. Structured
+clarification cards use upstream question APIs and restore pending questions
+after reconnecting, independently of the drafting selection. Team chats retain
+their existing behavior.
+
+See [ADR 0028](adr/0028-upstream-openclaw-boundary.md) for the separation between
+Neural Labs features and the unchanged OpenClaw runtime.
 
 ## Gateway lifecycle
 
@@ -273,3 +305,24 @@ node --test workspace/http-server.test.mjs
 ```
 
 `make validate` includes these checks with the rest of the repository.
+
+## Chat history and attachments
+
+Your Chats initially shows five recent conversations. Load more chats reveals
+five more in its own scrolling section, keeping Team chats accessible below.
+Collapse Your Chats to make more room; this preference is remembered for each
+Neura window on the current device. Searching temporarily opens matching private
+history, and clearing the search restores the collapse preference. An older open
+conversation remains reachable under Current chat.
+
+Images display inline and open in an image preview. Use an attachment's overflow
+button or right-click menu for **Download** to your computer or **Download to
+Workspace**. The workspace action asks for a folder and filename, starts in
+Downloads, and remembers your last successful destination. Workspace files are
+shared with approved workspace users. Existing filenames offer Keep both,
+Replace, or Cancel; the source attachment cannot replace itself.
+
+New attachment-only messages do not repeat filenames in their text. Historical
+captions remain intact when their origin is ambiguous. Private media uses the
+existing short-lived authorization tickets; if a ticket expires, the app tries
+one refresh through the owning conversation before showing an error.

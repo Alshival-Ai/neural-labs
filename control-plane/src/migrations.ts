@@ -329,4 +329,14 @@ export const migrations: Migration[] = [
         ON user_phones(phone_number) WHERE verified_at IS NOT NULL;
     `,
   },
+  {
+    version: 10,
+    sql: `
+      ALTER TABLE team_messages DROP CONSTRAINT team_messages_body_check;
+      ALTER TABLE team_messages ADD CONSTRAINT team_messages_body_check
+        CHECK (char_length(body) BETWEEN 0 AND 32000);
+      ALTER TABLE team_messages ADD CONSTRAINT team_messages_content_check
+        CHECK (char_length(body) > 0 OR jsonb_array_length(attachments) > 0);
+    `,
+  },
 ];

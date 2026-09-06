@@ -10,7 +10,9 @@ import "../src/styles.css";
 
 const qa = {
   inputs: [] as string[],
+  reactions: [] as Record<string, unknown>[],
   sends: [] as string[],
+  queueModes: [] as string[],
   teamPosts: [] as Array<Record<string, unknown>>,
   connections: 0,
   disposals: 0,
@@ -48,7 +50,7 @@ const chats = Array.from({ length: 35 }, (_, index) => ({
   visibility: "draft",
   sharingRole: "owner",
 }));
-const gateway = {
+export const gateway = {
   onStatus(listener: (status: string) => void) {
     listener("connected");
     return () => {};
@@ -76,6 +78,7 @@ const gateway = {
       {
         id: `${key}-a`,
         role: "assistant",
+        attachments: [{ name: "chat-preview.svg", type: "image/svg+xml", path: "qa/chat-preview.svg", size: 200 }],
         text:
           "Yes. Your conversations remain available in the history drawer.\n\n```sh\nprintf 'A long code sample stays inside its own horizontal scrolling region'\n```\n\n" +
           Array.from(
@@ -89,8 +92,12 @@ const gateway = {
   async readSkillsStatus() {
     return { agentId: "main", skills: [] };
   },
-  async send(_session: unknown, text: string) {
+  async listQuestions() { return []; },
+  async send(_session: { key: string }, text: string, _attachments: unknown[], queueMode: string) {
+    const chat = chats.find((item) => item.key === _session.key);
+    if (chat) chat.active = true;
     qa.sends.push(text);
+    qa.queueModes.push(queueMode);
     return { runId: "qa-run" };
   },
   async createSession() {
@@ -141,8 +148,9 @@ const originalFetch = window.fetch.bind(window);
 window.fetch = async (input, init) => {
   const url = String(input);
   if (!url.includes("/api/")) return originalFetch(input, init);
+  if (url.startsWith("/api/account/model-providers/catalog")) return Response.json({ agentId: "main", models: [], fetchedAt: new Date().toISOString(), stale: false });
   // The voice acceptance test intercepts these requests; never calls a provider.
-  if (url.startsWith("/workspace/api/neura/") || url.startsWith("/workspace/api/files/") || (url.endsWith("/messages") && init?.method === "POST")) return originalFetch(input, init);
+  if (url.startsWith("/workspace/api/neura/") || url.startsWith("/workspace/api/files") || (url.endsWith("/messages") && init?.method === "POST")) return originalFetch(input, init);
   if (url.startsWith("/api/team/"))
     return Response.json({
       channels,
@@ -166,6 +174,7 @@ window.fetch = async (input, init) => {
     terminals.push(next);
     return Response.json({ session: next });
   }
+  if (/\/terminals\/[^/]+\/gifs/.test(url)) return originalFetch(input, init);
   if (url.startsWith("/workspace/api/terminals"))
     return Response.json({ sessions: terminals });
   return Response.json({ channels: [], users: [], skills: [] });
@@ -223,6 +232,11 @@ class FixtureSocket {
   send(raw: string) {
     const value = JSON.parse(raw);
     if (value.type === "input") qa.inputs.push(value.data);
+    if (value.type === "reaction") {
+      qa.reactions.push(value);
+      this.onmessage?.({ data: JSON.stringify({ ...value, id: `reaction-${qa.reactions.length}`, actor: { label: "QA" },
+        ...(value.kind === "gif" ? { gif: { id: "qa", title: "Celebration", url: "https://static.klipy.com/qa.gif", preview: "https://static.klipy.com/qa.gif", still: "https://static.klipy.com/qa.png" } } : {}) }) });
+    }
     if (this.isTeamChat && value.type === "post") qa.teamPosts.push(value);
   }
   close() {
@@ -271,4 +285,4 @@ function Fixture() {
     </>
   );
 }
-createRoot(document.getElementById("root")!).render(<Fixture />);
+if (window.location.pathname.endsWith("/mobile.html")) createRoot(document.getElementById("root")!).render(<Fixture />);

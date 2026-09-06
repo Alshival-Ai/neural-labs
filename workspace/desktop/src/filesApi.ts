@@ -57,11 +57,13 @@ export async function requestJson<T>(url: string, init: RequestInit = {}): Promi
   if (!response.ok) {
     const fallback = `File operation failed with HTTP ${response.status}`;
     let message = fallback;
+    let code: string | undefined;
     try {
-      const body = await response.json() as { error?: { message?: string } };
+      const body = await response.json() as { error?: { message?: string; code?: string } };
       if (body.error?.message) message = body.error.message;
+      code = body.error?.code;
     } catch {}
-    throw new Error(message);
+    throw Object.assign(new Error(message), { status: response.status, code });
   }
   return response.json() as Promise<T>;
 }

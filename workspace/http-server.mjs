@@ -1,3 +1,4 @@
+import { TerminalAgentBridge, terminalContextInstructions } from "./terminal-agent.mjs";
 import { readFile } from "node:fs/promises";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
@@ -55,7 +56,7 @@ function contentSecurityPolicy(nonce) {
     "form-action 'self'",
     "frame-src 'self'",
     "frame-ancestors 'none'",
-    "img-src 'self' data: blob:",
+    "img-src 'self' data: blob: https://static.klipy.com https://static1.klipy.com https://static2.klipy.com",
     "media-src 'self' blob:",
     "object-src 'none'",
     "script-src 'self'",
@@ -180,7 +181,7 @@ function parsePreviewRequest(pathname) {
 function parseNeuraMediaRequest(url) {
   const match = url.pathname.match(/^\/workspace\/api\/neura\/media\/outgoing\/([^/]+)\/([A-Za-z0-9-]{1,128})\/(full|thumbnail)$/u);
   const ticket = url.searchParams.get("mediaTicket");
-  if (!match || !ticket || !NEURA_MEDIA_TICKET.test(ticket) || [...url.searchParams.keys()].some((key) => key !== "mediaTicket")) {
+  if (!match || !ticket || !NEURA_MEDIA_TICKET.test(ticket) || [...url.searchParams.keys()].some((key) => !["mediaTicket", "download", "name"].includes(key)) || (url.searchParams.has("download") && url.searchParams.get("download") !== "1") || (url.searchParams.has("name") && (!url.searchParams.has("download") || url.searchParams.get("name").length > 255))) {
     throw new WorkspaceFileError(404, "media_not_found", "This Neura attachment is unavailable");
   }
   let sessionKey;
@@ -195,7 +196,7 @@ function parseNeuraMediaRequest(url) {
   return `/api/chat/media/outgoing/${encodeURIComponent(sessionKey)}/${match[2]}/${match[3]}?mediaTicket=${encodeURIComponent(ticket)}`;
 }
 
-async function relayNeuraMedia(response, method, upstreamOrigin, upstreamPath, gatewayMediaFetch) {
+async function relayNeuraMedia(response, method, upstreamOrigin, upstreamPath, gatewayMediaFetch, downloadName) {
   let upstream;
   try {
     upstream = await gatewayMediaFetch(new URL(upstreamPath, upstreamOrigin), {
@@ -207,10 +208,11 @@ async function relayNeuraMedia(response, method, upstreamOrigin, upstreamPath, g
     throw new WorkspaceFileError(502, "media_unavailable", "Neura could not load this attachment");
   }
   if (!upstream.ok) {
-    throw new WorkspaceFileError(upstream.status === 404 ? 404 : 502, "media_unavailable", "This Neura attachment is unavailable");
+    await upstream.body?.cancel().catch(() => {});
+    throw new WorkspaceFileError([401, 403, 404].includes(upstream.status) ? upstream.status : 502, "media_unavailable", "This Neura attachment is unavailable");
   }
   const contentType = upstream.headers.get("content-type") ?? "application/octet-stream";
-  if (!/^(?:image|audio|video)\//iu.test(contentType) && contentType !== "application/pdf" && contentType !== "application/octet-stream") {
+  if (!downloadName && !/^(?:image|audio|video)\//iu.test(contentType) && contentType !== "application/pdf" && contentType !== "application/octet-stream") {
     throw new WorkspaceFileError(415, "media_unavailable", "This Neura attachment type is unavailable");
   }
   response.setHeader("Cache-Control", "private, no-store");
@@ -226,6 +228,7 @@ async function relayNeuraMedia(response, method, upstreamOrigin, upstreamPath, g
     const value = upstream.headers.get(name);
     if (value) response.setHeader(name, value);
   }
+  if (downloadName) response.setHeader("Content-Disposition", contentDisposition(downloadName));
   response.writeHead(upstream.status);
   if (method === "HEAD" || !upstream.body) response.end();
   else Readable.fromWeb(upstream.body).on("error", () => response.destroy()).pipe(response);
@@ -431,6 +434,9 @@ export function createWorkspaceHttpServer({
   builderDraftsRoot = path.join(path.dirname(workspaceRoot), ".local", "state", "neural-labs", "builder-drafts"),
   filesStateRoot = path.join(path.dirname(workspaceRoot), ".local", "state", "neural-labs", "files"),
   terminalManager,
+  gifProvider,
+  apiProviderRuntime,
+  terminalActorResolver,
   terminalHeartbeatMs,
   turnCredentialProvider,
   teamChannelAuthorizer,
@@ -448,7 +454,9 @@ export function createWorkspaceHttpServer({
   });
   const fileEvents = createWorkspaceFileEvents({ root: workspaceRoot });
   const explorer = createExplorerManager({ files, root: workspaceRoot, stateRoot: filesStateRoot, changed: (event) => fileEvents.publish(event) });
-  const terminals = terminalManager ?? new WorkspaceTerminalManager({ workspaceRoot, turnCredentialProvider, teamChannelAuthorizer });
+  const terminals = terminalManager ?? new WorkspaceTerminalManager({ workspaceRoot, turnCredentialProvider, teamChannelAuthorizer, gifProvider });
+  if (apiProviderRuntime) terminals.gifProvider = apiProviderRuntime.gifProvider(() => terminals.gifSelections.clear());
+  const terminalAgent = new TerminalAgentBridge({ manager: terminals, resolveActor: terminalActorResolver ?? (async () => null) });
   const previewLaunches = new Map();
   const providerStates = new Map();
   const observeProvider = (key, result, userId) => {
@@ -462,6 +470,52 @@ export function createWorkspaceHttpServer({
     const method = request.method ?? "GET";
     const url = new URL(request.url ?? "/", "http://workspace.local");
     const pathname = url.pathname;
+    if (pathname === "/internal/plugins/providers/status" || /^\/internal\/plugins\/providers\/(google-maps|klipy|pexels)\/check$/.test(pathname)) {
+      if (!workspaceControlToken || !validControlToken(request, workspaceControlToken)) { sendJson(response, 401, { error: { message: "Unauthorized" } }, method); return; }
+      if (!apiProviderRuntime) { sendJson(response, 503, { error: { message: "Provider configuration is unavailable" } }, method); return; }
+      if (pathname.endsWith("/status") && method === "GET") {
+        const mcp = await mcpStatus();
+        sendJson(response, 200, { providers: apiProviderRuntime.status(), mcp: mcp.ready ? mcp.providerConfiguration ?? {} : {} }, method);
+      } else if (pathname.endsWith("/check") && method === "POST") {
+        try {
+          const body = await readJsonBody(request);
+          if (!Number.isSafeInteger(body?.revision) || body.revision < 0) throw new Error("Invalid configuration revision");
+          sendJson(response, 200, await apiProviderRuntime.check(pathname.split("/")[4], body.revision), method);
+        } catch { sendJson(response, 503, { error: { message: "Provider check could not run. Wait for the configuration to apply and try again." } }, method); }
+      } else { response.setHeader("Allow", pathname.endsWith("/status") ? "GET" : "POST"); sendJson(response, 405, { error: { message: "Method not allowed" } }, method); }
+      return;
+    }
+    if (pathname === "/internal/terminal-agent") {
+      if (!workspaceControlToken || !validControlToken(request, workspaceControlToken)) {
+        sendJson(response, 401, { error: { code: "unauthorized", message: "Unauthorized" } }, method); return;
+      }
+      try {
+        if (method !== "POST") throw new TerminalError(405, "method_not_allowed", "POST is required");
+        const body = await readJsonBody(request);
+        sendJson(response, 200, await terminalAgent.call(body.tool, body.input ?? {}), method);
+      } catch (error) { terminalApiError(response, error, method); }
+      return;
+    }
+    if (pathname.startsWith("/workspace/api/terminal-agent/")) {
+      const actor = terminalActor(request.headers);
+      if (!actor) { sendJson(response, 401, { error: { code: "unauthorized", message: "Authentication is required" } }, method); return; }
+      try {
+        if (method === "GET" && pathname.endsWith("/events")) {
+          terminalAgent.subscribe(actor, url.searchParams.get("desktopId"), response); return;
+        }
+        if (method !== "POST" || request.headers.origin !== publicOrigin) throw new TerminalError(403, "same_origin_required", "A same-origin POST is required");
+        const body = await readJsonBody(request);
+        const action = pathname.slice("/workspace/api/terminal-agent/".length);
+        const result = action === "context" ? await terminalAgent.mint(actor, body)
+          : action === "claim" ? await terminalAgent.claim(actor, body)
+          : action === "focus" ? await terminalAgent.focus(actor, body.desktopId, body.terminalId)
+          : action === "participation" ? { session: await terminals.setAgentMode(actor, body.terminalId, body.mode) }
+          : null;
+        if (!result) throw new TerminalError(404, "not_found", "Unknown terminal action");
+        sendJson(response, 200, result, method);
+      } catch (error) { terminalApiError(response, error, method); }
+      return;
+    }
     const providerRoute = pathname === "/internal/provider-auth/openai";
     const providerStartRoute = pathname === "/internal/provider-auth/openai/start";
     const providerCancelRoute = pathname === "/internal/provider-auth/openai/cancel";
@@ -553,7 +607,13 @@ export function createWorkspaceHttpServer({
       }
       try {
         const body = await readJsonBody(request, 2 * 1024 * 1024);
-        const result = await runTeamAgent({ prompt: body?.prompt, capability: body?.capability, userId: body?.userId, runId: body?.runId, ...(body?.modelSettings ? { modelSettings: body.modelSettings } : {}) });
+        const terminalActor = terminalActorResolver ? await terminalActorResolver(body?.userId) : null;
+        const terminalContext = terminalActor && body?.channelId
+          ? body.terminalContextToken
+            ? await terminalAgent.context(body.terminalContextToken, terminalActor.id, body.channelId)
+            : await terminalAgent.mint(terminalActor, { conversationId: `team:${body.channelId}:${body.runId}`, channelId: body.channelId })
+          : null;
+        const result = await runTeamAgent({ prompt: body?.prompt + (terminalContext ? terminalContextInstructions(terminalContext) : ""), capability: body?.capability, userId: body?.userId, runId: body?.runId, ...(body?.modelSettings ? { modelSettings: body.modelSettings } : {}) });
         sendJson(response, 200, typeof result === "string" ? { reply: result } : result, method);
       } catch (error) {
         console.error("Team Chat agent run failed", error instanceof Error ? error.message : error);
@@ -723,7 +783,7 @@ export function createWorkspaceHttpServer({
         return;
       }
       try {
-        await relayNeuraMedia(response, method, gatewayMediaOrigin, parseNeuraMediaRequest(url), gatewayMediaFetch);
+        await relayNeuraMedia(response, method, gatewayMediaOrigin, parseNeuraMediaRequest(url), gatewayMediaFetch, url.searchParams.get("download") === "1" ? url.searchParams.get("name") || "attachment" : undefined);
       } catch (error) {
         fileApiError(response, error, method);
       }
@@ -771,7 +831,7 @@ export function createWorkspaceHttpServer({
 
     if (pathname === "/workspace/api/terminals" ||
         pathname === "/workspace/api/terminals/socket" ||
-        /^\/workspace\/api\/terminals\/[^/]+\/ticket$/.test(pathname) ||
+        /^\/workspace\/api\/terminals\/[^/]+\/(?:ticket|gifs)$/.test(pathname) ||
         /^\/workspace\/api\/terminals\/[^/]+$/.test(pathname)) {
       const actor = terminalActor(request.headers);
       if (!actor) {
@@ -790,7 +850,13 @@ export function createWorkspaceHttpServer({
         }
         if (pathname === "/workspace/api/terminals" && method === "POST") {
           const body = await readJsonBody(request);
-          sendJson(response, 201, { session: await terminals.create(actor, body) }, method);
+          sendJson(response, 201, { session: await terminals.create(actor, { scope: body?.scope, title: body?.title, channelId: body?.channelId, cols: body?.cols, rows: body?.rows }) }, method);
+          return;
+        }
+        const gifMatch = pathname.match(/^\/workspace\/api\/terminals\/([^/]+)\/gifs$/);
+        if (gifMatch && method === "GET") {
+          const params = new URL(request.url, publicOrigin).searchParams;
+          sendJson(response, 200, await terminals.gifCatalog(actor, decodeURIComponent(gifMatch[1]), params.get("q") ?? "", params.get("pos") ?? ""), method);
           return;
         }
         const ticketMatch = pathname.match(/^\/workspace\/api\/terminals\/([^/]+)\/ticket$/);
@@ -811,7 +877,7 @@ export function createWorkspaceHttpServer({
           sendJson(response, 200, { closed: true }, method);
           return;
         }
-        response.setHeader("Allow", pathname === "/workspace/api/terminals" ? "GET, POST" : pathname.endsWith("/ticket") ? "POST" : "DELETE");
+        response.setHeader("Allow", pathname === "/workspace/api/terminals" ? "GET, POST" : pathname.endsWith("/ticket") ? "POST" : pathname.endsWith("/gifs") ? "GET" : "DELETE");
         sendJson(response, 405, { error: { code: "method_not_allowed", message: "Method not allowed" } }, method);
       } catch (error) {
         terminalApiError(response, error, method);
@@ -959,6 +1025,40 @@ export function createWorkspaceHttpServer({
         const user = request.headers["x-forwarded-user"].trim();
         const requestedPath = url.searchParams.get("path") ?? "";
         const options = Object.fromEntries(url.searchParams);
+        if (pathname === "/workspace/api/files/import-neura" && method === "POST") {
+          if (!gatewayMediaOrigin) throw new WorkspaceFileError(503, "media_unavailable", "Neura media is unavailable");
+          const body = await readJsonBody(request);
+          if (!body || typeof body.mediaUrl !== "string" || !body.mediaUrl.startsWith(NEURA_MEDIA_PREFIX)
+            || typeof body.destination !== "string" || typeof body.name !== "string"
+            || (body.conflict !== undefined && !["replace", "keep-both"].includes(body.conflict))) {
+            throw new WorkspaceFileError(400, "invalid_import", "Choose a Neura attachment and a workspace destination");
+          }
+          const upstreamPath = parseNeuraMediaRequest(new URL(body.mediaUrl, publicOrigin));
+          const controller = new AbortController();
+          const disconnected = () => { if (!response.writableEnded) controller.abort(); };
+          response.once("close", disconnected);
+          let upstream;
+          try {
+            upstream = await gatewayMediaFetch(new URL(upstreamPath, gatewayMediaOrigin), {
+              method: "GET", redirect: "error",
+              signal: AbortSignal.any([controller.signal, AbortSignal.timeout(600_000)]),
+            });
+            if (!upstream.ok || !upstream.body) {
+              throw new WorkspaceFileError([401, 403, 404].includes(upstream.status) ? upstream.status : 502, "media_unavailable", "This Neura attachment is unavailable; reload it and try again");
+            }
+            const input = Readable.fromWeb(upstream.body);
+            // Upload admission may await the file-operation lock before consuming bytes.
+            // Keep early upstream errors handled until the async iterator observes them.
+            input.on("error", () => {});
+            const result = await explorer.upload(user, body.destination, body.name, input, { conflict: body.conflict });
+            sendJson(response, 200, result, method);
+          } finally {
+            response.off("close", disconnected);
+            controller.abort();
+            if (upstream?.body && !upstream.body.locked) await upstream.body.cancel().catch(() => {});
+          }
+          return;
+        }
         if (pathname === "/workspace/api/files/preferences") {
           if (method === "GET") { sendJson(response, 200, await explorer.metadata(user), method); return; }
           if (method === "PUT") { sendJson(response, 200, await explorer.saveMetadata(user, await readJsonBody(request, 1024 * 1024)), method); return; }
@@ -1174,6 +1274,7 @@ export function createWorkspaceHttpServer({
       vsCodeSockets.close();
       builderSockets.close();
       void builder.close();
+      terminalAgent.close();
       terminals.shutdown();
     }
     return closeServer(callback);

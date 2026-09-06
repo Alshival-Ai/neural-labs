@@ -1,3 +1,4 @@
+import { captureTerminalContext } from "./terminalAgentApi";
 import {
   Archive,
   ArchiveRestore,
@@ -44,6 +45,10 @@ import { listTerminals, type TerminalDescriptor } from "./terminalApi";
 import { transcribeVoiceMemo, voiceMemoExtension } from "./voiceApi";
 import { usePrivateNeuraVoice, useTeamVoiceMemo, type VoiceMode } from "./useNeuraVoice";
 import { VoiceControl } from "./VoiceControl";
+import { MessageAttachments } from "./ChatAttachments";
+export { MessageAttachments } from "./ChatAttachments";
+import { NeuraQuestions } from "./NeuraQuestions";
+import { implementationRequest, latestActionablePlan, planningRequest, planningTranscript, type NeuraComposeMode } from "./neuraPlanning";
 import { ConversationModelPicker } from "./ConversationModelPicker";
 import type {
   ComposerAttachment,
@@ -69,7 +74,7 @@ type Props = {
   onOpenTeamTerminal?: (channel: Pick<TeamChannel, "id" | "name">, session?: TerminalDescriptor) => Promise<TerminalDescriptor | undefined> | TerminalDescriptor | undefined;
 };
 
-type NeuraDeviceState = { selectedKey?: string; selectedChannelId?: string; freshStartForActivityAt?: number; sidebarOpen: boolean; terminalSidebarOpen: boolean; showArchived: boolean; voiceMode?: VoiceMode };
+type NeuraDeviceState = { selectedKey?: string; selectedChannelId?: string; freshStartForActivityAt?: number; sidebarOpen: boolean; terminalSidebarOpen: boolean; showArchived: boolean; privateChatsCollapsed?: boolean; voiceMode?: VoiceMode };
 type SkillSuggestion = { key: string; name: string; description: string };
 type SkillTrigger = { start: number; end: number; query: string };
 export type TeamMentionSuggestion = { key: string; handle: string; displayName: string; description: string; kind: "neura" | "user" };
@@ -184,6 +189,7 @@ function neuraDeviceState(storageNamespace: string | undefined, storageArea: str
     sidebarOpen: value.sidebarOpen !== false,
     terminalSidebarOpen: value.terminalSidebarOpen === true,
     showArchived: value.showArchived === true,
+    privateChatsCollapsed: value.privateChatsCollapsed === true,
     voiceMode: value.voiceMode === "hold" ? "hold" : "tap",
   };
 }
@@ -321,39 +327,6 @@ function isAudioAttachment(attachment: Pick<NeuraAttachment, "name" | "type">): 
   return attachment.type.toLowerCase().startsWith("audio/") || /\.(?:m4a|mp3|oga|ogg|wav|webm)$/i.test(attachment.name);
 }
 
-function attachmentSize(size: number | undefined): string {
-  if (size === undefined) return "Workspace file";
-  if (size < 1024) return `${size} B`;
-  if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
-  return `${(size / (1024 * 1024)).toFixed(size < 10 * 1024 * 1024 ? 1 : 0)} MB`;
-}
-
-export function MessageAttachments({ attachments: items, className = "message-attachments" }: {
-  attachments: Array<NeuraAttachment | TeamAttachment>;
-  className?: string;
-}) {
-  return <div className={className}>{items.map((attachment, index) => {
-    const path = "path" in attachment ? attachment.path : undefined;
-    const directUrl = "url" in attachment ? attachment.url : undefined;
-    const downloadUrl = path ? workspaceDownloadUrl(path) : directUrl;
-    const imageUrl = isImageAttachment({ name: attachment.name, type: attachment.type ?? "" })
-      ? path ? workspaceContentUrl(path) : directUrl
-      : undefined;
-    const audioUrl = isAudioAttachment({ name: attachment.name, type: attachment.type ?? "" })
-      ? path ? workspaceContentUrl(path) : directUrl
-      : undefined;
-    const content = <>
-      {imageUrl ? <img src={imageUrl} alt={attachment.name} loading="lazy" /> : audioUrl ? <audio controls preload="metadata" src={audioUrl} /> : <Paperclip />}
-      <span className="attachment-copy"><strong>{attachment.name}</strong><small>{attachmentSize(attachment.size)}</small></span>
-    </>;
-    const key = `${path ?? directUrl ?? attachment.name}:${index}`;
-    return downloadUrl
-      ? audioUrl
-        ? <div className="attachment-card attachment-audio" key={key}>{content}<a href={downloadUrl} download={path ? attachment.name : undefined}>Download</a></div>
-        : <a className={imageUrl ? "attachment-card attachment-image" : "attachment-card"} key={key} href={downloadUrl} download={path ? attachment.name : undefined}>{content}</a>
-      : <div className="attachment-card" key={key}>{content}</div>;
-  })}</div>;
-}
 
 function approvalFromEvent(event: GatewayEvent): NeuraApproval | null {
   const payload = eventRecord(event);
@@ -492,6 +465,8 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [runId, setRunId] = useState<string>();
+  const [composeModes, setComposeModes] = useState<Record<string, NeuraComposeMode>>({});
+  const implementationKeys = useRef(new Map<string, string>());
   const [queuedPrompts, setQueuedPrompts] = useState<QueuedPrompt[]>([]);
   const [composerSubmitting, setComposerSubmitting] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(initialUiState.sidebarOpen);
@@ -499,10 +474,14 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
   const [mobileDrawer, setMobileDrawer] = useState(false);
   const [mobileTerminals, setMobileTerminals] = useState(false);
   const [historyQuery, setHistoryQuery] = useState("");
+  const [privateChatsCollapsed, setPrivateChatsCollapsed] = useState(initialUiState.privateChatsCollapsed ?? false);
+  const [privateChatLimit, setPrivateChatLimit] = useState(5);
+  const privateHistoryId = useId();
   useEffect(() => {
     if (!appViewport.mobile) { setMobileDrawer(false); setMobileTerminals(false); }
   }, [appViewport.mobile]);
   const [showArchived, setShowArchived] = useState(initialUiState.showArchived);
+  useEffect(() => setPrivateChatLimit(5), [historyQuery, showArchived]);
   const [creatingSession, setCreatingSession] = useState(false);
   useEffect(() => { if (teamDialog || manageChannel || creatingSession) setMobileDrawer(false); }, [teamDialog, manageChannel, creatingSession]);
   const [sessionReady, setSessionReady] = useState(false);
@@ -528,6 +507,11 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
   const transcriptFollowFrame = useRef<number | undefined>(undefined);
   const activitiesRef = useRef<NeuraActivity[]>([]);
   const pendingAssistantText = useRef(new Map<string, string>());
+  const finishedRuns = useRef(new Set<string>());
+  const rememberFinishedRun = (id: string) => {
+    finishedRuns.current.add(id);
+    if (finishedRuns.current.size > 1000) finishedRuns.current.delete(finishedRuns.current.values().next().value!);
+  };
   const progressSequence = useRef(0);
   const runIdRef = useRef(runId);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -544,6 +528,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
   const composerSubmittingRef = useRef(false);
   const selected = sessions.find((session) => session.key === selectedKey);
   const selectedChannel = teamChannels.find((channel) => channel.id === selectedChannelId);
+
   useLayoutEffect(() => {
     for (const input of [composerInput.current, teamComposerInput.current]) {
       if (!input) continue;
@@ -553,6 +538,12 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
   }, [draft, teamDraft, appViewport.mobile, appViewport.width, selectedKey, selectedChannel?.id, sessionReady]);
   const agentBusy = Boolean(runId || selected?.active);
   const sessionQueue = queuedPrompts.filter((prompt) => prompt.sessionKey === selectedKey);
+  const composeModeKey = JSON.stringify([storageNamespace, selectedKey]);
+  const composeMode = composeModes[composeModeKey] ?? "default";
+  const displayedMessages = useMemo(() => planningTranscript(messages), [messages]);
+  const modeLocked = !sessionReady || connection !== "connected" || agentBusy || composerSubmitting || sessionQueue.length > 0 || (selected?.queuedRunCount ?? 0) > 0;
+  const latestPlan = latestActionablePlan(displayedMessages);
+
 
   const privateVoice = usePrivateNeuraVoice(selectedChannelId ? undefined : selectedKey, voiceMode, notify);
 
@@ -638,7 +629,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
       : [...current, {
           id: `local:queued:${queued.id}`,
           role: "user",
-          text: queued.text || queued.attachments.map((attachment) => attachment.name).join(", "),
+          text: queued.text,
           attachments: queued.attachments,
         }]);
   };
@@ -968,8 +959,8 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
   }, []);
 
   useEffect(() => {
-    writeDeviceState(storageNamespace, storageArea, { selectedKey, selectedChannelId, freshStartForActivityAt, sidebarOpen, terminalSidebarOpen, showArchived, voiceMode } satisfies NeuraDeviceState);
-  }, [freshStartForActivityAt, selectedKey, selectedChannelId, showArchived, sidebarOpen, storageArea, storageNamespace, terminalSidebarOpen, voiceMode]);
+    writeDeviceState(storageNamespace, storageArea, { selectedKey, selectedChannelId, freshStartForActivityAt, sidebarOpen, terminalSidebarOpen, showArchived, privateChatsCollapsed, voiceMode } satisfies NeuraDeviceState);
+  }, [freshStartForActivityAt, selectedKey, selectedChannelId, showArchived, sidebarOpen, storageArea, storageNamespace, terminalSidebarOpen, privateChatsCollapsed, voiceMode]);
 
   function handleGatewayEvent(event: GatewayEvent) {
     const payload = eventRecord(event);
@@ -1037,7 +1028,10 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
       }
       if (persisted.runId && persisted.messages.some((message) => message.role === "user")) promoteQueuedPrompt(persisted.runId);
       const runFinished = Boolean(persisted.runId && ["end", "error"].includes(persisted.phase ?? ""));
-      if (runFinished) pendingAssistantText.current.delete(persisted.runId!);
+      if (runFinished) {
+        rememberFinishedRun(persisted.runId!);
+        pendingAssistantText.current.delete(persisted.runId!);
+      }
       const completedActivities = runFinished ? finishRunActivities(persisted.runId!, persisted.phase === "error") : [];
       const finalAssistantIndex = persisted.messages.findLastIndex((message) => message.role === "assistant");
       for (const [index, message] of persisted.messages.entries()) {
@@ -1093,6 +1087,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
         });
       }
       if (["final", "aborted", "error"].includes(state ?? "")) {
+        rememberFinishedRun(eventRunId);
         pendingAssistantText.current.delete(eventRunId);
         if (runIdRef.current === eventRunId) runIdRef.current = undefined;
         setRunId((current) => current === eventRunId ? undefined : current);
@@ -1138,6 +1133,10 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
   );
   const matchesHistory = (title: string) => title.toLowerCase().includes(historyQuery.trim().toLowerCase());
   const privateSessions = visibleSessions.filter((session) => session.visibility === "draft" && matchesHistory(session.title));
+  const privateChatsExpanded = Boolean(historyQuery.trim()) || !privateChatsCollapsed;
+  const displayedPrivateSessions = privateSessions.slice(0, privateChatLimit);
+  const currentPrivateSession = !selectedChannelId && !displayedPrivateSessions.some((row) => row.key === selectedKey)
+    ? privateSessions.find((row) => row.key === selectedKey) : undefined;
   const pinnedTeamChannels = teamChannels.filter((channel) => channel.pinned && matchesHistory(channel.name));
   const regularTeamChannels = teamChannels.filter((channel) => !channel.pinned && matchesHistory(channel.name));
   const matchingSkills = useMemo(() => matchingSkillSuggestions(skills, skillTrigger), [skillTrigger, skills]);
@@ -1149,6 +1148,10 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
     setCreatingSession(true);
     try {
       const created = await gateway.createSession();
+      setPrivateChatsCollapsed(false);
+      setPrivateChatLimit(5);
+      setHistoryQuery("");
+      setShowArchived(false);
       // A list request started before sessions.create completed must not erase
       // the new row or selection when it returns with an older snapshot.
       sessionsRequestRef.current += 1;
@@ -1315,12 +1318,22 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
     }
   };
 
-  const postTeamMessage = (body: string, messageAttachments: TeamAttachment[], channel = selectedChannel, invokeAgent = true): boolean => {
+  const postTeamMessage = async (body: string, messageAttachments: TeamAttachment[], channel = selectedChannel, invokeAgent = true): Promise<boolean> => {
     if (!channel || (!body && messageAttachments.length === 0)) return false;
     const socket = teamSocket.current;
     if (!socket || socket.readyState !== WebSocket.OPEN) {
       notify("Team Chat is reconnecting. Your draft has been kept.");
       return false;
+    }
+    const clientRequestId = crypto.randomUUID();
+    let terminalContextToken: string | undefined;
+    if (invokeAgent && invokesTeamAgent(body)) {
+      try {
+        terminalContextToken = (await captureTerminalContext(`team:${channel.id}:${clientRequestId}`, channel.id)).contextToken;
+      } catch (error) { notify(error instanceof Error ? error.message : "Terminal context is unavailable. Your draft has been kept."); return false; }
+      if (socket.readyState !== WebSocket.OPEN || selectedChannelRef.current !== channel.id) {
+        notify("Team Chat changed while preparing your message. Your draft has been kept."); return false;
+      }
     }
     transcriptPinnedToBottom.current = true;
     setShowJumpToLatest(false);
@@ -1328,20 +1341,27 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
     socket.send(JSON.stringify({
       type: "post",
       channelId: channel.id,
-      clientRequestId: crypto.randomUUID(),
+      clientRequestId,
       body,
       attachments: messageAttachments,
       invokeAgent,
+      ...(terminalContextToken ? { terminalContextToken } : {}),
     }));
     socket.send(JSON.stringify({ type: "typing", channelId: channel.id, active: false }));
     return true;
   };
 
-  const sendTeamMessage = () => {
+  const teamSubmittingRef = useRef(false);
+  const sendTeamMessage = async () => {
+    if (teamSubmittingRef.current) return;
+    teamSubmittingRef.current = true;
     const body = teamDraft.trim();
-    if (!postTeamMessage(body, teamAttachments)) return;
-    setTeamDraft("");
-    setTeamAttachments([]);
+    const outgoing = teamAttachments;
+    let sent;
+    try { sent = await postTeamMessage(body, outgoing); } finally { teamSubmittingRef.current = false; }
+    if (!sent) return;
+    setTeamDraft((current) => current.trim() === body ? "" : current);
+    setTeamAttachments((current) => current.filter((item) => !outgoing.includes(item)));
     setTeamSkillTrigger(null);
     setTeamMentionTrigger(null);
   };
@@ -1484,11 +1504,43 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
     setAttachments((current) => [...outgoing, ...current]);
   };
 
+  const changeComposeMode = (mode: NeuraComposeMode) => {
+    if (!selected || modeLocked || composerSubmittingRef.current) return;
+    setComposeModes((current) => ({ ...current, [composeModeKey]: mode }));
+  };
+
+  const implementPlan = async (plan: NeuraMessage) => {
+    if (!selected || modeLocked || composerSubmittingRef.current || plan.id !== latestPlan?.id) return;
+    composerSubmittingRef.current = true;
+    setComposerSubmitting(true);
+    const key = `${selected.key}:${plan.id}`;
+    const idempotencyKey = implementationKeys.current.get(key) ?? crypto.randomUUID();
+    implementationKeys.current.set(key, idempotencyKey);
+    const localId = `local:${crypto.randomUUID()}`;
+    const request = implementationRequest(plan);
+    setMessages((current) => [...current, { id: localId, role: "user", text: request }]);
+    try {
+      const result = await gateway.send(selected, request, [], "steer", { idempotencyKey, terminalContext: true });
+      setComposeModes((current) => ({ ...current, [composeModeKey]: "default" }));
+      setSessions((current) => current.map((row) => row.key === selected.key ? { ...row, active: true } : row));
+      if (selectedKeyRef.current === selected.key && !finishedRuns.current.has(result.runId)) {
+        runIdRef.current = result.runId;
+        setRunId(result.runId);
+      }
+      await refreshSessions();
+    } catch (error) {
+      setMessages((current) => current.filter((item) => item.id !== localId));
+      notify(error instanceof Error ? error.message : "Could not start implementing this plan.");
+      void refreshSessions();
+    } finally { composerSubmittingRef.current = false; setComposerSubmitting(false); }
+  };
+
   const sendMessage = async () => {
     const message = draft.trim();
     if (composerSubmittingRef.current || !selected || !sessionReady || (!message && attachments.length === 0) || connection !== "connected") return;
     const wasBusy = agentBusy;
     const outgoing = attachments;
+    const request = planningRequest(message, composeMode);
     const localId = `local:${crypto.randomUUID()}`;
     transcriptPinnedToBottom.current = true;
     setShowJumpToLatest(false);
@@ -1501,20 +1553,22 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
     setMessages((current) => [...current, {
       id: localId,
       role: "user",
-      text: message || outgoing.map((attachment) => attachment.file.name).join(", "),
+      text: request,
       attachments: outgoing.map((attachment) => ({ name: attachment.file.name, type: attachment.file.type, url: attachment.previewUrl })),
     }]);
     try {
-      const result = await gateway.send(selected, message, outgoing, "steer");
+      const result = await gateway.send(selected, request, outgoing, "steer", { terminalContext: true });
       if (!wasBusy && result.runId) {
         runIdRef.current = result.runId;
         setRunId(result.runId);
       }
       setSessions((current) => current.map((session) => session.key === selected.key ? { ...session, active: true } : session));
+      await refreshSessions();
     } catch (error) {
       setMessages((current) => current.filter((item) => item.id !== localId));
       restoreComposer(message, outgoing);
       notify(error instanceof Error ? error.message : "Neura could not send that message");
+      void refreshSessions();
     } finally {
       composerSubmittingRef.current = false;
       setComposerSubmitting(false);
@@ -1529,11 +1583,12 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
     const message = draft.trim();
     if (composerSubmittingRef.current || !selected || !sessionReady || (!message && attachments.length === 0) || connection !== "connected") return;
     const outgoing = attachments;
+    const request = planningRequest(message, composeMode);
     const queuedId = crypto.randomUUID();
     const queued: QueuedPrompt = {
       id: queuedId,
       sessionKey: selected.key,
-      text: message,
+      text: request,
       attachments: outgoing.map((attachment) => ({ name: attachment.file.name, type: attachment.file.type })),
       status: "sending",
     };
@@ -1544,7 +1599,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
     setSkillTrigger(null);
     setAttachments([]);
     try {
-      const result = await gateway.send(selected, message, outgoing, "followup");
+      const result = await gateway.send(selected, request, outgoing, "followup", { terminalContext: true });
       updateQueuedPrompts((current) => current.map((prompt) => prompt.id === queuedId
         ? { ...prompt, runId: result.runId, status: "queued" }
         : prompt));
@@ -1556,6 +1611,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
       updateQueuedPrompts((current) => current.filter((prompt) => prompt.id !== queuedId));
       restoreComposer(message, outgoing);
       notify(error instanceof Error ? error.message : "Neura could not queue that message");
+      void refreshSessions();
     } finally {
       composerSubmittingRef.current = false;
       setComposerSubmitting(false);
@@ -1595,6 +1651,11 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
 
   const handleComposerKey = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing) return;
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === "p") {
+      event.preventDefault();
+      changeComposeMode(composeMode === "plan" ? "default" : "plan");
+      return;
+    }
     if (skillTrigger && matchingSkills.length > 0) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
@@ -1602,7 +1663,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
         setSkillMenuIndex((current) => (current + direction + matchingSkills.length) % matchingSkills.length);
         return;
       }
-      if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
+      if (!event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && (event.key === "Enter" || event.key === "Tab")) {
         event.preventDefault();
         selectSkillSuggestion(matchingSkills[skillMenuIndex % matchingSkills.length]);
         return;
@@ -1613,9 +1674,10 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
       setSkillTrigger(null);
       return;
     }
-    if (!submitsChatComposerShortcut(event)) return;
+    if (!submitsChatComposerShortcut(event) || event.altKey) return;
     event.preventDefault();
-    void sendMessage();
+    if (event.ctrlKey || event.metaKey) void queueMessage();
+    else void sendMessage();
   };
 
   const renameSession = async (session: SessionRow) => {
@@ -1678,22 +1740,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
     </div>
   );
 
-  const sidebar = (
-    <aside className="neura-sidebar" id={appViewport.mobile ? undefined : historyId}>
-      <div className="sidebar-heading">
-        <button type="button" className="new-chat-button" disabled={creatingSession} aria-busy={creatingSession} onClick={() => void createConversation()}><MessageSquarePlus /> {creatingSession ? "Creating…" : "New chat"}</button>
-        {!appViewport.mobile && <button type="button" className="sidebar-close" onClick={() => setSidebarOpen(false)} aria-label="Close conversation history"><PanelLeftClose /></button>}
-      </div>
-      <label className="neura-history-search"><span>Find a conversation</span><input type="search" value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder="Search chats and channels" /></label>
-      <div className="history-switcher">
-        <button type="button" className={!showArchived ? "active" : ""} onClick={() => setShowArchived(false)}>Recent</button>
-        <button type="button" className={showArchived ? "active" : ""} onClick={() => setShowArchived(true)}>Archived</button>
-      </div>
-      <nav className="history-list" aria-label="Neura conversation history">
-        <section className="history-section" aria-labelledby="private-chat-heading">
-          <h2 id="private-chat-heading"><LockKeyhole />Your chats</h2>
-          {privateSessions.length === 0 && <p className="history-empty">{historyQuery ? "No matching private chats" : showArchived ? "No archived private chats" : "Start a private conversation with Neura."}</p>}
-          {privateSessions.map((session) => (
+  const privateChatRow = (session: SessionRow) => (
             <div className={`history-row${session.key === selectedKey && !selectedChannelId ? " is-selected" : ""}`} key={session.key}>
               <button type="button" className="history-select" onClick={() => choosePrivateChat(session.key)}>
                 <span>{session.title}</span><small>{session.active ? "Active now" : relativeTime(session.updatedAt)}</small>
@@ -1708,7 +1755,28 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
                 </div>
               </details>
             </div>
-          ))}
+  );
+
+  const sidebar = (
+    <aside className="neura-sidebar" id={appViewport.mobile ? undefined : historyId}>
+      <div className="sidebar-heading">
+        <button type="button" className="new-chat-button" disabled={creatingSession} aria-busy={creatingSession} onClick={() => void createConversation()}><MessageSquarePlus /> {creatingSession ? "Creating…" : "New chat"}</button>
+        {!appViewport.mobile && <button type="button" className="sidebar-close" onClick={() => setSidebarOpen(false)} aria-label="Close conversation history"><PanelLeftClose /></button>}
+      </div>
+      <label className="neura-history-search"><span>Find a conversation</span><input type="search" value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder="Search chats and channels" /></label>
+      <div className="history-switcher">
+        <button type="button" className={!showArchived ? "active" : ""} onClick={() => setShowArchived(false)}>Recent</button>
+        <button type="button" className={showArchived ? "active" : ""} onClick={() => setShowArchived(true)}>Archived</button>
+      </div>
+      <nav className="history-list" aria-label="Neura conversation history">
+        <section className={`history-section private-chat-section${privateChatsExpanded ? " is-expanded" : ""}`} aria-labelledby="private-chat-heading">
+          <h2 id="private-chat-heading"><button type="button" className="private-chat-toggle" aria-expanded={privateChatsExpanded} aria-controls={privateHistoryId} onClick={() => { if (historyQuery.trim()) setHistoryQuery(""); setPrivateChatsCollapsed(privateChatsExpanded); }}><ChevronDown /><LockKeyhole />Your chats</button></h2>
+          <div id={privateHistoryId} className="private-chat-rows" hidden={!privateChatsExpanded}>
+          {privateSessions.length === 0 && <p className="history-empty">{historyQuery ? "No matching private chats" : showArchived ? "No archived private chats" : "Start a private conversation with Neura."}</p>}
+          {currentPrivateSession && <><p className="current-chat-label">Current chat</p>{privateChatRow(currentPrivateSession)}</>}
+          {displayedPrivateSessions.map((session) => session.key === currentPrivateSession?.key ? null : privateChatRow(session))}
+          {privateSessions.length > privateChatLimit && <button type="button" className="history-load-more" onClick={() => setPrivateChatLimit((count) => count + 5)}>Load more chats</button>}
+          </div>
         </section>
         <section className="history-section team-chat-section" aria-labelledby="team-chat-heading">
           <h2 id="team-chat-heading">
@@ -1773,12 +1841,15 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
           {selected && !selectedChannel && messages.length === 0 && sessionReady && (
             <div className="neura-welcome compact"><div className="neura-orb">N</div><h1>What should we work on?</h1><p>{selected.visibility === "draft" ? "Only you can see and write in this conversation." : "This conversation is shared with your team."}</p></div>
           )}
-          {!selectedChannel && messages.map((message) => (
-            <article className={`message message-${message.role}`} key={message.id}>
+          {!selectedChannel && displayedMessages.map((message) => (
+            <article className={`message message-${message.role}${message.proposedPlan ? " message-plan" : ""}`} key={message.id}>
               {message.role === "assistant" && <div className="message-avatar">N</div>}
               <div className="message-body">
-                <span className="message-author">{message.role === "assistant" ? "Neura" : message.role === "user" ? "You" : "System"}</span>
-                {message.attachments && message.attachments.length > 0 && <MessageAttachments attachments={message.attachments} />}
+                <span className="message-author">{message.proposedPlan ? "Neura · Proposed plan" : message.role === "assistant" ? "Neura" : message.role === "user" ? "You" : "System"}</span>
+                {message.attachments && message.attachments.length > 0 && <MessageAttachments attachments={message.attachments} notify={notify} storageNamespace={storageNamespace} refreshAttachment={selected ? async (attachment) => {
+                  const resolved = await gateway.resolveMessageAttachments(selected.key, [{ ...message, attachments: [attachment as NeuraAttachment] }]);
+                  return resolved[0]?.attachments?.[0] ?? attachment;
+                } : undefined} />}
                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
                   a: ({ href, children }) => {
                     const websitePreview = message.role === "assistant" ? neuraWebsitePreviewFile(href, message.text) : undefined;
@@ -1790,6 +1861,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
                   img: ({ src, alt }) => <img className="message-markdown-image" src={message.role === "assistant" ? resolveNeuraMessageImage(src) : src} alt={alt ?? "Shared image"} loading="lazy" />,
                 }}>{message.text}</ReactMarkdown>
                 {message.activities && message.activities.length > 0 && <NeuraActivityTimeline activities={message.activities} />}
+                {message.proposedPlan && message.id === latestPlan?.id && <button type="button" className="implement-plan-button" disabled={modeLocked} onClick={() => void implementPlan(message)}>Implement plan</button>}
                 {message.pending && <span className="typing-cursor" aria-label="Neura is responding" />}
               </div>
             </article>
@@ -1806,7 +1878,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
               {neura && <div className="message-avatar">N</div>}
               <div className="message-body">
                 <span className="message-author">{author}{message.author && <small>@{message.author.handle}</small>}</span>
-                {message.attachments.length > 0 && <MessageAttachments attachments={message.attachments} className="message-attachments team-message-attachments" />}
+                {message.attachments.length > 0 && <MessageAttachments attachments={message.attachments} className="message-attachments team-message-attachments" notify={notify} storageNamespace={storageNamespace} />}
                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
                   a: ({ href, children }) => {
                     const websitePreview = neura ? neuraWebsitePreviewFile(href, message.body) : undefined;
@@ -1947,10 +2019,11 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
                 ))}</div>
               </div>
             ))}
+            {sessionReady && connection === "connected" && <NeuraQuestions key={selected.key} gateway={gateway} sessionKey={selected.key} notify={notify} />}
             {agentBusy && <div className="active-run-banner" role="status">
               <span className="activity-spinner" />
-              <strong>Neura is working</strong>
-              <span>Enter steers this run now. Use Send options to add work to the queue.</span>
+              <strong>{composeMode === "plan" ? "Neura is planning" : "Neura is working"}</strong>
+              <span>Enter steers now. Ctrl/Cmd+Enter queues the next task.</span>
             </div>}
             {sessionQueue.length > 0 && <section className="prompt-queue" aria-label="Queued messages">
               <header>
@@ -1970,7 +2043,13 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
                 ))}
               </ol>
             </section>}
-            <div className="composer-shell">
+            <div className={`composer-shell${composeMode === "plan" ? " is-planning" : ""}`}>
+              <div className="composer-mode-row">
+                <label><span>Mode</span><select aria-label="Conversation mode" aria-keyshortcuts="Control+Shift+P Meta+Shift+P" value={composeMode} disabled={modeLocked} onChange={(event) => changeComposeMode(event.target.value as NeuraComposeMode)}>
+                  <option value="default">Normal</option><option value="plan">Draft plan</option>
+                </select></label>
+                <small>{modeLocked ? "Switch modes when the run and queue are idle." : composeMode === "plan" ? "Requests a plan; tool permissions stay the same." : "Ctrl/Cmd+Shift+P to draft a plan"}</small>
+              </div>
               {skillTrigger && <div className="skill-mention-menu" id="neura-skill-suggestions" role="listbox" aria-label="Available skills">
                   <div className="skill-mention-menu__heading" role="presentation"><strong>Skills</strong><span>Type to filter · Enter to add</span></div>
                 {!skillsLoaded && <p className="skill-mention-menu__empty">Loading skills…</p>}
@@ -2020,12 +2099,12 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
                   active={privateVoice.state === "live"} busy={privateVoice.state === "connecting"} disabled={!sessionReady && privateVoice.state === "idle"}
                   onTap={privateVoice.tap} onHoldStart={privateVoice.press} onHoldEnd={() => privateVoice.release()}
                 /> : <div className="split-send">
-                  <button type="button" className="send-button" onClick={() => void sendMessage()} disabled={composerSubmitting || !sessionReady || !draft.trim() && attachments.length === 0} aria-label={agentBusy ? "Steer active run" : "Send message"}><Send /></button>
-                  {agentBusy && <details><summary aria-label="Send options"><ChevronDown /></summary><div><button type="button" disabled={composerSubmitting} onClick={() => void sendMessage()}>Steer active run <kbd>Enter</kbd></button><button type="button" disabled={composerSubmitting} onClick={() => void queueMessage()}>Queue after this run</button></div></details>}
+                  <button type="button" className={`send-button${agentBusy ? " send-button--labeled" : ""}`} onClick={() => void sendMessage()} disabled={composerSubmitting || !sessionReady || !draft.trim() && attachments.length === 0} aria-label={agentBusy ? "Steer active run" : "Send message"} title={agentBusy ? "Steer active run (Enter)" : "Send message (Enter)"}><Send />{agentBusy && <span>Steer</span>}</button>
+                  {agentBusy && <button type="button" className="queue-button" disabled={composerSubmitting || !sessionReady} onClick={() => void queueMessage()} aria-label="Queue after this run" title="Queue after this run (Ctrl/Cmd+Enter)"><ListOrdered /><span>Queue</span></button>}
                 </div>}
               </div>
             </div>
-            <p className="composer-hint">Enter to {agentBusy ? "steer now" : "send"} · Shift+Enter for a new line · {voiceMode === "hold" ? "hold wave to speak" : "open mic for voice"}</p>
+            <p className="composer-hint">Enter to {agentBusy ? "steer now" : "send"} · {agentBusy && <>Ctrl/Cmd+Enter to queue · </>}Shift+Enter for a new line · {voiceMode === "hold" ? "hold wave to speak" : "open mic for voice"}</p>
           </footer>
         )}
       </main>

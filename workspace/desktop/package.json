@@ -14,8 +14,9 @@
     "validate": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
-    "@openclaw/gateway-client": "2026.8.2",
-    "@openclaw/gateway-protocol": "2026.8.2",
+    "@emoji-mart/data": "1.2.1",
+    "@openclaw/gateway-client": "2026.9.2",
+    "@openclaw/gateway-protocol": "2026.9.2",
     "@simplewebauthn/browser": "14.0.0",
     "@xterm/addon-fit": "0.11.0",
     "@xterm/addon-search": "0.16.0",

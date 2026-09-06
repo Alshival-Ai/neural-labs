@@ -12,6 +12,7 @@ export type SessionRow = {
   sharingRole?: "admin" | "owner" | "member" | "viewer";
   modelOverride?: string;
   thinkingLevel?: string;
+  queuedRunCount?: number;
 };
 
 export type NeuraMessage = {
@@ -19,6 +20,7 @@ export type NeuraMessage = {
   role: "user" | "assistant" | "system";
   text: string;
   pending?: boolean;
+  proposedPlan?: boolean;
   attachments?: NeuraAttachment[];
   activities?: NeuraActivity[];
 };

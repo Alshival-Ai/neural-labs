@@ -28,7 +28,7 @@
   background: var(--terminal-bg);
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
   contain: layout paint;
-  container: terminal-app / inline-size;
+  container: terminal-app / size;
 }
 
 .terminal-app,
@@ -210,16 +210,6 @@
 .terminal-voice-panel > footer button.is-leave { color: #ffc0b6; border-color: rgba(255, 136, 117, .24); background: rgba(255, 136, 117, .07); }
 .terminal-voice-panel > footer button:disabled { opacity: .4; cursor: default; }
 .terminal-voice-panel > footer svg { width: 12px; }
-.terminal-pane__reaction-picker { position: relative; flex: 0 0 auto; }
-.terminal-pane__reaction-picker > button { width: 23px; height: 23px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 4px; color: #b8a8eb; background: transparent; cursor: pointer; }
-.terminal-pane__reaction-picker > button:hover,
-.terminal-pane__reaction-picker > button[aria-expanded="true"] { color: #fff; background: #302a43; }
-.terminal-pane__reaction-picker > button svg { width: 12px; }
-.terminal-pane__reaction-picker > div { position: absolute; top: 27px; right: -2px; width: 190px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; padding: 6px; border: 1px solid #4a4263; border-radius: 7px; background: #171520; box-shadow: 0 12px 30px rgba(0, 0, 0, .5); }
-.terminal-pane__reaction-picker > div button { height: 34px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 5px; background: transparent; cursor: pointer; font-size: 19px; }
-.terminal-pane__reaction-picker > div button:hover,
-.terminal-pane__reaction-picker > div button:focus-visible { background: #302a43; transform: scale(1.08); }
-
 /* The xterm host has fixed insets. Its contents cannot affect layout size. */
 .terminal-pane__canvas { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--terminal-bg); contain: strict; }
 .terminal-xterm { position: absolute; z-index: 1; inset: 8px 4px 5px 10px; overflow: hidden; background: var(--terminal-bg); contain: strict; }
@@ -469,3 +459,54 @@
 .terminal-touch-keys button[aria-pressed="true"] { color: #061722; border-color: #67e8f9; background: #67e8f9; }
 .terminal-touch-keys button:disabled { opacity: .4; }
 .terminal-touch-keys svg { width: 20px; height: 20px; }
+
+.terminal-neura-participation { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 14px; font-size: .8rem; color: #b8c7df; background: #121827; }
+.terminal-neura-participation button { color: #a5e8ef; border: 1px solid #38475d; border-radius: 6px; padding: 3px 9px; background: transparent; cursor: pointer; }
+
+.terminal-app.is-mobile .terminal-neura-participation button { min-height: 44px; }
+
+/* A fixed rail reserves shell space; opening either picker never refits xterm. */
+.has-reaction-rail > .terminal-xterm { right: 48px; }
+.has-reaction-rail > .terminal-pane__reactions { right: 44px; }
+.terminal-reaction-rail { position: absolute; inset: 0 0 0 auto; z-index: 4; width: 44px; border-left: 1px solid var(--terminal-border); background: var(--terminal-panel); }
+.terminal-reaction-rail button, .terminal-reaction-dialog button, .terminal-reaction-error button { min-width: 44px; min-height: 44px; padding: 6px; border: 0; border-radius: 6px; color: #eee8ff; background: transparent; cursor: pointer; }
+.terminal-reaction-rail button { width: 44px; display: grid; place-items: center; }
+.terminal-reaction-rail svg, .terminal-reaction-dialog header svg, .terminal-reaction-error svg { width: 20px; height: 20px; }
+.terminal-reaction-rail button:hover, .terminal-reaction-rail button[aria-expanded="true"], .terminal-reaction-dialog button:hover { background: #393047; }
+.terminal-reaction-rail button:focus-visible, .terminal-reaction-dialog :focus-visible { outline: 2px solid #b7a0f2; outline-offset: -2px; }
+.terminal-reaction-dialog { position: absolute; z-index: 5; top: 4px; right: 48px; width: 340px; max-width: calc(100% - 52px); height: 430px; max-height: calc(100% - 8px); display: flex; flex-direction: column; overflow: hidden; box-sizing: border-box; border: 1px solid #514565; border-radius: 10px; color: #eee8ff; background: #1c1824; box-shadow: 0 8px 30px #0008; font: 12px/1.4 system-ui, sans-serif; }
+.terminal-reaction-dialog > header { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; padding-left: 12px; }
+.terminal-reaction-search { display: grid; gap: 4px; padding: 0 8px 8px; flex-shrink: 0; }
+.terminal-reaction-search input, .terminal-emoji-options select { width: 100%; min-width: 0; min-height: 44px; box-sizing: border-box; padding: 6px; border: 1px solid #514565; border-radius: 6px; color: #eee8ff; background: #272131; font: inherit; }
+.terminal-emoji-options { display: flex; gap: 6px; padding: 0 8px 8px; flex-shrink: 0; }
+.terminal-emoji-options label { flex: 1; min-width: 0; }
+.terminal-reaction-results { flex: 1; min-height: 0; padding: 0 8px 8px; overflow: auto; overscroll-behavior: contain; }
+.terminal-reaction-results p { margin: 6px 0; }
+.terminal-emoji-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); }
+.terminal-emoji-grid button { font: 26px/1.2 "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif; }
+.terminal-gif-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.terminal-gif-grid button { overflow: hidden; padding: 0; min-height: 80px; background: #302839; }
+.terminal-gif-grid img { display: block; width: 100%; height: 100px; object-fit: contain; }
+.terminal-gif-fallback { display: block; padding: 10px; color: #eee8ff; background: #302839; border-radius: 6px; overflow-wrap: anywhere; }
+.terminal-klipy-credit { padding: 6px 8px; flex-shrink: 0; border-top: 1px solid #514565; }
+.terminal-reaction-dialog button:disabled { opacity: .5; cursor: default; }
+.terminal-reaction-error { position: absolute; z-index: 6; bottom: 8px; left: 8px; right: 52px; display: flex; align-items: center; padding-left: 8px; border: 1px solid #8b6674; border-radius: 6px; color: #ffe5ed; background: #30202b; font-size: 12px; }
+.terminal-reaction-error button { margin-left: auto; }
+.terminal-pane__reaction.is-gif { width: min(65%, 260px); }
+.terminal-pane__reaction.is-gif .terminal-pane__reaction-burst { width: 100%; animation-duration: 5s; }
+.terminal-pane__reaction.is-gif img { max-width: 100%; max-height: 180px; object-fit: contain; border-radius: 8px; }
+@media (prefers-reduced-motion: reduce) { .terminal-pane__reaction.is-gif .terminal-pane__reaction-burst { animation: none; } }
+/* Portaled pickers escape clipped split panes and stay inside the visible app. */
+.terminal-reaction-dialog { z-index: 1500; }
+.terminal-reaction-dialog, .terminal-reaction-dialog * { box-sizing: border-box; }
+.terminal-reaction-dialog button { font-family: inherit; }
+
+.terminal-app.is-mobile .has-reaction-rail > .terminal-xterm { right: 48px; }
+.terminal-pane__canvas { container: terminal-canvas / size; }
+.terminal-pane__reaction.is-gif img { max-height: min(180px, max(20px, calc(100cqh - 44px))); }
+.terminal-pane__reaction-burst b { font-size: min(clamp(5rem, 18vmin, 10rem), max(32px, calc(100cqh - 48px))); }
+@container terminal-app (max-height: 440px) {
+  .terminal-app.is-mobile .terminal-statusbar { display: none; }
+  .terminal-app.is-mobile .terminal-neura-participation:not(:has(button)):not(:has(strong)) { display: none; }
+  .terminal-app.is-mobile .terminal-toolbar { min-height: 48px; }
+}

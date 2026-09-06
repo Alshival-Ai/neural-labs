@@ -35,8 +35,8 @@
 .user-settings-identity-list dt { color: var(--user-settings-muted); font-size: var(--desktop-font-small, 12px); }
 .user-settings-identity-list dd { margin: 0; overflow: hidden; font-size: var(--desktop-font-body, 13px); font-weight: 720; text-overflow: ellipsis; white-space: nowrap; }
 .user-settings-identity-list .user-settings-handle { grid-column: 1 / -1; }
-.user-settings-handle dd { display: grid; gap: .24rem; overflow: visible; white-space: normal; }
-.user-settings-handle form { display: flex; align-items: center; gap: .35rem; max-width: 25rem; }
+.user-settings-identity-list .user-settings-handle dd { min-width: 0; display: grid; gap: .24rem; overflow: visible; white-space: normal; }
+.user-settings-handle form { min-width: 0; display: flex; align-items: center; gap: .35rem; max-width: 25rem; }
 .user-settings-handle form > span { color: #7b4dff; }
 .user-settings-handle input { min-width: 0; height: 2rem; flex: 1; padding: 0 .5rem; border: 1px solid var(--user-settings-line); border-radius: 7px; outline: 0; font: inherit; }
 .user-settings-handle input:focus { border-color: #7b4dff; box-shadow: 0 0 0 3px rgba(123, 77, 255, .1); }

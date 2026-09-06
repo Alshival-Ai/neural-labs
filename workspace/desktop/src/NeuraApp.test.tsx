@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { insertTeamMention, invokesTeamAgent, matchingTeamMentionSuggestions, MessageAttachments, modelProviderErrorMessage, NEURA_FRESH_START_AFTER_MS, neuraWebsitePreviewFile, NeuraApp, staleChatActivityForFreshStart, submitsChatComposerShortcut, TeamTerminalSidebar, teamAgentPhaseFromStatus, teamMentionTriggerAt, teamMessagePresentation } from "./NeuraApp";
+import { PLAN_REQUEST, IMPLEMENT_REQUEST } from "./neuraPlanning";
 import { writeDeviceState } from "./deviceState";
 import { AppViewportProvider } from "./appViewport";
 import type { NeuraGateway } from "./openclaw";
@@ -29,7 +30,8 @@ class FakeGateway {
   createGate?: Promise<void>;
   historyGates = new Map<string, Promise<void>>();
   private sendSequence = 0;
-  private eventListener?: (event: GatewayEvent) => void;
+  private eventListeners = new Set<(event: GatewayEvent) => void>();
+  async listQuestions() { return []; }
   private statusListener?: (state: ConnectionState, error?: string) => void;
 
   onStatus(listener: (state: ConnectionState, error?: string) => void) {
@@ -39,8 +41,8 @@ class FakeGateway {
   }
 
   onEvent(listener: (event: GatewayEvent) => void) {
-    this.eventListener = listener;
-    return () => { this.eventListener = undefined; };
+    this.eventListeners.add(listener);
+    return () => { this.eventListeners.delete(listener); };
   }
 
   async listSessions() {
@@ -102,7 +104,8 @@ class FakeGateway {
     ] };
   }
 
-  async send(_session: SessionRow, message: string, _attachments: unknown[], queueMode: "steer" | "followup") {
+  async send(_session: SessionRow, message: string, _attachments: unknown[], queueMode: "steer" | "followup", _options?: { idempotencyKey?: string; terminalContext?: boolean }) {
+    this.sessions = this.sessions.map((row) => row.key === _session.key ? { ...row, active: true } : row);
     this.sends.push({ message, queueMode });
     this.sendSequence += 1;
     return { runId: `sent-${this.sendSequence}` };
@@ -114,7 +117,7 @@ class FakeGateway {
   }
 
   emit(event: GatewayEvent) {
-    this.eventListener?.(event);
+    for (const listener of this.eventListeners) listener(event);
   }
 
   emitStatus(state: ConnectionState, error?: string) {
@@ -669,8 +672,9 @@ describe("Neura realtime conversation", () => {
       { path: "team-uploads/brief.pdf", name: "brief.pdf", type: "application/pdf", size: 4096 },
     ]} />);
     expect(screen.getByRole("img", { name: "mockup.png" })).toHaveAttribute("src", "/workspace/api/files/content?path=team-uploads%2Fmockup.png");
-    expect(screen.getByRole("link", { name: /mockup\.png/i })).toHaveAttribute("href", "/workspace/api/files/download?path=team-uploads%2Fmockup.png");
-    expect(screen.getByRole("link", { name: /brief\.pdf/i })).toHaveAttribute("href", "/workspace/api/files/download?path=team-uploads%2Fbrief.pdf");
+    expect(screen.getByRole("button", { name: "Preview mockup.png" })).toBeInTheDocument();
+    expect(screen.queryByText("mockup.png")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^brief\.pdf/i })).toBeInTheDocument();
     expect(container.querySelectorAll("img")).toHaveLength(1);
   });
 
@@ -721,7 +725,6 @@ describe("Neura realtime conversation", () => {
     } }));
 
     fireEvent.change(composer, { target: { value: "Run the tests next" } });
-    fireEvent.click(screen.getByLabelText("Send options"));
     fireEvent.click(screen.getByRole("button", { name: "Queue after this run" }));
     await waitFor(() => expect(gateway.sends).toEqual([
       { message: "Run the tests next", queueMode: "followup" },
@@ -786,7 +789,6 @@ describe("Neura realtime conversation", () => {
     const composer = await screen.findByPlaceholderText("Steer Neura now, or queue what comes next…");
     await waitFor(() => expect(composer).toBeEnabled());
     fireEvent.change(composer, { target: { value: "Skip this if plans change" } });
-    fireEvent.click(screen.getByLabelText("Send options"));
     fireEvent.click(screen.getByRole("button", { name: "Queue after this run" }));
     const remove = await screen.findByRole("button", { name: "Remove queued message 1" });
     await waitFor(() => expect(remove).toBeEnabled());
@@ -795,4 +797,112 @@ describe("Neura realtime conversation", () => {
     await waitFor(() => expect(gateway.calls).toContain("abort:sent-1"));
     expect(screen.queryByRole("region", { name: "Queued messages" })).not.toBeInTheDocument();
   });
+  it.each(["ctrlKey", "metaKey"])("queues with %s+Enter and preserves Shift+Enter", async (modifier) => {
+    const gateway = new FakeGateway();
+    gateway.sessionActive = true;
+    render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
+    const input = await screen.findByPlaceholderText("Steer Neura now, or queue what comes next…");
+    await waitFor(() => expect(input).toBeEnabled());
+    fireEvent.change(input, { target: { value: "Next task" } });
+    fireEvent.keyDown(input, { key: "Tab", shiftKey: true });
+    fireEvent.keyDown(input, { key: "Enter", shiftKey: true, [modifier]: true });
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true, [modifier]: true });
+    expect(gateway.sends).toHaveLength(0);
+    fireEvent.keyDown(input, { key: "Enter", [modifier]: true });
+    await waitFor(() => expect(gateway.sends).toEqual([{ message: "Next task", queueMode: "followup" }]));
+  });
+
+  it("drafts plans through ordinary messages and locks selection during a run", async () => {
+    const gateway = new FakeGateway();
+    render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
+    const input = await screen.findByPlaceholderText("Message Neura…");
+    const mode = await screen.findByRole("combobox", { name: "Conversation mode" });
+    await waitFor(() => expect(mode).toBeEnabled());
+    fireEvent.keyDown(input, { key: "P", ctrlKey: true, shiftKey: true });
+    await waitFor(() => expect(mode).toHaveValue("plan"));
+    expect(screen.getByText("Requests a plan; tool permissions stay the same.")).toBeInTheDocument();
+    fireEvent.change(input, { target: { value: "Explore the feature" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(mode).toBeDisabled());
+    fireEvent.keyDown(input, { key: "P", metaKey: true, shiftKey: true });
+    expect(gateway.sends).toEqual([{ message: PLAN_REQUEST + "Explore the feature", queueMode: "steer" }]);
+    expect(mode).toHaveValue("plan");
+  });
+
+  it("locks drafting selection for a server-restored queue", async () => {
+    const gateway = new FakeGateway();
+    gateway.sessions = [{ ...session, queuedRunCount: 1 }];
+    render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
+    const mode = await screen.findByRole("combobox", { name: "Conversation mode" });
+    expect(mode).toHaveValue("default");
+    expect(mode).toBeDisabled();
+  });
+
+  it("implements a durable plan once while preserving the unsent draft", async () => {
+    const gateway = new FakeGateway();
+    render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
+    const input = await screen.findByPlaceholderText("Message Neura…");
+    await waitFor(() => expect(input).toBeEnabled());
+    act(() => {
+      gateway.emit({ event: "session.message", payload: {
+        sessionKey: session.key, messageId: "request-1", message: { id: "request-1", role: "user", content: [{ type: "text", text: PLAN_REQUEST + "Explore the feature" }] },
+      } });
+      gateway.emit({ event: "session.message", payload: {
+        sessionKey: session.key, messageId: "plan-1", message: { id: "plan-1", role: "assistant", content: [{ type: "text", text: "Build the feature" }] },
+      } });
+    });
+    fireEvent.change(input, { target: { value: "Keep this draft" } });
+    const button = await screen.findByRole("button", { name: "Implement plan" });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    await waitFor(() => expect(gateway.sends).toEqual([{ message: IMPLEMENT_REQUEST + "Build the feature", queueMode: "steer" }]));
+    expect(input).toHaveValue("Keep this draft");
+    expect(screen.getByRole("combobox", { name: "Conversation mode" })).toHaveValue("default");
+  });
+
+  it("does not resurrect a run that completes before the implementation acknowledgement", async () => {
+    const gateway = new FakeGateway();
+    let acknowledge!: (value: { runId: string }) => void;
+    vi.spyOn(gateway, "send").mockImplementation(() => new Promise((resolve) => { acknowledge = resolve; }));
+    render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Conversation mode" })).toBeEnabled());
+    act(() => gateway.emit({ event: "session.message", payload: {
+      sessionKey: session.key, messageId: "plan-race", message: { id: "plan-race", role: "assistant", content: [{ type: "text", text: "A quick plan", textSignature: JSON.stringify({ v: 1, phase: "final_answer", proposedPlan: true }) }] },
+    } }));
+    fireEvent.click(await screen.findByRole("button", { name: "Implement plan" }));
+    gateway.sessions = [{ ...session, active: false }];
+    act(() => gateway.emit({ event: "chat", payload: { sessionKey: session.key, runId: "fast-run", state: "final" } }));
+    await act(async () => acknowledge({ runId: "fast-run" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Conversation mode" })).toBeEnabled());
+    expect(screen.queryByRole("button", { name: "Stop Neura" })).not.toBeInTheDocument();
+  });
+
+  it("keeps drafting selection local without a session protocol extension", async () => {
+    const gateway = new FakeGateway();
+    const view = render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
+    const mode = await screen.findByRole("combobox", { name: "Conversation mode" });
+    await waitFor(() => expect(mode).toBeEnabled());
+    fireEvent.change(mode, { target: { value: "plan" } });
+    expect(mode).toHaveValue("plan");
+    expect(gateway.sends).toEqual([]);
+    view.unmount();
+    render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
+    expect(await screen.findByRole("combobox", { name: "Conversation mode" })).toHaveValue("default");
+  });
+
+});
+
+it("automatically requests recent terminal context without a selector", async () => {
+  const gateway = new FakeGateway();
+  const send = vi.spyOn(gateway, "send");
+  writeDeviceState("terminal-context-user", "neura", { selectedKey: session.key });
+  render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} storageNamespace="terminal-context-user" />);
+  await waitFor(() => expect(gateway.calls).toContain(`history:${session.key}`));
+  expect(screen.queryByRole("combobox", { name: "Terminal context" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Remove terminal context" })).not.toBeInTheDocument();
+  const composer = screen.getByPlaceholderText("Message Neura…");
+  await waitFor(() => expect(composer).toBeEnabled());
+  fireEvent.change(composer, { target: { value: "Why did this fail?" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+  await waitFor(() => expect(send).toHaveBeenCalledWith(expect.anything(), "Why did this fail?", [], "steer", { terminalContext: true }));
 });

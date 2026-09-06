@@ -1,3 +1,4 @@
+import { stripTerminalContext, terminalMessageContext } from "./terminalAgentApi";
 import {
   GatewayBrowserDeviceAuthLifecycle,
   GatewayProtocolClient,
@@ -346,6 +347,7 @@ export class NeuraGateway {
           ? String(value.model).startsWith(`${value.modelProvider}/`) ? String(value.model) : [stringValue(value.modelProvider), stringValue(value.model)].filter(Boolean).join("/")
           : undefined,
         thinkingLevel: stringValue(value.thinkingLevel),
+        queuedRunCount: numberValue(value.queuedRunCount) ?? 0,
       }];
     });
   }
@@ -396,6 +398,10 @@ export class NeuraGateway {
       ...PRIVATE_NEURA_SESSION,
     });
     if (!isRecord(result) || !stringValue(result.key)) throw new Error("OpenClaw did not return a session key");
+    // Read the authoritative row so a new chat immediately has provider capabilities.
+    // Creation already succeeded if the roster request fails; retain its key.
+    const created = (await this.listSessions().catch(() => [])).find((row) => row.key === result.key);
+    if (created) return created;
     return {
       key: stringValue(result.key)!,
       sessionId: stringValue(result.sessionId),
@@ -461,16 +467,27 @@ export class NeuraGateway {
     message: string,
     attachments: ComposerAttachment[],
     queueMode: "steer" | "followup",
+    options: { idempotencyKey?: string; terminalContext?: boolean } = {},
   ) {
     return this.client.request<{ runId: string }>("chat.send", {
       sessionKey: session.key,
       sessionId: session.sessionId,
       agentId: this.requireAgentId(),
-      message,
+      message: message + (options.terminalContext ? await terminalMessageContext(session.key) : ""),
       attachments: await Promise.all(attachments.map(fileToGatewayAttachment)),
       queueMode,
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: options.idempotencyKey ?? crypto.randomUUID(),
     });
+  }
+
+  async listQuestions(sessionKey: string): Promise<NeuraQuestion[]> {
+    const result = await this.client.request<unknown>("question.list", {});
+    return (isRecord(result) && Array.isArray(result.questions) ? result.questions : [])
+      .flatMap((value) => normalizeNeuraQuestion(value, sessionKey, this.requireAgentId()));
+  }
+
+  resolveQuestion(id: string, answers: Record<string, string[]> | null) {
+    return this.client.request("question.resolve", answers === null ? { id, cancel: true } : { id, answers: { answers } });
   }
 
   abort(sessionKey: string, runId?: string) {
@@ -541,7 +558,7 @@ const ACTIVITY_OPENAI_KEY = /\bsk-[A-Za-z0-9_-]{12,}\b/g;
 
 function safeActivityText(value: unknown, limit: number): string {
   const text = typeof value === "string" ? value : "";
-  return text
+  return stripTerminalContext(text)
     .replace(ACTIVITY_BEARER, "Bearer [redacted]")
     .replace(ACTIVITY_OPENAI_KEY, "[redacted]")
     .replace(ACTIVITY_SECRET_ASSIGNMENT, (_match, name: string, separator: string) => `${name}${separator}[redacted]`)
@@ -786,6 +803,10 @@ function assistantTextParts(content: unknown): Array<{ text: string; phase?: Ass
 }
 
 function assistantCommentaryText(value: unknown): string {
+  return stripTerminalContext(rawAssistantCommentaryText(value));
+}
+
+function rawAssistantCommentaryText(value: unknown): string {
   if (!isRecord(value)) return "";
   const nested = isRecord(value.message) ? value.message : value;
   const directPhase = normalizedAssistantPhase(nested.phase) ?? normalizedAssistantPhase(value.phase);
@@ -796,6 +817,10 @@ function assistantCommentaryText(value: unknown): string {
 }
 
 function assistantAnswerText(value: RecordValue): string {
+  return stripTerminalContext(rawAssistantAnswerText(value));
+}
+
+function rawAssistantAnswerText(value: RecordValue): string {
   const nested = isRecord(value.message) ? value.message : value;
   const directPhase = normalizedAssistantPhase(nested.phase) ?? normalizedAssistantPhase(value.phase);
   const parts = assistantTextParts(nested.content);
@@ -891,11 +916,21 @@ function normalizeMessage(value: unknown, fallbackId: string): NeuraMessage[] {
       : assistantAnswerText(value)
     : textFromContent(nested.content) || stringValue(nested.text) || stringValue(value.text) || "";
   const attachments = attachmentsFromMessage(nested);
+  // Hide only native media marker lines backed by structured attachment metadata.
+  // A filename-like caption without this provenance remains ordinary user text.
+  const metadata = isRecord(nested.__openclaw) ? nested.__openclaw : {};
+  const media = Array.isArray(metadata.media) ? metadata.media.filter(isRecord) : [];
+  const references = new Set([...attachments.flatMap((item) => [item.path, item.url]), ...media.flatMap((item) => [stringValue(item.path), stringValue(item.url)])].filter(Boolean));
+  const displayText = attachments.length ? text.split("\n").filter((line) => {
+    const marker = /^\[media attached: ([^\]\r\n]+)\]$/.exec(line);
+    return !marker || !references.has(marker[1]);
+  }).join("\n") : text;
   if (!text && attachments.length === 0) return [];
   return [{
     id: stringValue(value.id) ?? stringValue(nested.id) ?? fallbackId,
     role: rawRole as NeuraMessage["role"],
-    text,
+    text: stripTerminalContext(displayText),
+    ...(rawRole === "assistant" && Array.isArray(nested.content) && nested.content.some(isProposedPlanBlock) ? { proposedPlan: true } : {}),
     ...(attachments.length ? { attachments } : {}),
   }];
 }
@@ -1064,4 +1099,34 @@ export function messagesFromSessionEvent(event: GatewayEvent) {
     commentaryId: fallbackId,
     messages: normalizeMessage(payload.message, fallbackId),
   };
+}
+
+// Native typed plan items carry this marker in the durable text signature.
+// User-written tags and ordinary task-progress updates do not create plan actions.
+function isProposedPlanBlock(value: unknown): boolean {
+  if (!isRecord(value) || value.type !== "text" || typeof value.textSignature !== "string") return false;
+  try {
+    const signature: unknown = JSON.parse(value.textSignature);
+    return isRecord(signature) && signature.v === 1 && signature.proposedPlan === true && signature.phase === "final_answer";
+  } catch { return false; }
+}
+
+export type NeuraQuestion = {
+  id: string;
+  sessionKey: string;
+  expiresAtMs: number;
+  questions: Array<{ questionId: string; header: string; question: string; options: Array<{ label: string; description?: string }>; multiSelect: boolean; isOther: boolean; isSecret: boolean }>;
+};
+
+export function normalizeNeuraQuestion(value: unknown, sessionKey: string, agentId: string): NeuraQuestion[] {
+  if (!isRecord(value) || value.sessionKey !== sessionKey || value.agentId !== agentId || value.status !== "pending"
+    || typeof value.id !== "string" || typeof value.expiresAtMs !== "number" || value.expiresAtMs <= Date.now() || !Array.isArray(value.questions)) return [];
+  const questions: NeuraQuestion["questions"] = [];
+  for (const question of value.questions) {
+    if (!isRecord(question) || typeof question.questionId !== "string" || typeof question.question !== "string" || typeof question.header !== "string" || !Array.isArray(question.options) || question.secretStore) return [];
+    const options = question.options.flatMap((option) => isRecord(option) && typeof option.label === "string"
+      ? [{ label: option.label, ...(typeof option.description === "string" ? { description: option.description } : {}) }] : []);
+    questions.push({ questionId: question.questionId, header: question.header, question: question.question, options, multiSelect: question.multiSelect === true, isOther: question.isOther === true || options.length === 0, isSecret: question.isSecret === true });
+  }
+  return questions.length ? [{ id: value.id, sessionKey, expiresAtMs: value.expiresAtMs, questions }] : [];
 }

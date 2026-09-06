@@ -16,6 +16,7 @@ function record(value) {
 
 function safeText(value, limit) {
   return (typeof value === "string" ? value : "")
+    .replace(/nlt_[A-Za-z0-9_-]{43}/gu, "[terminal context]")
     .replace(BEARER, "Bearer [redacted]")
     .replace(OPENAI_KEY, "[redacted]")
     .replace(SECRET_ASSIGNMENT, (_match, name, separator) => `${name}${separator}[redacted]`)
@@ -219,5 +220,5 @@ export async function runTeamAgent({ prompt, capability, agentId, runId, modelSe
   }
   const payload = JSON.parse(stdout);
   if (payload?.ok === false) throw new Error(safeText(payload?.error?.message, 500) || "OpenClaw could not complete the Team Chat turn");
-  return { reply: finalText(payload), activities: activitiesFromExecSummary(payload?.toolSummary) };
+  return { reply: finalText(payload).replace(/nlt_[A-Za-z0-9_-]{43}/gu, "[terminal context]"), activities: activitiesFromExecSummary(payload?.toolSummary) };
 }

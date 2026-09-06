@@ -2,6 +2,8 @@
 
 validate:
 	bash tests/public_boundary_test.sh
+	node bin/openclaw-release.mjs check
+	node --test tests/openclaw-release.test.mjs tests/openclaw-tree.test.mjs
 	npm --prefix console run validate
 	npm --prefix control-plane run validate
 	npm --prefix mcp run validate
@@ -22,17 +24,29 @@ validate:
 	node --check workspace/model-catalog.mjs
 	node --check workspace/model-policies.mjs
 	node --check workspace/native-config-batch.mjs
+	node --check workspace/openclaw-runtime.mjs
+	node --check workspace/gateway-isolation.mjs
 	node --check workspace/team-openai.mjs
 	node --check workspace/personal-openai.mjs
 	node --check workspace/team-agent.mjs
 	node --check workspace/voice.mjs
 	node --check workspace/terminal-manager.mjs
+	node --check workspace/terminal-agent.mjs
+	node --check workspace/terminal-guidance.mjs
 	node --check mcp/dist/local.js
 	npm --prefix workspace/desktop run validate
 	node --test web/server.test.mjs
 	npm --prefix workspace test
 	bash -n bin/neural-labs
+	bash -n bin/openclaw-smoke-test
+	bash -n bin/openclaw-compare-image
+	bash -n bin/openclaw-upgrade-smoke
+	node --check tests/openclaw-migration-smoke.mjs
+	node --check tests/openclaw-role-smoke.mjs
+	node --check tests/openclaw-sms-smoke.mjs
 	bash tests/deployment_cli_test.sh
+	bash -n tests/workspace_update_test.sh
+	bash tests/workspace_update_test.sh
 	docker compose --env-file .env.example -f deploy/compose/compose.yaml config --quiet
 
 test:

@@ -6,6 +6,8 @@ workspace. This repository contains:
 Current release: **v0.3.2**. See the [changelog](CHANGELOG.md) and
 [detailed release record](wiki/releases/v0.3.2.md).
 
+Planned UI and documentation work: [Neura roadmap tracker](tracker.md).
+
 - `web/`: the public landing page;
 - `console/`: the React account, login, signup, and approval interface;
 - `control-plane/`: onboarding, session security, authorization, and console

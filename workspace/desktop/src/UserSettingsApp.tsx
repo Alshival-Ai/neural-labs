@@ -70,6 +70,7 @@ type PersonalizationPanelProps = {
   fontScale: number;
   onFontScaleChange: (value: number) => void;
   onLogout: () => void;
+  onOpenSecurity?: () => void;
 };
 
 const PASSKEYS_CHANGED_EVENT = "neural-labs:passkeys-changed";
@@ -85,7 +86,10 @@ function friendlyRole(role: PersonalizationUser["role"]): string {
   return role === "admin" ? "Administrator" : "Member";
 }
 
-export function PersonalizationPanel({ user, providers: initialProviders, csrfToken, initialNotice, fontScale, onFontScaleChange, onLogout }: PersonalizationPanelProps) {
+export function PersonalizationPanel(props: PersonalizationPanelProps) { return <AccountSettingsPanel {...props} security={false} />; }
+export function SecurityPanel(props: PersonalizationPanelProps) { return <AccountSettingsPanel {...props} security />; }
+
+function AccountSettingsPanel({ user, providers: initialProviders, csrfToken, initialNotice, fontScale, onFontScaleChange, onLogout, onOpenSecurity, security }: PersonalizationPanelProps & { security: boolean }) {
   const [providers, setProviders] = useState(initialProviders);
   const [availability, setAvailability] = useState<ProviderAvailability>();
   const [notice, setNotice] = useState<PersonalizationNotice | undefined>(initialNotice);
@@ -113,14 +117,16 @@ export function PersonalizationPanel({ user, providers: initialProviders, csrfTo
   }, []);
 
   useEffect(() => {
+    if (!security) return;
     let cancelled = false;
     void settingsRequest<ProviderAvailability>("/api/auth/providers")
       .then((next) => { if (!cancelled) setAvailability(next); })
       .catch(() => { if (!cancelled) setAvailability({ local: { enabled: true }, microsoft: { available: false, enabled: false } }); });
     return () => { cancelled = true; };
-  }, []);
+  }, [security]);
 
   useEffect(() => {
+    if (!security) return;
     void refreshPasskeys();
     const handlePasskeysChanged = () => void refreshPasskeys(true);
     window.addEventListener(PASSKEYS_CHANGED_EVENT, handlePasskeysChanged);
@@ -128,7 +134,7 @@ export function PersonalizationPanel({ user, providers: initialProviders, csrfTo
       passkeyRefreshVersion.current += 1;
       window.removeEventListener(PASSKEYS_CHANGED_EVENT, handlePasskeysChanged);
     };
-  }, [refreshPasskeys]);
+  }, [refreshPasskeys, security]);
 
 
   async function linkLocalIdentity(event: FormEvent<HTMLFormElement>) {
@@ -237,8 +243,8 @@ export function PersonalizationPanel({ user, providers: initialProviders, csrfTo
       <header className="settings-section-header user-settings-heading">
         <div>
           <span><UserRound />Personal settings</span>
-          <h1>Personalization</h1>
-          <p>Tune the experience and manage how you sign in to this Neural Labs account.</p>
+          <h1>{security ? "Security" : "Personalization"}</h1>
+          <p>{security ? "Manage sign-in methods, passkeys, and your verified phone number." : "Personalize your desktop, profile, and notification preferences."}</p>
         </div>
       </header>
 
@@ -250,6 +256,7 @@ export function PersonalizationPanel({ user, providers: initialProviders, csrfTo
         </div>
       )}
 
+      {!security && <>
       <section className="settings-card user-settings-card user-settings-appearance-card">
           <div className="user-settings-card__heading">
             <div><span>Appearance</span><h3>Font size</h3><p>Scale readable text across every desktop app on this device.</p></div>
@@ -276,7 +283,8 @@ export function PersonalizationPanel({ user, providers: initialProviders, csrfTo
       </section>
 
 
-      <section className="settings-card user-settings-card">
+      </>}
+      {security && <section className="settings-card user-settings-card">
           <div className="user-settings-card__heading">
             <div><span>Security</span><h3>Sign-in methods</h3><p>Linked methods open this same Neural Labs account.</p></div>
             <KeyRound />
@@ -347,14 +355,14 @@ export function PersonalizationPanel({ user, providers: initialProviders, csrfTo
               </form>
             </div>
           )}
-      </section>
+      </section>}
 
-      <PhoneSettings csrfToken={csrfToken} />
+      <PhoneSettings csrfToken={csrfToken} view={security ? "phone" : "notifications"} onOpenSecurity={onOpenSecurity} />
 
-      <section className="user-settings-session">
+      {!security && <section className="user-settings-session">
         <div><strong>Done for now?</strong><p>Sign out of Neural Labs on this device.</p></div>
         <button type="button" onClick={onLogout}><LogOut />Sign out</button>
-      </section>
+      </section>}
     </div>
   );
 }

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+[[ $# == 2 ]] || { echo 'Usage: bin/openclaw-compare-image BASE_DIGEST CANDIDATE_DIGEST' >&2; exit 1; }
+for image in "$@"; do
+  [[ "${image}" =~ @sha256:[a-f0-9]{64}$ || "${image}" =~ ^sha256:[a-f0-9]{64}$ ]] || {
+    echo 'Use an immutable image digest or local sha256 image ID; pull/build first.' >&2
+    exit 1
+  }
+done
+fingerprint() {
+  docker run --rm --pull never --network none --read-only --user node \
+    --mount "type=bind,src=${repository_root}/tests/openclaw-tree.mjs,dst=/probe/openclaw-tree.mjs,readonly" \
+    --entrypoint node "$1" /probe/openclaw-tree.mjs
+}
+base_tree="$(fingerprint "$1")"
+candidate_tree="$(fingerprint "$2")"
+if [[ "${base_tree}" != "${candidate_tree}" ]]; then
+  echo "OpenClaw /app differs from upstream. Base: ${base_tree}; candidate: ${candidate_tree}" >&2
+  exit 1
+fi
+echo "OpenClaw /app matches upstream: ${candidate_tree}"

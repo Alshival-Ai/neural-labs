@@ -65,6 +65,16 @@ export type TwilioPluginStatus = {
   error: string | null;
 };
 
+export type ApiProviderPlugin = {
+  id: "google-maps" | "klipy" | "pexels";
+  name: string; description: string; type: "api-provider"; scope: "global"; ownership: "workspace";
+  editable: boolean; configured: boolean; ready: boolean; source: "settings" | "environment" | null;
+  applied: boolean; revision: number; appliedRevision: number | null; deploymentOverride: boolean;
+  state: "unavailable" | "applying" | "disconnected" | "configured" | "connected" | "check-failed";
+  capabilities: string[];
+  check: { revision: number; capabilities: { name: string; ok: boolean; message: string }[] } | null;
+};
+
 export type PluginCatalog = {
   plugins: Array<{
     id: string;
@@ -76,7 +86,7 @@ export type PluginCatalog = {
     editable: boolean;
     ready: boolean;
     mcp: McpSettings;
-  } | TwilioPluginStatus>;
+  } | TwilioPluginStatus | ApiProviderPlugin>;
 };
 
 export type WorkspaceStatus = {

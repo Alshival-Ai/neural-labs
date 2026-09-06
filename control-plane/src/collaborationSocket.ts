@@ -3,7 +3,7 @@ import type { IncomingMessage, Server } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 import { z } from "zod";
 
-import { CollaborationError, TEAM_CHAT_LIMITS, type CollaborationStore, type TeamAgentRun } from "./collaboration.js";
+import { CollaborationError, TEAM_CHAT_LIMITS, type CollaborationStore, type TeamAgentInvocation } from "./collaboration.js";
 import type { CollaborationEvent } from "./server.js";
 import type { UserRecord } from "./types.js";
 
@@ -16,6 +16,7 @@ const clientEventSchema = z.discriminatedUnion("type", [
     channelId: z.string().uuid(),
     clientRequestId: z.string().uuid(),
     invokeAgent: z.boolean().default(true),
+    terminalContextToken: z.string().regex(/^nlt_[A-Za-z0-9_-]{43}$/).optional(),
     body: z.string().max(TEAM_CHAT_LIMITS.messageCharacters).default(""),
     attachments: z.array(z.object({
       path: z.string().trim().min(1).max(1_024),
@@ -54,7 +55,7 @@ export class CollaborationSocketHub {
 
   constructor(
     private readonly store: CollaborationStore,
-    private readonly onAgentRun: (run: TeamAgentRun & { capability: string }) => void,
+    private readonly onAgentRun: (run: TeamAgentInvocation) => void,
   ) {
     this.webSockets.on("connection", (connection) => this.connected(connection as TeamSocket));
     this.heartbeat = setInterval(() => {
@@ -163,7 +164,7 @@ export class CollaborationSocketHub {
       if (result.run) {
         const { capability: _capability, ...publicAgentRun } = result.run;
         await this.publish({ type: "agent.status", channelId: event.channelId, run: publicAgentRun });
-        this.onAgentRun(result.run);
+        this.onAgentRun({ ...result.run, ...(event.terminalContextToken ? { terminalContextToken: event.terminalContextToken } : {}) });
       }
     } catch (error) {
       if (error instanceof CollaborationError) {

@@ -1,3 +1,4 @@
+import { ProviderPluginService, providerIdSchema, providerSettingsSchema, providerRuntimeReportSchema, providerCheckSchema } from "./providerPlugins.js";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -314,6 +315,7 @@ export function createApplication(input: {
   const oidc = input.oidc ?? new MicrosoftOidcClient();
   const workspaceFetch = input.workspaceFetch ?? fetch;
   const twilio = new TwilioPluginService(database.pool, cipher, config.sms, workspaceFetch);
+  const providerPlugins = new ProviderPluginService(database.pool, cipher);
   const phone = input.phone ?? new PhoneService(
     new PhoneStore(database.pool), twilio, config.masterKey,
     (key, limit, seconds) => database.consumeRateLimit(key, limit, seconds),
@@ -1394,10 +1396,78 @@ export function createApplication(input: {
     response.json(await workspaceData());
   });
 
+  const providerRuntimeData = async () => {
+    try {
+      const url = new URL("/internal/plugins/providers/status", config.workspace.statusUrl);
+      const result = await workspaceFetch(url, { headers: { Authorization: `Bearer ${config.workspace.controlToken}`, Accept: "application/json" }, signal: AbortSignal.timeout(3000) });
+      if (!result.ok) return undefined;
+      return providerRuntimeReportSchema.parse(await result.json());
+    } catch { return undefined; }
+  };
+
+  app.get("/internal/plugins/providers/config", async (request, response) => {
+    const supplied = request.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+    if (!supplied || !safeEqual(supplied, config.workspace.controlToken)) { jsonError(response, 401, "unauthorized", "Unauthorized"); return; }
+    response.set("Cache-Control", "no-store");
+    try { response.json(await providerPlugins.runtimeConfig()); }
+    catch { jsonError(response, 503, "provider_config_unavailable", "Provider configuration is unavailable"); }
+  });
+
+  app.get("/api/admin/plugins/providers/:provider", async (request, response) => {
+    const actor = await requireAdminJson(request, response);
+    if (!actor) return;
+    const id = providerIdSchema.safeParse(request.params.provider);
+    if (!id.success) { jsonError(response, 404, "provider_not_found", "Provider not found"); return; }
+    response.set("Cache-Control", "no-store");
+    response.json(await providerPlugins.status(id.data, true, await providerRuntimeData()));
+  });
+  app.put("/api/admin/plugins/providers/:provider", sameOrigin, async (request, response) => {
+    const actor = await requireAdminJson(request, response);
+    if (!actor || !requireCsrfJson(request, response, actor)) return;
+    const id = providerIdSchema.safeParse(request.params.provider);
+    const input = providerSettingsSchema.safeParse(request.body);
+    if (!id.success) { jsonError(response, 404, "provider_not_found", "Provider not found"); return; }
+    if (!input.success) { jsonError(response, 422, "invalid_provider_settings", "Enter a nonempty API key of at most 4096 characters"); return; }
+    await providerPlugins.save(id.data, input.data);
+    await database.audit(actor.user.id, `plugin.provider.${input.data.action}`, null, { provider: id.data });
+    response.set("Cache-Control", "no-store");
+    response.json(await providerPlugins.status(id.data, true, await providerRuntimeData()));
+  });
+  app.delete("/api/admin/plugins/providers/:provider", sameOrigin, async (request, response) => {
+    const actor = await requireAdminJson(request, response);
+    if (!actor || !requireCsrfJson(request, response, actor)) return;
+    const id = providerIdSchema.safeParse(request.params.provider);
+    if (!id.success) { jsonError(response, 404, "provider_not_found", "Provider not found"); return; }
+    await providerPlugins.disconnect(id.data);
+    await database.audit(actor.user.id, "plugin.provider.disconnected", null, { provider: id.data });
+    response.set("Cache-Control", "no-store");
+    response.json(await providerPlugins.status(id.data, true, await providerRuntimeData()));
+  });
+  app.post("/api/admin/plugins/providers/:provider/check", sameOrigin, async (request, response) => {
+    const actor = await requireAdminJson(request, response);
+    if (!actor || !requireCsrfJson(request, response, actor)) return;
+    const id = providerIdSchema.safeParse(request.params.provider);
+    if (!id.success) { jsonError(response, 404, "provider_not_found", "Provider not found"); return; }
+    if (!await database.consumeRateLimit(`provider-check:${actor.user.id}`, 10, 60)) { jsonError(response, 429, "rate_limited", "Please wait before checking again"); return; }
+    try {
+      const status = await providerPlugins.status(id.data, true, await providerRuntimeData());
+      const url = new URL(`/internal/plugins/providers/${id.data}/check`, config.workspace.statusUrl);
+      const result = await workspaceFetch(url, { method: "POST", headers: { Authorization: `Bearer ${config.workspace.controlToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ revision: status.revision }), signal: AbortSignal.timeout(20_000) });
+      if (!result.ok) throw new Error("Check unavailable");
+      const check = providerCheckSchema.parse(await result.json());
+      if (check.revision !== status.revision || !await providerPlugins.recordCheck(id.data, check)) { jsonError(response, 409, "configuration_changed", "Configuration changed. Wait for it to apply and check again."); return; }
+      await database.audit(actor.user.id, "plugin.provider.checked", null, { provider: id.data, ok: check.capabilities.every((entry) => entry.ok) });
+      response.set("Cache-Control", "no-store");
+      response.json(await providerPlugins.status(id.data, true, await providerRuntimeData()));
+    } catch { jsonError(response, 503, "provider_check_unavailable", "The provider check could not run. Wait for configuration to apply and try again."); }
+  });
+
   app.get("/api/plugins", async (request, response) => {
     const actor = await requireActiveJson(request, response);
     if (!actor) return;
     const mcp = await mcpData();
+    const providerCards = await providerPlugins.catalog(actor.user.role === "admin", await providerRuntimeData());
+    response.set("Cache-Control", "no-store");
     response.json({
       plugins: [{
         id: "neural-labs-tools",
@@ -1409,7 +1479,7 @@ export function createApplication(input: {
         editable: false,
         ready: mcp.ready,
         mcp,
-      }, await twilio.status(await twilioWebhookUrl(), actor.user.role === "admin")],
+      }, await twilio.status(await twilioWebhookUrl(), actor.user.role === "admin"), ...providerCards],
     });
   });
 
@@ -1607,7 +1677,7 @@ export function createApplication(input: {
     if (providerError) {
       const transaction = state ? await database.consumeOidcTransaction(hashToken(state)) : undefined;
       if (transaction?.intent === "link") {
-        response.redirect(303, "/workspace?settings=personalization&error=Microsoft+identity+linking+was+not+completed");
+        response.redirect(303, "/workspace?settings=security&error=Microsoft+identity+linking+was+not+completed");
         return;
       }
       response.redirect(303, "/login?error=Microsoft+sign-in+was+not+completed");
@@ -1633,7 +1703,7 @@ export function createApplication(input: {
         if (!actor) return;
         if (actor.user.id !== transaction.sessionUserId) throw new Error("Identity-link session mismatch");
         await database.linkMicrosoftIdentity(actor.user.id, claims);
-        response.redirect(303, "/workspace?settings=personalization&success=Microsoft+identity+linked");
+        response.redirect(303, "/workspace?settings=security&success=Microsoft+identity+linked");
         return;
       }
       const user = await database.findOrCreateMicrosoftUser(claims, config.initialAdminEmail);
@@ -1646,7 +1716,7 @@ export function createApplication(input: {
     } catch (error) {
       console.error("Microsoft callback failed", error instanceof Error ? error.message : error);
       response.redirect(303, transaction.intent === "link"
-        ? "/workspace?settings=personalization&error=Microsoft+identity+could+not+be+linked"
+        ? "/workspace?settings=security&error=Microsoft+identity+could+not+be+linked"
         : "/login?error=Microsoft+sign-in+could+not+be+verified");
     }
   });
@@ -1676,7 +1746,7 @@ export function createApplication(input: {
   app.get("/account", async (request, response) => {
     const actor = await requireActive(request, response);
     if (!actor) return;
-    response.redirect(303, "/workspace?settings=personalization");
+    response.redirect(303, "/workspace?settings=security");
   });
 
   app.post("/api/account/identities/local", sameOrigin, async (request, response) => {
@@ -1691,21 +1761,21 @@ export function createApplication(input: {
     const password = typeof request.body.password === "string" ? request.body.password : "";
     if (password.length < 12 || password.length > 128) {
       if (wantsJson(request)) jsonError(response, 422, "invalid_password", "Local password must be between 12 and 128 characters.");
-      else response.redirect(303, "/workspace?settings=personalization&error=Local+password+must+be+between+12+and+128+characters");
+      else response.redirect(303, "/workspace?settings=security&error=Local+password+must+be+between+12+and+128+characters");
       return;
     }
     if (actor.identities.some((identity) => identity.provider === "local")) {
       if (wantsJson(request)) jsonError(response, 409, "identity_exists", "A local identity is already linked.");
-      else response.redirect(303, "/workspace?settings=personalization&error=Local+identity+is+already+linked");
+      else response.redirect(303, "/workspace?settings=security&error=Local+identity+is+already+linked");
       return;
     }
     try {
       await database.addLocalIdentity(actor.user.id, actor.user.email, await hashPassword(password));
       if (wantsJson(request)) response.status(201).json({ provider: "local" });
-      else response.redirect(303, "/workspace?settings=personalization&success=Local+identity+linked");
+      else response.redirect(303, "/workspace?settings=security&success=Local+identity+linked");
     } catch {
       if (wantsJson(request)) jsonError(response, 409, "identity_in_use", "That local email is linked to another account.");
-      else response.redirect(303, "/workspace?settings=personalization&error=That+local+email+is+already+linked+to+another+account");
+      else response.redirect(303, "/workspace?settings=security&error=That+local+email+is+already+linked+to+another+account");
     }
   });
 
@@ -2208,6 +2278,18 @@ export function createApplication(input: {
       iceServers: [...stunUrls, ...(relayUrls.length > 0 ? [{ urls: relayUrls, username, credential }] : [])],
       expiresAt,
     });
+  });
+
+  app.post("/internal/terminal-actor", async (request, response) => {
+    const supplied = request.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+    if (!supplied || !safeEqual(supplied, config.workspace.controlToken)) {
+      response.status(401).json({ error: { code: "unauthorized", message: "Unauthorized" } }); return;
+    }
+    const parsed = z.object({ actorId: z.string().uuid() }).safeParse(request.body);
+    if (!parsed.success) { jsonError(response, 422, "invalid_actor", "A workspace actor is required"); return; }
+    const user = (await database.listUsers()).find((candidate) => candidate.id === parsed.data.actorId && candidate.status === "active");
+    response.set("Cache-Control", "no-store");
+    response.json({ actor: user ? { id: user.id, label: user.displayName || user.handle || "Workspace user", role: user.role } : null });
   });
 
   app.post("/internal/team-terminal/access", async (request, response) => {

@@ -390,7 +390,7 @@ describe("control-plane JSON and role routing", () => {
   it("routes every active user and retired admin page to the shared desktop", async () => {
     const regularApplication = application(regular);
     await request(regularApplication.app).get("/login").set("Cookie", cookies).expect(303).expect("Location", "/workspace");
-    await request(regularApplication.app).get("/account").set("Cookie", cookies).expect(303).expect("Location", "/workspace?settings=personalization");
+    await request(regularApplication.app).get("/account").set("Cookie", cookies).expect(303).expect("Location", "/workspace?settings=security");
     await request(regularApplication.app).get("/admin/mcp").set("Cookie", cookies).expect(303).expect("Location", "/workspace");
 
     const adminApplication = application(admin);
@@ -491,7 +491,7 @@ describe("control-plane JSON and role routing", () => {
   it("reports the display-safe plugin catalog to active members", async () => {
     const { app } = application(regular);
     const response = await request(app).get("/api/plugins").set("Cookie", cookies).expect(200);
-    expect(response.body.plugins).toHaveLength(2);
+    expect(response.body.plugins).toHaveLength(5);
     expect(response.body.plugins[0]).toMatchObject({
       id: "neural-labs-tools",
       type: "mcp",
@@ -679,5 +679,32 @@ describe("control-plane JSON and role routing", () => {
     );
     expect(instance.database.updatePasskeyUsage).toHaveBeenCalledWith(passkey.id, 2, true);
     expect(instance.database.createSession).toHaveBeenCalledOnce();
+  });
+});
+
+describe("API provider administration boundary", () => {
+  it("rejects anonymous and member requests, missing CSRF, foreign origins, and unsupported providers", async () => {
+    const anon = application();
+    await request(anon.app).put("/api/admin/plugins/providers/klipy").send({ action: "save", apiKey: "placeholder-key" }).expect(401);
+    const member = application(regular);
+    await request(member.app).get("/api/admin/plugins/providers/klipy").set("Cookie", cookies).expect(403);
+    await request(member.app).delete("/api/admin/plugins/providers/klipy").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").expect(403);
+    const owner = application(admin);
+    await request(owner.app).put("/api/admin/plugins/providers/klipy").set("Cookie", cookies).send({ action: "save", apiKey: "placeholder-key" }).expect(403);
+    await request(owner.app).put("/api/admin/plugins/providers/klipy").set("Origin", "https://other.example.org").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").send({ action: "save", apiKey: "placeholder-key" }).expect(403);
+    await request(owner.app).get("/api/admin/plugins/providers/arbitrary").set("Cookie", cookies).expect(404);
+  });
+  it("requires the workspace credential for raw configuration and never audits a submitted key", async () => {
+    const owner = application(admin);
+    await request(owner.app).get("/internal/plugins/providers/config").expect(401);
+    await request(owner.app).get("/internal/plugins/providers/config").set("Authorization", "Bearer wrong-token").expect(401);
+    const runtime = await request(owner.app).get("/internal/plugins/providers/config").set("Authorization", `Bearer ${config.workspace.controlToken}`).expect(200);
+    expect(runtime.headers["cache-control"]).toBe("no-store");
+    expect(runtime.body.providers.klipy.mode).toBe("inherit");
+    const saved = await request(owner.app).put("/api/admin/plugins/providers/klipy").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").send({ action: "save", apiKey: "placeholder-api-key" }).expect(200);
+    expect(saved.text).not.toContain("placeholder-api-key");
+    expect(JSON.stringify(vi.mocked(owner.database.audit).mock.calls)).not.toContain("placeholder-api-key");
+    expect(JSON.stringify(vi.mocked(owner.database.pool.query).mock.calls)).not.toContain("placeholder-api-key");
+    await request(owner.app).put("/api/admin/plugins/providers/klipy").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").send({ action: "save", apiKey: "" }).expect(422);
   });
 });

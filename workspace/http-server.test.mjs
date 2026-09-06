@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -20,7 +20,7 @@ const mcpStatusFixture = (ready = true) => ({
   tools: ["google_places_search", "search_gif", "pexels_search_photos"],
 });
 
-async function fixture(ready = true, { maxUploadBytes, maxTextBytes, mcpReady = true, codeServerReady = true, runTeamAgent, personalOpenAI, modelCatalog, modelPolicies, teamOpenAI, voiceService, turnCredentialProvider, teamChannelAuthorizer, terminalHeartbeatMs, gatewayMediaOrigin, gatewayMediaFetch } = {}) {
+async function fixture(ready = true, { maxUploadBytes, maxTextBytes, mcpReady = true, codeServerReady = true, runTeamAgent, personalOpenAI, modelCatalog, modelPolicies, teamOpenAI, voiceService, turnCredentialProvider, teamChannelAuthorizer, terminalHeartbeatMs, gatewayMediaOrigin, gatewayMediaFetch, terminalActorResolver, gifProvider, apiProviderRuntime } = {}) {
   const desktopRoot = await mkdtemp(path.join(tmpdir(), "neural-labs-desktop-test-"));
   const workspaceRoot = path.join(desktopRoot, "workspace-root");
   await mkdir(path.join(desktopRoot, "assets"));
@@ -69,6 +69,9 @@ async function fixture(ready = true, { maxUploadBytes, maxTextBytes, mcpReady = 
     turnCredentialProvider,
     teamChannelAuthorizer,
     terminalHeartbeatMs,
+    terminalActorResolver,
+    gifProvider,
+    apiProviderRuntime,
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
@@ -1215,4 +1218,214 @@ test("limits a Team Chat terminal to current channel members", async () => {
     memberSocket?.close();
     await app.close();
   }
+});
+
+test("Neura can inspect an existing terminal and launch a masked interactive session through desktop acknowledgment", async () => {
+  const actorId = new Headers(terminalUserOne).get("x-forwarded-user");
+  const app = await fixture(true, { terminalActorResolver: async (id) => id === actorId ? { id, label: "User", role: "user" } : null });
+  const controlHeaders = { "Content-Type": "application/json", Authorization: "Bearer workspace-control-token-at-least-thirty-two-characters" };
+  const browserHeaders = { ...terminalUserOne, "Content-Type": "application/json", Origin: "https://neural-labs.example.com" };
+  const post = async (route, body, headers = browserHeaders) => {
+    const response = await fetch(`${app.origin}${route}`, { method: "POST", headers, body: JSON.stringify(body) });
+    assert.equal(response.status, 200, await response.clone().text());
+    return response.json();
+  };
+  let socket;
+  let interactiveSocket;
+  let reader;
+  const controller = new AbortController();
+  try {
+    const existing = await createTerminalSession(app, terminalUserOne, { scope: "personal", title: "Prior work" });
+    ({ socket } = await connectTerminalSocket(app, terminalUserOne, await issueTerminalSocketTicket(app, terminalUserOne, existing.id)));
+    const output = waitForSocketMessage(socket, (message) => message.type === "output" && message.data.includes("previous-build-failed"), "prior output");
+    socket.send(JSON.stringify({ type: "input", data: "printf 'previous-build-failed\\n'\n" }));
+    await output;
+    const context = await post("/workspace/api/terminal-agent/context", { conversationId: "private-test" });
+    assert.equal(context.recentTerminals[0].terminalId, existing.id);
+    assert.match(context.recentTerminals[0].output, /previous-build-failed/);
+    assert.equal(context.terminalId, undefined);
+    const call = (tool, input = {}) => post("/internal/terminal-agent", { tool, input: { ...context, ...input } }, controlHeaders);
+    assert.match((await call("read_terminal")).output, /previous-build-failed/);
+    const denied = await fetch(`${app.origin}/internal/terminal-agent`, { method: "POST", headers: browserHeaders, body: JSON.stringify({ tool: "list_terminals", input: context }) });
+    assert.equal(denied.status, 401);
+    const events = await fetch(`${app.origin}/workspace/api/terminal-agent/events?desktopId=acceptance`, { headers: terminalUserOne, signal: controller.signal });
+    reader = events.body.getReader();
+    await reader.read();
+    const launch = call("open_terminal", { requestId: "masked-acceptance", agentMode: "status-only", command: "read -r -s -p 'Secret: ' answer; printf '\\naccepted\\n'" });
+    const data = await reader.read();
+    const requestId = JSON.parse(new TextDecoder().decode(data.value).split("data: ")[1]).requestId;
+    const { session } = await post("/workspace/api/terminal-agent/claim", { requestId, desktopId: "acceptance" });
+    ({ socket: interactiveSocket } = await connectTerminalSocket(app, terminalUserOne, await issueTerminalSocketTicket(app, terminalUserOne, session.id)));
+    let visible = "";
+    interactiveSocket.on("message", (raw) => { const message = JSON.parse(raw); if (message.type === "output") visible += message.data; });
+    const prompt = waitForSocketMessage(interactiveSocket, (message) => message.type === "output" && message.data.includes("Secret:"), "masked prompt");
+    interactiveSocket.send(JSON.stringify({ type: "client-ready" }));
+    await prompt;
+    assert.equal((await launch).state, "started");
+    const exited = waitForSocketMessage(interactiveSocket, (message) => message.type === "exit", "interactive exit");
+    interactiveSocket.send(JSON.stringify({ type: "input", data: "synthetic-private-input\n" }));
+    assert.equal((await exited).exitCode, 0);
+    assert.ok(!visible.includes("synthetic-private-input"));
+    const status = await call("read_terminal", { terminalId: session.id });
+    assert.equal(status.output, "");
+    assert.equal(status.exitCode, 0);
+    assert.equal(status.statusOnly, true);
+  } finally {
+    socket?.terminate(); interactiveSocket?.terminate();
+    await reader?.cancel().catch(() => {}); controller.abort();
+    await app.close();
+  }
+});
+
+test("imports ticketed Neura attachments through Files with conflict handling and confinement", async () => {
+  const requests = [];
+  const mediaUrl = "/workspace/api/neura/media/outgoing/chat/id/full?mediaTicket=v1.c2Vzc2lvbg.c2lnbmF0dXJl";
+  const headers = { "X-Forwarded-User": "attachment-user", Origin: "https://neural-labs.example.com", "Content-Type": "application/json" };
+  const app = await fixture(true, { gatewayMediaOrigin: "http://127.0.0.1:18789", gatewayMediaFetch: async (url, options) => {
+    requests.push({ url: String(url), redirect: options.redirect }); return new Response("image bytes", { headers: { "Content-Type": "image/png" } });
+  } });
+  const send = (body, requestHeaders = headers) => fetch(`${app.origin}/workspace/api/files/import-neura`, { method: "POST", headers: requestHeaders, body: JSON.stringify(body) });
+  const body = { mediaUrl, destination: "", name: "picture.png" };
+  try {
+    assert.equal((await send(body, { "Content-Type": "application/json" })).status, 401);
+    assert.equal((await send(body, { ...headers, Origin: "https://other.example" })).status, 403);
+    assert.equal((await send({ ...body, mediaUrl: "https://example.com/picture.png" })).status, 400);
+    assert.equal((await send({ ...body, mediaUrl: mediaUrl + "&url=http://127.0.0.1" })).status, 404);
+    assert.equal(requests.length, 0);
+    assert.equal((await send(body)).status, 200);
+    const conflict = await send(body);
+    assert.equal(conflict.status, 409);
+    assert.equal((await conflict.json()).error.code, "already_exists");
+    const kept = await send({ ...body, conflict: "keep-both" });
+    assert.equal((await kept.json()).item.path, "picture (2).png");
+    assert.equal((await send({ ...body, conflict: "replace" })).status, 200);
+    assert.equal((await send({ ...body, destination: "../outside" })).status, 400);
+    assert.equal((await send({ ...body, name: "../outside.png" })).status, 400);
+    const content = await fetch(`${app.origin}/workspace/api/files/download?path=picture.png`, { headers });
+    assert.equal(await content.text(), "image bytes");
+    assert.ok(requests.every((r) => r.url === "http://127.0.0.1:18789/api/chat/media/outgoing/chat/id/full?mediaTicket=v1.c2Vzc2lvbg.c2lnbmF0dXJl" && r.redirect === "error"));
+    const downloaded = await fetch(`${app.origin}${mediaUrl}&download=1&name=My%20picture.png`, { headers });
+    assert.equal(downloaded.status, 200);
+    assert.match(downloaded.headers.get("content-disposition"), /attachment; filename="My picture.png"/);
+  } finally { await app.close(); }
+});
+
+test("private media import preserves existing files on expired, oversized, or broken streams", async () => {
+  let mode = "expired";
+  const app = await fixture(true, { maxUploadBytes: 4, gatewayMediaOrigin: "http://127.0.0.1:18789", gatewayMediaFetch: async () => {
+    if (mode === "expired") return new Response("expired", { status: 403 });
+    if (mode === "large") return new Response("too many bytes");
+    return new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode("abc")); controller.error(new Error("connection lost")); } }));
+  } });
+  const headers = { "X-Forwarded-User": "attachment-user", Origin: "https://neural-labs.example.com", "Content-Type": "application/json" };
+  try {
+    await writeFile(path.join(app.workspaceRoot, "existing.txt"), "old");
+    for (const [value, status] of [["expired", 403], ["large", 413], ["broken", 500]]) {
+      mode = value;
+      const result = await fetch(`${app.origin}/workspace/api/files/import-neura`, { method: "POST", headers, body: JSON.stringify({ mediaUrl: "/workspace/api/neura/media/outgoing/chat/id/full?mediaTicket=v1.c2Vzc2lvbg.c2lnbmF0dXJl", destination: "", name: "existing.txt", conflict: "replace" }) });
+      assert.equal(result.status, status);
+      const content = await fetch(`${app.origin}/workspace/api/files/download?path=existing.txt`, { headers });
+      assert.equal(await content.text(), "old");
+    }
+    const listing = await fetch(`${app.origin}/workspace/api/files`, { headers }).then(r => r.json());
+    assert.equal(listing.entries.some(entry => entry.name.startsWith(".neural-labs-upload-")), false);
+  } finally { await app.close(); }
+});
+
+test("aborting a private media import removes staging without replacing the destination", async () => {
+  let started;
+  const upstreamStarted = new Promise(resolve => { started = resolve; });
+  const app = await fixture(true, { gatewayMediaOrigin: "http://127.0.0.1:18789", gatewayMediaFetch: async (_url, options) => {
+    started();
+    return new Response(new ReadableStream({ start(controller) {
+      controller.enqueue(new TextEncoder().encode("partial"));
+      options.signal.addEventListener("abort", () => controller.error(new Error("aborted")), { once: true });
+    } }));
+  } });
+  try {
+    await writeFile(path.join(app.workspaceRoot, "keep.txt"), "original");
+    const controller = new AbortController();
+    const request = fetch(`${app.origin}/workspace/api/files/import-neura`, {
+      method: "POST", signal: controller.signal,
+      headers: { "X-Forwarded-User": "attachment-user", Origin: "https://neural-labs.example.com", "Content-Type": "application/json" },
+      body: JSON.stringify({ mediaUrl: "/workspace/api/neura/media/outgoing/chat/id/full?mediaTicket=v1.c2Vzc2lvbg.c2lnbmF0dXJl", destination: "", name: "keep.txt", conflict: "replace" }),
+    });
+    const rejected = assert.rejects(request, { name: "AbortError" });
+    await upstreamStarted;
+    controller.abort();
+    await rejected;
+    for (let i = 0; i < 50; i++) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+      if (!(await readdir(app.workspaceRoot)).some(name => name.startsWith(".neural-labs-upload-"))) break;
+    }
+    assert.equal(await readFile(path.join(app.workspaceRoot, "keep.txt"), "utf8"), "original");
+    assert.equal((await readdir(app.workspaceRoot)).some(name => name.startsWith(".neural-labs-upload-")), false);
+  } finally { await app.close(); }
+});
+
+
+test("terminal GIF catalog requires authentication and Team access, and socket reactions route only to their session", async () => {
+  let allowed = true;
+  const gif = { id: "celebrate", title: "Celebrate", url: "https://static.klipy.com/qa.gif", preview: "https://static.klipy.com/qa.gif", still: null };
+  const app = await fixture(true, { gifProvider: { configured: true, catalog: async () => ({ results: [gif], next: "page-two" }), share: async () => {} }, teamChannelAuthorizer: async (_actor, id) => ({ allowed, channel: { id, name: "Releases" } }) });
+  const sockets = [];
+  try {
+    const session = await createTerminalSession(app, terminalUserOne, { scope: "team", channelId: "11111111-1111-4111-8111-111111111111" });
+    const other = await createTerminalSession(app, terminalUserOne, { scope: "team" });
+    const endpoint = `${app.origin}/workspace/api/terminals/${session.id}/gifs?q=celebrate`;
+    assert.equal((await fetch(endpoint)).status, 401);
+    const response = await fetch(endpoint, { headers: terminalUserOne });
+    assert.equal(response.status, 200);
+    const page = await response.json();
+    assert.equal(page.next, "page-two");
+    assert.equal(page.results[0].url, gif.url);
+    for (const [actor, id] of [[terminalUserOne, session.id], [terminalUserTwo, session.id], [terminalUserOne, other.id]]) {
+      sockets.push((await connectTerminalSocket(app, actor, await issueTerminalSocketTicket(app, actor, id))).socket);
+    }
+    const unrelated = [];
+    sockets[2].on("message", (raw) => { if (JSON.parse(raw).type === "reaction") unrelated.push(raw); });
+    const received = sockets.slice(0, 2).map((socket) => waitForSocketMessage(socket, (message) => message.type === "reaction", "GIF broadcast"));
+    sockets[0].send(JSON.stringify({ type: "reaction", kind: "gif", token: page.results[0].token }));
+    const messages = await Promise.all(received);
+    assert.equal(messages[0].id, messages[1].id);
+    assert.equal(messages[0].gif.id, "celebrate");
+    assert.equal(messages[0].gif.token, undefined);
+    const rejected = waitForSocketMessage(sockets[1], (message) => message.type === "reaction-error", "actor-bound token");
+    sockets[1].send(JSON.stringify({ type: "reaction", kind: "gif", token: page.results[0].token }));
+    assert.match((await rejected).message, /expired/);
+    allowed = false;
+    assert.equal((await fetch(endpoint, { headers: terminalUserOne })).status, 404);
+    const revoked = waitForSocketMessage(sockets[0], (message) => message.type === "reaction-error", "revoked sender");
+    sockets[0].send(JSON.stringify({ type: "reaction", emoji: "😀" }));
+    assert.match((await revoked).message, /no longer have access/);
+    assert.equal(unrelated.length, 0);
+  } finally {
+    for (const socket of sockets) socket.close();
+    await app.close();
+  }
+});
+
+
+test("provider runtime status and checks require the workspace token and validate revisions", async () => {
+  const checked = [];
+  const apiProviderRuntime = {
+    status: () => ({ klipy: { available: true, configured: true, source: "settings", revision: 2 } }),
+    gifProvider: () => ({ configured: false }),
+    check: async (provider, revision) => { checked.push({ provider, revision }); return { revision, capabilities: [{ name: "GIF search", ok: true, message: "Connection works" }] }; },
+  };
+  const app = await fixture(true, { apiProviderRuntime });
+  try {
+    const base = `${app.origin}/internal/plugins/providers`;
+    assert.equal((await fetch(`${base}/status`)).status, 401);
+    const headers = { Authorization: "Bearer workspace-control-token-at-least-thirty-two-characters", "Content-Type": "application/json" };
+    const status = await fetch(`${base}/status`, { headers });
+    assert.equal(status.status, 200);
+    assert.equal(status.headers.get("cache-control"), "no-store");
+    assert.equal((await status.json()).providers.klipy.revision, 2);
+    assert.equal((await fetch(`${base}/klipy/check`, { method: "POST", headers, body: JSON.stringify({ revision: "invalid" }) })).status, 503);
+    assert.equal(checked.length, 0);
+    const result = await fetch(`${base}/klipy/check`, { method: "POST", headers, body: JSON.stringify({ revision: 2 }) });
+    assert.equal(result.status, 200);
+    assert.deepEqual(checked, [{ provider: "klipy", revision: 2 }]);
+  } finally { await app.close(); }
 });

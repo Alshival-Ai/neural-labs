@@ -8,7 +8,7 @@ vi.mock("@simplewebauthn/browser", () => ({
 
 import { startRegistration } from "@simplewebauthn/browser";
 
-import { PersonalizationPanel, type PersonalOpenAIAuth } from "./UserSettingsApp";
+import { PersonalizationPanel, SecurityPanel, type PersonalOpenAIAuth } from "./UserSettingsApp";
 import { PersonalProviderConnection } from "./PersonalProviderConnection";
 
 const user = {
@@ -96,18 +96,21 @@ afterEach(() => {
 });
 
 describe("Settings personalization panel", () => {
-  it("shows the active identity and available sign-in methods", async () => {
+  it("shows profile identity in Personalization and sign-in methods in Security", async () => {
     render(<PersonalizationPanel user={user} providers={["local"]} csrfToken="csrf-token" fontScale={100} onFontScaleChange={vi.fn()} onLogout={vi.fn()} />);
 
     expect(screen.getAllByText("Example Developer").length).toBeGreaterThan(0);
     expect(screen.getAllByText("developer@example.org").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Member").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Sign-in methods")).not.toBeInTheDocument();
+    cleanup();
+    render(<SecurityPanel user={user} providers={["local"]} csrfToken="csrf-token" fontScale={100} onFontScaleChange={vi.fn()} onLogout={vi.fn()} />);
     expect(await screen.findByRole("link", { name: "Link Microsoft" })).toHaveAttribute("href", "/auth/microsoft?intent=link");
     expect(screen.getByText("Email & password").closest("article")).toHaveTextContent("Linked");
   });
 
   it("links a local password with the session CSRF token", async () => {
-    render(<PersonalizationPanel user={user} providers={["microsoft"]} csrfToken="csrf-token" fontScale={100} onFontScaleChange={vi.fn()} onLogout={vi.fn()} />);
+    render(<SecurityPanel user={user} providers={["microsoft"]} csrfToken="csrf-token" fontScale={100} onFontScaleChange={vi.fn()} onLogout={vi.fn()} />);
     fireEvent.change(await screen.findByLabelText(/Add a local password/), { target: { value: "a-secure-password" } });
     fireEvent.click(screen.getByRole("button", { name: "Link local login" }));
 
@@ -122,7 +125,7 @@ describe("Settings personalization panel", () => {
   });
 
   it("creates a passkey only for a Microsoft-linked account and sends CSRF on both steps", async () => {
-    render(<PersonalizationPanel user={user} providers={["microsoft"]} csrfToken="csrf-token" fontScale={100} onFontScaleChange={vi.fn()} onLogout={vi.fn()} />);
+    render(<SecurityPanel user={user} providers={["microsoft"]} csrfToken="csrf-token" fontScale={100} onFontScaleChange={vi.fn()} onLogout={vi.fn()} />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Create passkey" }));
 

@@ -5,6 +5,7 @@
 - [v0.3.0 release record](releases/v0.3.0.md)
 - [v0.2.0 release record](releases/v0.2.0.md)
 - [Container deployment and onboarding](container-deployment.md)
+- [OpenClaw release upgrades](openclaw-upgrades.md)
 - [Authentication and administrator model](authentication.md)
 - [Administrator settings](desktop-settings.md)
 - [Shared developer workspace](shared-workspace.md)
@@ -47,3 +48,10 @@
 - [ADR 0022: Private profile phone verification](adr/0022-profile-phone-verification.md)
 - [ADR 0023: Model provider policies and dedicated Team Neura](adr/0023-model-provider-policies.md)
 - [ADR 0024: Global Twilio SMS/MMS channel](adr/0024-twilio-sms-channel.md)
+- [ADR 0025: Neura participation in interactive terminals](adr/0025-neura-terminal-participation.md)
+- [ADR 0026: Chat attachment workspace saves](adr/0026-chat-attachment-workspace-saves.md)
+- [ADR 0027: Team Terminal reactions](adr/0027-team-terminal-reactions.md)
+
+- [ADR 0028: Unmodified upstream OpenClaw runtime](adr/0028-upstream-openclaw-boundary.md)
+
+- [ADR 0029: Settings-managed provider credentials](adr/0029-settings-provider-credentials.md)

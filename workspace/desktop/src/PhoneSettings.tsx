@@ -18,7 +18,8 @@ export type PhoneStatus = {
   resendAt: string | null;
 };
 
-export function PhoneSettings({ csrfToken }: { csrfToken: string }) {
+const PHONE_CHANGED = "neural-labs:phone-changed";
+export function PhoneSettings({ csrfToken, view = "phone", onOpenSecurity }: { csrfToken: string; view?: "phone" | "notifications"; onOpenSecurity?: () => void }) {
   const id = useId();
   const [status, setStatus] = useState<PhoneStatus | null>(null);
   const [number, setNumber] = useState("");
@@ -34,6 +35,7 @@ export function PhoneSettings({ csrfToken }: { csrfToken: string }) {
   const inFlight = useRef(false);
   const codeInput = useRef<HTMLInputElement>(null);
   const refresh = useCallback(async () => {
+    if (inFlight.current) return;
     const current = ++requestId.current;
     setError("");
     try {
@@ -50,14 +52,20 @@ export function PhoneSettings({ csrfToken }: { csrfToken: string }) {
   }, []);
   useEffect(() => {
     void refresh();
+    const changed = (event: Event) => { if (!(event instanceof CustomEvent) || event.detail !== id) void refresh(); };
+    window.addEventListener(PHONE_CHANGED, changed);
+    window.addEventListener("focus", changed);
     return () => {
+      window.removeEventListener(PHONE_CHANGED, changed);
+      window.removeEventListener("focus", changed);
       requestId.current += 1;
     };
-  }, [refresh]);
+  }, [refresh, id]);
   useEffect(() => {
+    if (view !== "phone") return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [view]);
   useEffect(() => {
     if (status?.pending) codeInput.current?.focus();
   }, [status?.pending?.challengeId]);
@@ -131,12 +139,14 @@ export function PhoneSettings({ csrfToken }: { csrfToken: string }) {
     } finally {
       inFlight.current = false;
       if (current === requestId.current) setBusy(false);
+      window.dispatchEvent(new CustomEvent(PHONE_CHANGED, { detail: id }));
     }
   }
 
   async function setNotifications(enabled: boolean) {
     if (inFlight.current) return;
     inFlight.current = true;
+    const current = ++requestId.current;
     setBusy(true); setError(""); setNotice("");
     try {
       const next = await settingsRequest<PhoneStatus>("/api/account/phone/notifications", {
@@ -144,12 +154,21 @@ export function PhoneSettings({ csrfToken }: { csrfToken: string }) {
         headers: settingsMutationHeaders(csrfToken),
         body: JSON.stringify({ enabled }),
       });
+      if (current !== requestId.current) return;
       setStatus(next);
       setNotice(enabled ? "Neura may now send you requested SMS/MMS updates." : "Agent SMS/MMS updates disabled.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not update SMS notifications.");
-    } finally { inFlight.current = false; setBusy(false); }
+    } finally { inFlight.current = false; if (current === requestId.current) setBusy(false); window.dispatchEvent(new CustomEvent(PHONE_CHANGED, { detail: id })); }
   }
+
+  if (view === "notifications") return <section className="settings-card user-settings-card phone-settings" aria-label="Notification preferences" aria-busy={busy}>
+    <div className="user-settings-card__heading"><div><span>Notifications</span><h3>Agent SMS/MMS updates</h3><p>Allow Neura to send updates you explicitly request, including automation completion messages.</p></div><Phone /></div>
+    {error && <p role="alert">{error}<button type="button" onClick={() => void refresh()}>Retry notification settings</button></p>}
+    {notice && <p role="status">{notice}</p>}
+    {!status && !error && <p role="status">Loading notification preferences…</p>}
+    {status && (status.phoneNumber ? <><label className="phone-settings__notification-toggle"><span><strong>Agent SMS/MMS updates</strong><small>{status.phoneNumber} · Off by default</small></span><input type="checkbox" checked={status.notificationsEnabled} disabled={busy || !status.available} onChange={(event) => void setNotifications(event.target.checked)} /></label>{!status.available && <p role="status">SMS is unavailable. Contact your administrator.</p>}<button type="button" onClick={onOpenSecurity}>Manage phone in Security</button></> : <><p>Verify a phone number in Security to enable SMS/MMS updates.</p><button type="button" onClick={onOpenSecurity}>Add phone in Security</button></>)}
+  </section>;
 
   return (
     <section
@@ -196,10 +215,7 @@ export function PhoneSettings({ csrfToken }: { csrfToken: string }) {
                 <strong>{status.phoneNumber}</strong>
                 <span><ShieldCheck aria-hidden="true" />Verified</span>
               </div>
-              {!pending && !editing && !confirmRemove && <label className="phone-settings__notification-toggle">
-                <span><strong>Agent SMS/MMS updates</strong><small>Allow Neura to send this number updates you explicitly request, including automation completion messages. Off by default.</small></span>
-                <input type="checkbox" checked={status.notificationsEnabled} disabled={busy || !status.available} onChange={(event) => void setNotifications(event.target.checked)} />
-              </label>}
+
             </>
           )}
           {pending ? (

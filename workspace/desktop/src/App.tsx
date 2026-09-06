@@ -1,3 +1,4 @@
+import { recordTerminalFocus, terminalAgentRequest } from "./terminalAgentApi";
 import {
   Bot,
   CalendarClock,
@@ -6,7 +7,6 @@ import {
   CopyPlus,
   FileSearch2,
   Folder,
-  LogOut,
   Minimize2,
   PanelTopOpen,
   PictureInPicture2,
@@ -84,12 +84,13 @@ function storedPreviewFile(value: unknown): WorkspacePreviewFile | undefined {
   return { name: raw.name, path: raw.path, mimeType: raw.mimeType, size: raw.size };
 }
 
-function settingsLaunch(): { open: boolean; notice?: { tone: "success" | "error"; message: string } } {
+function settingsLaunch(): { open: boolean; section: "security" | "personalization"; notice?: { tone: "success" | "error"; message: string } } {
   const parameters = new URLSearchParams(window.location.search);
   const success = parameters.get("success")?.slice(0, 240);
   const error = parameters.get("error")?.slice(0, 240);
   return {
-    open: parameters.get("settings") === "personalization" || parameters.get("user-settings") === "1",
+    open: ["personalization", "security"].includes(parameters.get("settings") ?? "") || parameters.get("user-settings") === "1",
+    section: parameters.get("settings") === "security" ? "security" as const : "personalization" as const,
     ...(success ? { notice: { tone: "success" as const, message: success } } : error ? { notice: { tone: "error" as const, message: error } } : {}),
   };
 }
@@ -166,12 +167,6 @@ function desktopWindowTitle(window: DesktopWindowState): string {
 const gateway = new NeuraGateway();
 const automationsGateway = new AutomationsGateway();
 
-function initials(value: string): string {
-  const local = value.split("@")[0] || "NL";
-  const words = local.split(/[._\-\s]+/).filter(Boolean);
-  return (words.length > 1 ? words.slice(0, 2).map((word) => word[0]).join("") : local.slice(0, 2)).toUpperCase();
-}
-
 async function fetchJson<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
@@ -184,16 +179,19 @@ async function fetchJson<T>(path: string, init: RequestInit = {}): Promise<T> {
 export function App() {
   const [session, setSession] = useState<Session>();
   const [runtime, setRuntime] = useState<string>("Starting");
-  const [menuOpen, setMenuOpen] = useState(false);
   const [windows, setWindows] = useState<DesktopWindowState[]>([]);
   const [popoutTargets, setPopoutTargets] = useState<Map<string, ManagedPopout>>(() => new Map());
-  const [maximizedWindowIds, setMaximizedWindowIds] = useState<Set<string>>(() => new Set());
+  const [tiledWindowIds, setTiledWindowIds] = useState<Set<string>>(() => new Set());
+  const [manipulatingWindow, setManipulatingWindow] = useState(false);
+  const [touchDockOpen, setTouchDockOpen] = useState(false);
   const [dockMenu, setDockMenu] = useState<{ app: DesktopApp; x: number; y: number }>();
   const [persistenceUserId, setPersistenceUserId] = useState<string>();
   const [fontScale, setFontScale] = useState(DESKTOP_FONT_SCALE_DEFAULT);
-  const [clock, setClock] = useState(new Date());
   const [toast, setToast] = useState<ToastNotice>();
   const [neuraComposeRequest, setNeuraComposeRequest] = useState<{ id: string; targetWindowId: string; text: string }>();
+  const [terminalDesktopId] = useState(() => crypto.randomUUID());
+  const windowsRef = useRef(windows);
+  windowsRef.current = windows;
   const [terminalOpenRequest, setTerminalOpenRequest] = useState<{ id: string; targetWindowId: string; session: TerminalDescriptor }>();
   const [skillsLaunchRequest, setSkillsLaunchRequest] = useState<{ id: string; targetWindowId: string; section: "mine" | "automations" }>();
   const [settingsLaunchRequest, setSettingsLaunchRequest] = useState<{ id: string; targetWindowId: string; section: "model-provider" }>();
@@ -343,14 +341,12 @@ export function App() {
     }).catch(() => window.location.assign("/login?error=Please+log+in"));
     void refreshRuntime();
     const runtimeInterval = window.setInterval(() => void refreshRuntime(), 10_000);
-    const clockInterval = window.setInterval(() => setClock(new Date()), 30_000);
     window.addEventListener("online", refreshRuntimeWhenAvailable);
     document.addEventListener("visibilitychange", refreshRuntimeWhenAvailable);
     return () => {
       stopped = true;
       window.clearTimeout(neuraBootstrapTimer);
       window.clearInterval(runtimeInterval);
-      window.clearInterval(clockInterval);
       window.removeEventListener("online", refreshRuntimeWhenAvailable);
       document.removeEventListener("visibilitychange", refreshRuntimeWhenAvailable);
     };
@@ -370,7 +366,6 @@ export function App() {
 
   useEffect(() => {
     const closeMenu = (event: MouseEvent) => {
-      if (!(event.target as Element).closest(".account-menu")) setMenuOpen(false);
       if (!(event.target as Element).closest(".dock-context-menu")) setDockMenu(undefined);
     };
     const closeMenuWithKeyboard = (event: KeyboardEvent) => { if (event.key === "Escape") setDockMenu(undefined); };
@@ -462,11 +457,11 @@ export function App() {
     setWindows((current) => raiseWindow(current, windowId));
   }, []);
 
-  const updateWindowMaximized = useCallback((windowId: string, maximized: boolean) => {
-    setMaximizedWindowIds((current) => {
-      if (current.has(windowId) === maximized) return current;
+  const updateWindowTiled = useCallback((windowId: string, tiled: boolean) => {
+    setTiledWindowIds((current) => {
+      if (current.has(windowId) === tiled) return current;
       const updated = new Set(current);
-      if (maximized) updated.add(windowId);
+      if (tiled) updated.add(windowId);
       else updated.delete(windowId);
       return updated;
     });
@@ -490,8 +485,8 @@ export function App() {
     const popout = takePopout(windowId);
     if (popout && !popout.browserWindow.closed) window.setTimeout(() => popout.browserWindow.close(), 0);
     setWindows((current) => normalizeWindowOrder(current.filter((window) => window.id !== windowId)));
-    updateWindowMaximized(windowId, false);
-  }, [discardWindowState, takePopout, updateWindowMaximized, windows]);
+    updateWindowTiled(windowId, false);
+  }, [discardWindowState, takePopout, updateWindowTiled, windows]);
 
   const minimizeApp = useCallback((app: DesktopApp) => {
     setWindows((current) => current.map((window) => window.app === app && window.visibility === "open" ? { ...window, visibility: "minimized" } : window));
@@ -504,13 +499,13 @@ export function App() {
     for (const window of windows) if (window.app === app) {
       dirtyEditors.current.delete(window.id);
       discardWindowState(window);
-      updateWindowMaximized(window.id, false);
+      updateWindowTiled(window.id, false);
       const popout = takePopout(window.id);
       if (popout && !popout.browserWindow.closed) globalThis.window.setTimeout(() => popout.browserWindow.close(), 0);
     }
     setWindows((current) => normalizeWindowOrder(current.filter((window) => window.app !== app)));
     setDockMenu(undefined);
-  }, [discardWindowState, takePopout, updateWindowMaximized, windows]);
+  }, [discardWindowState, takePopout, updateWindowTiled, windows]);
 
   const restoreAppPopouts = useCallback((app: DesktopApp) => {
     for (const window of windows) {
@@ -519,9 +514,6 @@ export function App() {
     setDockMenu(undefined);
   }, [restorePoppedWindow, windows]);
 
-  const email = session?.user?.email ?? "Loading account…";
-  const role = session?.user?.role ?? "member";
-  const runtimeClass = runtime === "ready" ? "is-ready" : runtime === "offline" ? "is-offline" : "";
 
   const openInVsCode = useCallback((path: string) => {
     const existing = windows.filter((window) => window.app === "vscode").sort((left, right) => right.order - left.order)[0];
@@ -579,6 +571,33 @@ export function App() {
     setNeuraComposeRequest({ id: crypto.randomUUID(), targetWindowId, text });
   }, [notify, windows]);
 
+  useEffect(() => {
+    if (!session?.user || typeof EventSource === "undefined") return;
+    const events = new EventSource(`/workspace/api/terminal-agent/events?desktopId=${encodeURIComponent(terminalDesktopId)}`);
+    let lastFocusReport = 0;
+    const focus = () => { if (Date.now() - lastFocusReport < 1000) return; lastFocusReport = Date.now(); void terminalAgentRequest("focus", { desktopId: terminalDesktopId }).catch(() => {}); };
+    const launch = (event: MessageEvent) => {
+      const current = windowsRef.current;
+      const existing = current.filter((item) => item.app === "terminal" && item.visibility !== "popped-out").sort((a, b) => b.order - a.order)[0];
+      if (!existing && current.length >= 24) { notify("Close a window so Neura can open Terminal."); return; }
+      let requestId: string;
+      try { requestId = JSON.parse(event.data).requestId; } catch { return; }
+      void terminalAgentRequest<{ session: TerminalDescriptor }>("claim", { requestId, desktopId: terminalDesktopId }).then(({ session: terminal }) => {
+        const targetWindowId = existing?.id ?? freshWindowId("terminal");
+        setWindows((items) => existing ? raiseWindow(items, targetWindowId) : appendWindow(items, { id: targetWindowId, app: "terminal", visibility: "open" }));
+        setTerminalOpenRequest({ id: requestId, targetWindowId, session: terminal });
+      }).catch((error) => notify(error.message));
+    };
+    events.addEventListener("open-terminal", launch as EventListener);
+    window.addEventListener("focus", focus);
+    document.addEventListener("pointerdown", focus);
+    return () => { events.close(); window.removeEventListener("focus", focus); document.removeEventListener("pointerdown", focus); };
+  }, [session?.user?.id, terminalDesktopId, notify]);
+
+  const reportTerminalFocus = useCallback((terminal: TerminalDescriptor) => {
+    void recordTerminalFocus(terminalDesktopId, terminal.id).catch(() => {});
+  }, [terminalDesktopId]);
+
   const openTeamChatTerminal = useCallback(async (channel: { id: string; name: string }, requestedSession?: TerminalDescriptor): Promise<TerminalDescriptor | undefined> => {
     const existingWindow = windows.filter((window) => window.app === "terminal").sort((left, right) => right.order - left.order)[0];
     if (!existingWindow && windows.length >= 24) {
@@ -633,7 +652,7 @@ export function App() {
   // transcript, scroll position, and embedded browser state survive restore.
   const mountedWindows = windows.filter((window) => window.visibility === "open" || window.visibility === "popped-out" || window.app === "neura" || window.app === "terminal" || window.app === "vscode" || window.app === "skills" || window.app === "automations").sort((left, right) => left.order - right.order);
   const activeWindowId = openWindows.at(-1)?.id;
-  const focusMode = Boolean(activeWindowId && maximizedWindowIds.has(activeWindowId));
+  const focusMode = Boolean(activeWindowId && tiledWindowIds.has(activeWindowId));
   const windowCount = (app: DesktopApp) => windows.filter((window) => window.app === app).length;
   const visibleWindowCount = (app: DesktopApp) => windows.filter((window) => window.app === app && window.visibility === "open").length;
   const poppedOutWindowCount = (app: DesktopApp) => windows.filter((window) => window.app === app && window.visibility === "popped-out").length;
@@ -649,7 +668,8 @@ export function App() {
 
   return (
     <div
-      className={`desktop${focusMode ? " has-maximized-window" : ""}${menuOpen ? " is-topbar-pinned" : ""}${dockMenu ? " is-dock-pinned" : ""}`}
+      className={`desktop${focusMode ? " has-maximized-window" : ""}${manipulatingWindow ? " is-window-manipulating" : ""}${dockMenu || touchDockOpen ? " is-dock-pinned" : ""}`}
+      onPointerDownCapture={(event) => { if (!(event.target as HTMLElement).closest(".dock, .dock-touch-reveal, .dock-context-menu")) setTouchDockOpen(false); }}
       style={desktopTypographyStyle(fontScale)}
     >
       <picture className="desktop-wallpaper" aria-hidden="true">
@@ -657,24 +677,9 @@ export function App() {
         <source media="(max-width: 1180px)" srcSet="/workspace/assets/wallpaper-tablet.png" />
         <img src="/workspace/assets/wallpaper.png" alt="" fetchPriority="high" draggable="false" />
       </picture>
-      <span className="shell-reveal-zone shell-reveal-zone--top" aria-hidden="true" />
+      {focusMode && <button type="button" className="dock-touch-reveal" aria-label={touchDockOpen ? "Hide dock" : "Show dock"} aria-expanded={touchDockOpen} onClick={() => setTouchDockOpen((open) => !open)}>•••</button>}
       <a href="#desktop-canvas" className="skip-link">Skip to desktop</a>
-      <header className="topbar">
-        <a className="brand" href="/" aria-label="Neural Labs home"><span className="brand-mark">N</span><span>Neural Labs</span></a>
-        <div className="topbar-actions">
-          <div className={`runtime-state ${runtimeClass}`} title={`Shared workspace: ${runtime}`}><span className="runtime-dot" /><span className="runtime-label">{runtime === "ready" ? "Workspace ready" : runtime}</span></div>
-          <time className="desktop-clock" dateTime={clock.toISOString()}>{new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(clock)}</time>
-          <div className="account-menu">
-            <button type="button" className="avatar-button" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}><span>{initials(email)}</span></button>
-            {menuOpen && <div className="account-popover">
-              <div className="account-details"><strong>{email}</strong><span>{role}</span></div>
-              <button type="button" onClick={() => void logout()}><LogOut />Sign out</button>
-            </div>}
-          </div>
-        </div>
-      </header>
-
-      <main id="desktop-canvas" className="desktop-canvas">
+      <main id="desktop-canvas" className="desktop-canvas" aria-busy={!session?.authenticated}>
         {mountedWindows.map((desktopWindow) => {
           const title = desktopWindowTitle(desktopWindow);
           const icon = desktopWindow.app === "neura" ? <WandSparkles /> : desktopWindow.app === "files" ? <Folder /> : desktopWindow.app === "preview" ? <FileSearch2 /> : desktopWindow.app === "settings" ? <Settings /> : desktopWindow.app === "automations" ? <CalendarClock /> : desktopWindow.app === "skills" ? <Bot /> : desktopWindow.app === "vscode" ? <Code2 /> : <TerminalSquare />;
@@ -693,7 +698,8 @@ export function App() {
               cascadeIndex={desktopWindow.order}
               controls="all"
               onActivate={() => activateWindow(desktopWindow.id)}
-              onMaximizedChange={(maximized) => updateWindowMaximized(desktopWindow.id, maximized)}
+              onPlacementChange={(placement) => updateWindowTiled(desktopWindow.id, placement !== "freeform")}
+              onManipulatingChange={setManipulatingWindow}
               onMinimize={() => minimizeWindow(desktopWindow.id)}
               onPopOut={() => popOutWindow(desktopWindow)}
               onPopIn={() => restorePoppedWindow(desktopWindow.id)}
@@ -704,8 +710,8 @@ export function App() {
                 {desktopWindow.app === "files" && <FilesApp notify={notify} active={activeWindowId === desktopWindow.id || desktopWindow.visibility === "popped-out"} initialPath={desktopWindow.filesPath} onOpenWindow={openFilesWindow} onEditImage={openImageEditor} onOpenInVsCode={openInVsCode} onPreviewFile={openPreviewFile} storageNamespace={persistenceUserId} storageArea={`files.${desktopWindow.id}`} />}
                 {desktopWindow.app === "preview" && desktopWindow.preview && <PreviewApp file={desktopWindow.preview} onEditImage={openImageEditor} />}
                 {desktopWindow.app === "image-editor" && <ImageEditorApp file={desktopWindow.preview} onDirtyChange={(dirty) => { if (dirty) dirtyEditors.current.add(desktopWindow.id); else dirtyEditors.current.delete(desktopWindow.id); }} />}
-                {desktopWindow.app === "settings" && session?.user && session.csrfToken && <SettingsApp administrator={session.user.role === "admin"} csrfToken={session.csrfToken} currentUserId={session.user.id} user={session.user} providers={session.providers ?? []} initialNotice={initialSettingsLaunch.notice} initialSection={initialSettingsLaunch.open ? "personalization" : undefined} sectionRequest={settingsLaunchRequest?.targetWindowId === desktopWindow.id ? settingsLaunchRequest : undefined} fontScale={fontScale} onFontScaleChange={setFontScale} onLogout={() => void logout()} storageNamespace={persistenceUserId} storageArea={`settings.${desktopWindow.id}`} />}
-                {desktopWindow.app === "terminal" && <TerminalApp workspaceName="Workspace" notify={notify} storageNamespace={persistenceUserId} storageArea={`terminal.${desktopWindow.id}`} fontScale={fontScale} onFontScaleChange={setFontScale} openRequest={terminalOpenRequest?.targetWindowId === desktopWindow.id ? terminalOpenRequest : undefined} />}
+                {desktopWindow.app === "settings" && session?.user && session.csrfToken && <SettingsApp workspaceStatus={runtime} administrator={session.user.role === "admin"} csrfToken={session.csrfToken} currentUserId={session.user.id} user={session.user} providers={session.providers ?? []} initialNotice={initialSettingsLaunch.notice} initialSection={initialSettingsLaunch.open ? initialSettingsLaunch.section : undefined} sectionRequest={settingsLaunchRequest?.targetWindowId === desktopWindow.id ? settingsLaunchRequest : undefined} fontScale={fontScale} onFontScaleChange={setFontScale} onLogout={() => void logout()} storageNamespace={persistenceUserId} storageArea={`settings.${desktopWindow.id}`} />}
+                {desktopWindow.app === "terminal" && <TerminalApp active={activeWindowId === desktopWindow.id} onFocusSession={reportTerminalFocus} workspaceName="Workspace" notify={notify} storageNamespace={persistenceUserId} storageArea={`terminal.${desktopWindow.id}`} fontScale={fontScale} onFontScaleChange={setFontScale} openRequest={terminalOpenRequest?.targetWindowId === desktopWindow.id ? terminalOpenRequest : undefined} />}
                 {desktopWindow.app === "vscode" && <VsCodeApp notify={notify} openRequest={vsCodeOpenRequest?.targetWindowId === desktopWindow.id ? vsCodeOpenRequest : undefined} />}
                 {(desktopWindow.app === "skills" || desktopWindow.app === "automations") && session?.user && <SkillsLiveApp reader={gateway} administrator={session.user.role === "admin" ? automationsGateway : undefined} canManage={session.user.role === "admin"} currentUser={{ id: session.user.id, displayName: session.user.displayName, role: session.user.role }} initialSection={skillsLaunchRequest?.targetWindowId === desktopWindow.id ? skillsLaunchRequest.section : "mine"} sectionRequestId={skillsLaunchRequest?.targetWindowId === desktopWindow.id ? skillsLaunchRequest.id : undefined} notify={notify} onComposeInNeura={composeInNeura} workspaceName="Workspace" />}
               </Suspense>

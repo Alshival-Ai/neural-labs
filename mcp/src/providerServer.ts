@@ -1,3 +1,4 @@
+import { registerTerminalTools, TERMINAL_TOOLS } from "./terminalTools.js";
 import {
   createMcpHandler,
   McpServer,
@@ -33,8 +34,9 @@ export interface ProviderApplication {
 }
 
 export function createProviderApplication(
-  config: ProviderConfig,
+  source: ProviderConfig | (() => ProviderConfig),
   fetchFn: typeof globalThis.fetch = globalThis.fetch,
+  runtimeStatus?: () => unknown,
 ): ProviderApplication {
   const app = createMcpExpressApp({
     host: "127.0.0.1",
@@ -42,7 +44,9 @@ export function createProviderApplication(
     jsonLimit: "1mb",
   });
   app.disable("x-powered-by");
+  const snapshot = () => typeof source === "function" ? source() : source;
   app.get("/healthz", (_request, response) => {
+    const config = snapshot();
     const googleConfigured = Boolean(config.googleApiKey);
     const klipyConfigured = Boolean(config.klipyApiKey);
     const pexelsConfigured = Boolean(config.pexelsApiKey);
@@ -52,6 +56,7 @@ export function createProviderApplication(
       transport: "streamable-http",
       agentServerName: "neural-labs-tools",
       publicAccess: false,
+      ...(runtimeStatus ? { providerConfiguration: runtimeStatus() } : {}),
       googleConfigured,
       klipyConfigured,
       pexelsConfigured,
@@ -66,12 +71,14 @@ export function createProviderApplication(
         ...(klipyConfigured ? KLIPY_TOOLS : []),
         ...(pexelsConfigured ? PEXELS_TOOLS : []),
         ...(config.notificationApi ? SMS_TOOLS : []),
+        ...(config.terminalApi ? TERMINAL_TOOLS : []),
       ],
     });
   });
 
   const handler = createMcpHandler(
     () => {
+      const config = snapshot();
       const server = new McpServer(
         { name: "neural-labs-workspace-tools", version: "0.3.2" },
         {
@@ -83,6 +90,7 @@ export function createProviderApplication(
       registerKlipyTools(server, config, fetchFn);
       registerPexelsTools(server, config, fetchFn);
       registerSmsNotificationTool(server, config, fetchFn);
+      registerTerminalTools(server, config, fetchFn);
       return server;
     },
     {
