@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 
-import { createProviderAuthController, parseOpenAIDeviceCode } from "./provider-auth.mjs";
+import { createProviderAuthController, parseOpenAIDeviceCode, spawnBackgroundLogin } from "./provider-auth.mjs";
 
 class FakeChild extends EventEmitter {
   constructor() {
@@ -12,6 +12,59 @@ class FakeChild extends EventEmitter {
     this.stderr = new EventEmitter();
   }
 }
+
+test("disconnect waits for the cancelled login process to close without refreshing auth", async () => {
+  const child = new FakeChild();
+  child.pid = undefined;
+  let refreshed = false;
+  const controller = createProviderAuthController({ providerAuthenticated: () => false, modelReady: () => false, spawnLogin: () => child, refreshStatus: async () => { refreshed = true; } });
+  controller.start();
+  let stopped = false;
+  const pending = controller.cancelAndWait().then(() => { stopped = true; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(stopped, false);
+  child.emit("exit", 0, null);
+  child.emit("close", 0, null);
+  await pending;
+  assert.equal(stopped, true);
+  assert.equal(refreshed, false);
+  assert.equal(controller.snapshot().state, "disconnected");
+});
+
+test("background login explicitly owns main without resetting models or passing the audio API key", () => {
+  const child = new FakeChild();
+  const result = spawnBackgroundLogin((command, args, options) => {
+    assert.equal(command, "script");
+    assert.equal(args[1], "openclaw models auth login --agent main --provider openai --device-code");
+    assert.equal(options.env.OPENAI_API_KEY, undefined);
+    assert.equal(options.detached, true);
+    return child;
+  });
+  assert.equal(result, child);
+});
+
+test("a late login refresh cannot overwrite a disconnect result", async () => {
+  const child = new FakeChild();
+  let finish;
+  const controller = createProviderAuthController({ providerAuthenticated: () => false, modelReady: () => false, spawnLogin: () => child, refreshStatus: () => new Promise((resolve) => { finish = resolve; }) });
+  controller.start();
+  child.emit("exit", 0, null);
+  controller.cancel();
+  finish();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(controller.snapshot().state, "disconnected");
+  assert.equal(controller.snapshot().message, null);
+});
+
+test("missing model owner errors remain actionable without exposing raw login output", () => {
+  const child = new FakeChild();
+  const controller = createProviderAuthController({ providerAuthenticated: () => false, modelReady: () => false, spawnLogin: () => child });
+  controller.start();
+  child.stderr.emit("data", "Multiple agents are configured, but the model command has no explicit owner. Pass --agent <id>. private-context");
+  child.emit("exit", 1, null);
+  assert.match(controller.snapshot().message, /missing its agent owner/);
+  assert.doesNotMatch(controller.snapshot().message, /private-context/);
+});
 
 test("parses OpenClaw's device-code presentation without retaining terminal controls", () => {
   assert.deepEqual(

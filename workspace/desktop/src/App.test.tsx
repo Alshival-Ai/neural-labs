@@ -98,6 +98,12 @@ function renderDesktop(role: "admin" | "user", { accountAuthenticated = true, ac
   return render(<App />);
 }
 
+async function openTerminalFromDock() {
+  await screen.findByText("Workspace ready");
+  fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
+  return screen.findByLabelText("Terminal application");
+}
+
 function createPopupWindow() {
   const popupDocument = document.implementation.createHTMLDocument("Neural Labs pop-out");
   const events = new EventTarget();
@@ -163,17 +169,45 @@ describe("desktop admin navigation", () => {
     expect(picture?.querySelector('img[fetchpriority="high"]')).toHaveAttribute("src", "/workspace/assets/wallpaper.png");
   });
 
-  it("opens Terminal as the active app on startup", async () => {
+  it.each(["missing", "invalid", "empty"])("starts empty with %s desktop state", async (state) => {
+    const key = deviceStateKey("user-id", "desktop");
+    if (state === "invalid") localStorage.setItem(key, "{invalid");
+    if (state === "empty") localStorage.setItem(key, JSON.stringify({ windows: [] }));
+    const view = renderDesktop("user");
+    await screen.findByText("Workspace ready");
+
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(key)!)).toEqual({ windows: [] }));
+    expect(view.container.querySelector(".desktop-window")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("terminal-live-view")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Terminal" })).not.toHaveClass("is-active");
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).startsWith("/workspace/api/terminals"))).toBe(false);
+  });
+
+  it.each(["open", "minimized"])("preserves an explicitly saved %s Terminal window", async (visibility) => {
+    localStorage.setItem(deviceStateKey("user-id", "desktop"), JSON.stringify({
+      windows: [{ id: "terminal-saved", app: "terminal", visibility, order: 1 }],
+    }));
     renderDesktop("user");
     const terminalWindow = await screen.findByLabelText("Terminal application");
-
-    expect(terminalWindow).not.toHaveAttribute("hidden");
+    expect(terminalWindow.hasAttribute("hidden")).toBe(visibility === "minimized");
     expect(await within(terminalWindow).findByTestId("terminal-live-view")).toBeInTheDocument();
+  });
+
+  it("keeps the desktop empty after manually opening and closing Terminal", async () => {
+    const view = renderDesktop("user");
+    const terminalWindow = await openTerminalFromDock();
+    expect(await within(terminalWindow).findByTestId("terminal-live-view")).toBeInTheDocument();
+    fireEvent.click(within(terminalWindow).getByRole("button", { name: "Close Terminal" }));
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(deviceStateKey("user-id", "desktop"))!)).toEqual({ windows: [] }));
+    view.unmount();
+    const restored = render(<App />);
+    await screen.findByText("Workspace ready");
+    expect(restored.container.querySelector(".desktop-window")).not.toBeInTheDocument();
   });
 
   it("creates and opens a channel-scoped terminal from Neura Team Chat", async () => {
     renderDesktop("user");
-    await screen.findByLabelText("Terminal application");
+    await screen.findByText("Workspace ready");
     fireEvent.click(screen.getByRole("button", { name: "Neura" }));
     fireEvent.click(await screen.findByRole("button", { name: "Open mock Team Chat terminal" }));
 
@@ -195,22 +229,22 @@ describe("desktop admin navigation", () => {
     expect(gatewayMocks.setAgentId.mock.invocationCallOrder[0]).toBeLessThan(gatewayMocks.start.mock.invocationCallOrder[0]);
   });
 
-  it("prompts disconnected users to open ChatGPT account personalization", async () => {
+  it("prompts disconnected users to open ChatGPT Model Provider settings", async () => {
     renderDesktop("admin", { accountAuthenticated: false });
 
-    const prompt = await screen.findByRole("button", { name: "Open ChatGPT account settings in Personalization" });
+    const prompt = await screen.findByRole("button", { name: "Open ChatGPT account settings in Model Provider" });
     expect(prompt).toHaveTextContent("Connect your ChatGPT account to start using Neura.");
     fireEvent.click(prompt);
 
     const settingsWindow = await screen.findByLabelText("Settings application");
-    expect(await within(settingsWindow).findByRole("heading", { name: "Personalization" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Open ChatGPT account settings in Personalization" })).not.toBeInTheDocument();
+    expect(await within(settingsWindow).findByRole("heading", { name: "Model Provider" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open ChatGPT account settings in Model Provider" })).not.toBeInTheDocument();
   });
 
-  it("guides users with a paused ChatGPT connection to Personalization", async () => {
+  it("guides users with a paused ChatGPT connection to Model Provider", async () => {
     renderDesktop("user", { accountPaused: true });
 
-    expect(await screen.findByRole("button", { name: "Open ChatGPT account settings in Personalization" })).toHaveTextContent("Resume your ChatGPT account to start using Neura.");
+    expect(await screen.findByRole("button", { name: "Open ChatGPT account settings in Model Provider" })).toHaveTextContent("Resume your ChatGPT account to start using Neura.");
   });
 
   it("does not reopen Terminal when the saved desktop has no Terminal window", async () => {
@@ -230,7 +264,7 @@ describe("desktop admin navigation", () => {
     const external = createPopupWindow();
     const open = vi.spyOn(window, "open").mockReturnValue(external.popup);
     renderDesktop("user");
-    const terminalWindow = await screen.findByLabelText("Terminal application");
+    const terminalWindow = await openTerminalFromDock();
     const liveView = await within(terminalWindow).findByTestId("terminal-live-view");
 
     fireEvent.click(within(terminalWindow).getByRole("button", { name: "Pop out Terminal" }));
@@ -254,7 +288,7 @@ describe("desktop admin navigation", () => {
     const external = createPopupWindow();
     vi.spyOn(window, "open").mockReturnValue(external.popup);
     renderDesktop("user");
-    const terminalWindow = await screen.findByLabelText("Terminal application");
+    const terminalWindow = await openTerminalFromDock();
     const liveView = within(terminalWindow).getByTestId("terminal-live-view");
     fireEvent.click(within(terminalWindow).getByRole("button", { name: "Pop out Terminal" }));
     await waitFor(() => expect(document.body.contains(liveView)).toBe(false));
@@ -269,7 +303,7 @@ describe("desktop admin navigation", () => {
     const external = createPopupWindow();
     vi.spyOn(window, "open").mockReturnValue(external.popup);
     renderDesktop("user");
-    const terminalWindow = await screen.findByLabelText("Terminal application");
+    const terminalWindow = await openTerminalFromDock();
     fireEvent.click(within(terminalWindow).getByRole("button", { name: "Pop out Terminal" }));
     await waitFor(() => expect(screen.queryByLabelText("Terminal application")).not.toBeInTheDocument());
 
@@ -285,7 +319,7 @@ describe("desktop admin navigation", () => {
   it("explains how to recover when the browser blocks a pop-out", async () => {
     vi.spyOn(window, "open").mockReturnValue(null);
     renderDesktop("user");
-    const terminalWindow = await screen.findByLabelText("Terminal application");
+    const terminalWindow = await openTerminalFromDock();
 
     fireEvent.click(within(terminalWindow).getByRole("button", { name: "Pop out Terminal" }));
 
@@ -420,8 +454,8 @@ describe("desktop admin navigation", () => {
     renderDesktop("user");
     await screen.findByText("Workspace ready");
     fireEvent.click(screen.getByRole("button", { name: "Files" }));
-    const browser = await screen.findByRole("region", { name: "All files" });
-    const notes = await within(browser).findByRole("button", { name: /notes\.md/i });
+    const browser = await screen.findByRole("region", { name: "Workspace" });
+    const notes = await within(browser).findByRole("row", { name: /notes\.md/i });
     fireEvent.doubleClick(notes);
 
     const vsCodeWindow = await screen.findByLabelText("VS Code application");
@@ -439,8 +473,8 @@ describe("desktop admin navigation", () => {
     renderDesktop("user");
     await screen.findByText("Workspace ready");
     fireEvent.click(screen.getByRole("button", { name: "Files" }));
-    const browser = await screen.findByRole("region", { name: "All files" });
-    fireEvent.doubleClick(await within(browser).findByRole("button", { name: /photo\.png/i }));
+    const browser = await screen.findByRole("region", { name: "Workspace" });
+    fireEvent.doubleClick(await within(browser).findByRole("row", { name: /photo\.png/i }));
 
     const preview = await screen.findByLabelText("Preview — photo.png application");
     expect(await within(preview).findByRole("img", { name: "photo.png" })).toHaveAttribute("src", "/workspace/api/files/content?path=photo.png");
@@ -484,7 +518,7 @@ describe("desktop admin navigation", () => {
 
   it("keeps a live terminal view mounted while its window is minimized", async () => {
     renderDesktop("user");
-    const terminalWindow = await screen.findByLabelText("Terminal application");
+    const terminalWindow = await openTerminalFromDock();
     const liveView = await screen.findByTestId("terminal-live-view");
     fireEvent.click(screen.getByRole("button", { name: "Minimize Terminal" }));
 

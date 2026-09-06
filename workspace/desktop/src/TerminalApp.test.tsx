@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { NEURAL_TERMINAL_THEME, TerminalApp, isTerminalCopyShortcut, isTerminalInsertToggle, isTerminalPasteShortcut } from "./TerminalApp";
 import { writeDeviceState } from "./deviceState";
+import { AppViewportProvider } from "./appViewport";
 import type { TerminalDescriptor } from "./terminalApi";
 
 const xtermMocks = vi.hoisted(() => ({ instances: [] as Array<{
@@ -140,6 +141,47 @@ afterEach(() => {
 });
 
 describe("Terminal app", () => {
+  it("lets mobile users find named sessions and dismiss navigation without ending a shell", async () => {
+    render(<AppViewportProvider width={390}><TerminalApp /></AppViewportProvider>);
+    const toggle = screen.getByRole("button", { name: "Open terminal sessions" });
+    toggle.focus(); fireEvent.click(toggle);
+    const drawer = screen.getByRole("dialog", { name: "Terminal sessions" });
+    await within(drawer).findByRole("button", { name: /workspace.*Private/ });
+    fireEvent.change(within(drawer).getByRole("searchbox"), { target: { value: "release" } });
+    expect(within(drawer).queryByRole("button", { name: /workspace.*Private/ })).not.toBeInTheDocument();
+    fireEvent.click(within(drawer).getByRole("button", { name: /Release room/ }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await screen.findByLabelText("Release room interactive terminal");
+    fireEvent.click(toggle);
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(toggle).toHaveFocus();
+    expect(fetch).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ method: "DELETE" }));
+  });
+  it("sends mobile control keys to the active PTY without auto-opening the keyboard", async () => {
+    render(<AppViewportProvider width={390}><TerminalApp openRequest={{ id: "mobile-open", session: personal }} /></AppViewportProvider>);
+    await waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
+    const socket = MockWebSocket.instances[0];
+    act(() => { socket.readyState = MockWebSocket.OPEN; socket.onmessage?.({ data: JSON.stringify({ type: "ready", session: personal, connectionId: "mobile", mode: "replay" }) }); });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Interrupt command" })).toBeEnabled());
+    expect(xtermMocks.instances[0].focus).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Tab completion" }));
+    fireEvent.click(screen.getByRole("button", { name: "Previous command" }));
+    fireEvent.click(screen.getByRole("button", { name: "Interrupt command" }));
+    expect(socket.send).toHaveBeenCalledWith(JSON.stringify({ type: "input", data: "\t" }));
+    expect(socket.send).toHaveBeenCalledWith(JSON.stringify({ type: "input", data: "\x1b[A" }));
+    expect(socket.send).toHaveBeenCalledWith(JSON.stringify({ type: "input", data: "\x03" }));
+    fireEvent.click(screen.getByRole("button", { name: "Control next key" }));
+    act(() => xtermMocks.instances[0].emitData("d"));
+    expect(socket.send).toHaveBeenCalledWith(JSON.stringify({ type: "input", data: "\x04" }));
+    expect(screen.getByRole("button", { name: "Control next key" })).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(screen.getByRole("button", { name: "Show terminal keyboard" }));
+    expect(xtermMocks.instances[0].focus).toHaveBeenCalled();
+  });
+  it("shows an actionable mobile paste error instead of silently doing nothing", async () => {
+    render(<AppViewportProvider width={390}><TerminalApp openRequest={{ id: "mobile-paste", session: personal }} /></AppViewportProvider>);
+    fireEvent.click(await screen.findByRole("button", { name: "Paste into workspace" }));
+    expect(await screen.findByText(/Clipboard access was denied/)).toBeInTheDocument();
+  });
   it("opens on New Terminal with team sessions, then creates personal split terminals", async () => {
     render(<TerminalApp />);
     expect(await screen.findByRole("heading", { name: "New Terminal" })).toBeInTheDocument();

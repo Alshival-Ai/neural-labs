@@ -79,6 +79,7 @@ export type TeamAgentRun = {
   activities: TeamRunActivity[];
   error?: string;
   createdAt: string;
+  modelSettings?: { model: string; effort: string; agentId: string; revision: number };
 };
 
 export type TeamTerminalAccess = {
@@ -113,6 +114,7 @@ interface MessageRow extends QueryResultRow {
   role: "admin" | "user" | null;
   mentions: string[] | null;
   activities: unknown;
+  model_settings?: TeamAgentRun["modelSettings"];
 }
 
 interface RunRow extends QueryResultRow {
@@ -208,6 +210,7 @@ function mapMessage(row: MessageRow): TeamMessage {
     mentions: row.mentions ?? [],
     ...(row.agent_run_id ? { agentRunId: row.agent_run_id } : {}),
     activities: teamRunActivities(row.activities),
+    ...(row.model_settings ? { modelSettings: row.model_settings } : {}),
     createdAt: row.created_at.toISOString(),
   };
 }
@@ -225,9 +228,9 @@ function mapRun(row: RunRow): TeamAgentRun {
   };
 }
 
-export function invokesTeamAgent(body: string): boolean {
-  return /(?:^|[\s([{:;,])@neura\b/i.test(body)
-    || /(?:^|[\s([{:;,])\$(?!neura\b)[A-Za-z][A-Za-z0-9_-]*\b/i.test(body);
+export function invokesTeamAgent(body: string, invokeAgent = true): boolean {
+  return invokeAgent && (/(?:^|[\s([{:;,])@neura\b/i.test(body)
+    || /(?:^|[\s([{:;,])\$(?!(?:neura|nerua)(?=$|[^A-Za-z0-9_-]))[A-Za-z][A-Za-z0-9_-]*\b/i.test(body));
 }
 
 function assertAttachments(input: ChannelAttachment[]): ChannelAttachment[] {
@@ -658,6 +661,8 @@ export class CollaborationStore {
     body: string;
     attachments: ChannelAttachment[];
     clientRequestId: string;
+    // Voice transcripts are channel context, never implicit commands.
+    invokeAgent?: boolean;
   }): Promise<{ message: TeamMessage; run?: TeamAgentRun & { capability: string } }> {
     const client = await this.pool.connect();
     try {
@@ -696,11 +701,12 @@ export class CollaborationStore {
         message.mentions = mentioned.rows.map((user) => user.id);
       }
       let run: (TeamAgentRun & { capability: string }) | undefined;
-      if (invokesTeamAgent(normalizedBody)) {
+      if (invokesTeamAgent(normalizedBody, input.invokeAgent)) {
         const capability = randomToken();
         const runRow = await client.query<RunRow>(
-          `INSERT INTO team_agent_runs(id, channel_id, trigger_message_id, requested_by, capability_hash, status, expires_at)
-           VALUES ($1, $2, $3, $4, $5, 'queued', now() + interval '20 minutes') RETURNING *`,
+          `INSERT INTO team_agent_runs(id, channel_id, trigger_message_id, requested_by, capability_hash, status, expires_at, model_settings)
+           VALUES ($1, $2, $3, $4, $5, 'queued', now() + interval '20 minutes',
+             (SELECT resolved FROM model_provider_policies WHERE policy_key = 'workspace:team')) RETURNING *`,
           [randomUUID(), channel.id, message.id, actor.id, hashToken(capability)],
         );
         run = { ...mapRun(runRow.rows[0]!), capability };

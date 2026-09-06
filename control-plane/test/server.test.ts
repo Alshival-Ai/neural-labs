@@ -8,6 +8,8 @@ import { hashToken } from "../src/crypto.js";
 import type { Database } from "../src/database.js";
 import { createApplication } from "../src/server.js";
 import type { WebAuthnOperations } from "../src/passkeys.js";
+import { PhoneError, type PhoneService } from "../src/phone.js";
+import type { ModelProviderPolicies } from "../src/modelProviders.js";
 import type { PasskeyRecord, SessionActor, StoredInstanceConfig, UserRecord } from "../src/types.js";
 
 const now = new Date("2026-09-01T12:00:00.000Z");
@@ -114,13 +116,14 @@ const passkey: PasskeyRecord = {
   createdAt: now,
 };
 
-function application(user?: UserRecord, microsoftLinked = false, collaboration?: CollaborationStore) {
+function application(user?: UserRecord, microsoftLinked = false, collaboration?: CollaborationStore, phone?: PhoneService, modelPolicies?: ModelProviderPolicies) {
   const setUserState = vi.fn(async (_actorId: string, _targetId: string, input: { role?: "admin" | "user"; status?: "pending" | "active" | "rejected" | "disabled" }) => ({
     ...regular,
     ...input,
     updatedAt: now,
   }));
   const database = {
+    pool: { query: vi.fn(async () => ({ rows: [], rowCount: 0 })) },
     getSessionActor: vi.fn(async () => user ? actorFor(user, microsoftLinked) : undefined),
     touchSession: vi.fn(async () => undefined),
     createSession: vi.fn(async () => undefined),
@@ -213,7 +216,7 @@ function application(user?: UserRecord, microsoftLinked = false, collaboration?:
     });
   });
   return {
-    app: createApplication({ database, config, workspaceFetch, webauthn, ...(collaboration ? { collaboration } : {}) }).app,
+    app: createApplication({ database, config, workspaceFetch, webauthn, ...(collaboration ? { collaboration } : {}), ...(phone ? { phone } : {}), ...(modelPolicies ? { modelPolicies } : {}) }).app,
     database,
     webauthn,
     setUserState,
@@ -222,6 +225,58 @@ function application(user?: UserRecord, microsoftLinked = false, collaboration?:
 }
 
 const cookies = ["__Host-neural-labs-session=session-token", "neural-labs-csrf=csrf-token"];
+
+describe("private profile phone routes", () => {
+  const status = { available: true, notificationsEnabled: false, phoneNumber: null, verifiedAt: null, pending: null, resendAt: null };
+  function fixture(user: UserRecord | undefined = regular) {
+    const phone = { status: vi.fn(async () => status), start: vi.fn(async () => status), verify: vi.fn(async () => status), cancel: vi.fn(async () => status), remove: vi.fn(async () => status), setNotifications: vi.fn(async () => status) };
+    return { ...application(user, false, undefined, phone as unknown as PhoneService), phone };
+  }
+  it("keeps status private, owner scoped and non-cacheable", async () => {
+    const { app, phone } = fixture();
+    const result = await request(app).get(`/api/account/phone?userId=${admin.id}`).set("Cookie", cookies).expect(200);
+    expect(result.headers["cache-control"]).toBe("no-store");
+    expect(result.body).toEqual(status);
+    expect(phone.status).toHaveBeenCalledWith(regular.id);
+    await request(application().app).get("/api/account/phone").expect(401);
+    await request(fixture({ ...regular, status: "pending" }).app).get("/api/account/phone").set("Cookie", cookies).expect(403);
+  });
+  it("requires same-origin CSRF and explicit SMS consent", async () => {
+    const { app, phone } = fixture();
+    const body = { phoneNumber: "+12025550123", consent: true };
+    await request(app).post("/api/account/phone/request").set("Cookie", cookies).send(body).expect(403);
+    await request(app).post("/api/account/phone/request").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").set("Origin", "https://attacker.example").send(body).expect(403);
+    await request(app).post("/api/account/phone/request").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").send({ phoneNumber: body.phoneNumber }).expect(422);
+    expect(phone.start).not.toHaveBeenCalled();
+    await request(app).post("/api/account/phone/request").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").send({ ...body, userId: admin.id }).expect(200);
+    expect(phone.start).toHaveBeenCalledWith(regular.id, body.phoneNumber, expect.any(String));
+  });
+  it("validates challenges and codes, scopes mutations, and sanitizes internal failures", async () => {
+    const { app, phone } = fixture();
+    for (const code of ["12345", "1234567", "abcdef", 123456]) {
+      await request(app).post("/api/account/phone/verify").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").send({ challengeId: admin.id, code }).expect(422);
+    }
+    await request(app).post("/api/account/phone/verify").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").send({ challengeId: admin.id, code: "000123", userId: admin.id }).expect(200);
+    expect(phone.verify).toHaveBeenCalledWith(regular.id, admin.id, "000123");
+    await request(app).post("/api/account/phone/cancel").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").send({ challengeId: admin.id }).expect(200);
+    expect(phone.cancel).toHaveBeenCalledWith(regular.id, admin.id);
+    await request(app).delete("/api/account/phone").set("Cookie", cookies).expect(403);
+    await request(app).delete("/api/account/phone").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").expect(200);
+    expect(phone.remove).toHaveBeenCalledWith(regular.id);
+    phone.status.mockRejectedValueOnce(new Error("private SQL and credentials"));
+    const failed = await request(app).get("/api/account/phone").set("Cookie", cookies).expect(503);
+    expect(JSON.stringify(failed.body)).not.toContain("private SQL");
+    phone.start.mockRejectedValueOnce(new PhoneError(503, "sms_not_configured", "SMS verification is not configured."));
+    const unavailable = await request(app).post("/api/account/phone/request").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").send({ phoneNumber: "+12025550123", consent: true }).expect(503);
+    expect(unavailable.body.error.code).toBe("sms_not_configured");
+  });
+  it("changes proactive SMS opt-in only for the signed-in verified owner", async () => {
+    const { app, phone } = fixture();
+    await request(app).put("/api/account/phone/notifications").set("Cookie", cookies).send({ enabled: true }).expect(403);
+    await request(app).put("/api/account/phone/notifications").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").send({ enabled: true, userId: admin.id }).expect(200);
+    expect(phone.setNotifications).toHaveBeenCalledWith(regular.id, true);
+  });
+});
 
 describe("control-plane JSON and role routing", () => {
   it("returns an anonymous session without redirecting", async () => {
@@ -278,6 +333,52 @@ describe("control-plane JSON and role routing", () => {
     expect(String(personalCalls[0]?.[0])).toContain(`/users/${regular.id}`);
     expect(String(personalCalls[1]?.[0])).toContain(`/users/${regular.id}/start`);
     expect(new Headers(personalCalls[1]?.[1]?.headers).get("Authorization")).toBe(`Bearer ${config.workspace.controlToken}`);
+  });
+
+  it("scopes model discovery to the owner and protects expensive refreshes", async () => {
+    const instance = application(regular);
+    await request(instance.app).get("/api/account/model-providers/catalog?userId=someone-else&agentId=main").set("Cookie", cookies).expect(200);
+    const url = new URL(String(instance.workspaceFetch.mock.calls[0]?.[0]));
+    expect(url.searchParams.get("userId")).toBe(regular.id);
+    expect(url.searchParams.has("agentId")).toBe(false);
+    await request(instance.app).post("/api/account/model-providers/catalog").set("Cookie", cookies).expect(403);
+    await request(instance.app).post("/api/account/model-providers/catalog").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").set("Origin", "https://evil.example").expect(403);
+    await request(instance.app).get("/api/admin/workspace/model-providers/catalog").set("Cookie", cookies).expect(403);
+    await request(instance.app).put("/api/admin/workspace/model-providers/defaults").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").send({}).expect(403);
+    await request(application().app).get("/api/account/model-providers/catalog").expect(401);
+  });
+
+  it("protects disconnect and derives its owner from the signed-in account", async () => {
+    const instance = application(regular);
+    await request(instance.app).post("/api/account/openai/disconnect").set("Cookie", cookies).expect(403);
+    await request(instance.app).post("/api/account/openai/disconnect").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").set("Origin", "https://evil.example").expect(403);
+    expect(instance.workspaceFetch).not.toHaveBeenCalled();
+    await request(instance.app).post("/api/account/openai/disconnect?userId=someone-else").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").send({ agentId: "main", userId: "someone-else" }).expect(200);
+    expect(String(instance.workspaceFetch.mock.calls[0]?.[0])).toContain(`/users/${regular.id}/disconnect`);
+  });
+
+  it("rejects invalid model policies before accessing persistence or the runtime", async () => {
+    const instance = application(regular);
+    await request(instance.app).put("/api/account/model-providers/defaults").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").send({ revision: 0, policy: { provider: "anthropic", mode: "pinned", model: "anthropic/claude", effort: "high" } }).expect(400);
+    expect(instance.workspaceFetch).not.toHaveBeenCalled();
+  });
+
+  it("binds saved defaults to the actor and requires explicit administrator Team activation", async () => {
+    const policy = { provider: "openai", mode: "latest", model: "", effort: "" };
+    const save = vi.fn(async () => ({ policy, revision: 1, pending: false }));
+    const service = { get: vi.fn(async () => ({ policy, revision: 0 })), save } as unknown as ModelProviderPolicies;
+    const member = application(regular, false, undefined, undefined, service);
+    const status = await request(member.app).get("/api/account/model-providers/defaults").set("Cookie", cookies).expect(200);
+    expect(status.headers["cache-control"]).toBe("no-store");
+    await request(member.app).put("/api/account/model-providers/defaults?workload=team").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").send({ revision: 0, policy }).expect(200);
+    expect(save).toHaveBeenLastCalledWith(regular.id, 0, policy, "background");
+    const administrator = application(admin, false, undefined, undefined, service);
+    await request(administrator.app).put("/api/admin/workspace/model-providers/defaults?workload=team").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").send({ revision: 0, policy }).expect(400);
+    await request(administrator.app).put("/api/admin/workspace/model-providers/defaults?workload=team").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").send({ revision: 0, policy, confirmShared: true }).expect(200);
+    expect(save).toHaveBeenLastCalledWith(undefined, 0, policy, "team");
+    await request(member.app).get("/api/admin/workspace/model-providers/team/connection").set("Cookie", cookies).expect(403);
+    await request(member.app).get("/api/admin/workspace/model-providers/voice").set("Cookie", cookies).expect(403);
+    await request(administrator.app).post("/api/admin/workspace/model-providers/voice/refresh").set("Cookie", cookies).expect(403);
   });
 
   it("keeps administrator data unavailable to regular workspace users", async () => {
@@ -390,7 +491,7 @@ describe("control-plane JSON and role routing", () => {
   it("reports the display-safe plugin catalog to active members", async () => {
     const { app } = application(regular);
     const response = await request(app).get("/api/plugins").set("Cookie", cookies).expect(200);
-    expect(response.body.plugins).toHaveLength(1);
+    expect(response.body.plugins).toHaveLength(2);
     expect(response.body.plugins[0]).toMatchObject({
       id: "neural-labs-tools",
       type: "mcp",
@@ -401,6 +502,14 @@ describe("control-plane JSON and role routing", () => {
       mcp: { agentServerName: "neural-labs-tools", publicAccess: false },
     });
     expect(response.body.plugins[0].mcp.tools).toContain("search_gif");
+    expect(response.body.plugins[1]).toMatchObject({
+      id: "twilio-sms",
+      type: "channel",
+      scope: "global",
+      ownership: "workspace",
+      editable: false,
+      configured: false,
+    });
     await request(application().app).get("/api/plugins").expect(401);
   });
 

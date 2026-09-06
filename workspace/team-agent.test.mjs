@@ -18,6 +18,25 @@ const input = {
   }),
 };
 
+test("dedicated team runs use their accepted snapshot in an isolated config", async () => {
+  const settings = { agentId: "nl-teamneura", model: "openai/gpt-6-astra", effort: "high", revision: 4 };
+  let invocation;
+  await runTeamAgent({ ...input, agentId: settings.agentId, modelSettings: settings,
+    loadConfig: async () => ({ agents: { defaults: { systemAgent: { agentId: "main" } }, entries: { [settings.agentId]: { workspace: "/workspace", model: "openai/changed-after-queueing" } } } }),
+    execute: async (...args) => {
+      invocation = args;
+      const config = JSON.parse(await readFile(args[1][args[1].indexOf("--config") + 1], "utf8"));
+      assert.deepEqual(config.agents.entries[settings.agentId].model, { primary: settings.model, fallbacks: [] });
+      assert.equal(config.agents.entries[settings.agentId].thinkingDefault, "high");
+      assert.equal(config.agents.defaults.systemAgent.agentId, settings.agentId);
+      return { stdout: JSON.stringify({ final: "Team reply" }) };
+    },
+  });
+  assert.equal(invocation[2].env.OPENAI_API_KEY, undefined);
+  assert.equal(invocation[2].env.NEURAL_LABS_TEAM_CAPABILITY, input.capability);
+  await assert.rejects(runTeamAgent({ ...input, modelSettings: settings }), /snapshot is invalid/);
+});
+
 test("runs the message author's personal agent with a channel-scoped capability", async () => {
   let invocation;
   const result = await runTeamAgent({
@@ -37,7 +56,7 @@ test("runs the message author's personal agent with a channel-scoped capability"
   assert.equal(invocation[0], "openclaw");
   assert.deepEqual(invocation[1].slice(0, 5), ["agent", "exec", "--config", invocation[1][3], "--message-file"]);
   assert.equal(invocation[1].includes(input.prompt), false);
-  assert.deepEqual(invocation[1].slice(6), ["--cwd", input.workspaceRoot, "--json", "--timeout", "600"]);
+  assert.deepEqual(invocation[1].slice(6), ["--cwd", input.workspaceRoot, "--json", "--timeout", "1800"]);
   assert.equal(invocation[2].cwd, "/workspace");
   assert.equal(invocation[2].env.NEURAL_LABS_TEAM_CAPABILITY, input.capability);
 });

@@ -5,6 +5,7 @@ export type WorkspaceEntry = {
   size: number | null;
   modifiedAt: string;
   mimeType: string | null;
+  version?: string;
 };
 
 export type WorkspaceDirectory = {
@@ -16,6 +17,9 @@ export type WorkspaceDirectory = {
 export type WorkspaceFileChange = {
   sequence: number;
   paths: string[];
+  kind?: string;
+  from?: string;
+  to?: string;
 };
 
 export type WorkspaceTextFile = {
@@ -46,7 +50,7 @@ export function workspaceFileCanPreview(name: string): boolean {
   return PREVIEWABLE_EXTENSIONS.has(extension);
 }
 
-async function requestJson<T>(url: string, init: RequestInit = {}): Promise<T> {
+export async function requestJson<T>(url: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
   const response = await fetch(url, { ...init, headers, credentials: "same-origin" });
@@ -82,6 +86,7 @@ export function subscribeWorkspaceFiles(onChange: (change: WorkspaceFileChange) 
     } catch {}
   };
   events.addEventListener("files-changed", changed);
+  events.addEventListener("open", () => onChange({ sequence: 0, paths: [] }));
   return () => {
     events.removeEventListener("files-changed", changed);
     events.close();

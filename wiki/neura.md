@@ -5,6 +5,23 @@ agent. It runs in the workspace image and connects directly to the version-
 matched OpenClaw Gateway browser protocol through the authenticated same-origin
 WebSocket at `/workspace/neura/socket`.
 
+## Phone navigation and composing
+
+At phone-sized app widths, the top-left menu opens a collapsible **Conversation
+history** drawer. It contains searchable private chats and Team channels, plus
+Recent and Archived views and always-visible conversation actions. Selection,
+the close button, Escape, or tapping the backdrop dismisses it. The drawer traps
+focus and restores it to its opener; it does not change the desktop sidebar
+preference. Team channels expose their terminal list through a separate toolbar
+button and drawer, leaving the conversation full-width.
+
+The composer grows with a multiline draft, has larger touch targets, and stays
+above the visual viewport's keyboard boundary and the floating desktop dock.
+Long code blocks and tables scroll within the transcript rather than widening
+the app. Plain Enter adds a newline on phones; the send button submits.
+
+## Gateway lifecycle
+
 The socket remains open for the desktop session. Neura subscribes to the shared
 conversation roster and acquires a targeted `sessions.messages.subscribe`
 lease for the selected conversation before loading its history or enabling the
@@ -28,6 +45,20 @@ of the bottom. Scrolling upward pauses that behavior and reveals a compact
 the current keyed transcript mounted while history is reconciled in place, so
 a transient connection change does not clear the chat or reset its scroll
 position. Minimizing Neura also keeps the live app mounted.
+
+## Project placement
+
+New project work belongs in `projects/<project>` beneath the shared workspace,
+for example `/home/node/workspace/projects/lemonade-lab`. The Files app's `~`
+denotes `/home/node/workspace`, not the shell home `/home/node`. Briefs, assets,
+source, and generated output stay with the project. Existing legacy projects
+are not moved automatically.
+
+The operator-maintained instruction block is
+[`workspace/project-guidance.md`](../workspace/project-guidance.md). It is also
+installed near the top of the persistent workspace `AGENTS.md`, which all personal
+agents share and Team Chat execution uses. Preserve other workspace instructions
+when updating this block. This changes guidance, not filesystem permissions.
 
 ## Conversation model
 
@@ -64,21 +95,66 @@ channel turn.
 
 ## Voice
 
-The wave control has deliberately different behavior in each chat scope. In a
-private chat it opens a live, two-way WebRTC audio session directly between the
-browser and OpenAI Realtime. The authenticated workspace server exchanges only
-the browser's SDP offer for an SDP answer, keeps the standard OpenAI API key on
-the server, and ends the session after five minutes. The user can end it sooner
-with the same wave control.
+The composer has one primary send/voice control. An empty draft shows the mic;
+text or queued attachments show Send. Private chat has an Open/Hold switch:
+Open starts a continuous microphone session, while Hold transmits only while the
+wave is pressed. Private chat opens a two-way WebRTC session directly between the
+browser and OpenAI Realtime. A persistent call bar provides mute/unmute and hangup,
+including while typing. Mute disables the outgoing audio track. Hold mode only
+transmits while pressed; release, lost focus, and touch cancellation close the mic.
+Changing conversations or closing Neura releases its media. Calls stop after five
+minutes. The authenticated server exchanges SDP and keeps the provider key private.
 
-In Team Chat, the wave records a voice memo instead of opening a live call.
-Tapping it again stops recording. The memo is sent to the workspace server for
-OpenAI transcription, saved under `team-uploads/` as a playable channel
-attachment, and posted with its transcript as an `@Neura` message. The visible
-transcript therefore becomes durable Team Chat history and is included in the
-same bounded context used for that Neura turn. Both paths fail closed when the
-server-side `OPENAI_API_KEY` is absent; this key is separate from personal
-ChatGPT OAuth credentials.
+In Team Chat, the wave is always hold-to-talk and has no mode switch. Releasing
+it transcribes and posts the voice memo rather than opening a live call. The original audio is saved under
+`team-uploads/` and the visible transcript becomes durable channel history. Posting
+a memo explicitly sets `invokeAgent: false`, even if its transcript contains a
+mention or skill command. Teammates can later summon Neura with `@Neura`; recent
+transcripts enter that run's bounded channel context, with older history
+accessible through channel-scoped tools. This does not copy team history
+into unrelated private Realtime calls.
+
+Failed memos stay in memory in the current tab for playback, transcription retry,
+audio-only sending, download, or discard. Audio-only posts have no transcript for
+Neura. The memo is retained until the server acknowledges saving it; retries reuse
+one request ID and any completed transcription/upload. Changing channels aborts
+in-flight work and preserves the pending memo for its original channel. Refreshing
+or closing the tab loses unsent audio, so download it first. Both voice API paths
+fail closed without server-side `OPENAI_API_KEY`; personal ChatGPT OAuth credentials
+are separate.
+
+## Browser QA
+
+Neura can use OpenClaw's bundled browser tool for multi-step website QA. The
+workspace image installs Debian's Chromium package plus broad-coverage web and
+emoji fonts; OpenClaw already supplies the Playwright-backed control runtime and
+its `browser-automation` skill. Both private Neura turns and isolated Team Chat
+turns inherit the browser tool.
+
+The default `openclaw` profile is a dedicated agent-only profile. It runs
+headless in the workspace container, uses `/usr/bin/chromium`, and does not
+attach to a developer's host browser, cookies, or signed-in sessions. Neura can
+open public HTTP(S) sites, take accessibility snapshots and screenshots, and
+click, type, wait, or inspect browser errors and requests. It should use the
+bundled browser skill's status, stable-tab, snapshot, and stale-reference loop
+for longer QA tasks.
+
+OpenClaw's private-network navigation guard remains active. Only exact
+`localhost` and `127.0.0.1` destinations are added so Neura can test preview
+servers that it starts inside its own workspace container; the rest of the
+Compose and host private network is not browser-addressable through this grant.
+The browser requires no additional public listener.
+
+The same image includes FFmpeg and FFprobe for seek-oriented video derivatives,
+WebP and ImageMagick image utilities, and rsync for local site assembly. The
+team's website-builder skills treat ordinary style and effect choices as
+evidence-led `AUTO` decisions: complete showcase builds receive a full-bleed
+media opening and one purposeful viewport-scale scroll-video or frame-sequence
+scene whenever compatible media passes the quality gates.
+Neura asks about effects only when the user wants to choose; factual identity or
+unsafe conversion ambiguity can still stop a build. Cinematic runtime media is
+stored locally, classified as authentic, representative, or generated, and
+verified before browser QA.
 
 ## Personal OpenAI connection
 
@@ -113,9 +189,12 @@ run automations, heartbeats, and other background work.
 
 ## Run controls
 
-When Neura is idle, Enter sends the draft. While a run is active, Enter steers
-the run and Ctrl/Cmd+Enter queues a follow-up. Shift+Enter inserts a new line.
-The split send control exposes both active-run choices. Neura also recognizes a
+In private and Team chats on every viewport, Enter sends and Shift+Enter inserts
+a new line. During an active private run, Enter steers the run; queueing remains
+an explicit choice in Send options. When an `@` mention or `$` skill popup is
+open, Enter accepts the highlighted suggestion. IME composition does
+not accidentally submit a message. The split send control exposes both
+active-run choices. Neura also recognizes a
 run reported active by the session roster, including one started before this
 browser opened the app; receiving an intermediate durable assistant message
 does not change the composer back to idle.
@@ -141,14 +220,20 @@ window so an answer cannot be started before its live event channel exists.
 Tool, plan, safe progress, and operation events appear as a compact collapsed
 timeline in the transcript. Expanding it reveals individual steps; command
 steps can then reveal their bounded command, output, exit code, and duration.
+File-change steps reveal the bounded, credential-redacted patch or generated
+content so the user can review what the agent changed.
 Durable tool calls and results from `chat.history` are reconstructed into the
 same UI after a reload. Known credential-shaped values are redacted, and raw
 reasoning content is never projected—the UI uses a generic thinking label or
 explicit commentary intended for display. Assistant messages marked with
-OpenClaw's `commentary` phase become **Progress update** steps inside this card,
+OpenClaw's `commentary` phase—whether top-level or carried in signed text-block
+metadata—become **Progress update** steps inside this card,
 both live and after history reload; only the final answer remains in the main
-chat. Older unphased preambles are folded when a later tool, plan, or same-turn
-assistant answer establishes that they were intermediate. Routine transport
+chat and streams as it is generated. While a run is active, a refresh treats
+the unfinished assistant tail as work-in-progress rather than guessing that its
+last durable message is the answer. Older unphased preambles are folded when a
+later tool, plan, same-turn assistant answer, or active-history reload establishes
+that they were intermediate. Routine transport
 states such as model startup still drive run and queue state but do not appear
 as synthetic completed work. OpenClaw approval events render inline with only
 their allowed decisions. Assistant text is rendered as Markdown without raw

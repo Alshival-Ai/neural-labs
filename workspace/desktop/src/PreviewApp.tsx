@@ -181,7 +181,7 @@ function CsvPreview({ file }: { file: WorkspacePreviewFile }) {
   return <div className="preview-spreadsheet"><div className="preview-sheet-summary"><Table2 /><span><strong>{file.name}</strong>{sheet.rowCount.toLocaleString()} rows × {sheet.columnCount.toLocaleString()} columns{sheet.truncated ? " · preview truncated" : ""}</span></div><DataTable sheet={sheet} /></div>;
 }
 
-export function PreviewApp({ file }: { file: WorkspacePreviewFile }) {
+export function PreviewApp({ file, onEditImage }: { file: WorkspacePreviewFile; onEditImage?: (file: WorkspacePreviewFile) => void }) {
   const kind = useMemo(() => previewKindFor(file), [file]);
   const [htmlUrl, setHtmlUrl] = useState<string>();
   const [htmlError, setHtmlError] = useState<string>();
@@ -222,6 +222,7 @@ export function PreviewApp({ file }: { file: WorkspacePreviewFile }) {
     <header className="preview-toolbar">
       <div><span>{kind === "spreadsheet" || kind === "csv" ? "Spreadsheet" : kind === "html" ? "Web page · live preview" : kind[0].toUpperCase() + kind.slice(1)}</span><strong>{file.name}</strong></div>
       <div className="preview-toolbar-actions">
+        {onEditImage && /\.(png|jpe?g|webp|avif|bmp)$/i.test(file.name) && <button type="button" onClick={() => onEditImage(file)}>Edit image</button>}
         {kind === "html" && <button type="button" onClick={() => setHtmlRevision((current) => current + 1)}><RefreshCw />Reload</button>}
         <a href={workspaceDownloadUrl(file.path)} download={file.name}><Download />Download</a>
       </div>

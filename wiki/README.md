@@ -42,3 +42,8 @@
 - [ADR 0017: Private desktop site previews](adr/0017-private-desktop-site-previews.md)
 - [ADR 0018: Private Neura generated media](adr/0018-private-neura-generated-media.md)
 - [ADR 0019: Neura OpenAI voice](adr/0019-neura-openai-voice.md)
+- [ADR 0020: Isolated managed browser for Neura QA](adr/0020-neura-managed-browser.md)
+- [ADR 0021: Files recovery and isolated image editing](adr/0021-files-explorer-image-editor.md)
+- [ADR 0022: Private profile phone verification](adr/0022-profile-phone-verification.md)
+- [ADR 0023: Model provider policies and dedicated Team Neura](adr/0023-model-provider-policies.md)
+- [ADR 0024: Global Twilio SMS/MMS channel](adr/0024-twilio-sms-channel.md)

@@ -191,7 +191,7 @@ export class AutomationsGateway {
   }
 
   update(job: AutomationJob, draft: AutomationDraft) {
-    const patch = draftToGatewayParams(draft);
+    const patch = draftToGatewayParams(draft, true);
     patch.enabled = job.enabled;
     const params: RecordValue = { id: job.id, patch };
     if (job.configRevision) params.expectedConfigRevision = job.configRevision;
@@ -394,12 +394,12 @@ function mapRun(run: RecordValue): AutomationRun {
   };
 }
 
-export function draftToGatewayParams(draft: AutomationDraft): RecordValue {
+export function draftToGatewayParams(draft: AutomationDraft, updating = false): RecordValue {
   const toolsAllow = draft.tools.split(",").map((tool) => tool.trim()).filter(Boolean);
   const timeoutSeconds = optionalPositiveNumber(draft.timeoutSeconds, "Timeout");
   const schedule = scheduleFromDraft(draft);
   const payload = draft.payloadKind === "systemEvent" ? { kind: "systemEvent", text: draft.payload.trim(), ...(toolsAllow.length ? { toolsAllow } : {}) }
-    : draft.payloadKind === "agentTurn" ? { kind: "agentTurn", message: draft.payload.trim(), ...(draft.model && draft.model !== "Workspace default" ? { model: draft.model } : {}), ...(draft.thinking && draft.thinking !== "off" ? { thinking: draft.thinking } : {}), ...(timeoutSeconds ? { timeoutSeconds } : {}), ...(toolsAllow.length ? { toolsAllow } : {}) }
+    : draft.payloadKind === "agentTurn" ? { kind: "agentTurn", message: draft.payload.trim(), ...(draft.model && draft.model !== "Workspace default" ? { model: draft.model, fallbacks: [] } : updating ? { model: null, fallbacks: null } : {}), ...(draft.thinking ? { thinking: draft.thinking } : updating ? { thinking: null } : {}), ...(timeoutSeconds ? { timeoutSeconds } : {}), ...(toolsAllow.length ? { toolsAllow } : {}) }
     : draft.payloadKind === "command" ? { kind: "command", argv: commandArgv(draft.payload), ...(draft.workingDirectory.trim() ? { cwd: draft.workingDirectory.trim() } : {}), ...(timeoutSeconds ? { timeoutSeconds } : {}), ...(toolsAllow.length ? { toolsAllow } : {}) }
     : { kind: "script", script: draft.payload.trim(), ...(timeoutSeconds ? { timeoutSeconds } : {}), ...(toolsAllow.length ? { toolsAllow } : {}) };
   const target = draft.target.trim();

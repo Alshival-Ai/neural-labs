@@ -9,12 +9,13 @@ async function errorMessage(response: Response, fallback: string): Promise<strin
   }
 }
 
-export async function exchangeRealtimeOffer(sdp: string): Promise<{ answer: string; maxSeconds: number }> {
+export async function exchangeRealtimeOffer(sdp: string, signal?: AbortSignal): Promise<{ answer: string; maxSeconds: number }> {
   const response = await fetch("/workspace/api/neura/realtime/call", {
     method: "POST",
     credentials: "same-origin",
     headers: { "Content-Type": "application/sdp" },
     body: sdp,
+    signal,
   });
   if (!response.ok) throw new Error(await errorMessage(response, "Neura voice is unavailable right now"));
   const answer = await response.text();
@@ -23,12 +24,13 @@ export async function exchangeRealtimeOffer(sdp: string): Promise<{ answer: stri
   return { answer, maxSeconds: Number.isFinite(configuredSeconds) && configuredSeconds > 0 ? configuredSeconds : 300 };
 }
 
-export async function transcribeVoiceMemo(audio: Blob): Promise<string> {
+export async function transcribeVoiceMemo(audio: Blob, signal?: AbortSignal): Promise<string> {
   const response = await fetch("/workspace/api/neura/transcriptions", {
     method: "POST",
     credentials: "same-origin",
     headers: { "Content-Type": audio.type || "audio/webm" },
     body: audio,
+    signal,
   });
   if (!response.ok) throw new Error(await errorMessage(response, "Voice memo transcription failed"));
   const result = await response.json() as { text?: string };

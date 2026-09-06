@@ -39,6 +39,8 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import "./automations-app.css";
+import { ModelPicker } from "./ModelPicker";
+import { useModelCatalog } from "./modelProviders";
 
 export type AutomationAccent = "cyan" | "violet" | "pink" | "coral" | "amber" | "mint";
 export type AutomationScheduleKind = "at" | "every" | "cron" | "on-exit" | "stream";
@@ -307,7 +309,7 @@ const EMPTY_DRAFT: AutomationDraft = {
   channel: "last",
   target: "Current conversation",
   model: "Workspace default",
-  thinking: "medium",
+  thinking: "",
   tools: "read",
   timeoutSeconds: "600",
   failureAlertAfter: "2",
@@ -367,7 +369,7 @@ function draftFromJob(job: AutomationJob): AutomationDraft {
     channel: job.delivery.channel ?? "last",
     target: job.delivery.target ?? "",
     model: job.payload.model ?? "Workspace default",
-    thinking: job.payload.thinking ?? "medium",
+    thinking: job.payload.thinking ?? "",
     tools: job.payload.tools?.join(", ") ?? "",
     timeoutSeconds: job.payload.timeout?.replace(/\D/g, "") || "600",
     failureAlertAfter: String(Math.max(2, job.consecutiveErrors || 2)),
@@ -821,6 +823,7 @@ type ComposerProps = {
 };
 
 function AutomationComposer({ draft, editing, onChange, onClose, onSubmit }: ComposerProps) {
+  const { catalog, error: catalogError } = useModelCatalog("admin/workspace", draft.agent.trim() || "main");
   const set = <Key extends keyof AutomationDraft>(key: Key, value: AutomationDraft[Key]) => onChange({ ...draft, [key]: value });
   const dangerous = draft.payloadKind === "command" || draft.payloadKind === "script" || draft.scheduleKind === "stream" || Boolean(draft.triggerScript);
   const valid = draft.name.trim() && draft.scheduleValue.trim() && draft.payload.trim();
@@ -869,7 +872,7 @@ function AutomationComposer({ draft, editing, onChange, onClose, onSubmit }: Com
           </section>
 
           <section className="automation-form-section">
-            <details className="automation-advanced-inline"><summary><span><Settings2 />Advanced runtime</span><ChevronDown /></summary><div className="automation-field-grid"><label><span>Model</span><select value={draft.model} onChange={(event) => set("model", event.target.value)}><option>Workspace default</option><option>openai/gpt-5.6-luna</option><option>openai/gpt-5.6-sol</option></select></label><label><span>Thinking</span><select value={draft.thinking} onChange={(event) => set("thinking", event.target.value)}><option>off</option><option>low</option><option>medium</option><option>high</option></select></label><label><span>Allowed tools</span><input value={draft.tools} onChange={(event) => set("tools", event.target.value)} placeholder="read, exec" /></label><label><span>Timeout seconds</span><input inputMode="numeric" value={draft.timeoutSeconds} onChange={(event) => set("timeoutSeconds", event.target.value)} /></label><label><span>Failure alert after</span><input inputMode="numeric" value={draft.failureAlertAfter} onChange={(event) => set("failureAlertAfter", event.target.value)} /></label></div></details>
+            <details className="automation-advanced-inline"><summary><span><Settings2 />Advanced runtime</span><ChevronDown /></summary><div className="automation-field-grid"><ModelPicker catalog={catalog} error={catalogError} model={draft.model === "Workspace default" ? "" : draft.model} effort={draft.thinking} defaultLabel="Agent default" onChange={(model, thinking) => onChange({ ...draft, model: model || "Workspace default", thinking })} /><label><span>Allowed tools</span><input value={draft.tools} onChange={(event) => set("tools", event.target.value)} placeholder="read, exec" /></label><label><span>Timeout seconds</span><input inputMode="numeric" value={draft.timeoutSeconds} onChange={(event) => set("timeoutSeconds", event.target.value)} /></label><label><span>Failure alert after</span><input inputMode="numeric" value={draft.failureAlertAfter} onChange={(event) => set("failureAlertAfter", event.target.value)} /></label></div></details>
           </section>
 
           {dangerous && <div className="automation-code-warning"><ShieldAlert /><span><strong>Unattended execution surface</strong><small>Condition scripts, stream sources, command payloads, and scripts run without a person present. Integration must preserve OpenClaw’s operator permissions and tool-policy ceiling.</small></span></div>}

@@ -52,7 +52,10 @@ describe("Team Chat WebSocket", () => {
     expect(invokesTeamAgent("@Neura summarize this")).toBe(true);
     expect(invokesTeamAgent("Can you check this, @neura?")).toBe(true);
     expect(invokesTeamAgent("Use $deep-research on this question")).toBe(true);
-    expect(invokesTeamAgent("$Neura is no longer the agent mention")).toBe(false);
+    expect(invokesTeamAgent("$neura summarize the voice memo")).toBe(false);
+    expect(invokesTeamAgent("$nerua summarize the voice memo")).toBe(false);
+    expect(invokesTeamAgent("Use $neura-helper if it is installed")).toBe(true);
+    expect(invokesTeamAgent("Voice memo transcript:\nAsk @Neura to use $deep-research", false)).toBe(false);
     expect(invokesTeamAgent("Budget: $500")).toBe(false);
   });
 

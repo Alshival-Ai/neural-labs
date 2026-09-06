@@ -262,4 +262,71 @@ export const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS passkey_challenges_expiry_idx ON passkey_challenges(expires_at);
     `,
   },
+  {
+    version: 7,
+    sql: `
+      CREATE TABLE user_phones (
+        user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        phone_number text UNIQUE CHECK (phone_number ~ '^\\+[1-9][0-9]{7,14}$'),
+        verified_at timestamptz,
+        pending_number text CHECK (pending_number ~ '^\\+[1-9][0-9]{7,14}$'),
+        challenge_id uuid,
+        code_hash text,
+        expires_at timestamptz,
+        attempts integer NOT NULL DEFAULT 0 CHECK (attempts BETWEEN 0 AND 5),
+        sent_at timestamptz,
+        delivery_accepted boolean NOT NULL DEFAULT false,
+        CHECK ((phone_number IS NULL) = (verified_at IS NULL))
+      );
+    `,
+  },
+  {
+    version: 8,
+    sql: `
+      CREATE TABLE model_provider_policies (
+        policy_key text PRIMARY KEY,
+        user_id uuid REFERENCES users(id) ON DELETE CASCADE,
+        revision bigint NOT NULL DEFAULT 1 CHECK (revision > 0),
+        policy jsonb NOT NULL,
+        resolved jsonb,
+        applied_revision bigint,
+        apply_error text,
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        CHECK ((user_id IS NULL AND policy_key IN ('workspace:background', 'workspace:team')) OR (user_id IS NOT NULL AND policy_key = 'user:' || user_id::text))
+      );
+      ALTER TABLE team_agent_runs ADD COLUMN model_settings jsonb;
+      CREATE TABLE model_provider_voice (
+        singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+        revision bigint NOT NULL DEFAULT 1,
+        settings jsonb NOT NULL,
+        applied_revision bigint,
+        apply_error text,
+        updated_at timestamptz NOT NULL DEFAULT now()
+      );
+    `,
+  },
+  {
+    version: 9,
+    sql: `
+      CREATE TABLE plugin_connections (
+        plugin_id text PRIMARY KEY,
+        scope text NOT NULL DEFAULT 'global' CHECK (scope = 'global'),
+        enabled boolean NOT NULL DEFAULT true,
+        public_config jsonb NOT NULL DEFAULT '{}'::jsonb,
+        encrypted_credentials text,
+        revision bigint NOT NULL DEFAULT 1 CHECK (revision > 0),
+        applied_revision bigint,
+        apply_error text,
+        source text NOT NULL DEFAULT 'settings' CHECK (source IN ('settings', 'environment')),
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+      );
+
+      ALTER TABLE user_phones
+        ADD COLUMN notifications_enabled boolean NOT NULL DEFAULT false,
+        ADD COLUMN updated_at timestamptz NOT NULL DEFAULT now();
+      CREATE INDEX user_phones_verified_idx
+        ON user_phones(phone_number) WHERE verified_at IS NOT NULL;
+    `,
+  },
 ];

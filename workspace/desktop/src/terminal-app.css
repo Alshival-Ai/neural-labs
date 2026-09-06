@@ -407,3 +407,65 @@
   .terminal-launchpad__skeleton,
   .terminal-pane__reaction-burst { animation: none; }
 }
+
+.terminal-mobile-sessions { width: 44px; height: 44px; flex-shrink: 0; display: grid; place-items: center; border: 1px solid #39445a; border-radius: 8px; color: #67e8f9; background: #202a3b; cursor: pointer; }
+.terminal-mobile-sessions svg { width: 20px; height: 20px; }
+.terminal-session-drawer { display: grid; gap: 8px; padding: 12px; }
+.terminal-session-drawer > button, .terminal-session-drawer section > button { width: 100%; min-width: 0; min-height: 48px; display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid #343e51; border-radius: 8px; color: #edf2fc; background: #202838; cursor: pointer; text-align: left; }
+.terminal-session-drawer svg { width: 20px; height: 20px; flex-shrink: 0; }
+.terminal-session-drawer button > span { min-width: 0; display: grid; gap: 4px; }
+.terminal-session-drawer strong { font-size: 14px; overflow-wrap: anywhere; }
+.terminal-session-drawer small, .terminal-session-drawer p { color: #b6c0d3; font-size: 13px; }
+.terminal-session-drawer section { display: grid; gap: 6px; }
+.terminal-session-drawer h2 { margin: 12px 0 4px; font-size: 13px; color: #c6b7ff; }
+.terminal-session-drawer [aria-current="page"] { border-color: #67e8f9; background: #233f50; }
+.terminal-session-drawer label { display: grid; gap: 8px; margin-top: 10px; font-size: 13px; }
+.terminal-session-drawer input { width: 100%; min-width: 0; min-height: 44px; padding: 8px 10px; color: #fff; background: #111723; border: 1px solid #46536c; border-radius: 8px; font-size: 16px; }
+.terminal-clipboard-notice { display: flex; align-items: center; gap: 8px; padding: 8px; color: #f4dba4; background: #302b20; font-size: 13px; }
+.terminal-clipboard-notice button { margin-left: auto; min-width: 40px; min-height: 40px; border: 0; border-radius: 6px; color: inherit; background: #49402d; }
+.terminal-clipboard-notice svg { width: 16px; height: 16px; }
+.terminal-app.is-mobile { height: var(--mobile-app-height, 100%); padding-bottom: var(--mobile-app-inset, 0px); grid-template-rows: auto auto minmax(0, 1fr) auto; }
+.terminal-app.is-mobile .terminal-stage { grid-template-columns: minmax(0, 1fr); }
+.terminal-app.is-mobile .terminal-session-rail, .terminal-app.is-mobile .terminal-session-preview, .terminal-app.is-mobile .terminal-toolbar__actions .terminal-split-control { display: none; }
+.terminal-app.is-mobile .terminal-toolbar { min-height: 56px; }
+.terminal-app.is-mobile .terminal-toolbar__actions button { width: 44px; height: 44px; min-width: 44px; background: #222a3a; }
+.terminal-app.is-mobile .terminal-toolbar__actions { gap: 5px; }
+.terminal-app.is-mobile .terminal-toolbar__identity > span:last-child, .terminal-app.is-mobile .terminal-toolbar__context { display: none; }
+.terminal-app.is-mobile .terminal-workspace.is-split { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+.terminal-app.is-mobile .terminal-pane { display: flex; flex-direction: column; border: 0; }
+.terminal-app.is-mobile .terminal-pane:not(.is-active) { display: none; }
+.terminal-app.is-mobile .terminal-pane__canvas { flex: 1; }
+.terminal-app.is-mobile .terminal-pane__header { min-height: 48px; flex-shrink: 0; flex-wrap: wrap; gap: 4px; padding-inline: 4px; }
+.terminal-app.is-mobile .terminal-pane__session { flex: 1; overflow: hidden; }
+.terminal-app.is-mobile .terminal-pane__session strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.terminal-app.is-mobile .terminal-pane__session span, .terminal-app.is-mobile .terminal-pane__state, .terminal-app.is-mobile .terminal-pane__mode { display: none; }
+.terminal-app.is-mobile .terminal-pane__state:not(.is-connected) { display: flex; order: 2; flex: 1 0 100%; padding: 4px; font-size: 12px; }
+.terminal-app.is-mobile .terminal-pane__actions button, .terminal-app.is-mobile .terminal-pane__actions button:nth-child(2), .terminal-app.is-mobile .terminal-pane__actions button:nth-child(3) { display: flex; align-items: center; justify-content: center; width: 40px; height: 44px; background: #1c2331; }
+.terminal-app.is-mobile .terminal-pane__presence { min-height: 48px; height: auto; flex-wrap: wrap; flex-shrink: 0; padding: 4px 8px; }
+.terminal-app.is-mobile .terminal-pane__presence > i { display: none; }
+.terminal-app.is-mobile .terminal-pane__presence button { min-width: 40px; min-height: 40px; }
+.terminal-app.is-mobile .terminal-xterm { inset: 6px 4px; }
+.terminal-app.is-mobile .terminal-search { flex-wrap: wrap; padding: 8px; }
+.terminal-app.is-mobile .terminal-search input { width: auto; flex: 1; min-width: 0; min-height: 44px; font-size: 16px; }
+.terminal-app.is-mobile .terminal-search > span { display: none; }
+.terminal-app.is-mobile .terminal-search button { min-width: 44px; min-height: 44px; }
+.terminal-app.is-mobile .terminal-statusbar { margin-left: 0; min-height: 40px; max-height: none; }
+.terminal-app.is-mobile .terminal-statusbar__details > span { display: none; }
+.terminal-app.is-mobile .terminal-statusbar__details > .terminal-statusbar__zoom { display: inline-grid; height: 44px; grid-template-columns: 44px 46px 44px; }
+.terminal-app.is-mobile .terminal-statusbar__zoom button { height: 44px; }
+.terminal-app.is-mobile .terminal-launchpad__inner { padding: 20px 12px; }
+.terminal-app.is-mobile .terminal-launchpad__grid, .terminal-app.is-mobile .terminal-launchpad__recent { grid-template-columns: minmax(0, 1fr); }
+.terminal-app.is-mobile .terminal-launchpad__hero h1 { font-size: 28px; }
+.terminal-app.is-mobile .terminal-launchpad__hero p { font-size: 14px; }
+.terminal-app.is-mobile .terminal-launchpad__session-list strong, .terminal-app.is-mobile .terminal-launchpad__personal strong, .terminal-app.is-mobile .terminal-launchpad__section-heading h2 { font-size: 14px; }
+.terminal-app.is-mobile .terminal-launchpad__session-list small, .terminal-app.is-mobile .terminal-launchpad__personal small { white-space: normal; font-size: 12px; }
+.terminal-app.is-mobile .terminal-launchpad__team-composer input { font-size: 16px; min-height: 44px; }
+.terminal-app.is-mobile .terminal-launchpad__team-composer button, .terminal-app.is-mobile .terminal-launchpad__heading-actions button { min-height: 44px; min-width: 44px; }
+.terminal-mobile-panes { display: flex; gap: 4px; padding: 4px 8px; overflow: auto; background: #111725; }
+.terminal-mobile-panes button { flex: 1; min-width: 90px; min-height: 44px; overflow: hidden; padding: 6px 10px; color: #b7c4dc; background: #202a3b; border: 1px solid #3b4861; border-radius: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.terminal-mobile-panes [aria-selected="true"] { border-color: #67e8f9; color: #e8fbff; background: #233f50; }
+.terminal-touch-keys { display: flex; flex-shrink: 0; gap: 4px; overflow-x: auto; overscroll-behavior-x: contain; padding: 6px; border-top: 1px solid #354159; background: #111725; }
+.terminal-touch-keys button { min-width: 44px; min-height: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 5px 10px; border: 1px solid #3c4961; border-radius: 7px; color: #f3f7ff; background: #253147; cursor: pointer; font: 14px/1.2 ui-monospace, monospace; }
+.terminal-touch-keys button[aria-pressed="true"] { color: #061722; border-color: #67e8f9; background: #67e8f9; }
+.terminal-touch-keys button:disabled { opacity: .4; }
+.terminal-touch-keys svg { width: 20px; height: 20px; }

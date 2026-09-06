@@ -20,6 +20,15 @@ async function secretFiles() {
 }
 
 describe("control-plane configuration", () => {
+  it("enables SMS only with a complete, valid server-side Twilio configuration", async () => {
+    const base = { CONTROL_PLANE_MASTER_KEY: Buffer.alloc(32, 7).toString("base64"), MCP_CONFIG_TOKEN: "mcp-config-token-at-least-thirty-two-characters", WORKSPACE_CONTROL_TOKEN: "workspace-control-token-at-least-thirty-two-characters", PGPASSWORD: "test" };
+    expect((await loadConfig(base)).sms).toBeUndefined();
+    await expect(loadConfig({ ...base, TWILIO_AUTH_TOKEN: "test-token" })).rejects.toThrow(/TWILIO/);
+    const sms = { TWILIO_ACCOUNT_SID: `AC${"a".repeat(32)}`, TWILIO_AUTH_TOKEN: "test-token", TWILIO_FROM_NUMBER: "+1 202 555 0100" };
+    expect((await loadConfig({ ...base, ...sms })).sms?.fromNumber).toBe("+12025550100");
+    await expect(loadConfig({ ...base, ...sms, TWILIO_ACCOUNT_SID: "../../other" })).rejects.toThrow(/TWILIO/);
+    await expect(loadConfig({ ...base, ...sms, TWILIO_FROM_NUMBER: "2025550100" })).rejects.toThrow(/international/);
+  });
   it("loads runtime secrets from files", async () => {
     const files = await secretFiles();
     const config = await loadConfig({

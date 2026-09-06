@@ -9,6 +9,7 @@ vi.mock("@simplewebauthn/browser", () => ({
 import { startRegistration } from "@simplewebauthn/browser";
 
 import { PersonalizationPanel, type PersonalOpenAIAuth } from "./UserSettingsApp";
+import { PersonalProviderConnection } from "./PersonalProviderConnection";
 
 const user = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -59,6 +60,7 @@ beforeEach(() => {
   });
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = String(input);
+    if (url === "/api/account/phone") return json({ available: true, phoneNumber: null, verifiedAt: null, pending: null, resendAt: null });
     if (url === "/api/auth/providers") {
       return json({ local: { enabled: true }, microsoft: { available: true, enabled: true } });
     }
@@ -154,7 +156,7 @@ describe("Settings personalization panel", () => {
   });
 
   it("starts a personal ChatGPT device-code connection", async () => {
-    render(<PersonalizationPanel user={user} providers={["local"]} csrfToken="csrf-token" fontScale={100} onFontScaleChange={vi.fn()} onLogout={vi.fn()} />);
+    render(<PersonalProviderConnection csrfToken="csrf-token" />);
     fireEvent.click(await screen.findByRole("button", { name: "Connect ChatGPT" }));
 
     expect(await screen.findByText("ABCD-EFGH")).toBeInTheDocument();

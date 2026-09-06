@@ -1,0 +1,67 @@
+.app-drawer {
+  position: fixed;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-right: 1px solid #ffffff20;
+  border-radius: 0 14px 14px 0;
+  color: #f6f7fb;
+  background: #10121b;
+  box-shadow: 12px 0 40px #0006;
+}
+.app-drawer[open] {
+  display: flex;
+  flex-direction: column;
+}
+.app-drawer::backdrop {
+  background: #070b166b;
+}
+.app-drawer__header {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid #ffffff20;
+}
+.app-drawer__header strong {
+  font-size: 16px;
+}
+.app-drawer__header button {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  color: inherit;
+  background: #252a3a;
+  cursor: pointer;
+}
+.app-drawer__header svg {
+  width: 20px;
+  height: 20px;
+}
+.app-drawer__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.app-drawer .neura-sidebar {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.app-drawer button:focus-visible,
+.app-drawer input:focus-visible,
+.app-drawer summary:focus-visible {
+  outline: 2px solid #67e8f9;
+  outline-offset: -2px;
+}

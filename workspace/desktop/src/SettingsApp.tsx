@@ -50,8 +50,13 @@ import {
   type PersonalizationUser,
 } from "./UserSettingsApp";
 import "./settings-app.css";
+import { ModelProviderPanel } from "./ModelProviderPanel";
+import { ModelDefaultsPanel } from "./ModelDefaultsPanel";
+import { PersonalProviderConnection } from "./PersonalProviderConnection";
+import { VoiceSettingsPanel } from "./VoiceSettingsPanel";
+import { TwilioPluginCard } from "./TwilioPluginCard";
 
-export type SettingsSection = "personalization" | "plugins" | "overview" | "users" | "authentication" | "workspace" | "audit" | "about";
+export type SettingsSection = "personalization" | "model-provider" | "plugins" | "overview" | "users" | "authentication" | "workspace" | "audit" | "about";
 
 export type SettingsAppProps = {
   administrator?: boolean;
@@ -80,6 +85,7 @@ function settingsDeviceState(storageNamespace: string | undefined, storageArea: 
 }
 
 const PERSONALIZATION_NAVIGATION = { id: "personalization", label: "Personalization", description: "Your desktop and account", icon: Type, accent: "violet" } satisfies { id: SettingsSection; label: string; description: string; icon: LucideIcon; accent: string };
+const MODEL_PROVIDER_NAVIGATION = { id: "model-provider", label: "Model Provider", description: "Your agent connection", icon: Bot, accent: "coral" } satisfies { id: SettingsSection; label: string; description: string; icon: LucideIcon; accent: string };
 
 const PLUGINS_NAVIGATION = { id: "plugins", label: "Plugins", description: "Private and global tools", icon: PlugZap, accent: "violet" } satisfies { id: SettingsSection; label: string; description: string; icon: LucideIcon; accent: string };
 
@@ -117,7 +123,7 @@ function initials(value: string): string {
 }
 
 export function SettingsApp({ administrator = true, csrfToken, currentUserId, user, providers = [], initialNotice, initialSection, sectionRequest, fontScale = 100, onFontScaleChange = () => undefined, onLogout = () => undefined, storageNamespace, storageArea = "settings" }: SettingsAppProps) {
-  const navigation = administrator ? [PERSONALIZATION_NAVIGATION, PLUGINS_NAVIGATION, ...ADMIN_NAVIGATION] : [PERSONALIZATION_NAVIGATION, PLUGINS_NAVIGATION];
+  const navigation = administrator ? [PERSONALIZATION_NAVIGATION, MODEL_PROVIDER_NAVIGATION, PLUGINS_NAVIGATION, ...ADMIN_NAVIGATION] : [PERSONALIZATION_NAVIGATION, MODEL_PROVIDER_NAVIGATION, PLUGINS_NAVIGATION];
   const allowedSections = new Set(navigation.map((item) => item.id));
   const fallbackSection: SettingsSection = administrator ? "overview" : "personalization";
   const [initialUiState] = useState(() => initialSection && allowedSections.has(initialSection)
@@ -232,7 +238,7 @@ export function SettingsApp({ administrator = true, csrfToken, currentUserId, us
         </header>
         <nav>
           <span>Personal</span>
-          {[PERSONALIZATION_NAVIGATION].map(({ id, label, description, icon: Icon, accent }) => (
+          {[PERSONALIZATION_NAVIGATION, MODEL_PROVIDER_NAVIGATION].map(({ id, label, description, icon: Icon, accent }) => (
             <button type="button" className={`is-${accent}${section === id ? " is-active" : ""}`} aria-current={section === id ? "page" : undefined} key={id} onClick={() => chooseSection(id)}>
               <i><Icon /></i><span><strong>{label}</strong><small>{description}</small></span><ChevronRight />
             </button>
@@ -266,7 +272,8 @@ export function SettingsApp({ administrator = true, csrfToken, currentUserId, us
 
         <div className="settings-scroll">
           {section === "personalization" && user && <PersonalizationPanel user={user} providers={providers} csrfToken={csrfToken} initialNotice={initialNotice} fontScale={fontScale} onFontScaleChange={onFontScaleChange} onLogout={onLogout} />}
-          {section === "plugins" && <PluginsPanel catalog={plugins} administrator={administrator} />}
+          {section === "model-provider" && <ModelProviderPanel csrfToken={csrfToken} />}
+          {section === "plugins" && <PluginsPanel catalog={plugins} administrator={administrator} csrfToken={csrfToken} />}
           {administrator && section === "overview" && <OverviewPanel overview={overview} error={overviewError} onNavigate={chooseSection} onRefresh={() => void refreshOverview()} />}
           {administrator && section === "users" && <UsersPanel users={users} currentUserId={currentUserId} csrfToken={csrfToken} onUsers={setUsers} onNotice={setNotice} onMutated={refreshAfterMutation} />}
           {administrator && section === "authentication" && <AuthenticationPanel settings={authentication} csrfToken={csrfToken} onSettings={setAuthentication} onNotice={setNotice} onMutated={refreshAfterMutation} />}
@@ -503,7 +510,7 @@ function AuthenticationForm({ settings, csrfToken, onSettings, onNotice, onMutat
   );
 }
 
-function PluginsPanel({ catalog, administrator }: { catalog?: PluginCatalog; administrator: boolean }) {
+function PluginsPanel({ catalog, administrator, csrfToken }: { catalog?: PluginCatalog; administrator: boolean; csrfToken: string }) {
   const [adding, setAdding] = useState(false);
   const [scope, setScope] = useState<"all" | "private" | "global">("all");
   const [newScope, setNewScope] = useState<"private" | "global">("private");
@@ -511,7 +518,7 @@ function PluginsPanel({ catalog, administrator }: { catalog?: PluginCatalog; adm
 
   const privatePlugins = catalog.plugins.filter((plugin) => plugin.scope === "private");
   const globalPlugins = catalog.plugins.filter((plugin) => plugin.scope === "global");
-  const toolCount = catalog.plugins.reduce((total, plugin) => total + plugin.mcp.tools.length, 0);
+  const toolCount = catalog.plugins.reduce((total, plugin) => total + (plugin.type === "mcp" ? plugin.mcp.tools.length : 0), 0);
 
   if (adding) {
     return (
@@ -546,6 +553,7 @@ function PluginsPanel({ catalog, administrator }: { catalog?: PluginCatalog; adm
       {(scope === "all" || scope === "private") && <section className="settings-plugin-group" aria-labelledby="private-plugins-title"><div className="settings-plugin-group__heading"><div><span><UserRound />Private</span><h2 id="private-plugins-title">Your plugins</h2><p>Only your agents can use these connections. Credentials belong to your account.</p></div></div>{privatePlugins.length === 0 && <button className="settings-plugin-empty" type="button" onClick={() => { setNewScope("private"); setAdding(true); }}><span><Plus /></span><div><strong>Add your first private plugin</strong><small>Connect personal services such as notes, calendars, or project tools without sharing your account.</small></div><ChevronRight /></button>}</section>}
 
       {(scope === "all" || scope === "global") && <section className="settings-plugin-group" aria-labelledby="global-plugins-title"><div className="settings-plugin-group__heading"><div><span><Users />Global</span><h2 id="global-plugins-title">Workspace plugins</h2><p>Available to every member. Administrators manage installation and shared access.</p></div></div>{globalPlugins.map((plugin) => {
+        if (plugin.type === "channel") return <TwilioPluginCard key={plugin.id} initial={plugin} csrfToken={csrfToken} />;
         const mcp = plugin.mcp;
         return <section className="settings-card settings-connector-card" key={plugin.id}>
           <header><div className="settings-connector-card__mark"><PlugZap /></div><div className="settings-connector-card__identity"><span>Built in · MCP</span><h2>{plugin.name}</h2><p>{plugin.description}</p></div><div className="settings-connector-card__states"><span className="settings-locked-state"><LockKeyhole />System</span><span className={`settings-service-state${plugin.ready ? " is-ready" : ""}`}><i />{plugin.ready ? "Connected" : "Offline"}</span></div></header>
@@ -604,9 +612,13 @@ function WorkspacePanel({ workspace, provider, csrfToken, onProvider, onNotice, 
     <div className="settings-panel">
       <SectionHeader eyebrow="Developer environment" title="Workspace" description="Manage the continuously running OpenClaw environment shared by approved collaborators." icon={Bot} />
       <div className="settings-mcp-grid">
-        <section className="settings-card"><div className="settings-card__heading"><div><span>Service state</span><h2>OpenClaw Gateway</h2><p>Runtime, model, and persistent storage status.</p></div><span className={`settings-service-state${workspace.status === "ready" ? " is-ready" : ""}`}><i />{workspace.status}</span></div><dl className="settings-detail-list"><div><dt>OpenClaw</dt><dd><code>{workspace.openclawVersion}</code></dd></div><div><dt>Codex CLI</dt><dd><code>{workspace.codexVersion}</code></dd></div><div><dt>OpenAI account</dt><dd>{workspace.codexAuthenticated ? "Connected" : "Required"}</dd></div><div><dt>Agent model</dt><dd>{workspace.openclawModelReady ? "Ready" : "Configuration required"}</dd></div><div><dt>Storage</dt><dd>{workspace.persistent ? "Persistent shared home" : "Ephemeral"}</dd></div></dl><button className="settings-button" type="button" onClick={onRefresh}><RefreshCw />Refresh status</button></section>
-        <section className="settings-card"><div className="settings-card__heading"><div><span>Model provider</span><h2>OpenAI Codex</h2><p>Connect ChatGPT through OpenClaw. No API key is required.</p></div><span className={`settings-service-state${provider.authenticated ? " is-ready" : ""}`}><i />{provider.authenticated ? "Connected" : provider.state.replaceAll("_", " ")}</span></div>{provider.state === "awaiting_user" && provider.verificationUrl && provider.userCode && <div className="settings-device-code"><span>One-time code</span><code>{provider.userCode}</code><p>Open the secure OpenAI sign-in page and enter this code. Keep Settings open while Neural Labs confirms the account.</p><div><a className="settings-button is-primary" href={provider.verificationUrl} target="_blank" rel="noreferrer">Open OpenAI sign-in <ExternalLink /></a><button className="settings-button" type="button" onClick={() => void copyValue(provider.userCode!, () => onNotice({ tone: "success", message: "Device code copied." }))}>Copy code</button><button className="settings-button is-quiet" type="button" disabled={working} onClick={() => void mutate("cancel")}>Cancel</button></div>{provider.expiresAt && <small>Expires {formatDate(provider.expiresAt)}</small>}</div>}{provider.state === "starting" && <p className="settings-card-note">Requesting a device code from OpenAI…</p>}{provider.state === "connected" && <p className="settings-success-note"><Check />Neura is connected to your ChatGPT/Codex subscription through OpenClaw.</p>}{provider.state === "error" && <p className="settings-error-note">{provider.message ?? "OpenAI sign-in did not complete."}</p>}{!providerBusy && !provider.authenticated && <button className="settings-button is-primary" type="button" disabled={working} onClick={() => void mutate("connect")}>{working ? "Starting…" : provider.state === "error" ? "Try again" : "Connect ChatGPT account"}</button>}<p className="settings-trust-note">OAuth credentials stay in OpenClaw's persistent workspace volume. They are never copied into the control plane or root <code>.env</code>.</p></section>
+        <section className="settings-card"><div className="settings-card__heading"><div><span>Service state</span><h2>OpenClaw Gateway</h2><p>Runtime, model, and persistent storage status.</p></div><span className={`settings-service-state${workspace.status === "ready" ? " is-ready" : ""}`}><i />{workspace.status}</span></div><dl className="settings-detail-list"><div><dt>OpenClaw</dt><dd><code>{workspace.openclawVersion}</code></dd></div><div><dt>Codex CLI</dt><dd><code>{workspace.codexVersion}</code></dd></div><div><dt>Model credential</dt><dd>{workspace.credentialSource === "environment-api-key" ? "Environment API key configured" : workspace.credentialSource === "stored-credential" ? "Stored credential configured" : workspace.codexAuthenticated ? "ChatGPT connected" : "Not configured"}</dd></div><div><dt>Agent model</dt><dd>{workspace.openclawModelReady ? "Ready" : "Configuration required"}</dd></div><div><dt>Storage</dt><dd>{workspace.persistent ? "Persistent shared home" : "Ephemeral"}</dd></div></dl><button className="settings-button" type="button" onClick={onRefresh}><RefreshCw />Refresh status</button></section>
+        <section className="settings-card"><div className="settings-card__heading"><div><span>Model provider</span><h2>Background ChatGPT connection</h2><p>Optional subscription for Background AI. Environment API keys are reported separately above.</p></div><span className={`settings-service-state${provider.authenticated ? " is-ready" : ""}`}><i />{provider.authenticated ? "Connected" : provider.state.replaceAll("_", " ")}</span></div>{provider.state === "awaiting_user" && provider.verificationUrl && provider.userCode && <div className="settings-device-code"><span>One-time code</span><code>{provider.userCode}</code><p>Open the secure OpenAI sign-in page and enter this code. Keep Settings open while Neural Labs confirms the account.</p><div><a className="settings-button is-primary" href={provider.verificationUrl} target="_blank" rel="noreferrer">Open OpenAI sign-in <ExternalLink /></a><button className="settings-button" type="button" onClick={() => void copyValue(provider.userCode!, () => onNotice({ tone: "success", message: "Device code copied." }))}>Copy code</button><button className="settings-button is-quiet" type="button" disabled={working} onClick={() => void mutate("cancel")}>Cancel</button></div>{provider.expiresAt && <small>Expires {formatDate(provider.expiresAt)}</small>}</div>}{provider.state === "starting" && <p className="settings-card-note">Requesting a device code from OpenAI…</p>}{provider.state === "connected" && <p className="settings-success-note"><Check />Background AI is connected to the workspace ChatGPT subscription.</p>}{provider.state === "error" && <p className="settings-error-note">{provider.message ?? "OpenAI sign-in did not complete."}</p>}{!providerBusy && !provider.authenticated && <button className="settings-button is-primary" type="button" disabled={working} onClick={() => void mutate("connect")}>{working ? "Starting…" : provider.state === "error" ? "Try again" : "Connect ChatGPT account"}</button>}<p className="settings-trust-note">OAuth credentials stay in OpenClaw's persistent workspace volume. They are never copied into the control plane or root <code>.env</code>.</p></section>
       </div>
+      <ModelDefaultsPanel csrfToken={csrfToken} scope="admin/workspace" />
+      <PersonalProviderConnection csrfToken={csrfToken} team />
+      <ModelDefaultsPanel csrfToken={csrfToken} scope="admin/workspace" workload="team" />
+      <VoiceSettingsPanel csrfToken={csrfToken} />
       <p className="settings-trust-note"><ShieldCheck />All active users are trusted co-maintainers. Workspace sudo cannot access the host, Docker socket, database, or control-plane secrets.</p>
     </div>
   );

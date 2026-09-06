@@ -37,6 +37,17 @@ const baseDraft: AutomationDraft = {
 };
 
 describe("OpenClaw automation request mapping", () => {
+  it("explicitly clears old pins when editing back to agent defaults", () => {
+    expect(draftToGatewayParams({ ...baseDraft, model: "", thinking: "" }, true).payload)
+      .toMatchObject({ model: null, fallbacks: null, thinking: null });
+    expect(draftToGatewayParams({ ...baseDraft, model: "openai/gpt-6-astra", thinking: "off" }, true).payload)
+      .toMatchObject({ model: "openai/gpt-6-astra", fallbacks: [], thinking: "off" });
+  });
+  it("preserves explicit reasoning off and makes explicit model pins strict", () => {
+    const params = draftToGatewayParams({ ...baseDraft, model: "openai/gpt-6-astra", thinking: "off" });
+    expect(params.payload).toMatchObject({ model: "openai/gpt-6-astra", thinking: "off", fallbacks: [] });
+    expect(draftToGatewayParams({ ...baseDraft, thinking: "" }).payload).not.toHaveProperty("thinking");
+  });
   it("uses the generic Gateway identity instead of impersonating OpenClaw's build-coupled Control UI", () => {
     expect(AUTOMATIONS_CLIENT_INFO.id).toBe(GATEWAY_CLIENT_IDS.GATEWAY_CLIENT);
     expect(AUTOMATIONS_CLIENT_INFO.id).not.toBe(GATEWAY_CLIENT_IDS.CONTROL_UI);

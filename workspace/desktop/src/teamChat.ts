@@ -73,6 +73,10 @@ function mutate(csrfToken: string, method: string, body?: unknown): RequestInit 
 }
 
 export const teamChatApi = {
+  postMemo: (csrfToken: string, channelId: string, input: { body: string; attachments: TeamAttachment[]; clientRequestId: string }, signal?: AbortSignal) =>
+    json<{ message: TeamMessage }>(`/api/team/channels/${encodeURIComponent(channelId)}/messages`, {
+      ...mutate(csrfToken, "POST", { ...input, invokeAgent: false }), signal,
+    }),
   directory: () => json<{ users: TeamDirectoryUser[] }>("/api/team/directory"),
   channels: () => json<{ channels: TeamChannel[] }>("/api/team/channels"),
   messages: (channelId: string) => json<{ messages: TeamMessage[] }>(`/api/team/channels/${encodeURIComponent(channelId)}/messages`),

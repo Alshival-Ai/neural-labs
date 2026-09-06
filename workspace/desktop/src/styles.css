@@ -631,7 +631,9 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, summary:focus-vis
 .skill-mention-menu__empty { margin: 0; padding: .85rem .72rem; color: #77787f; font-size: var(--desktop-font-control, 14px); }
 .skill-mention-menu > button { width: 100%; display: grid; grid-template-columns: 2rem minmax(0, 1fr) auto; align-items: center; gap: .62rem; padding: .56rem .72rem; border: 0; border-bottom: 1px solid rgba(36, 37, 43, .06); color: var(--ink); background: transparent; cursor: pointer; text-align: left; }
 .skill-mention-menu > button:last-child { border-bottom: 0; }
-.skill-mention-menu > button:hover, .skill-mention-menu > button.is-selected { background: rgba(123, 77, 255, .09); }
+.skill-mention-menu > button:hover { background: rgba(123, 77, 255, .09); }
+.skill-mention-menu > button.is-selected { background: linear-gradient(100deg, rgba(123, 77, 255, .24), rgba(30, 202, 211, .18)); box-shadow: inset 4px 0 0 var(--accent), inset 0 0 0 1px rgba(123, 77, 255, .18); }
+.skill-mention-menu > button.is-selected .skill-mention-menu__copy strong { color: #38207c; }
 .skill-mention-menu__mark { width: 1.85rem; height: 1.85rem; display: grid; place-items: center; border-radius: 8px; color: #fff; background: linear-gradient(135deg, var(--accent), #a25bf4); font-size: var(--desktop-font-control, 14px); font-weight: 850; }
 .skill-mention-menu__copy { min-width: 0; display: grid; gap: .12rem; }
 .skill-mention-menu__copy strong { overflow: hidden; font-size: var(--desktop-font-control, 14px); text-overflow: ellipsis; white-space: nowrap; }
@@ -671,6 +673,24 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, summary:focus-vis
 .split-send details button:disabled { opacity: .4; cursor: wait; }
 kbd { color: #87888f; font-family: inherit; font-size: var(--desktop-font-body, 13px); }
 .composer-hint { margin-top: .32rem; margin-bottom: 0; color: #92939a; font-size: var(--desktop-font-body, 13px); text-align: center; }
+.voice-send-control { display: flex; align-items: center; flex: 0 0 auto; gap: 4px; margin-left: auto; }
+.voice-send-control .voice-send-button { width: 44px; height: 44px; touch-action: none; user-select: none; -webkit-touch-callout: none; }
+.voice-send-button.is-live { background: #a52649; }
+.voice-mode-toggle { min-width: 48px; min-height: 44px; padding: 6px; border: 1px solid rgba(123, 77, 255, .18); border-radius: 9px; color: #47405d; background: #eeeaf5; font-size: 12px; font-weight: 750; cursor: pointer; }
+.voice-mode-toggle[aria-checked="true"] { color: #fff; border-color: transparent; background: linear-gradient(135deg, var(--accent), #8959e8); }
+.voice-mode-toggle:disabled { opacity: .6; cursor: default; }
+.neura-voice-status { display: flex; align-items: center; gap: 8px; margin: 6px 0; padding: 6px 8px; border-radius: 10px; color: #443554; background: #ece5f5; font-size: 13px; }
+.neura-voice-status > span { flex: 1; min-width: 0; }
+.neura-voice-status svg { width: 18px; height: 18px; flex-shrink: 0; }
+.neura-voice-status button { display: grid; place-items: center; min-width: 44px; min-height: 44px; border: 0; border-radius: 8px; color: #43344f; background: #fff; cursor: pointer; }
+.neura-voice-status button[aria-pressed="true"] { color: #fff; background: #a52649; }
+.voice-memo-recovery { display: grid; gap: 8px; margin-top: 8px; padding: 12px; border: 1px solid #d4c2a2; border-radius: 10px; background: #fff8ea; color: #5e4423; font-size: 13px; max-height: 230px; overflow: auto; }
+.voice-memo-recovery audio { width: 100%; min-width: 0; height: 40px; }
+.voice-memo-recovery p { margin: 0; }
+.voice-memo-recovery > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.voice-memo-recovery button, .voice-memo-recovery a { display: inline-flex; align-items: center; min-height: 44px; padding: 6px 10px; border: 0; border-radius: 7px; color: #513c21; background: #eadcc4; text-decoration: none; cursor: pointer; }
+.voice-memo-recovery button:disabled { opacity: .5; cursor: default; }
+.voice-send-control button:focus-visible, .neura-voice-status button:focus-visible, .voice-memo-recovery :is(button,a):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .drawer-scrim { display: none; }
 
 .team-dialog-backdrop { position: absolute; z-index: 110; inset: 0; display: grid; place-items: center; padding: 1rem; background: rgba(12, 12, 18, .55); backdrop-filter: blur(7px); }
@@ -729,9 +749,6 @@ kbd { color: #87888f; font-family: inherit; font-size: var(--desktop-font-body, 
 }
 
 @container app-window (max-width: 760px) {
-  .neura-app > .neura-sidebar { display: none; }
-  .drawer-scrim { position: absolute; z-index: 60; inset: 0; display: block; border: 0; background: rgba(0, 0, 0, .56); }
-  .neura-app > .drawer-scrim + .neura-sidebar { position: absolute; z-index: 70; inset: 0 auto 0 0; width: min(18rem, 86vw); display: flex; }
   .neura-toolbar { min-height: 3.2rem; }
   .message-scroll { padding: .9rem .8rem; }
   .message { margin-bottom: 1.15rem; }
@@ -755,6 +772,43 @@ kbd { color: #87888f; font-family: inherit; font-size: var(--desktop-font-body, 
 @media (max-width: 450px) {
   .dock-button--editor, .dock-button--skills { display: none; }
 }
+
+.neura-history-search { display: grid; gap: 6px; padding: 0 12px 12px; font-size: 12px; color: #bfc2cf; }
+.neura-history-search input { width: 100%; min-width: 0; min-height: 40px; padding: 8px 10px; color: #fff; border: 1px solid #444855; border-radius: 8px; background: #202330; }
+.neura-mobile-action { flex: 0 0 44px; width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: 9px; background: #e8e5ee; color: var(--ink); cursor: pointer; }
+.neura-mobile-action svg { width: 20px; height: 20px; }
+.neura-app.is-mobile { min-height: 0; height: var(--mobile-app-height, 100%); padding-bottom: var(--mobile-app-inset, 0px); }
+.neura-app.is-mobile .neura-toolbar { flex-shrink: 0; padding: 5px 8px; }
+.neura-app.is-mobile .neura-toolbar > div:first-of-type { flex: 1; }
+.neura-app.is-mobile .sidebar-toggle { display: grid; width: 44px; height: 44px; color: var(--ink); background: #e8e5ee; }
+.neura-app.is-mobile .connection { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.neura-app.is-mobile .message-scroll { padding: 12px; overscroll-behavior-y: contain; }
+.neura-app.is-mobile .message-body { max-width: 100%; overflow-wrap: anywhere; }
+.neura-app.is-mobile .message-body pre { max-width: 100%; overflow-x: auto; }
+.neura-app.is-mobile .message-body table { display: block; max-width: 100%; overflow-x: auto; }
+.neura-app.is-mobile .neura-welcome { min-height: 0; padding: 16px 8px; }
+.neura-app.is-mobile .jump-to-latest { min-height: 44px; }
+.neura-app.is-mobile .neura-composer-area { flex-shrink: 0; padding: 6px 8px max(8px, env(safe-area-inset-bottom)); }
+.neura-app.is-mobile .composer-row { flex-wrap: wrap; gap: 4px; }
+.neura-app.is-mobile .composer-row textarea { order: -1; flex: 1 0 100%; width: 100%; min-height: 44px; max-height: 128px; padding: 10px; font-size: 16px; line-height: 1.45; overflow-y: auto; }
+.neura-app.is-mobile .composer-row > button, .neura-app.is-mobile .split-send > button, .neura-app.is-mobile .split-send summary { min-width: 44px; min-height: 44px; }
+.neura-app.is-mobile .split-send, .neura-app.is-mobile .composer-row > .send-button { margin-left: auto; }
+.neura-app.is-mobile .composer-hint { display: none; }
+.neura-app.is-mobile .active-run-banner { flex-wrap: wrap; }
+.neura-app.is-mobile .active-run-banner > span:last-child { display: none; }
+.neura-app.is-mobile .prompt-queue ol { max-height: 80px; overflow-y: auto; }
+.neura-app.is-mobile .app-drawer .history-select, .neura-app.is-mobile .app-drawer .history-menu > summary, .neura-app.is-mobile .app-drawer .history-switcher button, .neura-app.is-mobile .app-drawer .new-chat-button { min-height: 44px; }
+.neura-app.is-mobile .app-drawer input { font-size: 16px; }
+.neura-app.is-mobile .app-drawer .history-row { flex-wrap: wrap; }
+.neura-app.is-mobile .app-drawer .history-menu > summary { width: 44px; opacity: 1; color: #c9cedc; background: #232633; }
+.neura-app.is-mobile .app-drawer .history-menu[open] { flex: 1 0 100%; padding: 0 6px 6px; }
+.neura-app.is-mobile .app-drawer .history-menu[open] > summary { margin-left: auto; }
+.neura-app.is-mobile .app-drawer .history-menu > div { position: static; width: 100%; margin: 4px 0 0; box-shadow: none; }
+.neura-app.is-mobile .app-drawer .history-menu button, .neura-app.is-mobile .app-drawer .team-chat-create-button, .neura-app.is-mobile .app-drawer .team-chat-empty button { min-height: 44px; }
+.neura-app.is-mobile .app-drawer .history-select small, .neura-app.is-mobile .app-drawer .shared-note, .neura-app.is-mobile .app-drawer .history-section h2, .neura-app.is-mobile .app-drawer .history-empty { color: #abb3c6; }
+.neura-app.is-mobile .app-drawer .history-switcher button:not(.active) { color: #c9cedc; background: #232633; }
+.neura-app.is-mobile .app-drawer .team-terminal-sidebar.is-expanded { position: static; width: 100%; height: 100%; }
+.neura-app.is-mobile .team-members-button, .neura-app.is-mobile .team-terminal-sidebar__actions button { min-width: 44px; min-height: 44px; }
 
 @container app-window (max-width: 450px) {
   .message-scroll { padding-inline: .6rem; }

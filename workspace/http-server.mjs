@@ -7,6 +7,7 @@ import { Readable } from "node:stream";
 import { BuilderError, attachBuilderWebSocket, createBuilderManager } from "./builder-manager.mjs";
 import { createWorkspaceFileEvents } from "./file-events.mjs";
 import { WorkspaceFileError, createFileManager } from "./file-manager.mjs";
+import { createExplorerManager } from "./explorer-manager.mjs";
 import { WorkspaceSkillError, createSkillsManager, workspaceSkillActor } from "./skills-manager.mjs";
 import {
   TERMINAL_SOCKET_PATH,
@@ -376,6 +377,7 @@ function terminalApiError(response, error, method) {
 
 function voiceApiError(response, error, method) {
   if (error instanceof VoiceError) {
+    console.warn("Workspace voice request failed", { code: error.code, status: error.status });
     sendJson(response, error.status, { error: { code: error.code, message: error.message } }, method);
     return;
   }
@@ -404,9 +406,13 @@ export function createWorkspaceHttpServer({
     tools: [],
   }),
   providerAuthenticated,
+  credentialSource = () => "unconfigured",
   openclawModelReady,
   providerAuth,
   personalOpenAI,
+  modelCatalog,
+  modelPolicies,
+  teamOpenAI,
   voiceService,
   workspaceControlToken,
   openclawVersion,
@@ -423,6 +429,7 @@ export function createWorkspaceHttpServer({
     "/app/extensions",
   ],
   builderDraftsRoot = path.join(path.dirname(workspaceRoot), ".local", "state", "neural-labs", "builder-drafts"),
+  filesStateRoot = path.join(path.dirname(workspaceRoot), ".local", "state", "neural-labs", "files"),
   terminalManager,
   terminalHeartbeatMs,
   turnCredentialProvider,
@@ -440,8 +447,17 @@ export function createWorkspaceHttpServer({
     publishSkill: (actor, skillPackage, targetKey) => skills.savePackage(actor, skillPackage, targetKey),
   });
   const fileEvents = createWorkspaceFileEvents({ root: workspaceRoot });
+  const explorer = createExplorerManager({ files, root: workspaceRoot, stateRoot: filesStateRoot, changed: (event) => fileEvents.publish(event) });
   const terminals = terminalManager ?? new WorkspaceTerminalManager({ workspaceRoot, turnCredentialProvider, teamChannelAuthorizer });
   const previewLaunches = new Map();
+  const providerStates = new Map();
+  const observeProvider = (key, result, userId) => {
+    const state = `${result.authenticated}:${result.paused}:${result.modelReady}`;
+    if (providerStates.get(key) !== state) {
+      providerStates.set(key, state);
+      modelCatalog?.invalidate(userId);
+    }
+  };
   const server = createServer(async (request, response) => {
     const method = request.method ?? "GET";
     const url = new URL(request.url ?? "/", "http://workspace.local");
@@ -449,8 +465,82 @@ export function createWorkspaceHttpServer({
     const providerRoute = pathname === "/internal/provider-auth/openai";
     const providerStartRoute = pathname === "/internal/provider-auth/openai/start";
     const providerCancelRoute = pathname === "/internal/provider-auth/openai/cancel";
-    const personalProviderMatch = pathname.match(/^\/internal\/provider-auth\/openai\/users\/([^/]+)(?:\/(start|cancel|pause|resume))?$/u);
+    const personalProviderMatch = pathname.match(/^\/internal\/provider-auth\/openai\/users\/([^/]+)(?:\/(start|cancel|pause|resume|disconnect))?$/u);
     const teamAgentRoute = pathname === "/internal/neura/team-run";
+    if (pathname === "/internal/model-providers/voice" || pathname === "/internal/model-providers/voice/refresh") {
+      if (!voiceService?.snapshot || !workspaceControlToken || !validControlToken(request, workspaceControlToken)) {
+        sendJson(response, 401, { error: { code: "unauthorized", message: "Unauthorized" } }, method);
+        return;
+      }
+      try {
+        if (method === "GET" && !pathname.endsWith("/refresh")) sendJson(response, 200, voiceService.snapshot(), method);
+        else if (method === "POST") sendJson(response, 200, pathname.endsWith("/refresh") ? await voiceService.refreshCatalog() : voiceService.configure(await readJsonBody(request, 4096)), method);
+        else sendJson(response, 405, { error: { code: "method_not_allowed", message: "Method not allowed" } }, method);
+      } catch {
+        sendJson(response, 409, { error: { code: "voice_settings_unavailable", message: "Voice settings could not be applied. Check the API connection and selected models." } }, method);
+      }
+      return;
+    }
+    const teamConnectionMatch = pathname.match(/^\/internal\/model-providers\/team\/connection(?:\/(start|cancel))?$/u);
+    if (teamConnectionMatch) {
+      if (!teamOpenAI || !workspaceControlToken || !validControlToken(request, workspaceControlToken)) {
+        sendJson(response, 401, { error: { code: "unauthorized", message: "Unauthorized" } }, method);
+        return;
+      }
+      const action = teamConnectionMatch[1];
+      if ((!action && method !== "GET") || (action && method !== "POST")) {
+        sendJson(response, 405, { error: { code: "method_not_allowed", message: "Method not allowed" } }, method);
+        return;
+      }
+      try {
+        const result = action === "start" ? await teamOpenAI.start() : action === "cancel" ? teamOpenAI.cancel() : await teamOpenAI.snapshot();
+        observeProvider("team", result);
+        if (action) modelCatalog?.invalidate();
+        sendJson(response, action === "start" ? 202 : 200, result, method);
+      } catch {
+        sendJson(response, 503, { error: { code: "team_provider_unavailable", message: "Team Neura connection is unavailable" } }, method);
+      }
+      return;
+    }
+    if (pathname === "/internal/model-providers/preferences") {
+      if (!modelPolicies || !workspaceControlToken || !validControlToken(request, workspaceControlToken)) {
+        sendJson(response, 401, { error: { code: "unauthorized", message: "Unauthorized" } }, method);
+        return;
+      }
+      try {
+        const userId = url.searchParams.get("userId") || undefined;
+        const workload = url.searchParams.get("workload") === "team" && !userId ? "team" : "background";
+        if (method === "GET") sendJson(response, 200, await modelPolicies.inspect(userId, workload), method);
+        else if (method === "POST") {
+          const body = await readJsonBody(request, 8192);
+          sendJson(response, 200, await modelPolicies.apply({ userId, workload, policy: body?.policy, revision: body?.revision, previous: body?.previous }), method);
+        } else {
+          response.setHeader("Allow", "GET, POST");
+          sendJson(response, 405, { error: { code: "method_not_allowed", message: "Method not allowed" } }, method);
+        }
+      } catch {
+        sendJson(response, 409, { error: { code: "model_policy_unavailable", message: "The selected model policy could not be applied. Check the connection and model capabilities." } }, method);
+      }
+      return;
+    }
+    if (pathname === "/internal/model-providers/catalog") {
+      if (!modelCatalog || !workspaceControlToken || !validControlToken(request, workspaceControlToken)) {
+        sendJson(response, 401, { error: { code: "unauthorized", message: "Unauthorized" } }, method);
+        return;
+      }
+      if (method !== "GET" && method !== "POST") {
+        response.setHeader("Allow", "GET, POST");
+        sendJson(response, 405, { error: { code: "method_not_allowed", message: "Method not allowed" } }, method);
+        return;
+      }
+      try {
+        const result = await modelCatalog.list({ userId: url.searchParams.get("userId") || undefined, agentId: url.searchParams.get("agentId") || undefined, refresh: method === "POST" });
+        sendJson(response, 200, result, method);
+      } catch {
+        sendJson(response, 503, { error: { code: "catalog_unavailable", message: "The model catalog could not be loaded. Check the provider connection and try again." } }, method);
+      }
+      return;
+    }
     if (teamAgentRoute) {
       if (!runTeamAgent || !workspaceControlToken || !validControlToken(request, workspaceControlToken)) {
         sendJson(response, 401, { error: { code: "unauthorized", message: "Unauthorized" } }, method);
@@ -463,7 +553,7 @@ export function createWorkspaceHttpServer({
       }
       try {
         const body = await readJsonBody(request, 2 * 1024 * 1024);
-        const result = await runTeamAgent({ prompt: body?.prompt, capability: body?.capability, userId: body?.userId, runId: body?.runId });
+        const result = await runTeamAgent({ prompt: body?.prompt, capability: body?.capability, userId: body?.userId, runId: body?.runId, ...(body?.modelSettings ? { modelSettings: body.modelSettings } : {}) });
         sendJson(response, 200, typeof result === "string" ? { reply: result } : result, method);
       } catch (error) {
         console.error("Team Chat agent run failed", error instanceof Error ? error.message : error);
@@ -495,7 +585,10 @@ export function createWorkspaceHttpServer({
           : action === "start" ? await personalOpenAI.start(userId)
           : action === "cancel" ? await personalOpenAI.cancel(userId)
           : action === "pause" ? await personalOpenAI.pause(userId)
+          : action === "disconnect" ? await personalOpenAI.disconnect(userId)
           : await personalOpenAI.resume(userId);
+        observeProvider(userId, result, userId);
+        if (action) modelCatalog?.invalidate(userId);
         sendJson(response, action === "start" ? 202 : 200, result, method);
       } catch (error) {
         console.error("Personal OpenAI account operation failed", error instanceof Error ? error.message : error);
@@ -845,7 +938,7 @@ export function createWorkspaceHttpServer({
       return;
     }
 
-    if (pathname === "/workspace/api/files" ||
+    if (pathname.startsWith("/workspace/api/files/") || pathname === "/workspace/api/files" ||
         pathname === "/workspace/api/files/folders" ||
         pathname === "/workspace/api/files/upload" ||
         pathname === "/workspace/api/files/content" ||
@@ -862,9 +955,49 @@ export function createWorkspaceHttpServer({
         return;
       }
       try {
+        await explorer.ready;
+        const user = request.headers["x-forwarded-user"].trim();
         const requestedPath = url.searchParams.get("path") ?? "";
+        const options = Object.fromEntries(url.searchParams);
+        if (pathname === "/workspace/api/files/preferences") {
+          if (method === "GET") { sendJson(response, 200, await explorer.metadata(user), method); return; }
+          if (method === "PUT") { sendJson(response, 200, await explorer.saveMetadata(user, await readJsonBody(request, 1024 * 1024)), method); return; }
+        }
+        if (pathname === "/workspace/api/files/recent") {
+          if (method === "GET") { sendJson(response, 200, await explorer.recent(user), method); return; }
+          if (method === "POST") { sendJson(response, 200, await explorer.opened(user, (await readJsonBody(request)).path), method); return; }
+        }
+        if (pathname === "/workspace/api/files/search" && method === "GET") {
+          const controller = new AbortController(); response.once("close", () => controller.abort());
+          sendJson(response, 200, await explorer.search(user, options, controller.signal), method); return;
+        }
+        if (pathname === "/workspace/api/files/trash" && method === "GET") { sendJson(response, 200, await explorer.trash(), method); return; }
+        if (pathname === "/workspace/api/files/operations" && method === "POST") {
+          sendJson(response, 202, explorer.enqueue(user, await readJsonBody(request, 1024 * 1024)), method); return;
+        }
+        if (pathname === "/workspace/api/files/operations" && method === "GET") {
+          sendJson(response, 200, explorer.operations(user), method); return;
+        }
+        const operationMatch = /^\/workspace\/api\/files\/operations\/([a-f0-9-]+)$/.exec(pathname);
+        if (operationMatch && ["GET", "DELETE"].includes(method)) {
+          sendJson(response, 200, explorer.operation(user, operationMatch[1], method === "DELETE"), method); return;
+        }
+        const archiveMatch = /^\/workspace\/api\/files\/archives\/([a-f0-9-]+)$/.exec(pathname);
+        if (archiveMatch && method === "GET") {
+          const archive = await explorer.downloadArchive(user, archiveMatch[1]);
+          response.writeHead(200, { "Content-Type": "application/zip", "Content-Length": archive.size, "Content-Disposition": 'attachment; filename="workspace-files.zip"', "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" });
+          archive.stream.on("error", () => response.destroy());
+          response.once("finish", archive.cleanup); response.once("close", () => archive.stream.destroy());
+          archive.stream.pipe(response); return;
+        }
+        if (pathname === "/workspace/api/files/binary" && method === "PUT") {
+          sendJson(response, 200, await explorer.upload(user, requestedPath, options.name, request, { version: options.version, conflict: options.conflict }), method); return;
+        }
+        if (pathname === "/workspace/api/files/info" && method === "GET") {
+          sendJson(response, 200, { item: await files.info(requestedPath) }, method); return;
+        }
         if (pathname === "/workspace/api/files/events" && method === "GET") {
-          fileEvents.subscribe(response);
+          fileEvents.subscribe(response, user);
           return;
         }
         if (pathname === "/workspace/api/files/text" && method === "GET") {
@@ -884,11 +1017,16 @@ export function createWorkspaceHttpServer({
           return;
         }
         if (pathname === "/workspace/api/files" && method === "GET") {
-          sendJson(response, 200, await files.list(requestedPath), method);
+          sendJson(response, 200, options.limit ? await explorer.list(requestedPath, options) : await files.list(requestedPath), method);
           return;
         }
         if (pathname === "/workspace/api/files" && method === "DELETE") {
-          sendJson(response, 200, await files.remove(requestedPath), method);
+          const job = explorer.enqueue(user, { items: [{ action: "trash", path: requestedPath }] });
+          // Preserve the synchronous deletion contract for existing API clients.
+          while (["queued", "running"].includes(explorer.operation(user, job.id).state)) await new Promise((resolve) => setTimeout(resolve, 10));
+          const result = explorer.operation(user, job.id).results[0];
+          if (result.status !== "completed") throw new WorkspaceFileError(400, result.code, result.message);
+          sendJson(response, 200, { deleted: true, path: requestedPath, trashId: result.id }, method);
           return;
         }
         if (pathname === "/workspace/api/files/folders" && method === "POST") {
@@ -901,8 +1039,8 @@ export function createWorkspaceHttpServer({
           return;
         }
         if (pathname === "/workspace/api/files/upload" && method === "POST") {
-          const item = await files.upload(requestedPath, url.searchParams.get("name"), request);
-          sendJson(response, 201, { item }, method);
+          const result = await explorer.upload(user, requestedPath, url.searchParams.get("name"), request, { conflict: options.conflict });
+          sendJson(response, 201, result, method);
           return;
         }
         if (pathname === "/workspace/api/files/download" && (method === "GET" || method === "HEAD")) {
@@ -954,6 +1092,7 @@ export function createWorkspaceHttpServer({
         openclawVersion,
         codexVersion,
         providerAuthenticated: providerReady,
+        credentialSource: credentialSource(),
         codexAuthenticated: providerReady,
         openclawModelReady: openclawModelReady(),
       });
@@ -968,6 +1107,20 @@ export function createWorkspaceHttpServer({
     }
 
     try {
+      if (pathname.startsWith("/workspace/image-editor/")) {
+        const filename = pathname.slice("/workspace/image-editor/".length);
+        if (!/^[a-zA-Z0-9_./-]+$/.test(filename) || filename.split("/").some((part) => !part || part === "." || part === "..") || !/\.(html|js|css|png|svg|jpg|gif|woff2?|ttf|txt)$/.test(filename)) {
+          send(response, 404, "Not found", "text/plain", method); return;
+        }
+        // Public code/assets only. The opaque iframe receives user data via a MessageChannel.
+        const body = await readFile(path.join(desktopRoot, "image-editor", filename));
+        const extension = path.extname(filename);
+        const type = extension === ".html" ? "text/html; charset=utf-8" : extension === ".ttf" ? "font/ttf" : ASSET_TYPES.get(extension) || "application/octet-stream";
+        if (extension === ".html") response.setHeader("Content-Security-Policy", `default-src 'none'; script-src ${publicOrigin}/workspace/image-editor/; style-src 'unsafe-inline' ${publicOrigin}/workspace/image-editor/; img-src data: blob: ${publicOrigin}/workspace/image-editor/; font-src ${publicOrigin}/workspace/image-editor/; connect-src 'none'; worker-src blob:; frame-ancestors 'self'; base-uri 'none'; form-action 'none'; sandbox allow-scripts`);
+        response.setHeader("Access-Control-Allow-Origin", "*");
+        response.setHeader("X-Content-Type-Options", "nosniff");
+        send(response, 200, body, type, method, "no-cache"); return;
+      }
       if (pathname === "/workspace" || pathname === "/workspace/") {
         const template = await readFile(`${desktopRoot}/index.html`, "utf8");
         if (!template.includes(CSP_NONCE_MARKER)) {
@@ -1016,6 +1169,7 @@ export function createWorkspaceHttpServer({
     if (!closed) {
       closed = true;
       fileEvents.close();
+      explorer.close();
       terminalSockets.close();
       vsCodeSockets.close();
       builderSockets.close();

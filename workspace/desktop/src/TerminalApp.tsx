@@ -16,6 +16,8 @@ import {
   Mic,
   MicOff,
   MoreHorizontal,
+  Menu,
+  Keyboard as KeyboardIcon,
   Palette,
   PhoneOff,
   Plus,
@@ -58,6 +60,9 @@ import { readDeviceState, writeDeviceState } from "./deviceState";
 import { FontSizeControl } from "./FontSizeControl";
 import { DESKTOP_FONT_SCALE_DEFAULT, normalizeDesktopFontScale } from "./fontScale";
 import { useTeamVoice } from "./useTeamVoice";
+import { useAppViewport } from "./appViewport";
+import { AppDrawer } from "./AppDrawer";
+import { useMobileAppLayout } from "./useMobileAppLayout";
 import "./terminal-app.css";
 
 type TerminalSplitDirection = "vertical" | "horizontal";
@@ -175,6 +180,13 @@ export function isTerminalInsertToggle(event: Pick<KeyboardEvent, "code" | "ctrl
 }
 
 export function TerminalApp({ workspaceName = "Workspace", notify, storageNamespace, storageArea = "terminal", fontScale = DESKTOP_FONT_SCALE_DEFAULT, onFontScaleChange, openRequest }: TerminalAppProps) {
+  const viewport = useAppViewport();
+  const appRoot = useRef<HTMLElement>(null);
+  const sessionsDrawerId = useId();
+  const [sessionsDrawerOpen, setSessionsDrawerOpen] = useState(false);
+  const [sessionQuery, setSessionQuery] = useState("");
+  useMobileAppLayout(appRoot, viewport.mobile);
+  useEffect(() => { if (!viewport.mobile) setSessionsDrawerOpen(false); }, [viewport.mobile]);
   const [initialUiState] = useState(() => terminalDeviceState(storageNamespace, storageArea));
   const [sessions, setSessions] = useState<TerminalDescriptor[]>([]);
   const [loading, setLoading] = useState(true);
@@ -323,6 +335,7 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
   );
   const activeSession = visibleSessions.find((session) => session.id === activeId) ?? visibleSessions[0];
   const secondarySession = sessions.find((session) => session.id === secondaryId);
+  const focusedSession = activePane === "secondary" && secondarySession ? secondarySession : activeSession;
   const teamSessions = sessions.filter((session) => session.scope === "team");
 
   useEffect(() => {
@@ -392,6 +405,8 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
   };
 
   const joinTeam = (session: TerminalDescriptor) => {
+    setSessionsDrawerOpen(false);
+    if (viewport.mobile && secondaryId === session.id) { setActivePane("secondary"); setLaunchpadOpen(false); return; }
     setHiddenTeamIds((current) => {
       const updated = new Set(current);
       updated.delete(session.id);
@@ -405,6 +420,8 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
   };
 
   const openSession = (session: TerminalDescriptor) => {
+    setSessionsDrawerOpen(false);
+    if (viewport.mobile && secondaryId === session.id) { setActivePane("secondary"); setLaunchpadOpen(false); return; }
     setActiveId(session.id);
     setActivePane("primary");
     setLaunchpadOpen(false);
@@ -413,6 +430,7 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
   };
 
   const openLaunchpad = () => {
+    setSessionsDrawerOpen(false);
     setLaunchpadOpen(true);
     setTeamCreatorOpen(false);
     setSearchOpen(false);
@@ -420,6 +438,7 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
   };
 
   const openTeamCreator = () => {
+    setSessionsDrawerOpen(false);
     setLaunchpadOpen(true);
     setTeamCreatorOpen(true);
     setSearchOpen(false);
@@ -497,8 +516,9 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
   const previewedTeamSession = runningTeamSessions.find((session) => session.id === railPreview?.sessionId);
 
   return (
-    <section className="terminal-app" aria-label="Developer terminal">
+    <section ref={appRoot} className={`terminal-app${viewport.mobile ? " is-mobile" : ""}`} aria-label="Developer terminal">
       <header className="terminal-toolbar">
+        {viewport.mobile && <button type="button" className="terminal-mobile-sessions" aria-label="Open terminal sessions" aria-expanded={sessionsDrawerOpen} aria-controls={sessionsDrawerId} onClick={() => setSessionsDrawerOpen(true)}><Menu /></button>}
         <div className="terminal-toolbar__identity">
           <span className="terminal-toolbar__mark"><TerminalSquare /></span>
           <span><strong>Terminal</strong><small><i />persistent workspace shells</small></span>
@@ -507,14 +527,24 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
         <div className="terminal-toolbar__actions">
           <button type="button" onClick={openLaunchpad} aria-label="New terminal" aria-pressed={showLaunchpad} title="Open New Terminal"><Plus /><span>New</span></button>
           <i aria-hidden="true" />
-          <button type="button" disabled={showLaunchpad || Boolean(creatingScope)} onClick={() => split("vertical")} aria-label="Split terminal vertically" aria-pressed={!showLaunchpad && Boolean(secondarySession) && splitDirection === "vertical"} title="Split vertically"><Columns2 /></button>
-          <button type="button" disabled={showLaunchpad || Boolean(creatingScope)} onClick={() => split("horizontal")} aria-label="Split terminal horizontally" aria-pressed={!showLaunchpad && Boolean(secondarySession) && splitDirection === "horizontal"} title="Split horizontally"><Rows2 /></button>
+          <button type="button" className="terminal-split-control" disabled={showLaunchpad || Boolean(creatingScope)} onClick={() => split("vertical")} aria-label="Split terminal vertically" aria-pressed={!showLaunchpad && Boolean(secondarySession) && splitDirection === "vertical"} title="Split vertically"><Columns2 /></button>
+          <button type="button" className="terminal-split-control" disabled={showLaunchpad || Boolean(creatingScope)} onClick={() => split("horizontal")} aria-label="Split terminal horizontally" aria-pressed={!showLaunchpad && Boolean(secondarySession) && splitDirection === "horizontal"} title="Split horizontally"><Rows2 /></button>
           <button type="button" disabled={showLaunchpad} onClick={() => setSearchOpen((open) => !open)} aria-label="Search terminal output" aria-pressed={!showLaunchpad && searchOpen} title="Search output"><Search /></button>
           <button type="button" aria-label="More terminal actions" title="Keyboard shortcuts" onClick={() => report("Copy: Ctrl/Cmd+Shift+C · Paste: Ctrl/Cmd+Shift+V · Ctrl+C interrupts")}><MoreHorizontal /></button>
         </div>
       </header>
+      {viewport.mobile && sessionsDrawerOpen && <AppDrawer id={sessionsDrawerId} label="Terminal sessions" anchor={appRoot} onClose={() => setSessionsDrawerOpen(false)}>
+        <nav className="terminal-session-drawer" aria-label="Choose a terminal">
+          <button type="button" onClick={openLaunchpad}><Plus /><span>New terminal</span></button>
+          <button type="button" onClick={openTeamCreator}><Users /><span>Create team terminal</span></button>
+          {!showLaunchpad && <button type="button" disabled={Boolean(creatingScope)} onClick={() => { setSessionsDrawerOpen(false); split("horizontal"); }}><Rows2 /><span>Add split pane</span></button>}
+          <label>Find a session<input type="search" value={sessionQuery} onChange={(event) => setSessionQuery(event.target.value)} placeholder="Search terminal names" /></label>
+          {([['Your terminals', runningPersonalSessions], ['Team terminals', runningTeamSessions]] as const).map(([label, list]) => <section key={label}><h2>{label}</h2>{list.filter((session) => session.title.toLowerCase().includes(sessionQuery.toLowerCase())).map((session) => <button type="button" key={session.id} aria-current={!showLaunchpad && (activePane === "secondary" ? secondaryId : activeId) === session.id ? "page" : undefined} onClick={() => session.scope === "team" ? joinTeam(session) : openSession(session)}>{session.scope === "team" ? <Users /> : <TerminalSquare />}<span><strong>{session.title}</strong><small>{session.scope === "personal" ? "Private" : `${session.participants.length} connected`} · {session.shell}</small></span></button>)}{!list.some((session) => session.title.toLowerCase().includes(sessionQuery.toLowerCase())) && <p>{loading ? "Loading sessions…" : sessionQuery ? "No matching sessions" : "No running sessions"}</p>}</section>)}
+        </nav>
+      </AppDrawer>}
 
       <div className="terminal-banners">
+        {viewport.mobile && !showLaunchpad && secondarySession && <div className="terminal-mobile-panes" role="tablist" aria-label="Terminal panes"><button type="button" role="tab" aria-selected={activePane === "primary"} onClick={() => setActivePane("primary")}>{activeSession?.title}</button><button type="button" role="tab" aria-selected={activePane === "secondary"} onClick={() => setActivePane("secondary")}>{secondarySession.title}</button></div>}
         {!showLaunchpad && searchOpen && <div className="terminal-search"><Search /><label className="terminal-sr-only" htmlFor="terminal-search-input">Search terminal output</label><input id="terminal-search-input" autoFocus value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Find in active terminal" /><span>Live buffer search</span><button type="button" aria-label="Close terminal search" onClick={() => { setSearchOpen(false); setSearchQuery(""); }}><X /></button></div>}
         {error && <div className="terminal-notice is-error" role="alert"><X /><span>{error}</span><button type="button" aria-label="Dismiss terminal error" onClick={() => setError(undefined)}><X /></button></div>}
         {notice && <div className="terminal-notice" role="status"><Check /><span>{notice}</span><button type="button" aria-label="Dismiss terminal message" onClick={() => setNotice(undefined)}><X /></button></div>}
@@ -598,8 +628,8 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
       </div>
 
       {!showLaunchpad && activeSession && <footer className="terminal-statusbar">
-        <div className="terminal-statusbar__primary"><span><GitBranch />workspace</span><span className={activeSession.scope === "team" ? "is-team" : ""}><Braces />{activeSession.scope === "team" ? "shared · live input" : "private"}</span></div>
-        <div className="terminal-statusbar__details"><span title="High-contrast ANSI truecolor profile"><Palette />Neural Spectrum</span><span>{activeSession.shell}</span><span>UTF-8</span><span>{activeSession.cols} × {activeSession.rows}</span><span>{activeSession.participants.length} connected</span>{onFontScaleChange && <FontSizeControl className="terminal-statusbar__zoom" value={fontScale} onChange={onFontScaleChange} />}</div>
+        <div className="terminal-statusbar__primary"><span><GitBranch />workspace</span><span className={focusedSession.scope === "team" ? "is-team" : ""}><Braces />{focusedSession.scope === "team" ? "shared · live input" : "private"}</span></div>
+        <div className="terminal-statusbar__details"><span title="High-contrast ANSI truecolor profile"><Palette />Neural Spectrum</span><span>{focusedSession.shell}</span><span>UTF-8</span><span>{focusedSession.cols} × {focusedSession.rows}</span><span>{focusedSession.participants.length} connected</span>{onFontScaleChange && <FontSizeControl className="terminal-statusbar__zoom" value={fontScale} onChange={onFontScaleChange} />}</div>
       </footer>}
     </section>
   );
@@ -620,6 +650,13 @@ type LiveTerminalPaneProps = {
 };
 
 function LiveTerminalPane({ session, active, fontSize, searchQuery, voiceMode, onVoiceModeChange, onActivate, onDescriptorChange, onUnavailable, onEndTeam, onClose }: LiveTerminalPaneProps) {
+  const viewport = useAppViewport();
+  const mobileRef = useRef(viewport.mobile);
+  mobileRef.current = viewport.mobile;
+  const [controlKey, setControlKey] = useState(false);
+  const controlKeyRef = useRef(false);
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+  const [clipboardError, setClipboardError] = useState("");
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XTerm | undefined>(undefined);
   const fitRef = useRef<FitAddon | undefined>(undefined);
@@ -676,16 +713,22 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, voiceMode, o
 
   const copySelection = useCallback(async () => {
     const selection = terminalRef.current?.getSelection();
-    if (!selection) return;
-    try { await navigator.clipboard?.writeText(selection); } catch { /* Clipboard permission can be denied by browser policy. */ }
+    if (!selection) { setClipboardError("Select terminal text first, then tap Copy."); return; }
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("Unavailable");
+      await navigator.clipboard.writeText(selection);
+      setClipboardError("");
+    } catch { setClipboardError("Clipboard access is unavailable. Use your browser's Copy action on selected text."); }
   }, []);
 
   const pasteClipboard = useCallback(async () => {
     try {
-      const text = await navigator.clipboard?.readText();
+      if (!navigator.clipboard?.readText) throw new Error("Unavailable");
+      const text = await navigator.clipboard.readText();
       if (text) terminalRef.current?.paste(text);
+      setClipboardError("");
     } catch {
-      // The browser requires an explicit clipboard grant in some environments.
+      setClipboardError("Clipboard access was denied. Tap Keyboard, then use your keyboard's Paste action.");
     }
   }, []);
 
@@ -707,6 +750,10 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, voiceMode, o
     setReactions([]);
     setReactionPickerOpen(false);
     setVoiceMenuOpen(false);
+    controlKeyRef.current = false;
+    setControlKey(false);
+    setKeyboardOpen(false);
+    setClipboardError("");
     setConnectionStatus(session.status === "exited" ? "exited" : "connecting");
     const terminal = new XTerm({
       cols: session.cols,
@@ -735,6 +782,9 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, voiceMode, o
     terminal.loadAddon(fit);
     terminal.loadAddon(search);
     terminal.open(host);
+    const syncKeyboardFocus = () => setKeyboardOpen(host.contains(host.ownerDocument.activeElement));
+    host.addEventListener("focusin", syncKeyboardFocus);
+    host.addEventListener("focusout", syncKeyboardFocus);
     terminalRef.current = terminal;
     fitRef.current = fit;
     searchRef.current = search;
@@ -746,7 +796,14 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, voiceMode, o
       if (isTerminalInsertToggle(event)) setInputMode((current) => current === "insert" ? "overwrite" : "insert");
       return true;
     });
-    const dataSubscription = terminal.onData((data) => writeSocket({ type: "input", data }));
+    const dataSubscription = terminal.onData((data) => {
+      if (controlKeyRef.current && data.length === 1 && /[a-z@\[\\\]\^_?]/i.test(data)) {
+        data = data === "?" ? "\x7f" : String.fromCharCode(data.toUpperCase().charCodeAt(0) & 31);
+      }
+      controlKeyRef.current = false;
+      setControlKey(false);
+      writeSocket({ type: "input", data });
+    });
     let resizeFrame: number | undefined;
     let observedWidth = 0;
     let observedHeight = 0;
@@ -811,7 +868,7 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, voiceMode, o
             window.requestAnimationFrame(() => {
               terminal.options.disableStdin = false;
               resizeToHost();
-              if (activeRef.current) terminal.focus();
+              if (activeRef.current && !mobileRef.current) terminal.focus();
             });
           } else if (message.type === "replay") {
             terminal.reset();
@@ -942,6 +999,8 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, voiceMode, o
       reactionTimers.current.clear();
       resizeObserver.disconnect();
       dataSubscription.dispose();
+      host.removeEventListener("focusin", syncKeyboardFocus);
+      host.removeEventListener("focusout", syncKeyboardFocus);
       if (socketRef.current?.readyState === WebSocket.OPEN) socketRef.current.send(JSON.stringify({ type: "detach" }));
       socketRef.current?.close(1000, "Terminal view closed");
       socketRef.current = undefined;
@@ -964,8 +1023,10 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, voiceMode, o
   }, [hasLayoutControl, resizeToHost]);
 
   useEffect(() => {
-    if (active && connectionStatus === "connected") terminalRef.current?.focus();
-  }, [active, connectionStatus]);
+    if (active && connectionStatus === "connected" && !viewport.mobile) terminalRef.current?.focus();
+    if (active) window.requestAnimationFrame(resizeToHost);
+    else { controlKeyRef.current = false; setControlKey(false); setKeyboardOpen(false); }
+  }, [active, connectionStatus, viewport.mobile, resizeToHost]);
 
   useEffect(() => {
     if (!terminalRef.current) return;
@@ -997,9 +1058,9 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, voiceMode, o
   const voiceMemberCount = new Set(voice.participants.map((participant) => participant.id)).size;
 
   return (
-    <section className={`terminal-pane${active ? " is-active" : ""}`} aria-label={`${session.title} terminal pane`} onFocusCapture={onActivate} onMouseDown={() => { onActivate(); terminalRef.current?.focus(); }}>
+    <section className={`terminal-pane${active ? " is-active" : ""}`} aria-label={`${session.title} terminal pane`} onFocusCapture={onActivate} onMouseDown={(event) => { if ((event.target as HTMLElement).closest("button,input,select,summary")) return; onActivate(); if (!viewport.mobile) terminalRef.current?.focus(); }}>
       <header className="terminal-pane__header">
-        <div className={`terminal-pane__session is-${session.scope}`}><i /><strong>{session.shell}</strong><span>{session.cwd}</span>{session.scope === "team" && <em><Users />shared</em>}</div>
+        <div className={`terminal-pane__session is-${session.scope}`}><i /><strong title={session.title}>{viewport.mobile ? session.title : session.shell}</strong><span>{session.cwd}</span>{session.scope === "team" && <em><Users />shared</em>}</div>
         {typingLabels.length > 0 && <span className="terminal-pane__typing">{typingLabels.length === 1 ? `${typingLabels[0]} is typing…` : `${typingLabels.length} teammates are typing…`}</span>}
         <span className={`terminal-pane__mode is-${inputMode}`} title="Insert toggles Insert/Overwrite mode">{inputMode === "insert" ? "INS" : "OVR"}</span>
         <span className={`terminal-pane__state is-${connectionStatus}`}><i />{connectionStatus}</span>
@@ -1022,6 +1083,12 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, voiceMode, o
         ], ["open-mic", "Open mic", "Keep your microphone on", Mic], ["push-to-talk", "Push to talk", "Speak only while holding the talk button", Radio]] as const).map(([value, label, detail, Icon]) => <button type="button" role="radio" aria-checked={voiceMode === value} className={voiceMode === value ? "is-selected" : ""} key={value} onClick={() => chooseVoiceMode(value)}><Icon /><span><strong>{label}</strong><small>{detail}</small></span></button>)}</div>{voice.error && <p role="alert">{voice.error}</p>}{voice.participants.length > 0 && <div className="terminal-voice-people">{voice.participants.map((participant) => <span key={participant.connectionId}><i>{participant.label.slice(0, 2).toUpperCase()}</i><strong>{participant.label}</strong>{participant.mode === "muted" ? <MicOff /> : participant.mode === "push-to-talk" ? <Radio /> : <Mic />}</span>)}</div>}<footer>{voice.status === "connected" || voice.status === "joining" ? <button type="button" className="is-leave" onClick={() => { voice.leave(); setVoiceMenuOpen(false); }}><PhoneOff />Leave voice</button> : <button type="button" className="is-join" disabled={connectionStatus !== "connected"} onClick={() => void voice.join()}><Headphones />Join voice</button>}</footer></section>}
       </div><div className="terminal-pane__reaction-picker"><button type="button" aria-label="Send a team reaction" aria-expanded={reactionPickerOpen} title="Send an emoji sticker" onClick={() => setReactionPickerOpen((open) => !open)}><SmilePlus /></button>{reactionPickerOpen && <div role="menu" aria-label="Team reactions">{TEAM_REACTIONS.map((emoji) => <button type="button" role="menuitem" aria-label={`Send ${emoji}`} key={emoji} onClick={() => sendReaction(emoji)}>{emoji}</button>)}</div>}</div></div>}
       <div className="terminal-pane__canvas">{session.scope === "team" && reactions.length > 0 && <div className="terminal-pane__reactions" aria-live="polite">{reactions.map((reaction) => <span className="terminal-pane__reaction" aria-label={`${reaction.label} reacted with ${reaction.emoji}`} key={reaction.id}><span className="terminal-pane__reaction-burst" aria-hidden="true"><b>{reaction.emoji}</b><small>{reaction.label}</small></span></span>)}</div>}<div ref={hostRef} className="terminal-xterm" aria-label={`${session.title} interactive terminal`} /></div>
+      {clipboardError && <div className="terminal-clipboard-notice" role="status"><span>{clipboardError}</span><button type="button" aria-label="Dismiss clipboard message" onClick={() => setClipboardError("")}><X /></button></div>}
+      {viewport.mobile && <div className="terminal-touch-keys" role="toolbar" aria-label={`Touch keys for ${session.title}`}>
+        <button type="button" aria-label={keyboardOpen ? "Hide terminal keyboard" : "Show terminal keyboard"} aria-pressed={keyboardOpen} onPointerDown={(event) => event.preventDefault()} onClick={() => { if (keyboardOpen) terminalRef.current?.blur(); else terminalRef.current?.focus(); setKeyboardOpen(!keyboardOpen); }}><KeyboardIcon /><span>Keyboard</span></button>
+        <button type="button" disabled={connectionStatus !== "connected"} aria-label="Control next key" aria-pressed={controlKey} onPointerDown={(event) => event.preventDefault()} onClick={() => { controlKeyRef.current = !controlKey; setControlKey(!controlKey); }}>Ctrl</button>
+        {([["Esc", "Escape", "\x1b"], ["Tab", "Tab completion", "\t"], ["↑", "Previous command", "\x1b[A"], ["↓", "Next command", "\x1b[B"], ["←", "Cursor left", "\x1b[D"], ["→", "Cursor right", "\x1b[C"], ["Ctrl+C", "Interrupt command", "\x03"]] as const).map(([label, description, data]) => <button type="button" key={description} aria-label={description} disabled={connectionStatus !== "connected"} onPointerDown={(event) => event.preventDefault()} onClick={() => { writeSocket({ type: "input", data }); controlKeyRef.current = false; setControlKey(false); }}>{label}</button>)}
+      </div>}
     </section>
   );
 }

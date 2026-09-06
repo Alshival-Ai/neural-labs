@@ -20,7 +20,7 @@ const mcpStatusFixture = (ready = true) => ({
   tools: ["google_places_search", "search_gif", "pexels_search_photos"],
 });
 
-async function fixture(ready = true, { maxUploadBytes, maxTextBytes, mcpReady = true, codeServerReady = true, runTeamAgent, personalOpenAI, voiceService, turnCredentialProvider, teamChannelAuthorizer, terminalHeartbeatMs, gatewayMediaOrigin, gatewayMediaFetch } = {}) {
+async function fixture(ready = true, { maxUploadBytes, maxTextBytes, mcpReady = true, codeServerReady = true, runTeamAgent, personalOpenAI, modelCatalog, modelPolicies, teamOpenAI, voiceService, turnCredentialProvider, teamChannelAuthorizer, terminalHeartbeatMs, gatewayMediaOrigin, gatewayMediaFetch } = {}) {
   const desktopRoot = await mkdtemp(path.join(tmpdir(), "neural-labs-desktop-test-"));
   const workspaceRoot = path.join(desktopRoot, "workspace-root");
   await mkdir(path.join(desktopRoot, "assets"));
@@ -36,6 +36,9 @@ async function fixture(ready = true, { maxUploadBytes, maxTextBytes, mcpReady = 
   await writeFile(path.join(desktopRoot, "assets", "wallpaper.png"), Buffer.from([137, 80, 78, 71]));
   await writeFile(path.join(desktopRoot, "assets", "wallpaper-tablet.png"), Buffer.from([137, 80, 78, 71]));
   await writeFile(path.join(desktopRoot, "assets", "wallpaper-mobile.png"), Buffer.from([137, 80, 78, 71]));
+  await mkdir(path.join(desktopRoot, "image-editor", "dist"), { recursive: true });
+  await writeFile(path.join(desktopRoot, "image-editor", "index.html"), '<script src="dist/bundle.js"></script>');
+  await writeFile(path.join(desktopRoot, "image-editor", "dist", "bundle.js"), '"use strict";');
   const server = createWorkspaceHttpServer({
     desktopRoot,
     workspaceRoot,
@@ -53,6 +56,9 @@ async function fixture(ready = true, { maxUploadBytes, maxTextBytes, mcpReady = 
       cancel: () => ({ provider: "openai", state: "disconnected" }),
     },
     personalOpenAI,
+    modelCatalog,
+    modelPolicies,
+    teamOpenAI,
     voiceService,
     workspaceControlToken: "workspace-control-token-at-least-thirty-two-characters",
     openclawVersion: "2026.8.2",
@@ -75,6 +81,68 @@ async function fixture(ready = true, { maxUploadBytes, maxTextBytes, mcpReady = 
     },
   };
 }
+
+test("protects model control routes and preserves owner/workload routing", async () => {
+  const calls = [];
+  const app = await fixture(true, {
+    modelCatalog: { invalidate: () => {}, list: async (input) => { calls.push(input); return { models: [] }; } },
+    modelPolicies: {
+      inspect: async (userId, workload) => ({ userId, workload }),
+      apply: async (input) => { calls.push(input); return { model: "openai/test" }; },
+    },
+    teamOpenAI: { snapshot: async () => ({ authenticated: false }), start: async () => ({ state: "starting" }), cancel: () => ({ state: "disconnected" }) },
+    voiceService: { snapshot: () => ({ configured: true }), configure: (input) => input, refreshCatalog: async () => ({ refreshed: true }) },
+  });
+  const headers = { Authorization: "Bearer workspace-control-token-at-least-thirty-two-characters", "Content-Type": "application/json" };
+  try {
+    for (const route of ["catalog", "preferences", "team/connection", "voice"]) {
+      assert.equal((await fetch(`${app.origin}/internal/model-providers/${route}`)).status, 401);
+      assert.equal((await fetch(`${app.origin}/internal/model-providers/${route}`, { method: "DELETE", headers })).status, 405);
+    }
+    await fetch(`${app.origin}/internal/model-providers/catalog?userId=alice`, { method: "POST", headers });
+    assert.deepEqual(calls.pop(), { userId: "alice", agentId: undefined, refresh: true });
+    const scoped = await fetch(`${app.origin}/internal/model-providers/preferences?userId=alice&workload=team`, { headers }).then((response) => response.json());
+    assert.deepEqual(scoped, { userId: "alice", workload: "background" });
+    await fetch(`${app.origin}/internal/model-providers/preferences?workload=team`, { method: "POST", headers, body: JSON.stringify({ policy: { mode: "latest" }, revision: 2 }) });
+    assert.deepEqual(calls.pop(), { userId: undefined, workload: "team", policy: { mode: "latest" }, revision: 2, previous: undefined });
+    assert.equal((await fetch(`${app.origin}/internal/model-providers/team/connection/start`, { method: "POST", headers })).status, 202);
+    assert.deepEqual(await fetch(`${app.origin}/internal/model-providers/voice/refresh`, { method: "POST", headers }).then((response) => response.json()), { refreshed: true });
+  } finally { await app.close(); }
+});
+
+test("isolates public editor assets from authenticated Files APIs and personal metadata", async () => {
+  const app = await fixture();
+  const user = { "X-Forwarded-User": "alice" };
+  const mutation = { ...user, Origin: "https://neural-labs.example.com", "Content-Type": "application/json" };
+  try {
+    const editor = await fetch(`${app.origin}/workspace/image-editor/index.html`);
+    assert.equal(editor.status, 200);
+    assert.match(editor.headers.get("content-security-policy"), /sandbox allow-scripts/);
+    assert.doesNotMatch(editor.headers.get("content-security-policy"), /allow-same-origin/);
+    assert.match(editor.headers.get("content-security-policy"), /connect-src 'none'/);
+    assert.equal(editor.headers.get("access-control-allow-origin"), "*");
+    assert.equal((await fetch(`${app.origin}/workspace/image-editor/notes.md`)).status, 404);
+    for (const endpoint of ["preferences", "recent", "search?q=notes", "trash", "operations", "info?path=notes.md"]) {
+      assert.equal((await fetch(`${app.origin}/workspace/api/files/${endpoint}`)).status, 401);
+    }
+    assert.equal((await fetch(`${app.origin}/workspace/api/files/preferences`, { method: "PUT", headers: user, body: "{}" })).status, 403);
+    const saved = await fetch(`${app.origin}/workspace/api/files/preferences`, { method: "PUT", headers: mutation, body: JSON.stringify({ revision: 0, pins: [{ path: "projects", label: "Projects" }] }) });
+    assert.equal(saved.status, 200);
+    const other = await fetch(`${app.origin}/workspace/api/files/preferences`, { headers: { "X-Forwarded-User": "bob" } }).then((r) => r.json());
+    assert.deepEqual(other.pins, []);
+    const job = await fetch(`${app.origin}/workspace/api/files/operations`, { method: "POST", headers: mutation, body: JSON.stringify({ items: [{ action: "copy", path: "notes.md", destination: "projects" }] }) }).then((r) => r.json());
+    assert.ok(job.id);
+    assert.equal((await fetch(`${app.origin}/workspace/api/files/operations/${job.id}`, { headers: { "X-Forwarded-User": "bob" } })).status, 404);
+    let result;
+    do { await new Promise((r) => setTimeout(r, 5)); result = await fetch(`${app.origin}/workspace/api/files/operations/${job.id}`, { headers: user }).then((r) => r.json()); } while (["queued", "running"].includes(result.state));
+    assert.equal(result.results[0].status, "completed");
+    const info = await fetch(`${app.origin}/workspace/api/files/info?path=notes.md`, { headers: user }).then((r) => r.json());
+    assert.ok(info.item.version);
+    const stale = await fetch(`${app.origin}/workspace/api/files/binary?path=&name=notes.md&version=wrong`, { method: "PUT", headers: mutation, body: "bad overwrite" });
+    assert.equal(stale.status, 409);
+    assert.equal((await stale.json()).error.code, "stale_file");
+  } finally { await app.close(); }
+});
 
 test("brokers authenticated same-origin private voice and team transcription requests", async () => {
   const calls = [];
@@ -395,6 +463,7 @@ test("protects personal OpenAI account control and routes only the selected user
     snapshot: async (userId) => { calls.push(["snapshot", userId]); return { provider: "openai", state: "disconnected", agentId: "nl-user", paused: true }; },
     start: async (userId) => { calls.push(["start", userId]); return { provider: "openai", state: "starting", agentId: "nl-user", paused: false }; },
     cancel: async () => ({}), pause: async () => ({}), resume: async () => ({}),
+    disconnect: async (userId) => { calls.push(["disconnect", userId]); return { state: "disconnected" }; },
   };
   const app = await fixture(true, { personalOpenAI });
   try {
@@ -403,9 +472,12 @@ test("protects personal OpenAI account control and routes only the selected user
     const headers = { Authorization: "Bearer workspace-control-token-at-least-thirty-two-characters" };
     assert.equal((await fetch(`${app.origin}${path}`, { headers })).status, 200);
     assert.equal((await fetch(`${app.origin}${path}/start`, { method: "POST", headers })).status, 202);
+    assert.equal((await fetch(`${app.origin}${path}/disconnect`, { method: "POST" })).status, 401);
+    assert.equal((await fetch(`${app.origin}${path}/disconnect`, { method: "POST", headers })).status, 200);
     assert.deepEqual(calls, [
       ["snapshot", "11111111-1111-4111-8111-111111111111"],
       ["start", "11111111-1111-4111-8111-111111111111"],
+      ["disconnect", "11111111-1111-4111-8111-111111111111"],
     ]);
   } finally {
     await app.close();
@@ -787,6 +859,7 @@ test("reports gateway readiness without exposing arbitrary files", async () => {
       openclawVersion: "2026.8.2",
       codexVersion: "0.152.0",
       providerAuthenticated: false,
+      credentialSource: "unconfigured",
       codexAuthenticated: false,
       openclawModelReady: false,
     });
@@ -815,6 +888,7 @@ test("holds workspace readiness while the local MCP is unavailable", async () =>
       openclawVersion: "2026.8.2",
       codexVersion: "0.152.0",
       providerAuthenticated: false,
+      credentialSource: "unconfigured",
       codexAuthenticated: false,
       openclawModelReady: false,
     });

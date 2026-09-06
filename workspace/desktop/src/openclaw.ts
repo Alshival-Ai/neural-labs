@@ -342,6 +342,10 @@ export class NeuraGateway {
         category,
         visibility,
         sharingRole,
+        modelOverride: value.modelOverrideSource === "user" && stringValue(value.model)
+          ? String(value.model).startsWith(`${value.modelProvider}/`) ? String(value.model) : [stringValue(value.modelProvider), stringValue(value.model)].filter(Boolean).join("/")
+          : undefined,
+        thinkingLevel: stringValue(value.thinkingLevel),
       }];
     });
   }
@@ -404,14 +408,16 @@ export class NeuraGateway {
     };
   }
 
-  async loadHistory(sessionKey: string): Promise<NeuraMessage[]> {
+  async loadHistory(sessionKey: string, options: { hideUnfinishedTail?: boolean } = {}): Promise<NeuraMessage[]> {
     const result = await this.client.request<unknown>("chat.history", {
       sessionKey,
       agentId: this.requireAgentId(),
       limit: 250,
     });
     const rows = isRecord(result) && Array.isArray(result.messages) ? result.messages : [];
-    return this.resolveMessageAttachments(sessionKey, normalizeNeuraHistory(rows, sessionKey));
+    const hideUnfinishedTail = options.hideUnfinishedTail
+      ?? (isRecord(result) && result.active === true);
+    return this.resolveMessageAttachments(sessionKey, normalizeNeuraHistory(rows, sessionKey, { hideUnfinishedTail }));
   }
 
   async resolveMessageAttachments(sessionKey: string, messages: NeuraMessage[]): Promise<NeuraMessage[]> {
@@ -471,7 +477,7 @@ export class NeuraGateway {
     return this.client.request("chat.abort", { sessionKey, agentId: this.requireAgentId(), runId });
   }
 
-  patchSession(session: SessionRow, patch: { label?: string; archived?: boolean }) {
+  patchSession(session: SessionRow, patch: { label?: string; archived?: boolean; model?: string | null; thinkingLevel?: string | null }) {
     return this.client.request("sessions.patch", {
       key: session.key,
       agentId: this.requireAgentId(),
@@ -529,7 +535,7 @@ function numberValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-const ACTIVITY_SECRET_ASSIGNMENT = /\b(api[_-]?key|access[_-]?token|auth[_-]?token|token|password|passwd|secret|authorization)\b(\s*[:=]\s*)([^\s,;]+)/gi;
+const ACTIVITY_SECRET_ASSIGNMENT = /\b((?:[a-z0-9]+[_-])*(?:api[_-]?key|access[_-]?token|auth[_-]?token|token|password|passwd|secret|authorization))\b(\s*[:=]\s*)([^\s,;]+)/gi;
 const ACTIVITY_BEARER = /\bBearer\s+[A-Za-z0-9._~+\/-]+/gi;
 const ACTIVITY_OPENAI_KEY = /\bsk-[A-Za-z0-9_-]{12,}\b/g;
 
@@ -567,7 +573,7 @@ function activityArguments(data: RecordValue): RecordValue {
         const parsed = JSON.parse(value) as unknown;
         if (isRecord(parsed)) return parsed;
       } catch {
-        // A plain string is not a structured tool argument object.
+        return { input: value };
       }
     }
   }
@@ -604,6 +610,7 @@ function activityForTool(data: RecordValue, sessionKey: string, runId?: string):
   const isPlan = name.includes("plan");
   const isFile = /(apply.?patch|write.?file|edit.?file|create.?file)/.test(name);
   const output = nestedActivityText(data.output ?? result.output ?? resultDetails.output, 12_000);
+  const fileChange = safeActivityText(args.patch ?? args.diff ?? args.content ?? args.input, 12_000);
   const detail = safeActivityText(data.summary ?? data.detail ?? data.meta ?? data.toolErrorSummary, 2_400);
   const path = safeActivityText(args.path ?? args.filePath ?? args.file, 600);
   const exitCode = numberValue(data.exitCode) ?? numberValue(result.exitCode) ?? numberValue(resultDetails.exitCode);
@@ -621,7 +628,11 @@ function activityForTool(data: RecordValue, sessionKey: string, runId?: string):
     };
   }
   if (isFile) {
-    return { id: `file:${toolCallId}`, sessionKey, runId, kind: "file", title: state === "running" ? "Updating files" : state === "error" ? "File update failed" : "Files updated", ...(path ? { path } : {}), ...(detail ? { detail } : {}), state };
+    return {
+      id: `file:${toolCallId}`, sessionKey, runId, kind: "file",
+      title: state === "running" ? "Updating files" : state === "error" ? "File update failed" : "Files updated",
+      ...(path ? { path } : {}), ...(detail ? { detail } : {}), ...(fileChange || output ? { output: fileChange || output } : {}), state,
+    };
   }
   const readableName = name.replace(/^mcp__/, "").replaceAll(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
   return { id: `tool:${toolCallId}`, sessionKey, runId, kind: "tool", title: readableName || "Agent action", ...(detail ? { detail } : {}), state };
@@ -698,6 +709,18 @@ export function activitiesFromGatewayEvent(event: GatewayEvent): NeuraActivity[]
     const detail = safeActivityText(data.text ?? data.delta, 2_400);
     return detail ? [{ id: `thinking:${stringValue(data.itemId) ?? runId ?? "active"}`, sessionKey, runId, kind: "thinking", title: "Progress update", detail, state: activityState(data) }] : [];
   }
+  if (stream === "item" && (stringValue(data.kind) ?? "").toLowerCase() === "preamble") {
+    const detail = safeActivityText(data.progressText ?? data.text ?? data.delta, 2_400);
+    return detail ? [{
+      id: `thinking:${stringValue(data.itemId) ?? runId ?? "active"}`,
+      sessionKey,
+      runId,
+      kind: "thinking",
+      title: "Progress update",
+      detail,
+      state: activityState(data),
+    }] : [];
+  }
   if (stream === "plan") {
     return [{ id: `plan:${runId ?? "active"}`, sessionKey, runId, kind: "plan", title: "Plan updated", detail: activityPlan(data, {}), state: activityState(data) }];
   }
@@ -725,6 +748,62 @@ function textFromContent(content: unknown): string {
     })
     .filter(Boolean)
     .join("\n");
+}
+
+type AssistantMessagePhase = "commentary" | "final_answer";
+
+function normalizedAssistantPhase(value: unknown): AssistantMessagePhase | undefined {
+  if (typeof value !== "string") return undefined;
+  const phase = value.toLowerCase().replaceAll("-", "_");
+  return phase === "commentary" || phase === "final_answer" ? phase : undefined;
+}
+
+function assistantTextBlockPhase(value: unknown): AssistantMessagePhase | undefined {
+  if (!isRecord(value)) return undefined;
+  const direct = normalizedAssistantPhase(value.phase);
+  if (direct) return direct;
+  const signature = stringValue(value.textSignature);
+  if (!signature?.startsWith("{")) return undefined;
+  try {
+    const parsed = JSON.parse(signature) as unknown;
+    return isRecord(parsed) && parsed.v === 1 ? normalizedAssistantPhase(parsed.phase) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function assistantTextParts(content: unknown): Array<{ text: string; phase?: AssistantMessagePhase }> {
+  if (typeof content === "string") return content ? [{ text: content }] : [];
+  if (!Array.isArray(content)) return [];
+  return content.flatMap((part) => {
+    if (typeof part === "string") return part ? [{ text: part }] : [];
+    if (!isRecord(part)) return [];
+    const type = (stringValue(part.type) ?? "").toLowerCase().replaceAll(/[_-]+/g, "");
+    if (["thinking", "reasoning", "toolcall", "tooluse", "functioncall", "toolresult", "tooloutput", "functionresult"].includes(type)) return [];
+    const text = stringValue(part.text) ?? stringValue(part.content) ?? "";
+    return text ? [{ text, phase: assistantTextBlockPhase(part) }] : [];
+  });
+}
+
+function assistantCommentaryText(value: unknown): string {
+  if (!isRecord(value)) return "";
+  const nested = isRecord(value.message) ? value.message : value;
+  const directPhase = normalizedAssistantPhase(nested.phase) ?? normalizedAssistantPhase(value.phase);
+  if (directPhase === "commentary") {
+    return textFromContent(nested.content) || stringValue(nested.text) || stringValue(value.text) || "";
+  }
+  return assistantTextParts(nested.content).filter((part) => part.phase === "commentary").map((part) => part.text).join("\n");
+}
+
+function assistantAnswerText(value: RecordValue): string {
+  const nested = isRecord(value.message) ? value.message : value;
+  const directPhase = normalizedAssistantPhase(nested.phase) ?? normalizedAssistantPhase(value.phase);
+  const parts = assistantTextParts(nested.content);
+  const finalParts = parts.filter((part) => part.phase === "final_answer");
+  if (finalParts.length) return finalParts.map((part) => part.text).join("\n");
+  if (directPhase === "commentary") return "";
+  const unphased = parts.filter((part) => !part.phase);
+  return unphased.map((part) => part.text).join("\n") || stringValue(nested.text) || stringValue(value.text) || "";
 }
 
 function attachmentFromRecord(value: unknown): NonNullable<NeuraMessage["attachments"]> {
@@ -806,7 +885,11 @@ function normalizeMessage(value: unknown, fallbackId: string): NeuraMessage[] {
   const rawRole = stringValue(value.role) ?? (isRecord(value.message) ? stringValue(value.message.role) : undefined);
   if (!rawRole || !["user", "assistant", "system"].includes(rawRole)) return [];
   const nested = isRecord(value.message) ? value.message : value;
-  const text = textFromContent(nested.content) || stringValue(nested.text) || stringValue(value.text) || "";
+  const text = rawRole === "assistant"
+    ? normalizedMessagePhase(value) === "commentary"
+      ? assistantCommentaryText(value)
+      : assistantAnswerText(value)
+    : textFromContent(nested.content) || stringValue(nested.text) || stringValue(value.text) || "";
   const attachments = attachmentsFromMessage(nested);
   if (!text && attachments.length === 0) return [];
   return [{
@@ -820,8 +903,10 @@ function normalizeMessage(value: unknown, fallbackId: string): NeuraMessage[] {
 function normalizedMessagePhase(value: unknown): "commentary" | "final_answer" | undefined {
   if (!isRecord(value)) return undefined;
   const nested = isRecord(value.message) ? value.message : value;
-  const phase = (stringValue(nested.phase) ?? stringValue(value.phase))?.toLowerCase().replaceAll("-", "_");
-  return phase === "commentary" || phase === "final_answer" ? phase : undefined;
+  const direct = normalizedAssistantPhase(nested.phase) ?? normalizedAssistantPhase(value.phase);
+  if (direct) return direct;
+  const phases = new Set(assistantTextParts(nested.content).flatMap((part) => part.phase ? [part.phase] : []));
+  return phases.size === 1 ? [...phases][0] : undefined;
 }
 
 function normalizedHistoryRole(value: RecordValue): string {
@@ -838,10 +923,15 @@ function historyBlockType(value: unknown): string {
   return isRecord(value) ? (stringValue(value.type) ?? "").toLowerCase().replaceAll(/[_-]+/g, "") : "";
 }
 
-export function normalizeNeuraHistory(rows: unknown[], sessionKey: string): NeuraMessage[] {
+export function normalizeNeuraHistory(
+  rows: unknown[],
+  sessionKey: string,
+  options: { hideUnfinishedTail?: boolean } = {},
+): NeuraMessage[] {
   const messages: NeuraMessage[] = [];
   let pending: NeuraActivity[] = [];
   const toolNames = new Map<string, string>();
+  const finalAnswerIds = new Set<string>();
 
   const flushPending = () => {
     if (!pending.length) return;
@@ -882,17 +972,21 @@ export function normalizeNeuraHistory(rows: unknown[], sessionKey: string): Neur
     }
 
     const normalized = normalizeMessage(candidate, `${sessionKey}:${index}`);
+    if (normalizedMessagePhase(candidate) === "final_answer") {
+      for (const message of normalized) if (message.role === "assistant") finalAnswerIds.add(message.id);
+    }
+    const commentary = role === "assistant" ? assistantCommentaryText(candidate).trim() : "";
+    if (commentary) {
+      pending = mergeActivity(pending, {
+        id: `thinking:${stringValue(candidate.id) ?? index}`,
+        sessionKey,
+        kind: "thinking",
+        title: "Progress update",
+        detail: safeActivityText(commentary, 2_400),
+        state: "done",
+      });
+    }
     if (role === "assistant" && normalizedMessagePhase(candidate) === "commentary") {
-      for (const message of normalized) {
-        pending = mergeActivity(pending, {
-          id: `thinking:${message.id}`,
-          sessionKey,
-          kind: "thinking",
-          title: "Progress update",
-          detail: safeActivityText(message.text, 2_400),
-          state: "done",
-        });
-      }
       return;
     }
     for (const message of normalized) {
@@ -905,7 +999,32 @@ export function normalizeNeuraHistory(rows: unknown[], sessionKey: string): Neur
     }
   });
   flushPending();
-  return foldAssistantProgress(messages, sessionKey);
+  const folded = foldAssistantProgress(messages, sessionKey);
+  if (!options.hideUnfinishedTail) return folded;
+
+  const lastUserIndex = folded.findLastIndex((message) => message.role === "user");
+  const tail = folded.slice(lastUserIndex + 1);
+  if (tail.some((message) => message.role === "assistant" && finalAnswerIds.has(message.id))) return folded;
+
+  const activities: NeuraActivity[] = [];
+  for (const message of tail) {
+    if (message.role !== "assistant") continue;
+    activities.push(...(message.activities ?? []));
+    if (message.text.trim()) activities.push({
+      id: `thinking:${message.id}`,
+      sessionKey,
+      kind: "thinking",
+      title: "Progress update",
+      detail: safeActivityText(message.text, 2_400),
+      state: "done",
+    });
+  }
+  if (!activities.length) return folded;
+  return [
+    ...folded.slice(0, lastUserIndex + 1),
+    ...tail.filter((message) => message.role !== "assistant"),
+    { id: `${sessionKey}:active-work`, role: "assistant", text: "", activities },
+  ];
 }
 
 async function fileToGatewayAttachment(attachment: ComposerAttachment) {
@@ -941,6 +1060,8 @@ export function messagesFromSessionEvent(event: GatewayEvent) {
     runId,
     phase: stringValue(payload.phase),
     messagePhase: normalizedMessagePhase(payload.message),
+    commentaryText: assistantCommentaryText(payload.message).trim(),
+    commentaryId: fallbackId,
     messages: normalizeMessage(payload.message, fallbackId),
   };
 }

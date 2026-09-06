@@ -36,6 +36,21 @@ launchpad or xterm workspace. Keeping these regions explicit prevents an empty
 banner row from shifting the xterm canvas and font-size controls into each
 other's grid tracks.
 
+At app widths up to 760px, `AppDrawer` replaces the icon rail with searchable,
+named sessions. The native modal dialog supplies background inertness and focus
+return without duplicating the desktop navigation. Mobile split tabs only change
+pane visibility; neither xterm nor its socket is remounted. The touch-key row
+sends ordinary authenticated input messages and keeps Ctrl as a one-shot local
+modifier. `useMobileAppLayout` observes the app container and visual viewport to
+reserve keyboard/dock space; desktop layouts are unchanged. Clipboard failures
+are surfaced to the user instead of silently ignored.
+
+`workspace/mobile-browser.test.mjs` exercises a development-only fixture in
+`desktop/tests/mobile.html` with synthetic chats and sockets. It checks touch
+navigation, composing, input bytes, split connection retention, and narrow-screen
+overflow. Run the local Vite server on port 4196 and supply
+`PLAYWRIGHT_MODULE_PATH`; optionally select `BROWSER_ENGINE=firefox` or `webkit`.
+
 Closing the desktop window unmounts xterm and sends `detach`; it does not call
 the terminal DELETE route. Closing a personal pane explicitly ends its PTY.
 Closing a Team pane only hides it locally, while **End for everyone** calls DELETE

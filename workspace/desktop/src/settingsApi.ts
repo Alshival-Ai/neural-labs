@@ -42,6 +42,29 @@ export type McpSettings = {
   tools: string[];
 };
 
+export type TwilioPluginStatus = {
+  id: "twilio-sms";
+  name: string;
+  description: string;
+  type: "channel";
+  scope: "global";
+  ownership: "workspace";
+  editable: boolean;
+  ready: boolean;
+  configured: boolean;
+  source: "settings" | "environment" | null;
+  accountSidHint: string | null;
+  fromNumber: string | null;
+  webhookUrl: string;
+  webhookMethod: "POST";
+  webhookVerified: boolean | null;
+  smsCapable: boolean | null;
+  mmsCapable: boolean | null;
+  revision: number | null;
+  appliedRevision: number | null;
+  error: string | null;
+};
+
 export type PluginCatalog = {
   plugins: Array<{
     id: string;
@@ -53,7 +76,7 @@ export type PluginCatalog = {
     editable: boolean;
     ready: boolean;
     mcp: McpSettings;
-  }>;
+  } | TwilioPluginStatus>;
 };
 
 export type WorkspaceStatus = {
@@ -65,6 +88,7 @@ export type WorkspaceStatus = {
   openclawVersion: string;
   codexVersion: string;
   codexAuthenticated: boolean;
+  credentialSource?: "environment-api-key" | "chatgpt" | "stored-credential" | "unconfigured";
   openclawModelReady: boolean;
 };
 

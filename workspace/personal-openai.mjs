@@ -7,6 +7,7 @@ import { GatewayClient } from "@openclaw/gateway-client";
 import { PROTOCOL_VERSION } from "@openclaw/gateway-protocol/version";
 
 import { createProviderAuthController } from "./provider-auth.mjs";
+import { agentEnvironment } from "./provider-environment.mjs";
 
 const execFileAsync = promisify(execFile);
 const USER_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u;
@@ -68,7 +69,7 @@ function personalLoginProcess(agentId, profileId) {
   const command = `openclaw models auth login --agent ${agentId} --provider openai --device-code --profile-id ${profileId}`;
   return spawn("script", ["-qefc", command, "/dev/null"], {
     detached: true,
-    env: { ...process.env, NO_COLOR: "1", TERM: "dumb" },
+    env: { ...agentEnvironment(process.env), NO_COLOR: "1", TERM: "dumb" },
     stdio: ["ignore", "pipe", "pipe"],
   });
 }
@@ -131,7 +132,7 @@ export class PersonalOpenAIManager {
     this.workspaceRoot = workspaceRoot;
     this.stateRoot = stateRoot;
     this.gatewayRequest = gatewayRequest;
-    this.execute = execute;
+    this.execute = (command, args, options) => execute(command, args, { ...options, env: agentEnvironment(process.env) });
     this.spawnLogin = spawnLogin;
     this.accounts = new Map();
     this.mutationTail = Promise.resolve();
@@ -172,7 +173,9 @@ export class PersonalOpenAIManager {
       modelReady: () => account.modelReady,
       refreshStatus: async () => {
         await this.refresh(account);
-        if (account.authenticated) await this.assignRole(account.userId, account.roleId);
+        await this.accountAction(account.userId, async () => {
+          if (account.authenticated && !account.accessRevoked) await this.assignRole(account.userId, account.roleId);
+        });
       },
       spawnLogin: () => this.spawnLogin(account.agentId, account.profileId),
     });
@@ -226,6 +229,7 @@ export class PersonalOpenAIManager {
   }
 
   async refresh(account) {
+    if (account.disconnecting) return;
     if (account.refreshing) return account.refreshing;
     const refreshing = this.refreshOnce(account);
     account.refreshing = refreshing;
@@ -322,9 +326,24 @@ export class PersonalOpenAIManager {
     return { ...snapshot, agentId: account.agentId, paused: account.paused };
   }
 
-  async start(userId) {
+  accountAction(userId, action) {
+    const account = this.account(userId);
+    const next = (account.actionTail ?? Promise.resolve()).then(action, action);
+    account.actionTail = next.catch(() => undefined);
+    return next;
+  }
+
+  start(userId) { return this.accountAction(userId, () => this.startOnce(userId)); }
+  resume(userId) { return this.accountAction(userId, () => this.resumeOnce(userId)); }
+  pause(userId) { return this.accountAction(userId, () => this.pauseOnce(userId)); }
+  disconnect(userId) { return this.accountAction(userId, () => this.disconnectOnce(userId)); }
+
+  async startOnce(userId) {
     const account = await this.ensureProvisioned(userId);
+    if (account.disconnecting) throw new Error("Disconnect is in progress. Try again shortly.");
     await this.refresh(account);
+    if (account.disconnecting) throw new Error("Disconnect is in progress. Try again shortly.");
+    account.accessRevoked = false;
     if (account.authenticated) await this.assignRole(userId, account.roleId);
     account.paused = false;
     return { ...account.controller.start(), agentId: account.agentId, paused: false };
@@ -335,27 +354,67 @@ export class PersonalOpenAIManager {
     return { ...account.controller.cancel(), agentId: account.agentId, paused: account.paused };
   }
 
-  async pause(userId) {
+  async pauseOnce(userId) {
     const account = await this.ensureProvisioned(userId);
+    account.accessRevoked = true;
     account.controller.cancel();
     await this.assignRole(userId, "unlinked");
     account.paused = true;
     return { ...account.controller.snapshot(), agentId: account.agentId, paused: true };
   }
 
-  async resume(userId) {
+  async resumeOnce(userId) {
     const account = await this.ensureProvisioned(userId);
+    if (account.disconnecting) throw new Error("Disconnect is in progress. Try again shortly.");
     await this.refresh(account);
+    if (account.disconnecting) throw new Error("Disconnect is in progress. Try again shortly.");
     if (!account.authenticated) throw new Error("Connect an OpenAI account before resuming Neura");
     await this.assignRole(userId, account.roleId);
+    account.accessRevoked = false;
     account.paused = false;
     return { ...account.controller.snapshot(), agentId: account.agentId, paused: false };
+  }
+
+  async disconnectOnce(userId) {
+    const account = await this.ensureProvisioned(userId);
+    if (account.disconnecting) throw new Error("Disconnect is already in progress.");
+    account.disconnecting = true;
+    account.accessRevoked = true;
+    try {
+      await account.controller.cancelAndWait();
+      await account.refreshing;
+      await this.assignRole(userId, "unlinked");
+      account.paused = true;
+      await this.queueMutation(async () => {
+        const before = await this.openclawJson([
+          "models", "auth", "list", "--agent", account.agentId, "--provider", "openai", "--json",
+        ]);
+        if (!ownsPersonalAuthStore(before, account.agentId)) throw new Error("Unexpected credential owner");
+        if (authenticationState(before, account)) await this.execute("openclaw", [
+          "models", "auth", "logout", account.profileId, "--agent", account.agentId, "--yes",
+        ], { encoding: "utf8", timeout: 120_000, maxBuffer: 1024 * 1024 });
+      });
+      const authentication = await this.openclawJson([
+        "models", "auth", "list", "--agent", account.agentId, "--provider", "openai", "--json",
+      ]);
+      if (!ownsPersonalAuthStore(authentication, account.agentId) || authenticationState(authentication, account)) {
+        throw new Error("The personal connection could not be verified as disconnected.");
+      }
+      account.authenticated = false;
+      account.modelReady = false;
+      account.controller.cancel();
+      return { ...account.controller.snapshot(), agentId: account.agentId, paused: true };
+    } catch {
+      throw new Error("Disconnect could not be completed. Try again before reconnecting.");
+    } finally {
+      account.disconnecting = false;
+    }
   }
 
   async prepareRun(userId) {
     const snapshot = await this.snapshot(userId);
     if (snapshot.paused || !snapshot.authenticated || !snapshot.modelReady) {
-      const error = new Error("The message author must connect their OpenAI account in Personalization");
+      const error = new Error("The message author must connect their OpenAI account in Settings → Model Provider");
       error.code = "personal_openai_required";
       throw error;
     }

@@ -1,7 +1,9 @@
 import {
   Archive,
   ArchiveRestore,
-  AudioWaveform,
+  Mic,
+  MicOff,
+  PhoneOff,
   Check,
   ChevronDown,
   Globe2,
@@ -26,18 +28,23 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { type ChangeEvent, type KeyboardEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, type KeyboardEvent, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { useAppViewport } from "./appViewport";
+import { AppDrawer } from "./AppDrawer";
+import { useMobileAppLayout } from "./useMobileAppLayout";
 import { activitiesFromGatewayEvent, eventRecord, eventText, messagesFromSessionEvent, NeuraGateway } from "./openclaw";
 import { readDeviceState, writeDeviceState } from "./deviceState";
 import { createWorkspaceFolder, uploadWorkspaceFile, workspaceContentUrl, workspaceDownloadUrl, type WorkspacePreviewFile } from "./filesApi";
 import { listCustomSkills } from "./skillsApi";
 import { teamChatApi, teamSocketUrl, type TeamAttachment, type TeamChannel, type TeamDirectoryUser, type TeamMessage } from "./teamChat";
 import { listTerminals, type TerminalDescriptor } from "./terminalApi";
-import { exchangeRealtimeOffer, supportedRecorderMimeType, transcribeVoiceMemo, voiceMemoExtension } from "./voiceApi";
+import { transcribeVoiceMemo, voiceMemoExtension } from "./voiceApi";
+import { usePrivateNeuraVoice, useTeamVoiceMemo, type VoiceMode } from "./useNeuraVoice";
+import { VoiceControl } from "./VoiceControl";
+import { ConversationModelPicker } from "./ConversationModelPicker";
 import type {
   ComposerAttachment,
   ConnectionState,
@@ -62,12 +69,11 @@ type Props = {
   onOpenTeamTerminal?: (channel: Pick<TeamChannel, "id" | "name">, session?: TerminalDescriptor) => Promise<TerminalDescriptor | undefined> | TerminalDescriptor | undefined;
 };
 
-type NeuraDeviceState = { selectedKey?: string; selectedChannelId?: string; freshStartForActivityAt?: number; sidebarOpen: boolean; terminalSidebarOpen: boolean; showArchived: boolean };
+type NeuraDeviceState = { selectedKey?: string; selectedChannelId?: string; freshStartForActivityAt?: number; sidebarOpen: boolean; terminalSidebarOpen: boolean; showArchived: boolean; voiceMode?: VoiceMode };
 type SkillSuggestion = { key: string; name: string; description: string };
 type SkillTrigger = { start: number; end: number; query: string };
+export type TeamMentionSuggestion = { key: string; handle: string; displayName: string; description: string; kind: "neura" | "user" };
 type TeamAgentPhase = "starting" | "working";
-type PrivateVoiceState = "idle" | "connecting" | "live";
-type TeamVoiceState = "idle" | "recording" | "transcribing" | "sending";
 type QueuedPrompt = {
   id: string;
   sessionKey: string;
@@ -123,6 +129,48 @@ function matchingSkillSuggestions(skills: SkillSuggestion[], trigger: SkillTrigg
     .slice(0, 10);
 }
 
+export function teamMentionTriggerAt(value: string, caret: number): SkillTrigger | null {
+  const beforeCaret = value.slice(0, caret);
+  const match = beforeCaret.match(/@([A-Za-z0-9._-]*)$/);
+  if (!match) return null;
+  const start = caret - match[0].length;
+  const preceding = start > 0 ? value[start - 1] : "";
+  if (preceding && !/[\s([{:;,]/.test(preceding)) return null;
+  return { start, end: caret, query: match[1] };
+}
+
+export function matchingTeamMentionSuggestions(members: TeamDirectoryUser[], trigger: SkillTrigger | null): TeamMentionSuggestion[] {
+  if (!trigger) return [];
+  const query = trigger.query.toLowerCase();
+  const suggestions: TeamMentionSuggestion[] = [
+    { key: "neura", handle: "Neura", displayName: "Neura", description: "AI teammate", kind: "neura" },
+    ...members
+      .filter((member) => member.handle.toLowerCase() !== "neura")
+      .map((member) => ({ key: member.id, handle: member.handle, displayName: member.displayName, description: member.role === "admin" ? "Administrator" : "Teammate", kind: "user" as const })),
+  ];
+  return suggestions
+    .filter((suggestion) => !query || `${suggestion.handle} ${suggestion.displayName}`.toLowerCase().includes(query))
+    .sort((left, right) => {
+      const leftStarts = left.handle.toLowerCase().startsWith(query) || left.displayName.toLowerCase().startsWith(query);
+      const rightStarts = right.handle.toLowerCase().startsWith(query) || right.displayName.toLowerCase().startsWith(query);
+      return Number(rightStarts) - Number(leftStarts)
+        || Number(right.kind === "neura") - Number(left.kind === "neura")
+        || left.displayName.localeCompare(right.displayName);
+    })
+    .slice(0, 10);
+}
+
+export function insertTeamMention(value: string, trigger: SkillTrigger, mention: TeamMentionSuggestion): { value: string; caret: number } {
+  const before = value.slice(0, trigger.start);
+  const after = value.slice(trigger.end);
+  const command = `@${mention.handle}`;
+  const separator = after.length === 0 || !/^\s/.test(after) ? " " : "";
+  return {
+    value: `${before}${command}${separator}${after}`,
+    caret: before.length + command.length + separator.length,
+  };
+}
+
 function neuraDeviceState(storageNamespace: string | undefined, storageArea: string): NeuraDeviceState {
   const stored = readDeviceState(storageNamespace, storageArea);
   if (!stored || typeof stored !== "object") return { sidebarOpen: true, terminalSidebarOpen: false, showArchived: false };
@@ -136,6 +184,7 @@ function neuraDeviceState(storageNamespace: string | undefined, storageArea: str
     sidebarOpen: value.sidebarOpen !== false,
     terminalSidebarOpen: value.terminalSidebarOpen === true,
     showArchived: value.showArchived === true,
+    voiceMode: value.voiceMode === "hold" ? "hold" : "tap",
   };
 }
 
@@ -390,7 +439,11 @@ export function teamAgentPhaseFromStatus(status: unknown): TeamAgentPhase | unde
 
 export function invokesTeamAgent(body: string): boolean {
   return /(?:^|[\s([{:;,])@neura\b/i.test(body)
-    || /(?:^|[\s([{:;,])\$(?!neura\b)[A-Za-z][A-Za-z0-9_-]*\b/i.test(body);
+    || /(?:^|[\s([{:;,])\$(?!(?:neura|nerua)(?=$|[^A-Za-z0-9_-]))[A-Za-z][A-Za-z0-9_-]*\b/i.test(body);
+}
+
+export function submitsChatComposerShortcut(event: Pick<KeyboardEvent<HTMLTextAreaElement>, "key" | "shiftKey">): boolean {
+  return event.key === "Enter" && !event.shiftKey;
 }
 
 export function modelProviderErrorMessage(rawError: string): string {
@@ -405,6 +458,10 @@ export function modelProviderErrorMessage(rawError: string): string {
 
 export function NeuraApp({ gateway, notify, active = true, storageNamespace, storageArea = "neura", composeRequest, csrfToken = "", currentUser = unavailableTeamUser, onPreviewFile, onOpenTeamTerminal }: Props) {
   const appViewport = useAppViewport();
+  const appRoot = useRef<HTMLDivElement>(null);
+  const historyId = useId();
+  const terminalsId = useId();
+  useMobileAppLayout(appRoot, appViewport.mobile);
   const [initialUiState] = useState(() => neuraDeviceState(storageNamespace, storageArea));
   const [connection, setConnection] = useState<ConnectionState>("connecting");
   const [connectionError, setConnectionError] = useState<string>();
@@ -422,9 +479,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
   const [teamTyping, setTeamTyping] = useState<TeamDirectoryUser[]>([]);
   const [teamDraft, setTeamDraft] = useState("");
   const [teamAttachments, setTeamAttachments] = useState<TeamAttachment[]>([]);
-  const [privateVoiceState, setPrivateVoiceState] = useState<PrivateVoiceState>("idle");
-  const [teamVoiceState, setTeamVoiceState] = useState<TeamVoiceState>("idle");
-  const [teamVoiceSeconds, setTeamVoiceSeconds] = useState(0);
+  const [voiceMode, setVoiceMode] = useState<VoiceMode>(initialUiState.voiceMode ?? "tap");
   const [teamDialog, setTeamDialog] = useState<{ source?: SessionRow } | undefined>();
   const [manageChannel, setManageChannel] = useState<TeamChannel | undefined>();
   const [teamTerminalOpening, setTeamTerminalOpening] = useState(false);
@@ -442,15 +497,24 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
   const [sidebarOpen, setSidebarOpen] = useState(initialUiState.sidebarOpen);
   const [terminalSidebarOpen, setTerminalSidebarOpen] = useState(initialUiState.terminalSidebarOpen);
   const [mobileDrawer, setMobileDrawer] = useState(false);
+  const [mobileTerminals, setMobileTerminals] = useState(false);
+  const [historyQuery, setHistoryQuery] = useState("");
+  useEffect(() => {
+    if (!appViewport.mobile) { setMobileDrawer(false); setMobileTerminals(false); }
+  }, [appViewport.mobile]);
   const [showArchived, setShowArchived] = useState(initialUiState.showArchived);
   const [creatingSession, setCreatingSession] = useState(false);
+  useEffect(() => { if (teamDialog || manageChannel || creatingSession) setMobileDrawer(false); }, [teamDialog, manageChannel, creatingSession]);
   const [sessionReady, setSessionReady] = useState(false);
+  const [initialSessionsLoaded, setInitialSessionsLoaded] = useState(false);
   const [skills, setSkills] = useState<SkillSuggestion[]>([]);
   const [skillsLoaded, setSkillsLoaded] = useState(false);
   const [skillTrigger, setSkillTrigger] = useState<SkillTrigger | null>(null);
   const [skillMenuIndex, setSkillMenuIndex] = useState(0);
   const [teamSkillTrigger, setTeamSkillTrigger] = useState<SkillTrigger | null>(null);
   const [teamSkillMenuIndex, setTeamSkillMenuIndex] = useState(0);
+  const [teamMentionTrigger, setTeamMentionTrigger] = useState<SkillTrigger | null>(null);
+  const [teamMentionMenuIndex, setTeamMentionMenuIndex] = useState(0);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const selectedKeyRef = useRef(selectedKey);
   const subscribedKeyRef = useRef<string | undefined>(undefined);
@@ -474,78 +538,23 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
   const teamSocket = useRef<WebSocket | undefined>(undefined);
   const teamReconnect = useRef<number | undefined>(undefined);
   const teamTypingTimer = useRef<number | undefined>(undefined);
-  const privateVoicePeer = useRef<RTCPeerConnection | undefined>(undefined);
-  const privateVoiceStream = useRef<MediaStream | undefined>(undefined);
-  const privateVoiceTimer = useRef<number | undefined>(undefined);
-  const privateVoiceAudio = useRef<HTMLAudioElement | undefined>(undefined);
-  const teamVoiceRecorder = useRef<MediaRecorder | undefined>(undefined);
-  const teamVoiceStream = useRef<MediaStream | undefined>(undefined);
-  const teamVoiceChunks = useRef<Blob[]>([]);
-  const teamVoiceTimer = useRef<number | undefined>(undefined);
-  const teamVoiceStartedAt = useRef(0);
   const selectedChannelRef = useRef(selectedChannelId);
   const lastComposeRequest = useRef<string | undefined>(undefined);
   const queuedPromptsRef = useRef<QueuedPrompt[]>([]);
   const composerSubmittingRef = useRef(false);
   const selected = sessions.find((session) => session.key === selectedKey);
   const selectedChannel = teamChannels.find((channel) => channel.id === selectedChannelId);
+  useLayoutEffect(() => {
+    for (const input of [composerInput.current, teamComposerInput.current]) {
+      if (!input) continue;
+      input.style.height = "auto";
+      input.style.height = `${Math.min(input.scrollHeight || 44, appViewport.mobile ? 128 : 180)}px`;
+    }
+  }, [draft, teamDraft, appViewport.mobile, appViewport.width, selectedKey, selectedChannel?.id, sessionReady]);
   const agentBusy = Boolean(runId || selected?.active);
   const sessionQueue = queuedPrompts.filter((prompt) => prompt.sessionKey === selectedKey);
 
-  const stopPrivateVoice = useCallback(() => {
-    if (privateVoiceTimer.current) window.clearTimeout(privateVoiceTimer.current);
-    privateVoiceTimer.current = undefined;
-    privateVoicePeer.current?.close();
-    privateVoiceStream.current?.getTracks().forEach((track) => track.stop());
-    if (privateVoiceAudio.current) privateVoiceAudio.current.srcObject = null;
-    privateVoicePeer.current = undefined;
-    privateVoiceStream.current = undefined;
-    privateVoiceAudio.current = undefined;
-    setPrivateVoiceState("idle");
-  }, []);
-
-  const togglePrivateVoice = async () => {
-    if (privateVoiceState !== "idle") {
-      stopPrivateVoice();
-      return;
-    }
-    if (!navigator.mediaDevices?.getUserMedia || typeof RTCPeerConnection === "undefined") {
-      notify("This browser does not support Neura voice chat.");
-      return;
-    }
-    setPrivateVoiceState("connecting");
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      privateVoiceStream.current = stream;
-      const peer = new RTCPeerConnection();
-      privateVoicePeer.current = peer;
-      stream.getTracks().forEach((track) => peer.addTrack(track, stream));
-      const audio = document.createElement("audio");
-      audio.autoplay = true;
-      privateVoiceAudio.current = audio;
-      peer.ontrack = (event) => { audio.srcObject = event.streams[0] ?? null; };
-      peer.onconnectionstatechange = () => {
-        if (["failed", "closed", "disconnected"].includes(peer.connectionState)) stopPrivateVoice();
-      };
-      const events = peer.createDataChannel("oai-events");
-      events.addEventListener("open", () => events.send(JSON.stringify({
-        type: "response.create",
-        response: { instructions: "Greet the user briefly as Neura, then ask how you can help." },
-      })));
-      const offer = await peer.createOffer();
-      await peer.setLocalDescription(offer);
-      const { answer, maxSeconds } = await exchangeRealtimeOffer(offer.sdp ?? "");
-      await peer.setRemoteDescription({ type: "answer", sdp: answer });
-      setPrivateVoiceState("live");
-      privateVoiceTimer.current = window.setTimeout(() => {
-        stopPrivateVoice();
-        notify("The five-minute Neura voice session has ended.");
-      }, maxSeconds * 1_000);
-    } catch (error) {
-      stopPrivateVoice();
-      notify(error instanceof Error ? error.message : "Could not start Neura voice. Check microphone access and try again.");
-    }
-  };
+  const privateVoice = usePrivateNeuraVoice(selectedChannelId ? undefined : selectedKey, voiceMode, notify);
 
   selectedKeyRef.current = selectedKey;
   selectedChannelRef.current = selectedChannelId;
@@ -659,6 +668,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
       }
       if (initialSessionRefreshPending.current) {
         initialSessionRefreshPending.current = false;
+        setInitialSessionsLoaded(true);
         const staleActivityAt = staleChatActivityForFreshStart(next, freshStartForActivityAtRef.current);
         if (staleActivityAt !== undefined) {
           freshStartForActivityAtRef.current = staleActivityAt;
@@ -892,7 +902,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
   }, [selectedChannelId, selectedKey]);
 
   useEffect(() => {
-    if (initialSessionRefreshPending.current || !selectedKey || selectedChannelId || connection !== "connected") {
+    if (!initialSessionsLoaded || !selectedKey || selectedChannelId || connection !== "connected") {
       setSessionReady(false);
       return;
     }
@@ -908,7 +918,9 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
         }
         subscription = acquired;
         subscribedKeyRef.current = acquired.key;
-        const history = await gateway.loadHistory(selectedKey);
+        const history = await gateway.loadHistory(selectedKey, {
+          hideUnfinishedTail: Boolean(selected?.active || runIdRef.current),
+        });
         if (!active) return;
         setMessages((current) => mergeHistoryWithLive(history, current));
         setSessionReady(true);
@@ -917,13 +929,12 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
       }
     })();
     setApprovals((current) => current.filter((approval) => !approval.sessionKey || approval.sessionKey === selectedKey));
-    setMobileDrawer(false);
     return () => {
       active = false;
       subscribedKeyRef.current = undefined;
       if (subscription) void gateway.unsubscribeSession(subscription);
     };
-  }, [selectedKey, selectedChannelId, connection]);
+  }, [selectedKey, selectedChannelId, connection, initialSessionsLoaded]);
 
   useEffect(() => {
     transcriptPinnedToBottom.current = true;
@@ -954,23 +965,11 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
     if (transcriptFollowFrame.current !== undefined) cancelAnimationFrame(transcriptFollowFrame.current);
     for (const url of attachmentObjectUrls.current) URL.revokeObjectURL(url);
     attachmentObjectUrls.current.clear();
-    if (privateVoiceTimer.current) window.clearTimeout(privateVoiceTimer.current);
-    privateVoicePeer.current?.close();
-    privateVoiceStream.current?.getTracks().forEach((track) => track.stop());
-    if (teamVoiceTimer.current) window.clearInterval(teamVoiceTimer.current);
-    const recorder = teamVoiceRecorder.current;
-    if (recorder) recorder.onstop = null;
-    if (recorder?.state === "recording") recorder.stop();
-    teamVoiceStream.current?.getTracks().forEach((track) => track.stop());
   }, []);
 
   useEffect(() => {
-    if (selectedChannelId) stopPrivateVoice();
-  }, [selectedChannelId, stopPrivateVoice]);
-
-  useEffect(() => {
-    writeDeviceState(storageNamespace, storageArea, { selectedKey, selectedChannelId, freshStartForActivityAt, sidebarOpen, terminalSidebarOpen, showArchived } satisfies NeuraDeviceState);
-  }, [freshStartForActivityAt, selectedKey, selectedChannelId, showArchived, sidebarOpen, storageArea, storageNamespace, terminalSidebarOpen]);
+    writeDeviceState(storageNamespace, storageArea, { selectedKey, selectedChannelId, freshStartForActivityAt, sidebarOpen, terminalSidebarOpen, showArchived, voiceMode } satisfies NeuraDeviceState);
+  }, [freshStartForActivityAt, selectedKey, selectedChannelId, showArchived, sidebarOpen, storageArea, storageNamespace, terminalSidebarOpen, voiceMode]);
 
   function handleGatewayEvent(event: GatewayEvent) {
     const payload = eventRecord(event);
@@ -992,6 +991,17 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
     if (event.event === "session.message") {
       const persisted = messagesFromSessionEvent(event);
       if (!persisted || persisted.sessionKey !== selectedKeyRef.current && persisted.sessionKey !== subscribedKeyRef.current) return;
+      if (persisted.commentaryText) {
+        updateActivities([{
+          id: `thinking:${persisted.commentaryId}`,
+          sessionKey: persisted.sessionKey,
+          runId: persisted.runId,
+          kind: "thinking",
+          title: "Progress update",
+          detail: persisted.commentaryText.slice(0, 2_400),
+          state: "done",
+        }]);
+      }
       if (persisted.messagePhase === "commentary") {
         if (persisted.runId) {
           runIdRef.current = persisted.runId;
@@ -999,17 +1009,30 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
           pendingAssistantText.current.delete(persisted.runId);
           setMessages((current) => current.filter((message) => message.id !== `run:${persisted.runId}`));
         }
-        updateActivities(persisted.messages.flatMap((message): NeuraActivity[] => message.role === "assistant" && message.text.trim()
-          ? [{
-              id: `thinking:${message.id}`,
-              sessionKey: persisted.sessionKey,
-              runId: persisted.runId,
-              kind: "thinking",
-              title: "Progress update",
-              detail: message.text.trim().slice(0, 2_400),
-              state: "done",
-            }]
-          : []));
+        return;
+      }
+      const unphasedStreamingAssistant = persisted.phase === "stream"
+        && persisted.messagePhase === undefined
+        && persisted.messages.filter((message) => message.role === "assistant" && message.text.trim());
+      if (unphasedStreamingAssistant && unphasedStreamingAssistant.length) {
+        updateActivities(unphasedStreamingAssistant.map((message) => ({
+          id: `thinking:${message.id}`,
+          sessionKey: persisted.sessionKey,
+          runId: persisted.runId,
+          kind: "thinking" as const,
+          title: "Progress update",
+          detail: message.text.trim().slice(0, 2_400),
+          state: "done" as const,
+        })));
+        if (persisted.runId) {
+          runIdRef.current = persisted.runId;
+          setRunId(persisted.runId);
+          const streamedText = unphasedStreamingAssistant.at(-1)?.text.trim();
+          if (pendingAssistantText.current.get(persisted.runId)?.trim() === streamedText) {
+            pendingAssistantText.current.delete(persisted.runId);
+            setMessages((current) => current.filter((message) => message.id !== `run:${persisted.runId}`));
+          }
+        }
         return;
       }
       if (persisted.runId && persisted.messages.some((message) => message.role === "user")) promoteQueuedPrompt(persisted.runId);
@@ -1113,11 +1136,13 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
     () => sessions.filter((session) => session.archived === showArchived),
     [sessions, showArchived],
   );
-  const privateSessions = visibleSessions.filter((session) => session.visibility === "draft");
-  const pinnedTeamChannels = teamChannels.filter((channel) => channel.pinned);
-  const regularTeamChannels = teamChannels.filter((channel) => !channel.pinned);
+  const matchesHistory = (title: string) => title.toLowerCase().includes(historyQuery.trim().toLowerCase());
+  const privateSessions = visibleSessions.filter((session) => session.visibility === "draft" && matchesHistory(session.title));
+  const pinnedTeamChannels = teamChannels.filter((channel) => channel.pinned && matchesHistory(channel.name));
+  const regularTeamChannels = teamChannels.filter((channel) => !channel.pinned && matchesHistory(channel.name));
   const matchingSkills = useMemo(() => matchingSkillSuggestions(skills, skillTrigger), [skillTrigger, skills]);
   const matchingTeamSkills = useMemo(() => matchingSkillSuggestions(skills, teamSkillTrigger), [skills, teamSkillTrigger]);
+  const matchingTeamMentions = useMemo(() => matchingTeamMentionSuggestions(teamMembers, teamMentionTrigger), [teamMembers, teamMentionTrigger]);
 
   const createConversation = async () => {
     if (creatingSession) return;
@@ -1138,11 +1163,14 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
   };
 
   const choosePrivateChat = (key: string) => {
+    setMobileDrawer(false);
     setSelectedChannelId(undefined);
     setSelectedKey(key);
   };
 
   const chooseTeamChannel = (channelId: string) => {
+    setMobileDrawer(false);
+    setMobileTerminals(false);
     setSelectedKey(undefined);
     setSelectedChannelId(channelId);
   };
@@ -1287,7 +1315,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
     }
   };
 
-  const postTeamMessage = (body: string, messageAttachments: TeamAttachment[], channel = selectedChannel): boolean => {
+  const postTeamMessage = (body: string, messageAttachments: TeamAttachment[], channel = selectedChannel, invokeAgent = true): boolean => {
     if (!channel || (!body && messageAttachments.length === 0)) return false;
     const socket = teamSocket.current;
     if (!socket || socket.readyState !== WebSocket.OPEN) {
@@ -1296,13 +1324,14 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
     }
     transcriptPinnedToBottom.current = true;
     setShowJumpToLatest(false);
-    if (invokesTeamAgent(body)) setTeamAgentPhase("starting");
+    if (invokeAgent && invokesTeamAgent(body)) setTeamAgentPhase("starting");
     socket.send(JSON.stringify({
       type: "post",
       channelId: channel.id,
       clientRequestId: crypto.randomUUID(),
       body,
       attachments: messageAttachments,
+      invokeAgent,
     }));
     socket.send(JSON.stringify({ type: "typing", channelId: channel.id, active: false }));
     return true;
@@ -1314,101 +1343,33 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
     setTeamDraft("");
     setTeamAttachments([]);
     setTeamSkillTrigger(null);
+    setTeamMentionTrigger(null);
   };
 
-  const stopTeamVoiceMemo = () => {
-    const recorder = teamVoiceRecorder.current;
-    if (recorder?.state === "recording") recorder.stop();
-  };
-
-  const toggleTeamVoiceMemo = async () => {
-    if (teamVoiceState === "recording") {
-      stopTeamVoiceMemo();
-      return;
+  const teamVoice = useTeamVoiceMemo(selectedChannel, async (memo, transcribe, signal) => {
+    const checkContext = () => {
+      signal.throwIfAborted();
+      if (selectedChannelRef.current !== memo.channel.id) throw new Error(`Return to #${memo.channel.name} to send this memo.`);
+    };
+    checkContext();
+    if (transcribe && !memo.transcript) memo.transcript = await transcribeVoiceMemo(memo.audio, signal);
+    checkContext();
+    if (!memo.attachment) {
+      await createWorkspaceFolder("", "team-uploads").catch(() => undefined);
+      checkContext();
+      const extension = voiceMemoExtension(memo.audio.type);
+      const uploaded = await uploadWorkspaceFile("team-uploads", new File([memo.audio], `${memo.filename}.${extension}`, { type: memo.audio.type }));
+      memo.attachment = { path: uploaded.item.path, name: `Voice memo.${extension}`, type: memo.audio.type, size: memo.audio.size };
     }
-    if (teamVoiceState !== "idle" || !selectedChannel) return;
-    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-      notify("This browser does not support recording voice memos.");
-      return;
+    checkContext();
+    const body = transcribe ? `Voice memo transcript:\n${memo.transcript}` : "Voice memo (audio only; no transcript available)";
+    // Retain the recording until the server acknowledges persistence. Reusing
+    // the request ID makes retries safe even if an acknowledgement was lost.
+    const result = await teamChatApi.postMemo(csrfToken, memo.channel.id, { body, attachments: [memo.attachment], clientRequestId: memo.clientRequestId }, signal);
+    if (!signal.aborted && selectedChannelRef.current === memo.channel.id) {
+      setTeamMessages((current) => current.some((message) => message.id === result.message.id) ? current : [...current, result.message]);
     }
-    const channel = selectedChannel;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      teamVoiceStream.current = stream;
-      teamVoiceChunks.current = [];
-      const mimeType = supportedRecorderMimeType();
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      teamVoiceRecorder.current = recorder;
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) teamVoiceChunks.current.push(event.data);
-      };
-      recorder.onerror = () => {
-        stream.getTracks().forEach((track) => track.stop());
-        if (teamVoiceTimer.current) window.clearInterval(teamVoiceTimer.current);
-        setTeamVoiceState("idle");
-        notify("The voice memo could not be recorded.");
-      };
-      recorder.onstop = async () => {
-        if (teamVoiceTimer.current) window.clearInterval(teamVoiceTimer.current);
-        teamVoiceTimer.current = undefined;
-        stream.getTracks().forEach((track) => track.stop());
-        teamVoiceStream.current = undefined;
-        const audio = new Blob(teamVoiceChunks.current, { type: recorder.mimeType || mimeType || "audio/webm" });
-        teamVoiceChunks.current = [];
-        if (!audio.size) {
-          setTeamVoiceState("idle");
-          notify("The voice memo was empty.");
-          return;
-        }
-        if (audio.size > 25 * 1024 * 1024) {
-          setTeamVoiceState("idle");
-          notify("Voice memos must be 25 MB or smaller.");
-          return;
-        }
-        try {
-          setTeamVoiceState("transcribing");
-          const transcript = await transcribeVoiceMemo(audio);
-          setTeamVoiceState("sending");
-          await createWorkspaceFolder("", "team-uploads").catch(() => undefined);
-          const extension = voiceMemoExtension(audio.type);
-          const storedName = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}-voice-memo.${extension}`;
-          const file = new File([audio], storedName, { type: audio.type });
-          const uploaded = await uploadWorkspaceFile("team-uploads", file);
-          const attachment: TeamAttachment = {
-            path: uploaded.item.path,
-            name: `Voice memo.${extension}`,
-            type: audio.type,
-            size: audio.size,
-          };
-          const body = `@Neura\n\nVoice memo transcript:\n${transcript}`;
-          if (!postTeamMessage(body, [attachment], channel)) {
-            setTeamDraft(body);
-            setTeamAttachments((current) => [...current, attachment]);
-          }
-        } catch (error) {
-          notify(error instanceof Error ? error.message : "Could not send the voice memo.");
-        } finally {
-          teamVoiceRecorder.current = undefined;
-          setTeamVoiceState("idle");
-          setTeamVoiceSeconds(0);
-        }
-      };
-      teamVoiceStartedAt.current = Date.now();
-      setTeamVoiceSeconds(0);
-      setTeamVoiceState("recording");
-      recorder.start(1_000);
-      teamVoiceTimer.current = window.setInterval(() => {
-        const seconds = Math.floor((Date.now() - teamVoiceStartedAt.current) / 1_000);
-        setTeamVoiceSeconds(seconds);
-        if (seconds >= 300) stopTeamVoiceMemo();
-      }, 1_000);
-    } catch (error) {
-      teamVoiceStream.current?.getTracks().forEach((track) => track.stop());
-      teamVoiceStream.current = undefined;
-      setTeamVoiceState("idle");
-      notify(error instanceof Error ? error.message : "Could not access the microphone.");
-    }
-  };
+  }, notify);
 
   const handleTeamDraft = (value: string) => {
     setTeamDraft(value);
@@ -1421,9 +1382,11 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
     }, 1_500);
   };
 
-  const syncTeamSkillTrigger = (value: string, caret: number) => {
+  const syncTeamComposerTriggers = (value: string, caret: number) => {
     setTeamSkillTrigger(skillTriggerAt(value, caret));
     setTeamSkillMenuIndex(0);
+    setTeamMentionTrigger(teamMentionTriggerAt(value, caret));
+    setTeamMentionMenuIndex(0);
   };
 
   const selectTeamSkillSuggestion = (skill: SkillSuggestion) => {
@@ -1442,7 +1405,32 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
     });
   };
 
+  const selectTeamMentionSuggestion = (mention: TeamMentionSuggestion) => {
+    if (!teamMentionTrigger) return;
+    const next = insertTeamMention(teamDraft, teamMentionTrigger, mention);
+    handleTeamDraft(next.value);
+    setTeamMentionTrigger(null);
+    window.requestAnimationFrame(() => {
+      teamComposerInput.current?.focus();
+      teamComposerInput.current?.setSelectionRange(next.caret, next.caret);
+    });
+  };
+
   const handleTeamComposerKey = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.nativeEvent.isComposing) return;
+    if (teamMentionTrigger && matchingTeamMentions.length > 0) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const direction = event.key === "ArrowDown" ? 1 : -1;
+        setTeamMentionMenuIndex((current) => (current + direction + matchingTeamMentions.length) % matchingTeamMentions.length);
+        return;
+      }
+      if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
+        event.preventDefault();
+        selectTeamMentionSuggestion(matchingTeamMentions[teamMentionMenuIndex % matchingTeamMentions.length]);
+        return;
+      }
+    }
     if (teamSkillTrigger && matchingTeamSkills.length > 0) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
@@ -1456,12 +1444,13 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
         return;
       }
     }
-    if (event.key === "Escape" && teamSkillTrigger) {
+    if (event.key === "Escape" && (teamSkillTrigger || teamMentionTrigger)) {
       event.preventDefault();
       setTeamSkillTrigger(null);
+      setTeamMentionTrigger(null);
       return;
     }
-    if (event.key !== "Enter" || event.shiftKey) return;
+    if (!submitsChatComposerShortcut(event)) return;
     event.preventDefault();
     sendTeamMessage();
   };
@@ -1605,6 +1594,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
   };
 
   const handleComposerKey = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.nativeEvent.isComposing) return;
     if (skillTrigger && matchingSkills.length > 0) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
@@ -1623,9 +1613,9 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
       setSkillTrigger(null);
       return;
     }
-    if (event.key !== "Enter" || event.shiftKey) return;
+    if (!submitsChatComposerShortcut(event)) return;
     event.preventDefault();
-    void (event.ctrlKey || event.metaKey ? queueMessage() : sendMessage());
+    void sendMessage();
   };
 
   const renameSession = async (session: SessionRow) => {
@@ -1689,11 +1679,12 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
   );
 
   const sidebar = (
-    <aside className="neura-sidebar">
+    <aside className="neura-sidebar" id={appViewport.mobile ? undefined : historyId}>
       <div className="sidebar-heading">
         <button type="button" className="new-chat-button" disabled={creatingSession} aria-busy={creatingSession} onClick={() => void createConversation()}><MessageSquarePlus /> {creatingSession ? "Creating…" : "New chat"}</button>
-        <button type="button" className="sidebar-close" onClick={() => { setSidebarOpen(false); setMobileDrawer(false); }} aria-label="Close conversation history"><PanelLeftClose /></button>
+        {!appViewport.mobile && <button type="button" className="sidebar-close" onClick={() => setSidebarOpen(false)} aria-label="Close conversation history"><PanelLeftClose /></button>}
       </div>
+      <label className="neura-history-search"><span>Find a conversation</span><input type="search" value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder="Search chats and channels" /></label>
       <div className="history-switcher">
         <button type="button" className={!showArchived ? "active" : ""} onClick={() => setShowArchived(false)}>Recent</button>
         <button type="button" className={showArchived ? "active" : ""} onClick={() => setShowArchived(true)}>Archived</button>
@@ -1701,7 +1692,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
       <nav className="history-list" aria-label="Neura conversation history">
         <section className="history-section" aria-labelledby="private-chat-heading">
           <h2 id="private-chat-heading"><LockKeyhole />Your chats</h2>
-          {privateSessions.length === 0 && <p className="history-empty">{showArchived ? "No archived private chats" : "Start a private conversation with Neura."}</p>}
+          {privateSessions.length === 0 && <p className="history-empty">{historyQuery ? "No matching private chats" : showArchived ? "No archived private chats" : "Start a private conversation with Neura."}</p>}
           {privateSessions.map((session) => (
             <div className={`history-row${session.key === selectedKey && !selectedChannelId ? " is-selected" : ""}`} key={session.key}>
               <button type="button" className="history-select" onClick={() => choosePrivateChat(session.key)}>
@@ -1729,6 +1720,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
           {pinnedTeamChannels.map(teamChannelRow)}
           {pinnedTeamChannels.length > 0 && regularTeamChannels.length > 0 && <p className="team-channel-label">Channels</p>}
           {regularTeamChannels.map(teamChannelRow)}
+          {historyQuery && !pinnedTeamChannels.length && !regularTeamChannels.length && <p className="history-empty">No matching team chats</p>}
         </section>
       </nav>
       <p className="shared-note"><LockKeyhole />Private chats stay yours until you share one</p>
@@ -1736,12 +1728,12 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
   );
 
   return (
-    <div className={`neura-app${sidebarOpen ? " has-sidebar" : ""}`}>
-      {sidebarOpen && sidebar}
-      {mobileDrawer && <><button className="drawer-scrim" type="button" aria-label="Close history" onClick={() => setMobileDrawer(false)} />{sidebar}</>}
+    <div ref={appRoot} className={`neura-app${!appViewport.mobile && sidebarOpen ? " has-sidebar" : ""}${appViewport.mobile ? " is-mobile" : ""}`}>
+      {!appViewport.mobile && sidebarOpen && sidebar}
+      {appViewport.mobile && mobileDrawer && <AppDrawer id={historyId} label="Conversation history" anchor={appRoot} onClose={() => setMobileDrawer(false)}>{sidebar}</AppDrawer>}
       <main className="neura-main">
         <header className="neura-toolbar">
-          <button type="button" className="sidebar-toggle" onClick={() => appViewport.mobile ? setMobileDrawer(true) : setSidebarOpen(true)} aria-label="Open conversation history">
+          <button type="button" className="sidebar-toggle" onClick={() => appViewport.mobile ? setMobileDrawer(true) : setSidebarOpen(true)} aria-label="Open conversation history" aria-expanded={appViewport.mobile ? mobileDrawer : sidebarOpen} aria-controls={historyId}>
             {appViewport.mobile ? <Menu /> : <PanelLeftOpen />}
           </button>
           <div>
@@ -1754,6 +1746,9 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
                 : connection === "connected" ? selected && !sessionReady ? "Syncing conversation" : "Connected through OpenClaw" : connection}
             </span>
           </div>
+          {selected && !selectedChannel && connection === "connected" && <ConversationModelPicker key={`${selected.key}:${selected.sessionId}`} session={selected} gateway={gateway} />}
+          {appViewport.mobile && <button type="button" className="neura-mobile-action" disabled={creatingSession} aria-label="New private conversation" onClick={() => void createConversation()}><MessageSquarePlus /></button>}
+          {appViewport.mobile && selectedChannel && <button type="button" className="neura-mobile-action" aria-label="Open channel terminals" aria-expanded={mobileTerminals} aria-controls={terminalsId} onClick={() => setMobileTerminals(true)}><TerminalSquare /></button>}
           {selectedChannel?.canManage && selectedChannel.audience === "restricted" && <div className="team-toolbar-actions">
             {selectedChannel.canManage && selectedChannel.audience === "restricted" && <button type="button" className="team-members-button" onClick={() => void openMemberManager(selectedChannel)}><Users />{teamMembers.length || selectedChannel.memberCount}</button>}
           </div>}
@@ -1763,7 +1758,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
         <div ref={messageScroll} className="message-scroll" aria-live="polite" onScroll={handleTranscriptScroll}>
           <div ref={messageContent} className="message-content">
           {creatingSession ? <NeuraSessionLoader stage="creating" /> : <>
-          {!selectedChannel && connection === "error" && <div className="connection-error"><strong>Neura is unavailable</strong><p>{connectionError ?? "The Gateway connection could not be established."} If this is your first visit, connect your ChatGPT account in Settings → Personalization.</p></div>}
+          {!selectedChannel && connection === "error" && <div className="connection-error"><strong>Neura is unavailable</strong><p>{connectionError ?? "The Gateway connection could not be established."} If this is your first visit, connect your ChatGPT account in Settings → Model Provider.</p></div>}
           {selectedChannel && teamConnection === "error" && <div className="connection-error"><strong>Team Chat is reconnecting</strong><p>Messages remain safely stored. Live updates will resume automatically.</p></div>}
           {selectedChannel && teamAgentError && <div className="connection-error"><strong>Neura could not join this turn</strong><p>{teamAgentError}</p></div>}
           {!selected && !selectedChannel && connection === "connected" && (
@@ -1870,42 +1865,78 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
                   </button>
                 ))}
               </div>}
+              {teamMentionTrigger && <div className="skill-mention-menu" id="team-mention-suggestions" role="listbox" aria-label="Team Chat mentions">
+                <div className="skill-mention-menu__heading" role="presentation"><strong>People</strong><span>Type to filter · Enter to add</span></div>
+                {matchingTeamMentions.length === 0 && <p className="skill-mention-menu__empty">No matching channel members</p>}
+                {matchingTeamMentions.map((mention, index) => (
+                  <button
+                    type="button"
+                    role="option"
+                    id={`team-mention-option-${index}`}
+                    aria-selected={index === teamMentionMenuIndex}
+                    className={index === teamMentionMenuIndex ? "is-selected" : ""}
+                    key={mention.key}
+                    onMouseEnter={() => setTeamMentionMenuIndex(index)}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => selectTeamMentionSuggestion(mention)}
+                  >
+                    <span className="skill-mention-menu__mark">{mention.kind === "neura" ? "N" : "@"}</span>
+                    <span className="skill-mention-menu__copy"><strong>{mention.displayName}</strong><small>{mention.description}</small></span>
+                    <code>@{mention.handle}</code>
+                  </button>
+                ))}
+              </div>}
               {teamAttachments.length > 0 && <div className="composer-attachments">{teamAttachments.map((attachment) => <div key={attachment.path}>{isImageAttachment({ name: attachment.name, type: attachment.type ?? "" }) ? <img src={workspaceContentUrl(attachment.path)} alt="" /> : <Paperclip />}<span>{attachment.name}</span><button type="button" onClick={() => setTeamAttachments((current) => current.filter((item) => item.path !== attachment.path))} aria-label={`Remove ${attachment.name}`}><X /></button></div>)}</div>}
               <div className="composer-row">
                 <input ref={teamFileInput} type="file" multiple hidden onChange={(event) => void selectTeamFiles(event)} />
                 <button type="button" className="attach-button" disabled={teamConnection !== "connected"} onClick={() => teamFileInput.current?.click()} aria-label="Attach workspace files"><Paperclip /></button>
-                <button
-                  type="button"
-                  className={`voice-button${teamVoiceState === "recording" ? " is-live" : ""}`}
-                  onClick={() => void toggleTeamVoiceMemo()}
-                  disabled={teamVoiceState !== "recording" && (teamConnection !== "connected" || teamVoiceState !== "idle")}
-                  aria-label={teamVoiceState === "recording" ? "Stop and send voice memo" : teamVoiceState === "transcribing" ? "Transcribing voice memo" : teamVoiceState === "sending" ? "Sending voice memo" : "Record a Team Chat voice memo"}
-                  title={teamVoiceState === "recording" ? `Stop and send voice memo · ${Math.floor(teamVoiceSeconds / 60)}:${String(teamVoiceSeconds % 60).padStart(2, "0")}` : "Record a voice memo"}
-                ><AudioWaveform /></button>
                 <textarea
                   ref={teamComposerInput}
                   value={teamDraft}
-                  onChange={(event) => { handleTeamDraft(event.target.value); syncTeamSkillTrigger(event.target.value, event.target.selectionStart); }}
-                  onClick={(event) => syncTeamSkillTrigger(event.currentTarget.value, event.currentTarget.selectionStart)}
-                  onBlur={() => window.setTimeout(() => setTeamSkillTrigger(null), 100)}
+                  onChange={(event) => { handleTeamDraft(event.target.value); syncTeamComposerTriggers(event.target.value, event.target.selectionStart); }}
+                  onClick={(event) => syncTeamComposerTriggers(event.currentTarget.value, event.currentTarget.selectionStart)}
+                  onBlur={() => window.setTimeout(() => { setTeamSkillTrigger(null); setTeamMentionTrigger(null); }, 100)}
                   onKeyDown={handleTeamComposerKey}
                   rows={1}
-                  placeholder={`Message #${selectedChannel.name} · $ lists skills`}
+                  placeholder={`Message #${selectedChannel.name} · @ tags people · $ lists skills`}
                   role="combobox"
                   aria-autocomplete="list"
-                  aria-controls={teamSkillTrigger ? "team-skill-suggestions" : undefined}
-                  aria-expanded={Boolean(teamSkillTrigger)}
-                  aria-activedescendant={teamSkillTrigger && matchingTeamSkills.length > 0 ? `team-skill-option-${teamSkillMenuIndex % matchingTeamSkills.length}` : undefined}
+                  aria-controls={teamMentionTrigger ? "team-mention-suggestions" : teamSkillTrigger ? "team-skill-suggestions" : undefined}
+                  aria-expanded={Boolean(teamSkillTrigger || teamMentionTrigger)}
+                  aria-activedescendant={teamMentionTrigger && matchingTeamMentions.length > 0
+                    ? `team-mention-option-${teamMentionMenuIndex % matchingTeamMentions.length}`
+                    : teamSkillTrigger && matchingTeamSkills.length > 0
+                    ? `team-skill-option-${teamSkillMenuIndex % matchingTeamSkills.length}`
+                    : undefined}
                 />
-                <button type="button" className="send-button" onClick={sendTeamMessage} disabled={teamConnection !== "connected" || !teamDraft.trim() && teamAttachments.length === 0} aria-label="Send Team Chat message"><Send /></button>
+                {teamVoice.state !== "idle" || (!teamDraft.trim() && teamAttachments.length === 0) ? <VoiceControl
+                  mode="hold" onModeChange={() => undefined} showModeToggle={false}
+                  label={teamVoice.state === "recording" ? "Release to send Team Chat voice memo" : teamVoice.state === "starting" ? "Release to cancel microphone request" : teamVoice.state === "sending" ? "Sending voice memo" : "Hold to record a Team Chat voice memo"}
+                  active={teamVoice.state === "recording"} busy={teamVoice.state === "starting" || teamVoice.state === "sending"}
+                  disabled={teamVoice.state === "sending" || (teamVoice.state === "idle" && (teamConnection !== "connected" || Boolean(teamVoice.pending)))}
+                  onTap={() => { if (teamVoice.state === "recording" || teamVoice.state === "starting") teamVoice.finish(); else void teamVoice.start(); }}
+                  onHoldStart={() => void teamVoice.start()} onHoldEnd={(cancelled) => cancelled ? teamVoice.cancel() : teamVoice.finish()}
+                /> : <button type="button" className="send-button" onClick={sendTeamMessage} disabled={teamConnection !== "connected"} aria-label="Send Team Chat message"><Send /></button>}
               </div>
             </div>
-            <p className="composer-hint">{teamVoiceState === "recording" ? `Recording voice memo · ${Math.floor(teamVoiceSeconds / 60)}:${String(teamVoiceSeconds % 60).padStart(2, "0")} · tap the wave to send` : teamVoiceState === "transcribing" ? "Transcribing voice memo for Neura…" : teamVoiceState === "sending" ? "Sending voice memo to the team…" : "Enter to send · Shift+Enter for a new line · the wave records a voice memo · @Neura invites the agent"}</p>
+            {(teamVoice.state === "starting" || teamVoice.state === "recording") && <div className="neura-voice-status" role="status"><Mic /><span>{teamVoice.state === "starting" ? "Waiting for microphone access…" : `Recording · ${Math.floor(teamVoice.seconds / 60)}:${String(teamVoice.seconds % 60).padStart(2, "0")} · release to send`}</span><button type="button" onClick={teamVoice.cancel} aria-label="Cancel voice memo"><X /></button></div>}
+            {teamVoice.pending && <section className="voice-memo-recovery" aria-label="Unsent voice memo">
+              <strong>Voice memo for #{teamVoice.pending.channel.name}</strong>
+              <audio controls src={teamVoice.pending.url} aria-label="Play recorded voice memo" />
+              <p role="status">{teamVoice.state === "sending" ? "Preparing and sending your memo…" : teamVoice.error || "Your recording is kept in this tab until you send, download, or discard it."}</p>
+              <div><button type="button" disabled={teamVoice.state !== "idle" || selectedChannelId !== teamVoice.pending.channel.id || teamConnection !== "connected"} onClick={() => teamVoice.retry()}>Retry transcription &amp; send</button><button type="button" disabled={teamVoice.state !== "idle" || selectedChannelId !== teamVoice.pending.channel.id || teamConnection !== "connected"} onClick={() => teamVoice.retry(false)}>Send audio only</button><a href={teamVoice.pending.url} download={`voice-memo.${voiceMemoExtension(teamVoice.pending.audio.type)}`}>Download</a><button type="button" onClick={teamVoice.discard}>Discard memo</button></div>
+            </section>}
+            <p className="composer-hint">Enter to send · Shift+Enter for a new line · hold wave to record · @ tags teammates · @Neura summons Neura · $ lists skills</p>
           </footer>
         )}
 
         {!creatingSession && selected && !selectedChannel && (
           <footer className="neura-composer-area">
+            {privateVoice.state !== "idle" && <div className="neura-voice-status" role="status">
+              {privateVoice.transmitting ? <Mic /> : <MicOff />}<span>{privateVoice.state === "connecting" ? "Connecting voice…" : privateVoice.muted ? "Voice call · microphone muted" : voiceMode === "hold" && !privateVoice.holding ? "Voice call · hold mic to speak" : "Voice call · microphone on"}</span>
+              <button type="button" aria-label={privateVoice.muted ? "Unmute microphone" : "Mute microphone"} aria-pressed={privateVoice.muted} onClick={privateVoice.toggleMute}>{privateVoice.muted ? <MicOff /> : <Mic />}</button>
+              <button type="button" onClick={privateVoice.stop} aria-label={privateVoice.state === "connecting" ? "Cancel private Neura voice chat" : "End private Neura voice chat"}><PhoneOff /></button>
+            </div>}
             {approvals.filter((approval) => !approval.sessionKey || approval.sessionKey === selected.key).map((approval) => (
               <div className="approval-card" key={approval.id}>
                 <div><strong>{approval.title}</strong><code>{approval.detail}</code></div>
@@ -1919,7 +1950,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
             {agentBusy && <div className="active-run-banner" role="status">
               <span className="activity-spinner" />
               <strong>Neura is working</strong>
-              <span>Enter steers this run now. Ctrl/Cmd+Enter adds work to the queue.</span>
+              <span>Enter steers this run now. Use Send options to add work to the queue.</span>
             </div>}
             {sessionQueue.length > 0 && <section className="prompt-queue" aria-label="Queued messages">
               <header>
@@ -1941,7 +1972,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
             </section>}
             <div className="composer-shell">
               {skillTrigger && <div className="skill-mention-menu" id="neura-skill-suggestions" role="listbox" aria-label="Available skills">
-                <div className="skill-mention-menu__heading" role="presentation"><strong>Skills</strong><span>Type to filter · Enter to add</span></div>
+                  <div className="skill-mention-menu__heading" role="presentation"><strong>Skills</strong><span>Type to filter · Enter to add</span></div>
                 {!skillsLoaded && <p className="skill-mention-menu__empty">Loading skills…</p>}
                 {skillsLoaded && matchingSkills.length === 0 && <p className="skill-mention-menu__empty">No matching enabled skills</p>}
                 {matchingSkills.map((skill, index) => (
@@ -1968,14 +1999,6 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
               <div className="composer-row">
                 <input ref={fileInput} type="file" multiple hidden onChange={selectFiles} />
                 <button type="button" className="attach-button" disabled={!sessionReady} onClick={() => fileInput.current?.click()} aria-label="Attach files or images"><Paperclip /></button>
-                <button
-                  type="button"
-                  className={`voice-button${privateVoiceState === "live" ? " is-live" : ""}${privateVoiceState === "connecting" ? " is-connecting" : ""}`}
-                  onClick={() => void togglePrivateVoice()}
-                  disabled={privateVoiceState === "idle" && !sessionReady}
-                  aria-label={privateVoiceState === "live" ? "End private Neura voice chat" : privateVoiceState === "connecting" ? "Cancel private Neura voice chat" : "Start private Neura voice chat"}
-                  title={privateVoiceState === "live" ? "End voice chat" : "Start a private voice chat with Neura"}
-                ><AudioWaveform /></button>
                 <textarea
                   ref={composerInput}
                   disabled={!sessionReady}
@@ -1992,17 +2015,21 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
                   aria-activedescendant={skillTrigger && matchingSkills.length > 0 ? `neura-skill-option-${skillMenuIndex % matchingSkills.length}` : undefined}
                 />
                 {agentBusy && <button type="button" className="stop-button" onClick={() => void gateway.abort(selected.key, runId)} aria-label="Stop Neura"><Square /></button>}
-                <div className="split-send">
+                {!draft.trim() && attachments.length === 0 ? <VoiceControl mode={voiceMode} onModeChange={setVoiceMode}
+                  label={privateVoice.state === "connecting" ? "Cancel private Neura voice chat" : voiceMode === "hold" ? "Hold to speak with Neura" : privateVoice.state === "live" ? "End private Neura voice chat" : "Start private Neura voice chat"}
+                  active={privateVoice.state === "live"} busy={privateVoice.state === "connecting"} disabled={!sessionReady && privateVoice.state === "idle"}
+                  onTap={privateVoice.tap} onHoldStart={privateVoice.press} onHoldEnd={() => privateVoice.release()}
+                /> : <div className="split-send">
                   <button type="button" className="send-button" onClick={() => void sendMessage()} disabled={composerSubmitting || !sessionReady || !draft.trim() && attachments.length === 0} aria-label={agentBusy ? "Steer active run" : "Send message"}><Send /></button>
-                  {agentBusy && <details><summary aria-label="Send options"><ChevronDown /></summary><div><button type="button" disabled={composerSubmitting} onClick={() => void sendMessage()}>Steer active run <kbd>Enter</kbd></button><button type="button" disabled={composerSubmitting} onClick={() => void queueMessage()}>Queue after this run <kbd>⌘↵</kbd></button></div></details>}
-                </div>
+                  {agentBusy && <details><summary aria-label="Send options"><ChevronDown /></summary><div><button type="button" disabled={composerSubmitting} onClick={() => void sendMessage()}>Steer active run <kbd>Enter</kbd></button><button type="button" disabled={composerSubmitting} onClick={() => void queueMessage()}>Queue after this run</button></div></details>}
+                </div>}
               </div>
             </div>
-            <p className="composer-hint">{privateVoiceState === "live" ? "Private voice chat is live · tap the wave to end" : privateVoiceState === "connecting" ? "Connecting private voice chat…" : <>Enter to {agentBusy ? "steer now" : "send"} · Ctrl/Cmd+Enter to {agentBusy ? "queue next" : "send"} · the wave starts voice chat</>}</p>
+            <p className="composer-hint">Enter to {agentBusy ? "steer now" : "send"} · Shift+Enter for a new line · {voiceMode === "hold" ? "hold wave to speak" : "open mic for voice"}</p>
           </footer>
         )}
       </main>
-      {selectedChannel && <TeamTerminalSidebar
+      {selectedChannel && !appViewport.mobile && <TeamTerminalSidebar
         channel={selectedChannel}
         members={teamMembers}
         sessions={teamTerminals}
@@ -2015,6 +2042,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
         onCreate={() => void openTeamTerminal()}
         onOpen={(session) => void openTeamTerminal(session)}
       />}
+      {selectedChannel && appViewport.mobile && mobileTerminals && <AppDrawer id={terminalsId} label="Channel terminals" anchor={appRoot} onClose={() => setMobileTerminals(false)}><TeamTerminalSidebar channel={selectedChannel} members={teamMembers} sessions={teamTerminals} expanded loading={teamTerminalsLoading} error={teamTerminalsError} creating={teamTerminalOpening} disabled={!onOpenTeamTerminal} onExpandedChange={() => setMobileTerminals(false)} onCreate={() => { setMobileTerminals(false); void openTeamTerminal(); }} onOpen={(session) => { setMobileTerminals(false); void openTeamTerminal(session); }} /></AppDrawer>}
       {teamDialog && <TeamChannelDialog
         source={teamDialog.source}
         users={teamDirectory}
@@ -2146,7 +2174,7 @@ function NeuraActivityStep({ activity }: { activity: NeuraActivity }) {
     <div className="neura-activity-detail">
       {activity.detail && <p>{activity.detail}</p>}
       {activity.command && <section><small>Command</small><pre><code>{activity.command}</code></pre></section>}
-      {activity.output && <section><small>Output</small><pre><code>{activity.output}</code></pre></section>}
+      {activity.output && <section><small>{activity.kind === "file" ? "Changes" : "Output"}</small><pre><code>{activity.output}</code></pre></section>}
       {activity.path && <section><small>Path</small><code>{activity.path}</code></section>}
       {(activity.exitCode !== undefined || activity.durationMs !== undefined) && <p className="neura-activity-meta">{activity.exitCode !== undefined ? `exit ${activity.exitCode}` : ""}{activity.exitCode !== undefined && activity.durationMs !== undefined ? " · " : ""}{activity.durationMs !== undefined ? activity.durationMs >= 1_000 ? `${(activity.durationMs / 1_000).toFixed(1)}s` : `${Math.round(activity.durationMs)}ms` : ""}</p>}
     </div>

@@ -66,6 +66,33 @@ async function config(): Promise<ProviderConfig> {
 }
 
 describe("workspace provider MCP", () => {
+  it("sends agent notifications only through the workspace-identity SMS broker", async () => {
+    const providerConfig = await config();
+    providerConfig.notificationApi = {
+      url: new URL("http://control-plane.test/internal/plugins/twilio/send"),
+      token: "workspace-control-token-at-least-thirty-two-characters",
+    };
+    const fetchProvider = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      expect(new Headers(init?.headers).get("Authorization")).toBe(`Bearer ${providerConfig.notificationApi!.token}`);
+      expect(JSON.parse(String(init?.body))).toEqual({
+        handle: "salvador",
+        message: "The automation is complete.",
+        mediaUrls: [],
+      });
+      return Response.json({ recipient: "@salvador", mediaCount: 0 });
+    });
+    const application = createProviderApplication(providerConfig, fetchProvider as typeof fetch);
+    const result = await callTool(application, "notify_workspace_user", {
+      handle: "@salvador",
+      message: "The automation is complete.",
+    }) as { result: { structuredContent: { deliveredTo: string; policy: string } } };
+    expect(result.result.structuredContent).toMatchObject({
+      deliveredTo: "@salvador",
+      policy: "verified-workspace-member-with-opt-in",
+    });
+    await application.close();
+  });
+
   it("reports only safe local configuration and its registered tool inventory", async () => {
     const application = createProviderApplication(
       await config(),

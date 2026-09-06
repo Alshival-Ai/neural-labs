@@ -10,6 +10,8 @@ export type SessionRow = {
   category?: string;
   visibility: "shared" | "read-only" | "suggest" | "draft";
   sharingRole?: "admin" | "owner" | "member" | "viewer";
+  modelOverride?: string;
+  thinkingLevel?: string;
 };
 
 export type NeuraMessage = {

@@ -1,252 +1,426 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
 import { FilesApp } from "./FilesApp";
+import * as api from "./explorerApi";
+import * as files from "./filesApi";
+import { normalizedPath } from "./ExplorerApp";
 
-const rootEntries = [
-  { name: "projects", path: "projects", type: "folder", size: null, modifiedAt: "2026-09-01T12:00:00.000Z", mimeType: null },
-  { name: "notes.md", path: "notes.md", type: "file", size: 2048, modifiedAt: "2026-09-01T12:05:00.000Z", mimeType: "text/markdown" },
-];
-const projectEntries = [
-  { name: "index.html", path: "projects/index.html", type: "file", size: 1263, modifiedAt: "2026-09-01T12:10:00.000Z", mimeType: "text/html" },
-];
-
-class FakeEventSource {
-  static instances: FakeEventSource[] = [];
-  readonly url: string;
-  private listeners = new Map<string, Set<EventListener>>();
-
-  constructor(url: string | URL) {
-    this.url = String(url);
-    FakeEventSource.instances.push(this);
-  }
-
-  addEventListener(type: string, listener: EventListenerOrEventListenerObject | null) {
-    if (typeof listener !== "function") return;
-    const listeners = this.listeners.get(type) ?? new Set<EventListener>();
-    listeners.add(listener);
-    this.listeners.set(type, listeners);
-  }
-
-  removeEventListener(type: string, listener: EventListenerOrEventListenerObject | null) {
-    if (typeof listener === "function") this.listeners.get(type)?.delete(listener);
-  }
-
-  emit(type: string, value: unknown) {
-    const event = new MessageEvent(type, { data: JSON.stringify(value) });
-    for (const listener of this.listeners.get(type) ?? []) listener(event);
-  }
-
-  close() {}
-}
-
-let liveRootEntries = rootEntries;
-let liveProjectEntries = projectEntries;
-let pendingRootResponse: Promise<Response> | undefined;
-
-function json(value: unknown, status = 200) {
-  return new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json" } });
-}
-
+vi.mock("./explorerApi", () => ({
+  preferences: vi.fn(),
+  savePins: vi.fn(),
+  getListing: vi.fn(),
+  getRecent: vi.fn(),
+  getTrash: vi.fn(),
+  searchFiles: vi.fn(),
+  recordOpen: vi.fn(),
+  startOperation: vi.fn(),
+  getOperation: vi.fn(),
+  getOperations: vi.fn(),
+  cancelOperation: vi.fn(),
+  fileInfo: vi.fn(),
+  transferUpload: vi.fn(),
+}));
+vi.mock("./filesApi", async (original) => ({
+  ...(await original<typeof files>()),
+  subscribeWorkspaceFiles: vi.fn(),
+  createWorkspaceFolder: vi.fn(),
+  createWorkspaceTextFile: vi.fn(),
+}));
+const folder = {
+  name: "projects",
+  path: "projects",
+  type: "folder" as const,
+  size: null,
+  modifiedAt: "2026-09-01T12:00:00Z",
+  mimeType: null,
+};
+const note = {
+  name: "notes.md",
+  path: "notes.md",
+  type: "file" as const,
+  size: 20,
+  modifiedAt: "2026-09-01T12:00:00Z",
+  mimeType: "text/markdown",
+  version: "v1",
+};
+const photo = {
+  ...note,
+  name: "photo.png",
+  path: "photo.png",
+  mimeType: "image/png",
+};
+let live = [folder, note, photo];
+let change: (event: files.WorkspaceFileChange) => void;
 beforeEach(() => {
-  liveRootEntries = rootEntries;
-  liveProjectEntries = projectEntries;
-  pendingRootResponse = undefined;
-  FakeEventSource.instances = [];
-  vi.stubGlobal("EventSource", FakeEventSource);
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = String(input);
-    const method = init?.method ?? "GET";
-    if (method === "GET" && url.includes("path=projects")) {
-      return json({ path: "projects", parent: "", entries: liveProjectEntries });
-    }
-    if (method === "GET") {
-      if (pendingRootResponse) return pendingRootResponse;
-      return json({ path: "", parent: null, entries: liveRootEntries });
-    }
-    if (method === "POST" && url.includes("/folders")) {
-      return json({ item: { ...rootEntries[0], name: "new-folder", path: "new-folder" } }, 201);
-    }
-    if (method === "POST" && url.includes("/upload")) {
-      return json({ item: { ...rootEntries[1], name: "upload.txt", path: "upload.txt" } }, 201);
-    }
-    if (method === "POST" && url.includes("/text")) {
-      const item = { ...rootEntries[1], name: "new-note.md", path: "new-note.md", size: 0 };
-      return json({ item, content: "", version: "a".repeat(43) }, 201);
-    }
-    if (method === "DELETE") return json({ deleted: true, path: "notes.md" });
-    return json({ error: { message: "Unexpected test request" } }, 500);
+  vi.clearAllMocks();
+  localStorage.clear();
+  live = [folder, note, photo];
+  vi.stubGlobal("EventSource", class {});
+  vi.mocked(files.subscribeWorkspaceFiles).mockImplementation((listener) => {
+    change = listener;
+    return () => {};
+  });
+  vi.mocked(api.preferences).mockResolvedValue({
+    revision: 0,
+    pins: [],
+    recent: [],
+  });
+  vi.mocked(api.getOperations).mockResolvedValue({ operations: [] });
+  vi.mocked(api.savePins).mockImplementation(async (_, pins) => ({
+    revision: 1,
+    pins,
+    recent: [],
   }));
+  vi.mocked(api.getListing).mockImplementation(async (options) => ({
+    entries:
+      options.path === "projects"
+        ? [{ ...note, path: "projects/notes.md" }]
+        : live,
+    nextOffset: null,
+  }));
+  vi.mocked(api.searchFiles).mockResolvedValue({
+    entries: [note],
+    cursor: null,
+  });
+  vi.mocked(api.getRecent).mockResolvedValue({ entries: [note] });
+  vi.mocked(api.getTrash).mockResolvedValue({ entries: [] });
+  vi.mocked(api.startOperation).mockResolvedValue({
+    id: "job",
+    state: "finished",
+    completed: 1,
+    total: 1,
+    bytes: 20,
+    results: [{ status: "completed" }],
+  });
+  vi.mocked(files.createWorkspaceFolder).mockResolvedValue({ item: folder });
+  vi.mocked(files.createWorkspaceTextFile).mockResolvedValue({
+    item: note,
+    content: "",
+    version: "v1",
+  });
+  vi.mocked(api.fileInfo).mockResolvedValue({ item: folder });
+  vi.mocked(api.transferUpload).mockResolvedValue({ item: photo });
+  HTMLElement.prototype.scrollTo = vi.fn();
 });
-
 afterEach(() => {
   cleanup();
-  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
+const row = (name: string) =>
+  screen.findByRole("row", { name: new RegExp(`^${name},`) });
+async function menu(name: string, action: string) {
+  fireEvent.click(
+    screen.getByRole("button", { name: `More actions for ${name}` }),
+  );
+  fireEvent.click(
+    within(screen.getByRole("menu")).getByRole("menuitem", { name: action }),
+  );
+}
 
-describe("Files app", () => {
-  it("loads the live directory, searches it, changes view, and opens folders", async () => {
+describe("Files explorer", () => {
+  it("uses one listing, opens folders, and restores Back/Forward locations", async () => {
     render(<FilesApp />);
-
-    const notes = await screen.findByRole("button", { name: /notes\.md/i });
-    expect(notes).toBeInTheDocument();
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search workspace files" }), { target: { value: "notes" } });
-    expect(screen.queryByRole("button", { name: /projects, folder/i })).not.toBeInTheDocument();
-
-    const gridView = screen.getByRole("button", { name: "Grid view" });
-    fireEvent.click(gridView);
-    expect(gridView).toHaveAttribute("aria-pressed", "true");
-
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search workspace files" }), { target: { value: "" } });
-    const browser = screen.getByRole("region", { name: "All files" });
-    fireEvent.doubleClick(within(browser).getByRole("button", { name: /projects, folder/i }));
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith(expect.stringContaining("path=projects"), expect.any(Object)));
-    expect(await screen.findByRole("heading", { name: "projects" })).toBeInTheDocument();
+    fireEvent.doubleClick(await row("projects"));
+    await waitFor(() =>
+      expect(api.getListing).toHaveBeenLastCalledWith(
+        expect.objectContaining({ path: "projects" }),
+        expect.any(AbortSignal),
+      ),
+    );
+    expect(
+      screen.queryByRole("heading", { name: "Folders" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await row("projects");
+    fireEvent.click(screen.getByRole("button", { name: "Forward" }));
+    await waitFor(() =>
+      expect(api.getListing).toHaveBeenLastCalledWith(
+        expect.objectContaining({ path: "projects" }),
+        expect.any(AbortSignal),
+      ),
+    );
   });
-
-  it("creates folders and creates text files that open in VS Code", async () => {
-    const onOpenInVsCode = vi.fn();
-    render(<FilesApp onOpenInVsCode={onOpenInVsCode} />);
-    await screen.findByRole("button", { name: /notes\.md/i });
-
-    fireEvent.click(screen.getAllByRole("button", { name: /^New$/ }).at(-1)!);
-    fireEvent.click(screen.getByRole("menuitem", { name: /New folder/i }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Folder name" }), { target: { value: "new-folder" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create folder" }));
-
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith(
-      "/workspace/api/files/folders",
-      expect.objectContaining({ method: "POST", body: JSON.stringify({ path: "", name: "new-folder" }) }),
-    ));
-    expect(await screen.findByText("Folder “new-folder” created.")).toBeInTheDocument();
-
-    fireEvent.click(screen.getAllByRole("button", { name: /^New$/ }).at(-1)!);
-    fireEvent.click(screen.getByRole("menuitem", { name: /New file/i }));
-    fireEvent.change(screen.getByRole("textbox", { name: "File name" }), { target: { value: "new-note.md" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create file" }));
-
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/workspace/api/files/text?"),
-      expect.objectContaining({ method: "POST", body: "" }),
-    ));
-    await waitFor(() => expect(onOpenInVsCode).toHaveBeenCalledWith("new-note.md"));
+  it("pins folders from a real row menu and unpins without deleting", async () => {
+    render(<FilesApp storageNamespace="alice" />);
+    await row("projects");
+    await menu("projects", "Pin to sidebar");
+    await waitFor(() =>
+      expect(api.savePins).toHaveBeenCalledWith(expect.anything(), [
+        { path: "projects", label: "projects" },
+      ]),
+    );
+    const pins = screen.getByLabelText("Pinned folders");
+    fireEvent.contextMenu(
+      await within(pins).findByRole("button", { name: "projects" }),
+    );
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: "Unpin from sidebar" }),
+    );
+    await waitFor(() =>
+      expect(api.savePins).toHaveBeenLastCalledWith(expect.anything(), []),
+    );
+    expect(api.startOperation).not.toHaveBeenCalled();
   });
-
-  it("opens text files and folders in VS Code from Files", async () => {
-    const onOpenInVsCode = vi.fn();
-    render(<FilesApp onOpenInVsCode={onOpenInVsCode} />);
-    const notes = await screen.findByRole("button", { name: /notes\.md/i });
-
-    fireEvent.doubleClick(notes);
-    expect(onOpenInVsCode).toHaveBeenCalledWith("notes.md");
-
-    fireEvent.contextMenu(notes, { clientX: 100, clientY: 120 });
-    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Open in VS Code" }));
-    expect(onOpenInVsCode).toHaveBeenCalledTimes(2);
-
-    const projects = screen.getByRole("button", { name: /projects, folder/i });
-    fireEvent.contextMenu(projects, { clientX: 100, clientY: 120 });
-    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Open in VS Code" }));
-    expect(onOpenInVsCode).toHaveBeenLastCalledWith("projects");
-  });
-
-  it("copies a file or folder workspace path from the context menu", async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    vi.stubGlobal("navigator", { userAgent: navigator.userAgent, clipboard: { writeText } });
+  it("selects ranges and copies multiple entries to another directory", async () => {
     render(<FilesApp />);
-
-    const notes = await screen.findByRole("button", { name: /notes\.md/i });
-    fireEvent.contextMenu(notes, { clientX: 100, clientY: 120 });
-    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Copy path" }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith("~/workspace/notes.md"));
-    expect(screen.getByRole("status")).toHaveTextContent("Copied ~/workspace/notes.md");
-
-    const projects = screen.getByRole("button", { name: /projects, folder/i });
-    fireEvent.contextMenu(projects, { clientX: 100, clientY: 120 });
-    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Copy path" }));
-    await waitFor(() => expect(writeText).toHaveBeenLastCalledWith("~/workspace/projects"));
+    fireEvent.click(await row("notes.md"));
+    fireEvent.click(await row("photo.png"), { shiftKey: true });
+    expect(screen.getByText(/2 selected/)).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "c", ctrlKey: true });
+    fireEvent.doubleClick(await row("projects"));
+    await waitFor(() =>
+      expect(api.getListing).toHaveBeenLastCalledWith(
+        expect.objectContaining({ path: "projects" }),
+        expect.any(AbortSignal),
+      ),
+    );
+    fireEvent.keyDown(window, { key: "v", ctrlKey: true });
+    await waitFor(() =>
+      expect(api.startOperation).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            action: "copy",
+            path: "notes.md",
+            destination: "projects",
+          }),
+          expect.objectContaining({
+            action: "copy",
+            path: "photo.png",
+            destination: "projects",
+          }),
+        ]),
+      ),
+    );
   });
-
-  it("opens HTML source in VS Code while retaining an explicit Preview action", async () => {
-    const onPreviewFile = vi.fn();
-    const onOpenInVsCode = vi.fn();
-    render(<FilesApp onPreviewFile={onPreviewFile} onOpenInVsCode={onOpenInVsCode} />);
-    const browser = screen.getByRole("region", { name: "All files" });
-    fireEvent.doubleClick(await within(browser).findByRole("button", { name: /projects, folder/i }));
-
-    const page = await within(screen.getByRole("region", { name: "All files" })).findByRole("button", { name: /^index\.html, Code/i });
-    fireEvent.doubleClick(page);
-    expect(onOpenInVsCode).toHaveBeenCalledWith("projects/index.html");
-
-    fireEvent.contextMenu(page, { clientX: 100, clientY: 120 });
-    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Open Preview" }));
-    expect(onPreviewFile).toHaveBeenCalledWith({
-      name: "index.html",
-      path: "projects/index.html",
-      size: 1263,
-      mimeType: "text/html",
+  it("keeps sorting separate from navigation and clears invisible selections on search", async () => {
+    render(<FilesApp />);
+    fireEvent.click(await row("photo.png"));
+    fireEvent.click(screen.getByRole("button", { name: "Toggle details" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Sort by" }), {
+      target: { value: "size" },
     });
-  });
-
-  it("uploads dropped files and exposes download and delete in the context menu", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-    const { container } = render(<FilesApp />);
-    const notes = await screen.findByRole("button", { name: /notes\.md/i });
-
-    const uploaded = new File(["hello"], "upload.txt", { type: "text/plain" });
-    fireEvent.drop(container.querySelector(".files-app")!, {
-      dataTransfer: { files: [uploaded], types: ["Files"] },
+    await waitFor(() =>
+      expect(api.getListing).toHaveBeenLastCalledWith(
+        expect.objectContaining({ sort: "size", path: "" }),
+        expect.anything(),
+      ),
+    );
+    fireEvent.change(screen.getByRole("searchbox"), {
+      target: { value: "notes" },
     });
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/workspace/api/files/upload?"),
-      expect.objectContaining({ method: "POST", body: uploaded }),
-    ));
-
-    fireEvent.contextMenu(notes, { clientX: 100, clientY: 120 });
-    const menu = screen.getByRole("menu");
-    const download = within(menu).getByRole("menuitem", { name: "Download" });
-    expect(download).toHaveAttribute("href", expect.stringContaining("notes.md"));
-    fireEvent.click(within(menu).getByRole("menuitem", { name: "Delete permanently" }));
-
-    expect(confirm).toHaveBeenCalled();
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/workspace/api/files?path=notes.md"),
-      expect.objectContaining({ method: "DELETE" }),
-    ));
+    await row("notes.md");
+    expect(
+      screen.queryByRole("heading", { name: "photo.png" }),
+    ).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(api.searchFiles).toHaveBeenCalledWith(
+        expect.objectContaining({ scope: "recursive", q: "notes" }),
+        expect.anything(),
+      ),
+    );
+    expect(api.getRecent).not.toHaveBeenCalled();
   });
-
-  it("does not reload when its parent supplies a new notification callback", async () => {
-    const { rerender } = render(<FilesApp notify={() => undefined} />);
-    await screen.findByRole("button", { name: /notes\.md/i });
-    const callsBefore = vi.mocked(fetch).mock.calls.length;
-
-    rerender(<FilesApp notify={() => undefined} />);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-
-    expect(fetch).toHaveBeenCalledTimes(callsBefore);
+  it("opens text with Enter, images in Preview, and images in the editor explicitly", async () => {
+    const code = vi.fn(),
+      preview = vi.fn(),
+      editor = vi.fn();
+    render(
+      <FilesApp
+        onOpenInVsCode={code}
+        onPreviewFile={preview}
+        onEditImage={editor}
+      />,
+    );
+    fireEvent.click(await row("notes.md"));
+    fireEvent.keyDown(window, { key: "Enter" });
+    expect(code).toHaveBeenCalledWith("notes.md");
+    fireEvent.doubleClick(await row("photo.png"));
+    expect(preview).toHaveBeenCalledWith(
+      expect.objectContaining({ path: "photo.png" }),
+    );
+    await menu("photo.png", "Edit image");
+    expect(editor).toHaveBeenCalledWith(
+      expect.objectContaining({ path: "photo.png" }),
+    );
   });
-
-  it("silently reconciles an external file event without replacing the file list", async () => {
+  it("ignores shortcuts in inactive windows and text inputs", async () => {
+    const code = vi.fn();
+    const app = render(<FilesApp active={false} onOpenInVsCode={code} />);
+    fireEvent.click(await row("notes.md"));
+    fireEvent.keyDown(window, { key: "Enter" });
+    expect(code).not.toHaveBeenCalled();
+    app.rerender(<FilesApp active onOpenInVsCode={code} />);
+    fireEvent.keyDown(screen.getByRole("searchbox"), { key: "Delete" });
+    expect(api.startOperation).not.toHaveBeenCalled();
+  });
+  it("moves items to Trash and confirms permanent removal", async () => {
     render(<FilesApp />);
-    const notes = await screen.findByRole("button", { name: /notes\.md/i });
-    expect(FakeEventSource.instances).toHaveLength(1);
-    expect(FakeEventSource.instances[0].url).toBe("/workspace/api/files/events");
-
-    let finishRefresh!: (response: Response) => void;
-    pendingRootResponse = new Promise((resolve) => { finishRefresh = resolve; });
-    liveRootEntries = [
-      ...rootEntries,
-      { name: "teammate.txt", path: "teammate.txt", type: "file", size: 12, modifiedAt: "2026-09-01T12:10:00.000Z", mimeType: "text/plain" },
-    ];
-    act(() => FakeEventSource.instances[0].emit("files-changed", { sequence: 1, paths: ["teammate.txt"] }));
-    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
-
-    expect(notes).toBeInTheDocument();
-    expect(screen.queryByText("Loading workspace files")).not.toBeInTheDocument();
-    pendingRootResponse = undefined;
-    finishRefresh(json({ path: "", parent: null, entries: liveRootEntries }));
-
-    expect(await screen.findByRole("button", { name: /teammate\.txt/i })).toBeInTheDocument();
+    await row("notes.md");
+    await menu("notes.md", "Move to Trash");
+    await waitFor(() =>
+      expect(api.startOperation).toHaveBeenCalledWith([
+        { action: "trash", path: "notes.md" },
+      ]),
+    );
+    vi.mocked(api.getTrash).mockResolvedValue({
+      entries: [
+        {
+          ...note,
+          id: "trash-id",
+          deletedBy: "alice",
+          deletedAt: note.modifiedAt,
+          expiresAt: "2026-12-01T12:00:00Z",
+        },
+      ],
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Trash" }));
+    await row("notes.md");
+    await menu("notes.md", "Delete permanently");
+    expect(
+      screen.getByRole("dialog", { name: "Delete permanently?" }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(api.startOperation).toHaveBeenCalledTimes(1);
+  });
+  it("creates folders and text files without changing app integration", async () => {
+    const code = vi.fn();
+    render(<FilesApp onOpenInVsCode={code} />);
+    await row("projects");
+    fireEvent.click(screen.getByRole("button", { name: "New" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "New folder" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+      target: { value: "work" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(files.createWorkspaceFolder).toHaveBeenCalledWith("", "work"),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "New" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "New file" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(code).toHaveBeenCalledWith("notes.md"));
+  });
+  it("preserves a selected row through live reconciliation", async () => {
+    render(<FilesApp />);
+    const notes = await row("notes.md");
+    fireEvent.click(notes);
+    live = [...live, { ...note, path: "new.md", name: "new.md" }];
+    act(() => change({ sequence: 1, paths: ["new.md"] }));
+    await row("new.md");
+    expect(await row("notes.md")).toHaveAttribute("aria-selected", "true");
+  });
+  it("opens a folder in a separate tab and restores saved tabs", async () => {
+    const app = render(<FilesApp storageNamespace="alice" />);
+    await row("projects");
+    await menu("projects", "Open in new tab");
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
+    app.unmount();
+    render(<FilesApp storageNamespace="alice" />);
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
+  });
+  it("uploads picked files and retains failed transfers for retry", async () => {
+    render(<FilesApp />);
+    await row("projects");
+    vi.mocked(api.transferUpload).mockRejectedValueOnce(
+      new Error("Connection lost"),
+    );
+    fireEvent.change(screen.getByLabelText("Choose files to upload"), {
+      target: {
+        files: [
+          new globalThis.File(["abc"], "photo.png", { type: "image/png" }),
+        ],
+      },
+    });
+    expect(await screen.findByText("Connection lost")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry failed items" }));
+    await waitFor(() => expect(api.transferUpload).toHaveBeenCalledTimes(2));
+  });
+  it("rejects paths outside the workspace", () => {
+    expect(normalizedPath("~/workspace/projects")).toBe("projects");
+    expect(() => normalizedPath("/etc")).toThrow();
+    expect(() => normalizedPath("../other")).toThrow();
+  });
+  it("shares a personal clipboard across Files windows without sharing shortcuts", async () => {
+    const windows = (firstActive: boolean) => (
+      <>
+        <div data-testid="source">
+          <FilesApp
+            storageNamespace="alice"
+            storageArea="files.first"
+            active={firstActive}
+          />
+        </div>
+        <div data-testid="destination">
+          <FilesApp
+            storageNamespace="alice"
+            storageArea="files.second"
+            initialPath="projects"
+            active={!firstActive}
+          />
+        </div>
+      </>
+    );
+    const app = render(windows(true));
+    fireEvent.click(
+      await within(screen.getByTestId("source")).findByRole("row", {
+        name: "notes.md, MD",
+      }),
+    );
+    fireEvent.keyDown(window, { key: "c", ctrlKey: true });
+    app.rerender(windows(false));
+    await within(screen.getByTestId("destination")).findByRole("row", {
+      name: "notes.md, MD",
+    });
+    fireEvent.keyDown(window, { key: "v", ctrlKey: true });
+    await waitFor(() =>
+      expect(api.startOperation).toHaveBeenCalledWith([
+        expect.objectContaining({
+          action: "copy",
+          path: "notes.md",
+          destination: "projects",
+        }),
+      ]),
+    );
+  });
+  it("keeps Recent and Trash in tab navigation history", async () => {
+    render(<FilesApp />);
+    await row("projects");
+    fireEvent.click(screen.getByRole("button", { name: "Recent" }));
+    await waitFor(() => expect(api.getRecent).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Trash" }));
+    await waitFor(() => expect(api.getTrash).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(
+      await screen.findByRole("region", { name: "Recent" }),
+    ).toBeInTheDocument();
+  });
+  it("virtualizes a ten-thousand-entry folder", async () => {
+    vi.mocked(api.getListing).mockResolvedValue({
+      entries: Array.from({ length: 10000 }, (_, index) => ({
+        ...note,
+        name: `file-${index}.md`,
+        path: `file-${index}.md`,
+      })),
+      nextOffset: null,
+    });
+    render(<FilesApp />);
+    await row("file-0.md");
+    expect(screen.getAllByRole("row").length).toBeLessThan(50);
+    fireEvent.scroll(screen.getByRole("grid", { name: "Workspace items" }), {
+      target: { scrollTop: 459500 },
+    });
+    await row("file-9999.md");
+    expect(screen.getAllByRole("row").length).toBeLessThan(50);
   });
 });

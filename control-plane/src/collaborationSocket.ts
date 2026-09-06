@@ -15,6 +15,7 @@ const clientEventSchema = z.discriminatedUnion("type", [
     type: z.literal("post"),
     channelId: z.string().uuid(),
     clientRequestId: z.string().uuid(),
+    invokeAgent: z.boolean().default(true),
     body: z.string().max(TEAM_CHAT_LIMITS.messageCharacters).default(""),
     attachments: z.array(z.object({
       path: z.string().trim().min(1).max(1_024),

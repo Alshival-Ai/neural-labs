@@ -22,6 +22,7 @@ export function createWorkspaceFileEvents({
   }
 
   const clients = new Set();
+  const identities = new Map();
   const changedPaths = new Set();
   let watcher;
   let broadcastTimer;
@@ -29,9 +30,10 @@ export function createWorkspaceFileEvents({
   let sequence = 0;
   let closed = false;
 
-  function broadcast(eventName, value) {
+  function broadcast(eventName, value, user) {
     const payload = `event: ${eventName}\ndata: ${JSON.stringify(value)}\n\n`;
     for (const response of clients) {
+      if (user && identities.get(response) !== user) continue;
       if (response.destroyed || response.writableEnded) {
         clients.delete(response);
         continue;
@@ -93,7 +95,7 @@ export function createWorkspaceFileEvents({
     heartbeatTimer.unref?.();
   }
 
-  function subscribe(response) {
+  function subscribe(response, user) {
     if (closed) throw new Error("Workspace file event stream is closed");
     startWatching();
     response.writeHead(200, {
@@ -106,9 +108,11 @@ export function createWorkspaceFileEvents({
     response.flushHeaders?.();
     response.write("retry: 3000\n\n");
     clients.add(response);
+    identities.set(response, user);
 
     response.once("close", () => {
       clients.delete(response);
+      identities.delete(response);
       if (clients.size === 0) stopWatching();
     });
   }
@@ -119,7 +123,11 @@ export function createWorkspaceFileEvents({
     stopWatching();
     for (const response of [...clients]) response.end();
     clients.clear();
+    identities.clear();
   }
 
-  return { subscribe, close };
+  return { subscribe, close, publish(value) {
+    const { user, ...data } = value;
+    broadcast("files-changed", { sequence: ++sequence, paths: [], ...data }, user);
+  } };
 }

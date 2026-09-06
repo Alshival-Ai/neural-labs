@@ -3,6 +3,23 @@ import test from "node:test";
 
 import { VoiceError, createVoiceService } from "./voice.mjs";
 
+test("voice configuration is independent and snapshots each accepted call", async () => {
+  const sessions = [];
+  const service = createVoiceService({ apiKey: "test-only-key", fetchImpl: async (_url, options) => {
+    sessions.push(JSON.parse(await options.body.get("session").text()));
+    return new Response("v=0\r\n");
+  } });
+  const first = service.createRealtimeCall({ offer: "v=0\r\n", userId: "user" });
+  service.configure({ realtimeModel: "gpt-realtime-2.1", transcriptionModel: "gpt-transcribe", realtimeVoice: "cedar", revision: 1 });
+  await first;
+  await service.createRealtimeCall({ offer: "v=0\r\n", userId: "user" });
+  assert.equal(sessions[0].model, "gpt-realtime-2.1-mini");
+  assert.equal(sessions[1].model, "gpt-realtime-2.1");
+  assert.equal(sessions[1].audio.output.voice, "cedar");
+  assert.equal(JSON.stringify(service.snapshot()).includes("test-only-key"), false);
+  assert.throws(() => service.configure({ realtimeModel: "gpt-6-astra", transcriptionModel: "gpt-transcribe", realtimeVoice: "cedar", revision: 2 }), /compatible/);
+});
+
 test("fails closed when the server-side OpenAI key is absent", async () => {
   const service = createVoiceService({ apiKey: "", safetySecret: "test-secret" });
   await assert.rejects(

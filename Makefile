@@ -8,13 +8,21 @@ validate:
 	node --check web/app.js
 	node --check web/server.mjs
 	node --check workspace/start.mjs
+	node --check workspace/browser-config.mjs
 	node --check workspace/http-server.mjs
 	node --check workspace/builder-manager.mjs
 	node --check workspace/vscode-proxy.mjs
 	node --check workspace/file-manager.mjs
+	node --check workspace/explorer-manager.mjs
+	node --check workspace/build-minipaint.mjs
 	node --check workspace/skills-manager.mjs
 	node --check workspace/file-events.mjs
 	node --check workspace/provider-auth.mjs
+	node --check workspace/provider-environment.mjs
+	node --check workspace/model-catalog.mjs
+	node --check workspace/model-policies.mjs
+	node --check workspace/native-config-batch.mjs
+	node --check workspace/team-openai.mjs
 	node --check workspace/personal-openai.mjs
 	node --check workspace/team-agent.mjs
 	node --check workspace/voice.mjs

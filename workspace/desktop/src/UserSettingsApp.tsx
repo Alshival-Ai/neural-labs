@@ -4,15 +4,10 @@ import {
   type PublicKeyCredentialCreationOptionsJSON,
 } from "@simplewebauthn/browser";
 import {
-  Bot,
   Check,
-  Copy,
-  ExternalLink,
   KeyRound,
   LogOut,
   Mail,
-  Pause,
-  Play,
   ShieldCheck,
   Type,
   UserRound,
@@ -21,6 +16,7 @@ import {
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import { FontSizeControl } from "./FontSizeControl";
+import { PhoneSettings } from "./PhoneSettings";
 import { SettingsApiError, settingsMutationHeaders, settingsRequest } from "./settingsApi";
 import "./user-settings-app.css";
 
@@ -97,9 +93,6 @@ export function PersonalizationPanel({ user, providers: initialProviders, csrfTo
   const [handle, setHandle] = useState(user.handle);
   const [savedHandle, setSavedHandle] = useState(user.handle);
   const [savingHandle, setSavingHandle] = useState(false);
-  const [openAI, setOpenAI] = useState<PersonalOpenAIAuth>();
-  const [openAILoading, setOpenAILoading] = useState(true);
-  const [openAIAction, setOpenAIAction] = useState<string>();
   const [passkeys, setPasskeys] = useState<AccountPasskey[]>([]);
   const [passkeyEligible, setPasskeyEligible] = useState<boolean | null>();
   const [passkeyName, setPasskeyName] = useState("My passkey");
@@ -137,61 +130,6 @@ export function PersonalizationPanel({ user, providers: initialProviders, csrfTo
     };
   }, [refreshPasskeys]);
 
-  useEffect(() => {
-    let cancelled = false;
-    const refresh = async () => {
-      try {
-        const next = await settingsRequest<PersonalOpenAIAuth>("/api/account/openai");
-        if (!cancelled) setOpenAI(next);
-      } catch (error) {
-        if (!cancelled) setNotice({ tone: "error", message: error instanceof SettingsApiError ? error.message : "Your Neura account status could not be loaded." });
-      } finally {
-        if (!cancelled) setOpenAILoading(false);
-      }
-    };
-    void refresh();
-    const timer = openAI?.state === "starting" || openAI?.state === "awaiting_user"
-      ? window.setInterval(() => void refresh(), 1_500)
-      : undefined;
-    return () => { cancelled = true; if (timer !== undefined) window.clearInterval(timer); };
-  }, [openAI?.state]);
-
-  async function updateOpenAI(action: "connect" | "cancel" | "pause" | "resume") {
-    setOpenAIAction(action);
-    setNotice(undefined);
-    try {
-      const next = await settingsRequest<PersonalOpenAIAuth>(`/api/account/openai/${action}`, {
-        method: "POST",
-        headers: settingsMutationHeaders(csrfToken),
-      });
-      setOpenAI(next);
-      setNotice({
-        tone: "success",
-        message: action === "pause"
-          ? "Personal Neura access is paused. Your ChatGPT sign-in is retained."
-          : action === "resume"
-            ? "Personal Neura access is active again."
-            : action === "cancel"
-              ? "OpenAI sign-in was cancelled."
-              : "OpenAI sign-in started. Use the private code when it appears.",
-      });
-    } catch (error) {
-      setNotice({ tone: "error", message: error instanceof SettingsApiError ? error.message : "Your Neura account could not be updated." });
-    } finally {
-      setOpenAIAction(undefined);
-    }
-  }
-
-  async function copyOpenAICode() {
-    if (!openAI?.userCode) return;
-    try {
-      if (!navigator.clipboard) throw new Error("Clipboard unavailable");
-      await navigator.clipboard.writeText(openAI.userCode);
-      setNotice({ tone: "success", message: "The one-time OpenAI code was copied." });
-    } catch {
-      setNotice({ tone: "error", message: "Copy was blocked. Select the code and copy it manually." });
-    }
-  }
 
   async function linkLocalIdentity(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -337,48 +275,6 @@ export function PersonalizationPanel({ user, providers: initialProviders, csrfTo
           </dl>
       </section>
 
-      <section className="settings-card user-settings-card user-settings-openai-card">
-        <div className="user-settings-card__heading">
-          <div><span>Neura</span><h3>Your ChatGPT account</h3><p>Private chats and your @Neura calls in Team Chat run with your own account.</p></div>
-          <Bot />
-        </div>
-        <div className="user-settings-openai-status">
-          <div className={`user-settings-openai-mark is-${openAI?.paused ? "paused" : openAI?.state ?? "loading"}`} aria-hidden="true"><Bot /></div>
-          <div className="user-settings-openai-copy">
-            <strong>{openAILoading
-              ? "Checking your connection…"
-              : openAI?.paused && openAI.authenticated
-                ? "Personal Neura is paused"
-                : openAI?.state === "connected"
-                  ? openAI.modelReady ? "ChatGPT connected" : "Finishing model setup…"
-                  : openAI?.state === "awaiting_user"
-                    ? "Finish signing in with OpenAI"
-                    : openAI?.state === "starting"
-                      ? "Preparing a secure sign-in code…"
-                      : "Connect ChatGPT to use Neura"}</strong>
-            <p>{openAI?.paused && openAI.authenticated
-              ? "Your credential is retained and can be resumed without signing in again."
-              : openAI?.state === "connected"
-                ? "Only your personal Neura agent uses this sign-in. System automations continue using the workspace account."
-                : "Neura will not fall back to the workspace account when your personal account is unavailable."}</p>
-            {openAI?.state === "error" && openAI.message && <small className="user-settings-openai-error" role="alert">{openAI.message}</small>}
-          </div>
-          <div className="user-settings-openai-actions">
-            {!openAILoading && openAI?.paused && openAI.authenticated && <button type="button" onClick={() => void updateOpenAI("resume")} disabled={Boolean(openAIAction)}><Play />{openAIAction === "resume" ? "Resuming…" : "Resume"}</button>}
-            {!openAILoading && openAI?.state === "connected" && !openAI.paused && <button type="button" className="secondary" onClick={() => void updateOpenAI("pause")} disabled={Boolean(openAIAction)}><Pause />{openAIAction === "pause" ? "Pausing…" : "Pause"}</button>}
-            {!openAILoading && ["disconnected", "error"].includes(openAI?.state ?? "") && <button type="button" onClick={() => void updateOpenAI("connect")} disabled={Boolean(openAIAction)}>{openAIAction === "connect" ? "Starting…" : "Connect ChatGPT"}</button>}
-            {!openAILoading && (openAI?.state === "starting" || openAI?.state === "awaiting_user") && <button type="button" className="secondary" onClick={() => void updateOpenAI("cancel")} disabled={Boolean(openAIAction)}>Cancel</button>}
-          </div>
-        </div>
-        {openAI?.state === "awaiting_user" && openAI.verificationUrl && openAI.userCode && (
-          <div className="user-settings-device-code">
-            <div><small>One-time code</small><strong>{openAI.userCode}</strong></div>
-            <button type="button" className="secondary" onClick={() => void copyOpenAICode()}><Copy />Copy code</button>
-            <a href={openAI.verificationUrl} target="_blank" rel="noreferrer">Open OpenAI sign-in<ExternalLink /></a>
-            {openAI.expiresAt && <small>Expires {new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(openAI.expiresAt))}</small>}
-          </div>
-        )}
-      </section>
 
       <section className="settings-card user-settings-card">
           <div className="user-settings-card__heading">
@@ -452,6 +348,8 @@ export function PersonalizationPanel({ user, providers: initialProviders, csrfTo
             </div>
           )}
       </section>
+
+      <PhoneSettings csrfToken={csrfToken} />
 
       <section className="user-settings-session">
         <div><strong>Done for now?</strong><p>Sign out of Neural Labs on this device.</p></div>

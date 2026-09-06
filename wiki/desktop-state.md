@@ -31,10 +31,11 @@ can each retain a layout suited to that screen. Clearing site data resets the
 local layout without deleting workspace files, conversations, terminal
 processes, or server state.
 
-A browser profile with no saved desktop state starts with Terminal open. After
-that first load, the saved window list is authoritative: closing Terminal and
-refreshing the desktop does not reopen it, and a saved minimized Terminal stays
-minimized.
+A browser profile with no saved desktop state starts empty; no application is
+opened automatically. Invalid or unreadable local state also falls back to an
+empty desktop. The saved window list remains authoritative for returning
+sessions: previously open apps are restored, closing Terminal and refreshing
+does not reopen it, and a saved minimized Terminal stays minimized.
 
 ## Window and dock behavior
 

@@ -33,6 +33,7 @@ import { createTerminal, type TerminalDescriptor } from "./terminalApi";
 import type { VsCodeOpenRequest } from "./VsCodeApp";
 
 const FilesApp = lazy(() => import("./FilesApp").then((module) => ({ default: module.FilesApp })));
+const ImageEditorApp = lazy(() => import("./ImageEditorApp").then((module) => ({ default: module.ImageEditorApp })));
 const NeuraApp = lazy(() => import("./NeuraApp").then((module) => ({ default: module.NeuraApp })));
 const PreviewApp = lazy(() => import("./PreviewApp").then((module) => ({ default: module.PreviewApp })));
 const SettingsApp = lazy(() => import("./SettingsApp").then((module) => ({ default: module.SettingsApp })));
@@ -58,9 +59,9 @@ type Session = {
 type Runtime = { status: string };
 type PersonalOpenAIBootstrap = { agentId: string; authenticated: boolean; paused: boolean };
 type ToastNotice = { message: string; action?: "open-personalization" };
-type DesktopApp = "neura" | "files" | "preview" | "settings" | "terminal" | "vscode" | "automations" | "skills";
+type DesktopApp = "neura" | "files" | "preview" | "image-editor" | "settings" | "terminal" | "vscode" | "automations" | "skills";
 type WindowVisibility = "open" | "minimized" | "popped-out";
-type DesktopWindowState = { id: string; app: DesktopApp; visibility: WindowVisibility; order: number; preview?: WorkspacePreviewFile };
+type DesktopWindowState = { id: string; app: DesktopApp; visibility: WindowVisibility; order: number; preview?: WorkspacePreviewFile; filesPath?: string };
 type ManagedPopout = PopoutSurface & { handlePageHide: () => void };
 
 type DesktopDeviceState = {
@@ -71,7 +72,7 @@ type AppearanceDeviceState = {
   fontScale: number;
 };
 
-const DESKTOP_APPS = new Set<DesktopApp>(["neura", "files", "preview", "settings", "terminal", "vscode", "automations", "skills"]);
+const DESKTOP_APPS = new Set<DesktopApp>(["neura", "files", "preview", "image-editor", "settings", "terminal", "vscode", "automations", "skills"]);
 
 function storedPreviewFile(value: unknown): WorkspacePreviewFile | undefined {
   if (!value || typeof value !== "object") return undefined;
@@ -105,7 +106,7 @@ function desktopDeviceState(userId: string): DesktopDeviceState | undefined {
     if (typeof value.id !== "string" || !DESKTOP_APPS.has(app as DesktopApp)) return [];
     const id = value.id.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 100);
     if (!id) return [];
-    const preview = app === "preview" ? storedPreviewFile(value.preview) : undefined;
+    const preview = app === "preview" || app === "image-editor" ? storedPreviewFile(value.preview) : undefined;
     if (app === "preview" && !preview) return [];
     return [{
       id,
@@ -154,6 +155,7 @@ function desktopWindowTitle(window: DesktopWindowState): string {
   if (window.app === "neura") return "Neura";
   if (window.app === "files") return "Files";
   if (window.app === "preview") return `Preview — ${window.preview?.name ?? "File"}`;
+  if (window.app === "image-editor") return `Image Editor — ${window.preview?.name ?? "Untitled"}`;
   if (window.app === "settings") return "Settings";
   if (window.app === "automations") return "Automations";
   if (window.app === "skills") return "Skills & Automations";
@@ -194,7 +196,7 @@ export function App() {
   const [neuraComposeRequest, setNeuraComposeRequest] = useState<{ id: string; targetWindowId: string; text: string }>();
   const [terminalOpenRequest, setTerminalOpenRequest] = useState<{ id: string; targetWindowId: string; session: TerminalDescriptor }>();
   const [skillsLaunchRequest, setSkillsLaunchRequest] = useState<{ id: string; targetWindowId: string; section: "mine" | "automations" }>();
-  const [settingsLaunchRequest, setSettingsLaunchRequest] = useState<{ id: string; targetWindowId: string; section: "personalization" }>();
+  const [settingsLaunchRequest, setSettingsLaunchRequest] = useState<{ id: string; targetWindowId: string; section: "model-provider" }>();
   const [vsCodeOpenRequest, setVsCodeOpenRequest] = useState<VsCodeOpenRequest & { targetWindowId: string }>();
   const [initialSettingsLaunch] = useState(settingsLaunch);
   const toastTimer = useRef<number | undefined>(undefined);
@@ -332,7 +334,7 @@ export function App() {
             const allowedWindows = restored.windows.filter((window) => window.app !== "automations" || payload.user?.role === "admin");
             setWindows(allowedWindows);
           } else {
-            setWindows([{ id: freshWindowId("terminal"), app: "terminal", visibility: "open", order: 1 }]);
+            setWindows([]);
           }
           setPersistenceUserId(userId);
         }
@@ -479,7 +481,10 @@ export function App() {
     removeDeviceState(persistenceUserId, `${window.app}.${window.id}`);
   }, [persistenceUserId]);
 
+  const dirtyEditors = useRef(new Set<string>());
   const closeWindow = useCallback((windowId: string) => {
+    if (dirtyEditors.current.has(windowId) && !globalThis.window.confirm("Discard unsaved image edits and close this window?")) return;
+    dirtyEditors.current.delete(windowId);
     const target = windows.find((window) => window.id === windowId);
     if (target) discardWindowState(target);
     const popout = takePopout(windowId);
@@ -494,7 +499,10 @@ export function App() {
   }, []);
 
   const closeApp = useCallback((app: DesktopApp) => {
+    const dirty = windows.some((window) => window.app === app && dirtyEditors.current.has(window.id));
+    if (dirty && !globalThis.window.confirm("Discard unsaved image edits and close these windows?")) return;
     for (const window of windows) if (window.app === app) {
+      dirtyEditors.current.delete(window.id);
       discardWindowState(window);
       updateWindowMaximized(window.id, false);
       const popout = takePopout(window.id);
@@ -545,6 +553,17 @@ export function App() {
         visibility: "open",
         preview: file,
       }));
+  }, [notify, windows]);
+
+  const openImageEditor = useCallback((file: WorkspacePreviewFile) => {
+    const existing = windows.find((window) => window.app === "image-editor" && window.preview?.path === file.path);
+    if (existing) { setWindows((current) => raiseWindow(current, existing.id)); return; }
+    if (windows.length >= 24) { notify("Close a window before opening another editor."); return; }
+    setWindows((current) => appendWindow(current, { id: freshWindowId("image-editor"), app: "image-editor", visibility: "open", preview: file }));
+  }, [notify, windows]);
+  const openFilesWindow = useCallback((path: string) => {
+    if (windows.length >= 24) { notify("Close a window before opening another folder."); return; }
+    setWindows((current) => appendWindow(current, { id: freshWindowId("files"), app: "files", visibility: "open", filesPath: path }));
   }, [notify, windows]);
 
   const composeInNeura = useCallback((text: string) => {
@@ -603,7 +622,7 @@ export function App() {
     setWindows((current) => existing
       ? raiseWindow(current, targetWindowId)
       : appendWindow(current, { id: targetWindowId, app: "settings", visibility: "open" }));
-    setSettingsLaunchRequest({ id: crypto.randomUUID(), targetWindowId, section: "personalization" });
+    setSettingsLaunchRequest({ id: crypto.randomUUID(), targetWindowId, section: "model-provider" });
     if (existing?.visibility === "popped-out") popoutTargetsRef.current.get(existing.id)?.browserWindow.focus();
     window.clearTimeout(toastTimer.current);
     setToast(undefined);
@@ -682,8 +701,9 @@ export function App() {
             >
               <Suspense fallback={<div className="app-loading">Loading {title.toLowerCase()}…</div>}>
                 {desktopWindow.app === "neura" && session?.user && session.csrfToken && <NeuraApp gateway={gateway} notify={notify} active={activeWindowId === desktopWindow.id} csrfToken={session.csrfToken} currentUser={session.user} storageNamespace={persistenceUserId} storageArea={`neura.${desktopWindow.id}`} composeRequest={neuraComposeRequest?.targetWindowId === desktopWindow.id ? neuraComposeRequest : undefined} onPreviewFile={openPreviewFile} onOpenTeamTerminal={openTeamChatTerminal} />}
-                {desktopWindow.app === "files" && <FilesApp notify={notify} onOpenInVsCode={openInVsCode} onPreviewFile={openPreviewFile} storageNamespace={persistenceUserId} storageArea={`files.${desktopWindow.id}`} />}
-                {desktopWindow.app === "preview" && desktopWindow.preview && <PreviewApp file={desktopWindow.preview} />}
+                {desktopWindow.app === "files" && <FilesApp notify={notify} active={activeWindowId === desktopWindow.id || desktopWindow.visibility === "popped-out"} initialPath={desktopWindow.filesPath} onOpenWindow={openFilesWindow} onEditImage={openImageEditor} onOpenInVsCode={openInVsCode} onPreviewFile={openPreviewFile} storageNamespace={persistenceUserId} storageArea={`files.${desktopWindow.id}`} />}
+                {desktopWindow.app === "preview" && desktopWindow.preview && <PreviewApp file={desktopWindow.preview} onEditImage={openImageEditor} />}
+                {desktopWindow.app === "image-editor" && <ImageEditorApp file={desktopWindow.preview} onDirtyChange={(dirty) => { if (dirty) dirtyEditors.current.add(desktopWindow.id); else dirtyEditors.current.delete(desktopWindow.id); }} />}
                 {desktopWindow.app === "settings" && session?.user && session.csrfToken && <SettingsApp administrator={session.user.role === "admin"} csrfToken={session.csrfToken} currentUserId={session.user.id} user={session.user} providers={session.providers ?? []} initialNotice={initialSettingsLaunch.notice} initialSection={initialSettingsLaunch.open ? "personalization" : undefined} sectionRequest={settingsLaunchRequest?.targetWindowId === desktopWindow.id ? settingsLaunchRequest : undefined} fontScale={fontScale} onFontScaleChange={setFontScale} onLogout={() => void logout()} storageNamespace={persistenceUserId} storageArea={`settings.${desktopWindow.id}`} />}
                 {desktopWindow.app === "terminal" && <TerminalApp workspaceName="Workspace" notify={notify} storageNamespace={persistenceUserId} storageArea={`terminal.${desktopWindow.id}`} fontScale={fontScale} onFontScaleChange={setFontScale} openRequest={terminalOpenRequest?.targetWindowId === desktopWindow.id ? terminalOpenRequest : undefined} />}
                 {desktopWindow.app === "vscode" && <VsCodeApp notify={notify} openRequest={vsCodeOpenRequest?.targetWindowId === desktopWindow.id ? vsCodeOpenRequest : undefined} />}
@@ -699,6 +719,7 @@ export function App() {
       <nav className="dock" aria-label="Applications">
         <DockButton name="Neura" primary active={windowCount("neura") > 0} count={windowCount("neura")} onClick={() => toggleDockApp("neura")} onContextMenu={(event) => openDockMenu("neura", event)}><Sparkles /></DockButton>
         <DockButton name="Files" active={windowCount("files") > 0} count={windowCount("files")} onClick={() => toggleDockApp("files")} onContextMenu={(event) => openDockMenu("files", event)}><Folder /></DockButton>
+        <DockButton name="Image Editor" active={windowCount("image-editor") > 0} count={windowCount("image-editor")} onClick={() => toggleDockApp("image-editor")} onContextMenu={(event) => openDockMenu("image-editor", event)}><FileSearch2 /></DockButton>
         <DockButton name="VS Code" active={windowCount("vscode") > 0} count={windowCount("vscode")} onClick={() => toggleDockApp("vscode")} onContextMenu={(event) => openDockMenu("vscode", event)}><Code2 /></DockButton>
         <DockButton name="Terminal" active={windowCount("terminal") > 0} count={windowCount("terminal")} onClick={() => toggleDockApp("terminal")} onContextMenu={(event) => openDockMenu("terminal", event)}><TerminalSquare /></DockButton>
         <span className="dock-separator" aria-hidden="true" />
@@ -715,7 +736,7 @@ export function App() {
       </div>}
       {toast && <div className={`toast${toast.action ? " toast--action" : ""}`} role="status">
         {toast.action === "open-personalization"
-          ? <button type="button" className="toast-action" onClick={openPersonalizationSettings} aria-label="Open ChatGPT account settings in Personalization"><span>{toast.message}</span><strong>Open Personalization <ChevronRight /></strong></button>
+          ? <button type="button" className="toast-action" onClick={openPersonalizationSettings} aria-label="Open ChatGPT account settings in Model Provider"><span>{toast.message}</span><strong>Open Model Provider <ChevronRight /></strong></button>
           : toast.message}
       </div>}
     </div>

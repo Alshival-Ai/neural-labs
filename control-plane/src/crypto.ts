@@ -25,7 +25,7 @@ export class CredentialCipher {
     if (key.length !== 32) throw new Error("Credential encryption key must be 32 bytes");
   }
 
-  encrypt(value: EntraCredential): string {
+  encrypt<T = EntraCredential>(value: T): string {
     const iv = randomBytes(12);
     const cipher = createCipheriv("aes-256-gcm", this.key, iv);
     const plaintext = Buffer.from(JSON.stringify(value), "utf8");
@@ -39,7 +39,7 @@ export class CredentialCipher {
     return JSON.stringify(envelope);
   }
 
-  decrypt(value: string): EntraCredential {
+  decrypt<T = EntraCredential>(value: string): T {
     const envelope = JSON.parse(value) as Partial<CipherEnvelope>;
     if (envelope.v !== 1 || !envelope.iv || !envelope.tag || !envelope.ciphertext) {
       throw new Error("Unsupported credential envelope");
@@ -54,7 +54,7 @@ export class CredentialCipher {
       decipher.update(Buffer.from(envelope.ciphertext, "base64url")),
       decipher.final(),
     ]);
-    return JSON.parse(plaintext.toString("utf8")) as EntraCredential;
+    return JSON.parse(plaintext.toString("utf8")) as T;
   }
 }
 

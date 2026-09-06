@@ -48,6 +48,60 @@ describe("Neura Gateway projections", () => {
     expect(JSON.stringify(thinking)).not.toContain("raw private chain of thought");
   });
 
+  it("maps streamed preambles into safe expandable progress", () => {
+    const progress = activitiesFromGatewayEvent({ event: "agent", payload: {
+      sessionKey: "agent:main:neura:test",
+      runId: "run-1",
+      stream: "item",
+      data: { kind: "preamble", itemId: "commentary-1", phase: "update", progressText: "I’ll inspect the implementation." },
+    } });
+
+    expect(progress).toEqual([expect.objectContaining({
+      id: "thinking:commentary-1",
+      kind: "thinking",
+      title: "Progress update",
+      detail: "I’ll inspect the implementation.",
+    })]);
+  });
+
+  it("keeps a redacted code patch available for file-change review", () => {
+    const activities = activitiesFromGatewayEvent({ event: "session.tool", payload: {
+      sessionKey: "agent:main:neura:test",
+      runId: "run-1",
+      stream: "tool",
+      data: {
+        phase: "start",
+        name: "apply_patch",
+        toolCallId: "patch-1",
+        arguments: "*** Begin Patch\n+const ready = true;\n+OPENAI_API_KEY=private-value\n*** End Patch",
+      },
+    } });
+
+    expect(activities[0]).toMatchObject({
+      kind: "file",
+      title: "Updating files",
+      output: "*** Begin Patch\n+const ready = true;\n+OPENAI_API_KEY=[redacted]\n*** End Patch",
+    });
+    expect(JSON.stringify(activities)).not.toContain("private-value");
+  });
+
+  it("reads phase-aware text signatures and keeps commentary out of the answer", () => {
+    const history = normalizeNeuraHistory([
+      { role: "user", id: "user-1", content: [{ type: "text", text: "Check it" }] },
+      { role: "assistant", id: "assistant-1", content: [
+        { type: "text", text: "I’ll inspect the files.", textSignature: JSON.stringify({ v: 1, id: "commentary-1", phase: "commentary" }) },
+        { type: "text", text: "The implementation is ready.", textSignature: JSON.stringify({ v: 1, id: "final-1", phase: "final_answer" }) },
+      ] },
+    ], "agent:main:neura:test");
+
+    expect(history).toHaveLength(2);
+    expect(history[1].text).toBe("The implementation is ready.");
+    expect(history[1].activities).toEqual([expect.objectContaining({
+      title: "Progress update",
+      detail: "I’ll inspect the files.",
+    })]);
+  });
+
   it("folds durable commentary into the final answer's work details", () => {
     const history = normalizeNeuraHistory([
       { role: "user", id: "user-1", content: [{ type: "text", text: "Where is the demo hosted?" }] },
@@ -64,6 +118,30 @@ describe("Neura Gateway projections", () => {
       "I’ll check the deployment notes.",
       "I found the current host entry.",
     ]);
+  });
+
+  it("keeps an unfinished history tail out of the transcript after refresh", () => {
+    const history = normalizeNeuraHistory([
+      { role: "user", id: "user-1", content: [{ type: "text", text: "Push to GitHub" }] },
+      { role: "assistant", id: "progress-1", content: [{ type: "text", text: "I’ll authenticate through the host integration." }] },
+      { role: "assistant", id: "call-1", content: [
+        { type: "text", text: "The connector confirms the repository is empty." },
+        { type: "toolCall", id: "tool-1", name: "github_get_profile", arguments: {} },
+      ] },
+      { role: "toolResult", toolCallId: "tool-1", content: [{ type: "text", text: "ok" }] },
+    ], "agent:main:neura:test", { hideUnfinishedTail: true });
+
+    expect(history).toHaveLength(2);
+    expect(history[1].text).toBe("");
+    expect(history[1].activities?.map((activity) => activity.title)).toEqual([
+      "Progress update",
+      "Github Get Profile",
+      "Progress update",
+    ]);
+    expect(history[1].activities?.map((activity) => activity.detail)).toEqual(expect.arrayContaining([
+      "I’ll authenticate through the host integration.",
+      "The connector confirms the repository is empty.",
+    ]));
   });
 
   it("preserves user files and generated images from durable message history", () => {

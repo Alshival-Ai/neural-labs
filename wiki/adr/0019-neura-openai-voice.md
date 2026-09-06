@@ -25,8 +25,19 @@ audio blob of at most 25 MB to a same-origin transcription endpoint. The
 workspace server sends it to the fixed OpenAI transcription endpoint. After a
 successful transcription, the browser uploads the original memo to the shared
 `team-uploads/` folder and posts both the attachment and visible transcript to
-the originating channel as an `@Neura` turn. Existing channel membership and
-agent-run authorization remain authoritative.
+the originating channel as context, with `invokeAgent: false`. Mention or skill
+tokens inside a transcript cannot automatically summon Neura. A separate user
+message containing `@Neura` or a skill command creates a run
+with recent channel transcripts in its bounded context. Existing channel membership
+and agent-run authorization remain authoritative; the optional invocation flag can
+only suppress normal trigger detection, not bypass it or grant access.
+
+The unified composer switches between Send and Voice. Private calls expose a
+microphone mute and tap/hold modes. Team delivery uses the authenticated, CSRF-
+protected message POST with a stable request ID and waits for persistence before
+discarding local audio. Failed recordings are memory-only and can be downloaded,
+retried, sent without transcription, or discarded; no provider key or recording
+is persisted in browser localStorage.
 
 The workspace derives an HMAC safety identifier from the stable Neural Labs
 user ID and an existing server secret. The raw user ID and provider errors are
@@ -40,7 +51,7 @@ deployment environment.
 - Team memo audio is disclosed to OpenAI for transcription and stored in the
   shared workspace, whose file tree is intentionally not a per-channel ACL.
 - Team transcripts are durable channel history and ordinary bounded Neura
-  context, making the automated invocation visible to teammates.
+  context for later explicit invocations, not automatic agent commands.
 - Voice fails closed until an operator configures `OPENAI_API_KEY`; personal
   ChatGPT OAuth remains isolated and is not repurposed for Realtime or
   transcription API calls.

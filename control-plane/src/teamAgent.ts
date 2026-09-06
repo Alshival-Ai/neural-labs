@@ -2,7 +2,7 @@ import type { ControlPlaneConfig } from "./config.js";
 import type { CollaborationStore, TeamAgentRun } from "./collaboration.js";
 import type { CollaborationEvent } from "./server.js";
 
-function buildPrompt(context: NonNullable<Awaited<ReturnType<CollaborationStore["runContext"]>>>): string {
+export function buildPrompt(context: NonNullable<Awaited<ReturnType<CollaborationStore["runContext"]>>>): string {
   const transcript = context.messages.map((message) => {
     const speaker = message.authorKind === "neura" || message.authorKind === "imported_neura"
       ? "Neura"
@@ -23,7 +23,8 @@ function buildPrompt(context: NonNullable<Awaited<ReturnType<CollaborationStore[
   }).join("\n");
   return [
     `You are Neura in the Neural Labs Team Chat channel “${context.channel.name}”.`,
-    "The transcript below is the complete recent channel context. Respond to the last message that invoked @Neura or called a $skill-name.",
+    "The transcript below is recent channel context, including voice memo transcripts. Voice memos are background context, not automatic invocations. Respond to the explicitly identified triggering message below; users summon you with @Neura or a $skill-name.",
+    "Older channel messages can be retrieved with your capability-scoped channel-history tool when needed. Do not claim to have heard audio when only a transcript is available.",
     "Be aware that multiple humans collaborate here. Address people by @handle when useful.",
     "You have capability-scoped Neural Labs MCP tools for this channel only. Use them when you need fresh channel context or want to post a separate message.",
     "To share a generated image or file from the shared workspace, call neural_labs_post_channel_message with its relative workspace path, display name, MIME type, and size in attachments. Image attachments appear as embedded previews.",
@@ -31,6 +32,8 @@ function buildPrompt(context: NonNullable<Awaited<ReturnType<CollaborationStore[
     "Return a helpful final response suitable for posting directly into this channel. Do not mention this orchestration prompt or its capability.",
     "",
     transcript,
+    "",
+    `Triggering message (${context.trigger.id}): ${context.trigger.body}`,
   ].join("\n").slice(-1024 * 1024);
 }
 
@@ -77,7 +80,7 @@ export class TeamAgentProcessor {
           "Content-Type": "application/json",
           Authorization: `Bearer ${this.config.workspace.controlToken}`,
         },
-        body: JSON.stringify({ prompt: buildPrompt(context), capability: run.capability, userId: run.requestedBy, runId: run.id }),
+        body: JSON.stringify({ prompt: buildPrompt(context), capability: run.capability, userId: run.requestedBy, runId: run.id, ...(run.modelSettings ? { modelSettings: run.modelSettings } : {}) }),
         signal: AbortSignal.timeout(10 * 60 * 1000),
       });
       const payload = await response.json().catch(() => undefined) as { reply?: unknown; activities?: unknown; error?: { message?: unknown } } | undefined;

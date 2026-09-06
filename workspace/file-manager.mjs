@@ -121,6 +121,7 @@ function publicEntry(relativePath, name, info) {
     size: info.isDirectory() ? null : info.size,
     modifiedAt: info.mtime.toISOString(),
     mimeType: info.isDirectory() ? null : mimeType(name),
+    version: createHash("sha256").update(`${info.dev}:${info.ino}:${info.size}:${info.mtimeMs}:${info.ctimeMs}`).digest("base64url"),
   };
 }
 
@@ -427,6 +428,15 @@ export function createFileManager({
   }
 
   return {
+    resolveExisting,
+    resolveDirectory,
+    async info(relativeValue) {
+      const target = await resolveExisting(relativeValue, { allowRoot: false });
+      if (!target.info.isFile() && !target.info.isDirectory()) {
+        throw new WorkspaceFileError(400, "unsupported_item", "Only workspace files and folders are supported");
+      }
+      return publicEntry(target.relativePath, path.basename(target.absolutePath), target.info);
+    },
     list,
     createFolder,
     readText,

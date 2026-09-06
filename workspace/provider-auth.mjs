@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
+import { agentEnvironment } from "./provider-environment.mjs";
 
-const LOGIN_COMMAND = "openclaw models auth login --provider openai --device-code --set-default";
+export const BACKGROUND_LOGIN_COMMAND = "openclaw models auth login --agent main --provider openai --device-code";
 const LOGIN_TIMEOUT_MS = 16 * 60 * 1000;
 const MAX_OUTPUT_BUFFER = 64 * 1024;
 
@@ -27,10 +28,10 @@ export function parseOpenAIDeviceCode(value) {
   };
 }
 
-function defaultSpawn() {
-  return spawn("script", ["-qefc", LOGIN_COMMAND, "/dev/null"], {
+export function spawnBackgroundLogin(execute = spawn) {
+  return execute("script", ["-qefc", BACKGROUND_LOGIN_COMMAND, "/dev/null"], {
     detached: true,
-    env: { ...process.env, NO_COLOR: "1", TERM: "dumb" },
+    env: { ...agentEnvironment(process.env), NO_COLOR: "1", TERM: "dumb" },
     stdio: ["ignore", "pipe", "pipe"],
   });
 }
@@ -45,6 +46,9 @@ function safeBoolean(check) {
 
 function publicMessage(value) {
   const clean = stripTerminalControl(value);
+  if (/model command has no explicit owner/iu.test(clean)) {
+    return "The workspace login command is missing its agent owner. An administrator must update the workspace runtime.";
+  }
   if (/trusted_proxy_untrusted_source|auth_credentials_received|unauthorized/iu.test(clean)) {
     return "OpenClaw rejected its local login client. Restart the workspace and try again.";
   }
@@ -62,7 +66,7 @@ export function createProviderAuthController({
   providerAuthenticated,
   modelReady,
   refreshStatus,
-  spawnLogin = defaultSpawn,
+  spawnLogin = spawnBackgroundLogin,
   now = () => Date.now(),
   loginTimeoutMs = LOGIN_TIMEOUT_MS,
 } = {}) {
@@ -77,6 +81,7 @@ export function createProviderAuthController({
   let timeout;
   let output = "";
   let cancelled = false;
+  let generation = 0;
   let state = {
     state: safeBoolean(providerAuthenticated) ? "connected" : "disconnected",
     verificationUrl: null,
@@ -151,6 +156,7 @@ export function createProviderAuthController({
     if (child || current.authenticated) return current;
 
     cancelled = false;
+    const attempt = ++generation;
     output = "";
     state = {
       state: "starting",
@@ -204,6 +210,7 @@ export function createProviderAuthController({
           // The cached status below still provides the safe fallback result.
         }
       }
+      if (attempt !== generation) return;
       const authenticated = safeBoolean(providerAuthenticated);
       if (code === 0 && authenticated) {
         state = {
@@ -235,6 +242,7 @@ export function createProviderAuthController({
   }
 
   function cancel() {
+    generation += 1;
     if (child) {
       cancelled = true;
       state = {
@@ -257,5 +265,19 @@ export function createProviderAuthController({
     return snapshot();
   }
 
-  return { snapshot, start, cancel };
+  async function cancelAndWait() {
+    const pending = child;
+    if (!pending) { cancel(); return; }
+    const stopped = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        stopProcess("SIGKILL");
+        reject(new Error("Sign-in is still stopping. Try disconnecting again."));
+      }, 5_000);
+      pending.once("close", () => { clearTimeout(timer); resolve(); });
+    });
+    cancel();
+    await stopped;
+  }
+
+  return { snapshot, start, cancel, cancelAndWait };
 }

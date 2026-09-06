@@ -7,6 +7,65 @@ Versioning and Git tags in the form `vMAJOR.MINOR.PATCH`.
 
 ### Changed
 
+- Added a global Twilio SMS/MMS plugin with encrypted administrator-managed
+  credentials, read-only connection and webhook checks, in-product Twilio
+  Console setup steps, and the official pinned OpenClaw SMS channel.
+- Verified workspace phone numbers now form the inbound SMS allowlist and route
+  to each member's private Neura. Proactive agent SMS/MMS requires a per-member
+  opt-in and the agent tool accepts only workspace identities.
+
+- Added a personal Model Provider page, account-aware model/reasoning pickers,
+  versioned follow-latest/pinned defaults, and independent Background AI,
+  dedicated Team Neura and Voice settings. Team activation is administrator
+  confirmed; queued runs preserve accepted settings. Claude subscriptions remain
+  explicitly release-gated. Workspace status distinguishes credentials from
+  runtime/model readiness. Automations preserve reasoning `off` and strict pins.
+
+- Neura private and Team Chat composers now use Enter to send and Shift+Enter
+  for a new line on every viewport. During an active private run Enter steers,
+  while queueing remains an explicit Send options action. Enter also accepts
+  the highlighted `@` mention or `$` skill suggestion.
+- Team Chat now completes `@Neura` and current channel-member `@handle` tags in
+  a searchable composer popup. Neura is summoned only through `@Neura`; the
+  misspelled `$nerua` and legacy `$neura` aliases no longer invoke the agent.
+- Team Chat voice memos are now always hold-to-talk with no mode toggle. Private
+  voice keeps a dedicated Open/Hold switch for continuous or press-to-transmit
+  microphone behavior.
+
+- Fresh desktops start empty instead of automatically opening Terminal. Returning
+  sessions continue to restore their saved open and minimized windows.
+
+- Neura's phone layout now has searchable, collapsible conversation history,
+  visible chat actions, a channel-terminal drawer, and a growing touch-friendly
+  composer. Terminal adds named session navigation, mobile split-pane tabs,
+  keyboard/Ctrl/Esc/Tab/arrow controls, and clipboard permission feedback. Both
+  apps reserve space for the soft keyboard and floating dock.
+
+- Files now uses one Explorer-style directory view with tabs, navigation history,
+  personal synced sidebar pins, Recent, recursive filename search, multi-select,
+  copy/move/rename, folder uploads, ZIP downloads, and a recoverable shared Trash
+  with 90-day retention. File operations expose progress, cancellation, retry,
+  and explicit conflict handling; replacements preserve the old item in Trash.
+- A self-hosted, sandboxed miniPaint Image Editor opens workspace images and saves
+  layered `.minipaint.json` projects or flattened PNG/JPEG/WebP through the
+  authenticated Files API with stale-write protection.
+- Neura now has a durable OpenClaw-managed Chromium browser for QA. The
+  workspace image includes browser fonts and Chromium, and private and Team
+  agents receive OpenClaw's browser snapshots, screenshots, and interaction
+  tool through the isolated `openclaw` profile.
+- Neura's website toolchain now includes FFmpeg/FFprobe, WebP and ImageMagick
+  image utilities, and a working rsync installation. Team website skills make
+  omitted creative choices automatically, require complete showcase builds to
+  include a viewport-scale scroll-video or frame-sequence scene when compatible
+  media is available, and prepare seek-friendly local video instead of falling
+  back to a pointer reveal for convenience.
+- Isolated Team Neura runs may now use up to 30 minutes, allowing supervised
+  website research, media preparation, browser QA, and deployment to finish as
+  one bounded run instead of being cut off by the former 10-minute ceiling.
+- Neura now streams only the final answer in the main transcript while signed
+  commentary, safe thinking status, plans, tools, commands, outputs, and file
+  patches stay in the collapsed **Work details** below it. Expanded file steps
+  show a bounded, credential-redacted patch for code review.
 - Neura private chats now have a wave control for a five-minute, live WebRTC
   voice conversation. Team Chat's wave control records a voice memo, stores a
   playable workspace attachment, transcribes it, and sends the transcript as
@@ -44,6 +103,10 @@ Versioning and Git tags in the form `vMAJOR.MINOR.PATCH`.
 
 ### Security and operations
 
+- Browser automation remains headless inside the workspace container, never
+  attaches to a developer's personal browser profile, and retains OpenClaw's
+  private-network SSRF denial except for exact `localhost` and `127.0.0.1`
+  grants needed to verify workspace-local preview servers.
 - Voice provider credentials remain server-side. The new voice routes require
   an authenticated same-origin request, constrain SDP and audio sizes, and use
   a pseudonymous safety identifier; deployment must provide `OPENAI_API_KEY`.
@@ -91,6 +154,9 @@ Versioning and Git tags in the form `vMAJOR.MINOR.PATCH`.
 - Fixed durable commentary appearing as separate assistant chat bubbles after
   a live event or history reload. Legacy unphased pre-tool updates are folded
   once later same-turn activity proves they were not the terminal answer.
+- Fixed refreshes during an active run mistaking the latest durable progress
+  update for the final answer. The unfinished tail now stays in collapsed Work
+  details, and unphased live stream commits follow the same rule.
 
 ### Security and operations
 

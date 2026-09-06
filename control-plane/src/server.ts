@@ -7,6 +7,7 @@ import multer from "multer";
 import { z } from "zod";
 
 import { AuthConfigurationService } from "./authConfig.js";
+import { ModelProviderPolicies, modelPolicySchema, voiceSettingsSchema } from "./modelProviders.js";
 import {
   CollaborationError,
   CollaborationStore,
@@ -29,6 +30,8 @@ import type { Database, SaveSetupInput } from "./database.js";
 import { MicrosoftOidcClient } from "./entra.js";
 import { WebAuthnService, type WebAuthnOperations } from "./passkeys.js";
 import { SessionService } from "./sessions.js";
+import { PhoneError, PhoneService, PhoneStore } from "./phone.js";
+import { TwilioPluginService, twilioNotificationSchema, twilioSettingsSchema } from "./twilioPlugin.js";
 import type {
   EffectiveEntraConfig,
   EntraCredential,
@@ -137,6 +140,7 @@ const teamChannelUpdateSchema = z.object({
 }).refine((value) => value.name !== undefined || value.pinned !== undefined);
 const teamMembersSchema = z.object({ memberIds: z.array(z.string().uuid()).min(1).max(TEAM_CHAT_LIMITS.membersPerChannel) });
 const teamMessageSchema = z.object({
+  invokeAgent: z.boolean().default(true),
   body: z.string().max(TEAM_CHAT_LIMITS.messageCharacters).default(""),
   clientRequestId: z.string().uuid(),
   attachments: z.array(z.object({
@@ -152,6 +156,7 @@ const workspaceRuntimeSchema = z.object({
   openclawVersion: z.string().min(1).max(64),
   codexVersion: z.string().min(1).max(64),
   providerAuthenticated: z.boolean().optional(),
+  credentialSource: z.enum(["environment-api-key", "chatgpt", "stored-credential", "unconfigured"]).optional(),
   codexAuthenticated: z.boolean(),
   openclawModelReady: z.boolean(),
   mcp: z.object({
@@ -296,6 +301,8 @@ export function createApplication(input: {
   workspaceFetch?: typeof fetch;
   collaboration?: CollaborationStore;
   webauthn?: WebAuthnOperations;
+  phone?: PhoneService;
+  modelPolicies?: ModelProviderPolicies;
   onCollaborationEvent?: (event: CollaborationEvent) => void;
   onAgentRun?: (run: TeamAgentRun & { capability: string }) => void;
 }): ControlPlaneApplication {
@@ -305,8 +312,14 @@ export function createApplication(input: {
   const sessions = new SessionService(database, config);
   const collaboration = input.collaboration ?? new CollaborationStore(database.pool);
   const oidc = input.oidc ?? new MicrosoftOidcClient();
-  const webauthn = input.webauthn ?? new WebAuthnService();
   const workspaceFetch = input.workspaceFetch ?? fetch;
+  const twilio = new TwilioPluginService(database.pool, cipher, config.sms, workspaceFetch);
+  const phone = input.phone ?? new PhoneService(
+    new PhoneStore(database.pool), twilio, config.masterKey,
+    (key, limit, seconds) => database.consumeRateLimit(key, limit, seconds),
+  );
+  const webauthn = input.webauthn ?? new WebAuthnService();
+  const modelPolicies = input.modelPolicies ?? new ModelProviderPolicies(database.pool, config.workspace, workspaceFetch);
   const app = express();
   const publish = (event: CollaborationEvent) => input.onCollaborationEvent?.(event);
   app.disable("x-powered-by");
@@ -477,6 +490,12 @@ export function createApplication(input: {
     };
   };
 
+  const twilioWebhookUrl = async () => {
+    const stored = await database.getInstanceConfig();
+    const origin = authConfiguration.effectivePublicOrigin(stored);
+    return new URL("/webhooks/twilio/sms", origin?.origin ?? config.publicOrigin?.origin ?? "https://neural-labs.example.com").toString();
+  };
+
   const mcpData = async () => {
     try {
       const runtimeResponse = await workspaceFetch(config.workspace.statusUrl, {
@@ -525,6 +544,7 @@ export function createApplication(input: {
         openclawVersion: runtime.openclawVersion,
         codexVersion: runtime.codexVersion,
         codexAuthenticated: runtime.providerAuthenticated ?? runtime.codexAuthenticated,
+        credentialSource: runtime.credentialSource ?? "unconfigured",
         openclawModelReady: runtime.openclawModelReady,
       };
     } catch {
@@ -559,7 +579,7 @@ export function createApplication(input: {
     return workspaceProviderAuthSchema.parse(await runtimeResponse.json());
   };
 
-  const personalOpenAIData = async (userId: string, action?: "start" | "cancel" | "pause" | "resume") => {
+  const personalOpenAIData = async (userId: string, action?: "start" | "cancel" | "pause" | "resume" | "disconnect") => {
     const url = new URL(config.workspace.personalAuthUrl);
     url.pathname = `${url.pathname.replace(/\/$/u, "")}/${encodeURIComponent(userId)}${action ? `/${action}` : ""}`;
     const runtimeResponse = await workspaceFetch(url, {
@@ -843,6 +863,58 @@ export function createApplication(input: {
     }
   });
 
+  const phoneFailure = (response: Response, error: unknown) => {
+    if (error instanceof PhoneError) jsonError(response, error.status, error.code, error.message);
+    else jsonError(response, 503, "phone_unavailable", "Phone settings are temporarily unavailable. Try again later.");
+  };
+  app.get("/api/account/phone", async (request, response) => {
+    response.set("Cache-Control", "no-store");
+    const actor = await requireActiveJson(request, response);
+    if (!actor) return;
+    try { response.json(await phone.status(actor.user.id)); }
+    catch (error) { phoneFailure(response, error); }
+  });
+  for (const action of ["request", "verify", "cancel", "remove"] as const) {
+    const route = action === "remove" ? "/api/account/phone" : `/api/account/phone/${action}`;
+    app[action === "remove" ? "delete" : "post"](route, sameOrigin, async (request, response) => {
+      response.set("Cache-Control", "no-store");
+      const actor = await requireActiveJson(request, response);
+      if (!actor || !requireCsrfJson(request, response, actor)) return;
+      try {
+        if (action === "request") {
+          const parsed = z.object({ phoneNumber: z.string().min(1).max(64), consent: z.literal(true) }).safeParse(request.body);
+          if (!parsed.success) { jsonError(response, 422, "invalid_phone_request", "Enter a phone number and agree to receive a verification SMS."); return; }
+          response.json(await phone.start(actor.user.id, parsed.data.phoneNumber, request.ip ?? "unknown"));
+        } else if (action === "remove") {
+          response.json(await phone.remove(actor.user.id));
+        } else {
+          const schema = z.object({ challengeId: z.string().uuid(), code: z.string().regex(/^\d{6}$/).optional() });
+          const parsed = schema.safeParse(request.body);
+          if (!parsed.success || (action === "verify" && !parsed.data.code)) { jsonError(response, 422, "invalid_phone_code", "Enter the six-digit code for the current verification request."); return; }
+          response.json(action === "verify"
+            ? await phone.verify(actor.user.id, parsed.data.challengeId, parsed.data.code!)
+            : await phone.cancel(actor.user.id, parsed.data.challengeId));
+        }
+      } catch (error) { phoneFailure(response, error); }
+    });
+  }
+
+  app.put("/api/account/phone/notifications", sameOrigin, async (request, response) => {
+    response.set("Cache-Control", "no-store");
+    const actor = await requireActiveJson(request, response);
+    if (!actor || !requireCsrfJson(request, response, actor)) return;
+    const parsed = z.object({ enabled: z.boolean() }).safeParse(request.body);
+    if (!parsed.success) {
+      jsonError(response, 422, "invalid_notification_setting", "Choose whether Neura may send SMS notifications.");
+      return;
+    }
+    try {
+      const status = await phone.setNotifications(actor.user.id, parsed.data.enabled);
+      await database.audit(actor.user.id, "account.sms_notifications.updated", actor.user.id, { enabled: parsed.data.enabled });
+      response.json(status);
+    } catch (error) { phoneFailure(response, error); }
+  });
+
   app.get("/api/account/passkeys", async (request, response) => {
     const actor = await requireActiveJson(request, response);
     if (!actor) return;
@@ -957,6 +1029,109 @@ export function createApplication(input: {
     response.status(204).end();
   });
 
+  for (const scope of ["account", "admin/workspace"] as const) {
+    const defaultsRoute = `/api/${scope}/model-providers/defaults`;
+    app.get(defaultsRoute, async (request, response) => {
+      const actor = scope === "account" ? await requireActiveJson(request, response) : await requireAdminJson(request, response);
+      if (!actor) return;
+      try {
+        response.setHeader("Cache-Control", "no-store");
+        response.json(await modelPolicies.get(scope === "account" ? actor.user.id : undefined, scope === "admin/workspace" && request.query.workload === "team" ? "team" : "background"));
+      } catch {
+        jsonError(response, 503, "model_defaults_unavailable", "Model defaults are unavailable. Check the workspace connection.");
+      }
+    });
+    app.put(defaultsRoute, sameOrigin, async (request, response) => {
+      const actor = scope === "account" ? await requireActiveJson(request, response) : await requireAdminJson(request, response);
+      if (!actor || !requireCsrfJson(request, response, actor)) return;
+      const parsed = z.object({ revision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), policy: modelPolicySchema, confirmShared: z.boolean().optional() }).strict().safeParse(request.body);
+      if (!parsed.success) { jsonError(response, 400, "invalid_model_policy", "Choose a valid model policy and reasoning level."); return; }
+      if (!await database.consumeRateLimit(`model-defaults:${actor.user.id}`, 10, 60)) { jsonError(response, 429, "rate_limited", "Wait a moment before changing model defaults again."); return; }
+      const workload = scope === "admin/workspace" && request.query.workload === "team" ? "team" : "background";
+      if (workload === "team" && !parsed.data.confirmShared) { jsonError(response, 400, "shared_confirmation_required", "Confirm that Team Neura will use the dedicated workspace-owned account."); return; }
+      try {
+        const result = await modelPolicies.save(scope === "account" ? actor.user.id : undefined, parsed.data.revision, parsed.data.policy, workload);
+        await database.audit(actor.user.id, `${scope === "account" ? "account" : "workspace"}.model_defaults.updated`, scope === "account" ? actor.user.id : null, { revision: result.revision, pending: result.pending, policy: result.policy, workload });
+        response.status(result.pending ? 202 : 200).json(result);
+      } catch (error) {
+        const conflict = (error as { status?: number }).status === 409;
+        jsonError(response, conflict ? 409 : 503, conflict ? "model_policy_conflict" : "model_defaults_unavailable", conflict ? "Model settings changed in another window. Reload before saving." : "Model defaults could not be saved.");
+      }
+    });
+    const route = `/api/${scope}/model-providers/catalog`;
+    const catalogHandler = async (request: Request, response: Response) => {
+      const actor = scope === "account" ? await requireActiveJson(request, response) : await requireAdminJson(request, response);
+      if (!actor || (request.method === "POST" && !requireCsrfJson(request, response, actor))) return;
+      if (request.method === "POST" && !await database.consumeRateLimit(`model-catalog:${actor.user.id}`, 10, 60)) { jsonError(response, 429, "rate_limited", "Wait a moment before refreshing models again."); return; }
+      const url = new URL("/internal/model-providers/catalog", config.workspace.controlUrl);
+      if (scope === "account") url.searchParams.set("userId", actor.user.id);
+      else if (typeof request.query.agentId === "string") {
+        if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/u.test(request.query.agentId)) {
+          jsonError(response, 400, "invalid_agent", "Invalid agent identifier.");
+          return;
+        }
+        url.searchParams.set("agentId", request.query.agentId);
+      }
+      try {
+        const result = await workspaceFetch(url, {
+          method: request.method, headers: { Accept: "application/json", Authorization: `Bearer ${config.workspace.controlToken}` },
+          signal: AbortSignal.timeout(30_000),
+        });
+        if (!result.ok) throw new Error("Catalog unavailable");
+        response.setHeader("Cache-Control", "no-store");
+        response.json(await result.json());
+      } catch {
+        jsonError(response, 503, "catalog_unavailable", "The model catalog could not be loaded. Check the provider connection and try again.");
+      }
+    };
+    app.get(route, catalogHandler);
+    app.post(route, sameOrigin, catalogHandler);
+  }
+
+  for (const action of ["status", "connect", "cancel"] as const) {
+    const route = `/api/admin/workspace/model-providers/team/connection${action === "status" ? "" : `/${action}`}`;
+    const handler = async (request: Request, response: Response) => {
+      const actor = await requireAdminJson(request, response);
+      if (!actor || (action !== "status" && !requireCsrfJson(request, response, actor))) return;
+      if (action !== "status" && !await database.consumeRateLimit(`team-provider:${actor.user.id}`, 10, 60)) { jsonError(response, 429, "rate_limited", "Wait a moment before starting sign-in again."); return; }
+      const url = new URL(`/internal/model-providers/team/connection${action === "status" ? "" : `/${action === "connect" ? "start" : "cancel"}`}`, config.workspace.controlUrl);
+      try {
+        const result = await workspaceFetch(url, { method: action === "status" ? "GET" : "POST", headers: { Accept: "application/json", Authorization: `Bearer ${config.workspace.controlToken}` }, signal: AbortSignal.timeout(30_000) });
+        if (!result.ok) throw new Error("Team provider unavailable");
+        response.setHeader("Cache-Control", "no-store");
+        if (action !== "status") await database.audit(actor.user.id, `workspace.team_provider.${action}`, null, { provider: "openai", authMethod: "chatgpt" });
+        response.status(action === "connect" ? 202 : 200).json(personalOpenAIAuthSchema.parse(await result.json()));
+      } catch { jsonError(response, 503, "team_provider_unavailable", "Team Neura connection is unavailable."); }
+    };
+    if (action === "status") app.get(route, handler);
+    else app.post(route, sameOrigin, handler);
+  }
+
+  app.get("/api/admin/workspace/model-providers/voice", async (request, response) => {
+    const actor = await requireAdminJson(request, response);
+    if (!actor) return;
+    try { response.setHeader("Cache-Control", "no-store"); response.json(await modelPolicies.getVoice()); }
+    catch { jsonError(response, 503, "voice_settings_unavailable", "Voice settings are unavailable."); }
+  });
+  app.post("/api/admin/workspace/model-providers/voice/refresh", sameOrigin, async (request, response) => {
+    const actor = await requireAdminJson(request, response);
+    if (!actor || !requireCsrfJson(request, response, actor)) return;
+    if (!await database.consumeRateLimit(`voice-catalog:${actor.user.id}`, 10, 60)) { jsonError(response, 429, "rate_limited", "Wait a moment before refreshing voice models again."); return; }
+    try { response.json(await modelPolicies.getVoice(true)); }
+    catch { jsonError(response, 503, "voice_settings_unavailable", "Voice model availability could not be checked."); }
+  });
+  app.put("/api/admin/workspace/model-providers/voice", sameOrigin, async (request, response) => {
+    const actor = await requireAdminJson(request, response);
+    if (!actor || !requireCsrfJson(request, response, actor)) return;
+    const parsed = z.object({ revision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), settings: voiceSettingsSchema }).strict().safeParse(request.body);
+    if (!parsed.success) { jsonError(response, 400, "invalid_voice_settings", "Choose valid audio models and a voice."); return; }
+    try {
+      const result = await modelPolicies.saveVoice(parsed.data.revision, parsed.data.settings);
+      await database.audit(actor.user.id, "workspace.voice_defaults.updated", null, { revision: result.revision, settings: parsed.data.settings });
+      response.status(result.pending ? 202 : 200).json(result);
+    } catch (error) { jsonError(response, (error as { status?: number }).status === 409 ? 409 : 503, "voice_settings_unavailable", "Voice settings could not be saved. Reload to check for concurrent changes."); }
+  });
+
   app.get("/api/account/openai", async (request, response) => {
     const actor = await requireActiveJson(request, response);
     if (!actor) return;
@@ -967,7 +1142,7 @@ export function createApplication(input: {
     }
   });
 
-  for (const action of ["connect", "cancel", "pause", "resume"] as const) {
+  for (const action of ["connect", "cancel", "pause", "resume", "disconnect"] as const) {
     app.post(`/api/account/openai/${action}`, sameOrigin, async (request, response) => {
       const actor = await requireActiveJson(request, response);
       if (!actor || !requireCsrfJson(request, response, actor)) return;
@@ -1234,8 +1409,44 @@ export function createApplication(input: {
         editable: false,
         ready: mcp.ready,
         mcp,
-      }],
+      }, await twilio.status(await twilioWebhookUrl(), actor.user.role === "admin")],
     });
+  });
+
+  app.get("/api/admin/plugins/twilio", async (request, response) => {
+    const actor = await requireAdminJson(request, response);
+    if (!actor) return;
+    response.json(await twilio.status(await twilioWebhookUrl(), true));
+  });
+
+  app.put("/api/admin/plugins/twilio", sameOrigin, async (request, response) => {
+    const actor = await requireAdminJson(request, response);
+    if (!actor || !requireCsrfJson(request, response, actor)) return;
+    const parsed = twilioSettingsSchema.safeParse(request.body);
+    if (!parsed.success) {
+      jsonError(response, 422, "invalid_twilio_settings", "Enter a valid Twilio Account SID, Auth Token, and E.164 sender number.");
+      return;
+    }
+    try {
+      const webhookUrl = await twilioWebhookUrl();
+      await twilio.save(parsed.data, webhookUrl);
+      await database.audit(actor.user.id, "plugin.twilio.updated", null, { fromNumber: parsed.data.fromNumber, webhookUrl });
+      response.json(await twilio.status(webhookUrl, true, true));
+    } catch (error) { phoneFailure(response, error); }
+  });
+
+  app.post("/api/admin/plugins/twilio/probe", sameOrigin, async (request, response) => {
+    const actor = await requireAdminJson(request, response);
+    if (!actor || !requireCsrfJson(request, response, actor)) return;
+    response.json(await twilio.status(await twilioWebhookUrl(), true, true));
+  });
+
+  app.delete("/api/admin/plugins/twilio", sameOrigin, async (request, response) => {
+    const actor = await requireAdminJson(request, response);
+    if (!actor || !requireCsrfJson(request, response, actor)) return;
+    await twilio.disconnect();
+    await database.audit(actor.user.id, "plugin.twilio.disconnected", null, {});
+    response.json(await twilio.status(await twilioWebhookUrl(), true));
   });
 
   app.get("/api/admin/workspace/provider", async (request, response) => {
@@ -1940,6 +2151,36 @@ export function createApplication(input: {
       return;
     }
     response.json(mcpConfig);
+  });
+
+  app.get("/internal/plugins/twilio/config", async (request, response) => {
+    const supplied = request.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+    if (!supplied || !safeEqual(supplied, config.workspace.controlToken)) {
+      response.status(401).json({ error: { code: "unauthorized", message: "Unauthorized" } });
+      return;
+    }
+    response.set("Cache-Control", "no-store");
+    response.json(await twilio.runtimeConfig(await twilioWebhookUrl()));
+  });
+
+  app.post("/internal/plugins/twilio/send", async (request, response) => {
+    const supplied = request.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+    if (!supplied || !safeEqual(supplied, config.workspace.controlToken)) {
+      response.status(401).json({ error: { code: "unauthorized", message: "Unauthorized" } });
+      return;
+    }
+    const parsed = twilioNotificationSchema.safeParse(request.body);
+    if (!parsed.success) {
+      jsonError(response, 422, "invalid_sms_notification", "Provide one opted-in workspace member and a message.");
+      return;
+    }
+    try {
+      if (!(await database.consumeRateLimit(`agent-sms:${parsed.data.userId ?? parsed.data.handle}`, 20, 3600))) {
+        jsonError(response, 429, "sms_rate_limited", "This recipient has received too many agent SMS messages.");
+        return;
+      }
+      response.json(await twilio.sendNotification(parsed.data));
+    } catch (error) { phoneFailure(response, error); }
   });
 
   app.post("/internal/turn-credentials", (request, response) => {

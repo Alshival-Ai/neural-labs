@@ -67,6 +67,9 @@ services:
       PGUSER: neural_labs
       PGPASSWORD: ${NEURAL_LABS_POSTGRES_PASSWORD}
       CONTROL_PLANE_MASTER_KEY: ${NEURAL_LABS_CONTROL_PLANE_MASTER_KEY}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-}
       MCP_CONFIG_TOKEN: ${NEURAL_LABS_MCP_CONFIG_TOKEN}
       WORKSPACE_CONTROL_TOKEN: ${NEURAL_LABS_WORKSPACE_CONTROL_TOKEN}
       AZURE_TENANT_ID: ${AZURE_TENANT_ID:-}
@@ -128,6 +131,8 @@ services:
       NEURAL_LABS_TRANSCRIPTION_MODEL: ${NEURAL_LABS_TRANSCRIPTION_MODEL:-gpt-transcribe}
       NEURAL_LABS_TURN_CREDENTIAL_URL: http://control-plane:4174/internal/turn-credentials
       NEURAL_LABS_TEAM_CHANNEL_ACCESS_URL: http://control-plane:4174/internal/team-terminal/access
+      NEURAL_LABS_TWILIO_CONFIG_URL: http://control-plane:4174/internal/plugins/twilio/config
+      NEURAL_LABS_SMS_NOTIFICATION_URL: http://control-plane:4174/internal/plugins/twilio/send
     cap_drop:
       - ALL
     cap_add:

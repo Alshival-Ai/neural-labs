@@ -9,6 +9,7 @@ import type { Express, NextFunction, Request, Response } from "express";
 import { registerGoogleTools } from "./googleProviders.js";
 import { registerKlipyTools } from "./klipyProvider.js";
 import { registerPexelsTools } from "./pexelsProvider.js";
+import { registerSmsNotificationTool } from "./smsNotifications.js";
 import type { ProviderConfig } from "./providerConfig.js";
 
 const GOOGLE_TOOLS = [
@@ -24,6 +25,7 @@ const PEXELS_TOOLS = [
   "pexels_search_videos",
   "pexels_download_media",
 ];
+const SMS_TOOLS = ["notify_workspace_user"];
 
 export interface ProviderApplication {
   app: Express;
@@ -63,6 +65,7 @@ export function createProviderApplication(
         ...(googleConfigured ? GOOGLE_TOOLS : []),
         ...(klipyConfigured ? KLIPY_TOOLS : []),
         ...(pexelsConfigured ? PEXELS_TOOLS : []),
+        ...(config.notificationApi ? SMS_TOOLS : []),
       ],
     });
   });
@@ -79,6 +82,7 @@ export function createProviderApplication(
       registerGoogleTools(server, config, fetchFn);
       registerKlipyTools(server, config, fetchFn);
       registerPexelsTools(server, config, fetchFn);
+      registerSmsNotificationTool(server, config, fetchFn);
       return server;
     },
     {

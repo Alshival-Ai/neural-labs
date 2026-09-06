@@ -7,6 +7,7 @@ import { Database } from "./database.js";
 import { createPool } from "./pool.js";
 import { createApplication } from "./server.js";
 import { TeamAgentProcessor } from "./teamAgent.js";
+import { ModelProviderPolicies } from "./modelProviders.js";
 
 const config = await loadConfig();
 const database = new Database(createPool(config));
@@ -42,12 +43,25 @@ if (process.argv[2] === "setup-reset") {
   process.exitCode = reset ? 0 : 1;
 } else {
   const collaboration = new CollaborationStore(database.pool);
+  const modelPolicies = new ModelProviderPolicies(database.pool, config.workspace);
+  const reconcileModels = () => void modelPolicies.reconcile().catch(() => console.warn("Model defaults reconciliation is unavailable"));
+  const modelPolicyTimer = setInterval(reconcileModels, 3_600_000);
+  modelPolicyTimer.unref();
+  // The workspace may still be booting when the control plane becomes ready.
+  // Retry initial imports without waiting for the hourly catalog refresh.
+  const modelPolicyStartupTimers = [20_000, 60_000, 180_000].map((delay) => {
+    const timer = setTimeout(reconcileModels, delay);
+    timer.unref();
+    return timer;
+  });
+  reconcileModels();
   let agentProcessor: TeamAgentProcessor | undefined;
   const socketHub = new CollaborationSocketHub(collaboration, (run) => agentProcessor?.enqueue(run));
   const application = createApplication({
     database,
     config,
     collaboration,
+    modelPolicies,
     onCollaborationEvent: (event) => { void socketHub.publish(event); },
     onAgentRun: (run) => agentProcessor?.enqueue(run),
   });
@@ -66,6 +80,8 @@ if (process.argv[2] === "setup-reset") {
   const stop = async (signal: string) => {
     if (stopping) return;
     stopping = true;
+    clearInterval(modelPolicyTimer);
+    modelPolicyStartupTimers.forEach(clearTimeout);
     console.log(`Received ${signal}; shutting down control plane`);
     // Upgrade connections are not counted as ordinary HTTP requests, so close
     // them before waiting for the HTTP server to drain.

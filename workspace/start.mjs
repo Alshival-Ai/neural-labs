@@ -6,10 +6,16 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { createWorkspaceHttpServer } from "/usr/local/lib/neural-labs/http-server.mjs";
+import { browserConfigurationOperations } from "/usr/local/lib/neural-labs/browser-config.mjs";
 import { createProviderAuthController } from "/usr/local/lib/neural-labs/provider-auth.mjs";
+import { verifyCodexRuntime } from "/usr/local/lib/neural-labs/codex-runtime.mjs";
 import { createGatewayAdminRequest, PersonalOpenAIManager } from "/usr/local/lib/neural-labs/personal-openai.mjs";
 import { runTeamAgent } from "/usr/local/lib/neural-labs/team-agent.mjs";
 import { createVoiceService } from "/usr/local/lib/neural-labs/voice.mjs";
+import { ModelCatalog, modelCredentialSource } from "/usr/local/lib/neural-labs/model-catalog.mjs";
+import { ModelPolicies } from "/usr/local/lib/neural-labs/model-policies.mjs";
+import { TeamOpenAI } from "/usr/local/lib/neural-labs/team-openai.mjs";
+import { agentEnvironment, importWorkspaceApiKey } from "/usr/local/lib/neural-labs/provider-environment.mjs";
 
 const gatewayPort = parsePort(process.env.OPENCLAW_GATEWAY_PORT, 18789);
 const statusPort = parsePort(process.env.NEURAL_LABS_WORKSPACE_STATUS_PORT, 18790);
@@ -42,6 +48,9 @@ const turnCredentialUrl = new URL(
 );
 const teamChannelAccessUrl = new URL(
   process.env.NEURAL_LABS_TEAM_CHANNEL_ACCESS_URL ?? "http://control-plane:4174/internal/team-terminal/access",
+);
+const twilioConfigUrl = new URL(
+  process.env.NEURAL_LABS_TWILIO_CONFIG_URL ?? "http://control-plane:4174/internal/plugins/twilio/config",
 );
 // OpenClaw resolves environment placeholders whenever it loads configuration.
 // The always-on Gateway must therefore have a harmless value even though only
@@ -100,12 +109,97 @@ function runOpenClaw(args, options = {}) {
   const result = spawnSync("openclaw", args, {
     encoding: "utf8",
     stdio: options.quiet ? "pipe" : "inherit",
+    timeout: 120_000,
   });
   if (result.error) throw result.error;
   return result;
 }
 
-function configureGateway() {
+function ensureOfficialSmsPlugin() {
+  // OpenClaw rejects world-writable plugin artifacts. Docker may inherit a
+  // permissive umask; use normal package permissions for native installation.
+  const previousUmask = process.umask(0o022);
+  try {
+    const pathsResult = runOpenClaw(["config", "get", "plugins.load.paths", "--json"], { quiet: true });
+    if (pathsResult.status === 0) {
+      const paths = JSON.parse(pathsResult.stdout);
+      if (Array.isArray(paths) && paths.includes("/usr/local/lib/neural-labs/node_modules/@openclaw/sms")) {
+        const cleaned = paths.filter((entry) => entry !== "/usr/local/lib/neural-labs/node_modules/@openclaw/sms");
+        const result = runOpenClaw(["config", "set", "plugins.load.paths", JSON.stringify(cleaned)], { quiet: true });
+        if (result.status !== 0) throw new Error("Could not retire the legacy SMS plugin load path");
+      }
+    }
+    const listed = runOpenClaw(["plugins", "list", "--json"], { quiet: true });
+    const plugin = listed.status === 0 ? JSON.parse(listed.stdout).plugins?.find((entry) => entry.id === "sms") : undefined;
+    if (plugin?.origin === "global" && plugin.version === "2026.8.2") return;
+    const installed = runOpenClaw(["plugins", "install", "@openclaw/sms@2026.8.2", "--pin", "--force", "--accept-capabilities"], { quiet: true });
+    if (installed.status !== 0) throw new Error("Official SMS plugin installation failed");
+  } finally { process.umask(previousUmask); }
+}
+
+function personalSmsAgentId(userId) {
+  return `nl-${String(userId).toLowerCase().replace(/[^a-z0-9]/gu, "")}`.slice(0, 63);
+}
+
+async function fetchTwilioConfig() {
+  try {
+    const response = await fetch(twilioConfigUrl, {
+      headers: { Authorization: `Bearer ${workspaceControlToken}`, Accept: "application/json" },
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+  } catch (error) {
+    console.warn("Twilio channel configuration is unavailable; SMS remains disabled", error instanceof Error ? error.message : error);
+    return { enabled: false, revision: 0, users: [] };
+  }
+}
+
+function existingNonSmsBindings() {
+  const result = runOpenClaw(["config", "get", "bindings", "--json"], { quiet: true });
+  if (result.status !== 0 || !result.stdout?.trim()) return [];
+  try {
+    const bindings = JSON.parse(result.stdout);
+    return Array.isArray(bindings)
+      ? bindings.filter((binding) => binding?.match?.channel !== "sms")
+      : [];
+  } catch { return []; }
+}
+
+function twilioOperations(config) {
+  const users = Array.isArray(config?.users) ? config.users : [];
+  const enabled = config?.enabled === true && typeof config?.authToken === "string";
+  return [
+    { path: "plugins.entries.sms.enabled", value: enabled },
+    {
+      path: "channels.sms",
+      value: enabled ? {
+        enabled: true,
+        configWrites: false,
+        accountSid: config.accountSid,
+        authToken: { source: "env", provider: "default", id: "NEURAL_LABS_TWILIO_AUTH_TOKEN" },
+        fromNumber: config.fromNumber,
+        publicWebhookUrl: config.webhookUrl,
+        webhookPath: "/webhooks/twilio/sms",
+        dangerouslyDisableSignatureValidation: false,
+        dmPolicy: "allowlist",
+        allowFrom: users.map((user) => user.phoneNumber),
+      } : { enabled: false, configWrites: false, dmPolicy: "disabled", allowFrom: [] },
+    },
+    {
+      path: "bindings",
+      value: [
+        ...existingNonSmsBindings(),
+        ...(enabled ? users.map((user) => ({
+          agentId: personalSmsAgentId(user.userId),
+          match: { channel: "sms", accountId: "default", peer: { kind: "direct", id: user.phoneNumber } },
+        })) : []),
+      ],
+    },
+  ];
+}
+
+function configureGateway(twilioConfig) {
   // Public traffic continues to use trusted-proxy auth. A random password,
   // regenerated on every container start, is passed only to the Gateway child
   // and this process's loopback role-management client. It is not persisted in
@@ -145,6 +239,8 @@ function configureGateway() {
     },
     { path: "gateway.controlUi.enabled", value: false },
     { path: "plugins.entries.codex.enabled", value: true },
+    ...twilioOperations(twilioConfig),
+    ...browserConfigurationOperations(),
     {
       path: "mcp.servers.neural-labs-team",
       value: {
@@ -198,12 +294,14 @@ function configureGateway() {
 let providerStatus = {
   authenticated: false,
   modelReady: false,
+  credentialSource: "unconfigured",
 };
 let providerStatusRefresh;
 
 async function openclawJson(args) {
   const { stdout } = await execFileAsync("openclaw", args, {
     encoding: "utf8",
+    env: agentEnvironment(process.env),
     timeout: providerStatusCommandTimeoutMs,
     maxBuffer: 1024 * 1024,
   });
@@ -215,13 +313,14 @@ async function refreshProviderStatus() {
 
   providerStatusRefresh = (async () => {
     const [authentication, models] = await Promise.allSettled([
-      openclawJson(["models", "auth", "list", "--provider", "openai", "--json"]),
-      openclawJson(["models", "status", "--json"]),
+      openclawJson(["models", "auth", "list", "--agent", "main", "--provider", "openai", "--json"]),
+      openclawJson(["models", "status", "--agent", "main", "--json"]),
     ]);
     const authenticationStatus =
       authentication.status === "fulfilled" ? authentication.value : null;
     const modelStatus = models.status === "fulfilled" ? models.value : null;
     providerStatus = {
+      credentialSource: modelCredentialSource(authenticationStatus, modelStatus),
       authenticated:
         Array.isArray(authenticationStatus?.profiles) &&
         authenticationStatus.profiles.some(
@@ -312,7 +411,11 @@ async function mcpStatus() {
 }
 
 await seedShellProfiles();
-configureGateway();
+ensureOfficialSmsPlugin();
+let twilioRuntimeConfig = await fetchTwilioConfig();
+configureGateway(twilioRuntimeConfig);
+try { importWorkspaceApiKey(); }
+catch { console.warn("Workspace API credential import failed; text model availability may require administrator attention"); }
 await refreshProviderStatus();
 const providerStatusTimer = setInterval(() => {
   void refreshProviderStatus();
@@ -330,7 +433,13 @@ const gateway = spawn(
   ["gateway", "run", "--bind", "lan", "--port", String(gatewayPort)],
   {
     stdio: "inherit",
-    env: { ...process.env, OPENCLAW_GATEWAY_PASSWORD: internalGatewayPassword },
+    env: {
+      ...agentEnvironment(process.env),
+      ...(twilioRuntimeConfig?.enabled && twilioRuntimeConfig?.authToken
+        ? { NEURAL_LABS_TWILIO_AUTH_TOKEN: twilioRuntimeConfig.authToken }
+        : {}),
+      OPENCLAW_GATEWAY_PASSWORD: internalGatewayPassword,
+    },
   },
 );
 const gatewayAdminRequest = createGatewayAdminRequest({
@@ -342,10 +451,14 @@ const personalOpenAI = new PersonalOpenAIManager({
   stateRoot: process.env.OPENCLAW_STATE_DIR ?? "/home/node/.openclaw",
   gatewayRequest: gatewayAdminRequest,
 });
+const teamOpenAI = new TeamOpenAI(personalOpenAI);
+const codexRuntime = await verifyCodexRuntime(process.env.NEURAL_LABS_CODEX_VERSION);
+const modelCatalog = new ModelCatalog({ gatewayRequest: gatewayAdminRequest, personalOpenAI, teamOpenAI, runtime: codexRuntime });
+const modelPolicies = new ModelPolicies({ personalOpenAI, catalog: modelCatalog, teamOpenAI });
 const workspaceMcp = spawn(
   process.execPath,
   ["/usr/local/lib/neural-labs/mcp/dist/local.js"],
-  { stdio: "inherit" },
+  { stdio: "inherit", env: agentEnvironment(process.env) },
 );
 const codeServer = spawn(
   "code-server",
@@ -372,9 +485,13 @@ const workspaceServer = createWorkspaceHttpServer({
   codeServerReady,
   mcpStatus,
   providerAuthenticated,
+  credentialSource: () => providerStatus.credentialSource,
   openclawModelReady,
   providerAuth,
   personalOpenAI,
+  modelCatalog,
+  modelPolicies,
+  teamOpenAI,
   voiceService,
   workspaceControlToken,
   openclawVersion: process.env.NEURAL_LABS_OPENCLAW_VERSION ?? "unknown",
@@ -409,7 +526,7 @@ const workspaceServer = createWorkspaceHttpServer({
     return response.json();
   },
   runTeamAgent: async (input) => {
-    const agentId = await personalOpenAI.prepareRun(input.userId);
+    const agentId = input.modelSettings ? await teamOpenAI.prepareRun() : await personalOpenAI.prepareRun(input.userId);
     return runTeamAgent({ ...input, agentId, workspaceRoot });
   },
 });
@@ -420,6 +537,9 @@ workspaceServer.listen(statusPort, "0.0.0.0", () => {
 
 async function reconcilePersonalAccess() {
   try {
+    for (const user of Array.isArray(twilioRuntimeConfig?.users) ? twilioRuntimeConfig.users : []) {
+      await personalOpenAI.ensureProvisioned(user.userId);
+    }
     await personalOpenAI.restrictKnownProfiles();
     await personalOpenAI.assignRole("neural-labs-automations-admin", "maintainer").catch(() => undefined);
     await personalOpenAI.purgeLegacyNeuraSessions();
@@ -431,13 +551,34 @@ setTimeout(() => void reconcilePersonalAccess(), 2_000).unref();
 const personalAccessTimer = setInterval(() => void reconcilePersonalAccess(), 30_000);
 personalAccessTimer.unref();
 
+const twilioConfigTimer = setInterval(() => {
+  void (async () => {
+    const next = await fetchTwilioConfig();
+    const currentFingerprint = JSON.stringify({ revision: twilioRuntimeConfig?.revision, users: twilioRuntimeConfig?.users?.map((user) => [user.userId, user.phoneNumber]) });
+    const nextFingerprint = JSON.stringify({ revision: next?.revision, users: next?.users?.map((user) => [user.userId, user.phoneNumber]) });
+    if (currentFingerprint === nextFingerprint) return;
+    const result = runOpenClaw(["config", "set", "--batch-json", JSON.stringify(twilioOperations(next))]);
+    if (result.status === 0) {
+      twilioRuntimeConfig = next;
+      // Gateway environment secrets are immutable. Let the container's
+      // restart policy perform a clean, bounded restart after any connection
+      // or verified-member allowlist change.
+      gateway.kill("SIGTERM");
+    }
+    else console.warn("OpenClaw rejected an updated Twilio channel configuration");
+  })();
+}, 30_000);
+twilioConfigTimer.unref();
+
 let stopping = false;
 function stop(signal) {
   if (stopping) return;
   stopping = true;
   clearInterval(providerStatusTimer);
   clearInterval(personalAccessTimer);
+  clearInterval(twilioConfigTimer);
   providerAuth.cancel();
+  teamOpenAI.cancel();
   workspaceServer.close();
   gateway.kill(signal);
   workspaceMcp.kill(signal);

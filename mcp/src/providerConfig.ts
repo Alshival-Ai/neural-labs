@@ -6,6 +6,7 @@ export interface ProviderConfig {
   pexelsApiKey?: string;
   projectsRoot: string;
   downloadSigningKey: Buffer;
+  notificationApi?: { url: URL; token: string };
 }
 
 function optional(env: NodeJS.ProcessEnv, name: string): string | undefined {
@@ -42,5 +43,9 @@ export function loadProviderConfig(
     )
       .update("neural-labs/pexels-download-token/v1")
       .digest(),
+    notificationApi: {
+      url: new URL(optional(env, "NEURAL_LABS_SMS_NOTIFICATION_URL") ?? "http://control-plane:4174/internal/plugins/twilio/send"),
+      token: workspaceToken,
+    },
   };
 }

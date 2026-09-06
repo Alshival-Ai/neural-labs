@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import type { EntraCredential, EffectiveEntraConfig } from "./types.js";
 import { normalizeCertificateCredential } from "./crypto.js";
+import { normalizePhone, type SmsConfig } from "./phone.js";
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 
@@ -20,6 +21,7 @@ export interface ControlPlaneConfig {
     ssl: boolean;
   };
   masterKey: Buffer;
+  sms?: SmsConfig;
   mcpConfigToken: string;
   turn?: {
     urls: string[];
@@ -202,6 +204,13 @@ export async function loadConfig(env: NodeJS.ProcessEnv = process.env): Promise<
   const ssl = z.enum(["true", "false"]).default("false").parse(env.PGSSLMODE === "require" ? "true" : env.DATABASE_SSL);
 
   const environmentEntra = await loadEnvironmentEntra(env);
+  const smsValues = [env.TWILIO_ACCOUNT_SID?.trim(), env.TWILIO_AUTH_TOKEN?.trim(), env.TWILIO_FROM_NUMBER?.trim()];
+  let sms: SmsConfig | undefined;
+  if (smsValues.some(Boolean)) {
+    const [accountSid, authToken, fromNumber] = smsValues;
+    if (!accountSid || !/^AC[a-f0-9]{32}$/i.test(accountSid) || !authToken || !fromNumber) throw new Error("SMS verification requires TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_FROM_NUMBER.");
+    sms = { accountSid, authToken, fromNumber: normalizePhone(fromNumber) };
+  }
   const workspaceStatusUrl = new URL(
     env.CONTROL_PLANE_WORKSPACE_STATUS_URL?.trim() || "http://workspace:18790/status",
   );
@@ -280,6 +289,7 @@ export async function loadConfig(env: NodeJS.ProcessEnv = process.env): Promise<
       ssl: ssl === "true",
     },
     masterKey,
+    ...(sms ? { sms } : {}),
     mcpConfigToken,
     ...(turnSecret ? { turn: { urls: turnUrls, secret: turnSecret } } : {}),
     workspace: {

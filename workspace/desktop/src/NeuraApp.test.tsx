@@ -1,8 +1,9 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { invokesTeamAgent, MessageAttachments, modelProviderErrorMessage, NEURA_FRESH_START_AFTER_MS, neuraWebsitePreviewFile, NeuraApp, staleChatActivityForFreshStart, TeamTerminalSidebar, teamAgentPhaseFromStatus, teamMessagePresentation } from "./NeuraApp";
+import { insertTeamMention, invokesTeamAgent, matchingTeamMentionSuggestions, MessageAttachments, modelProviderErrorMessage, NEURA_FRESH_START_AFTER_MS, neuraWebsitePreviewFile, NeuraApp, staleChatActivityForFreshStart, submitsChatComposerShortcut, TeamTerminalSidebar, teamAgentPhaseFromStatus, teamMentionTriggerAt, teamMessagePresentation } from "./NeuraApp";
 import { writeDeviceState } from "./deviceState";
+import { AppViewportProvider } from "./appViewport";
 import type { NeuraGateway } from "./openclaw";
 import type { TerminalDescriptor } from "./terminalApi";
 import type { ConnectionState, GatewayEvent, SessionRow } from "./types";
@@ -134,6 +135,59 @@ afterAll(() => {
 afterEach(cleanup);
 
 describe("Neura realtime conversation", () => {
+  it("subscribes a restored mobile conversation after the initial roster arrives", async () => {
+    const gateway = new FakeGateway();
+    writeDeviceState("restored-mobile-voice", "neura", { selectedKey: session.key });
+    render(<AppViewportProvider width={390}><NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} storageNamespace="restored-mobile-voice" /></AppViewportProvider>);
+    const input = await screen.findByPlaceholderText("Message Neura…");
+    expect(input).toBeEnabled();
+    expect(gateway.calls).toContain(`messages.subscribe:${session.key}`);
+    expect(screen.getByRole("button", { name: "Start private Neura voice chat" })).toBeEnabled();
+    fireEvent.change(input, { target: { value: "Hello" } });
+    expect(screen.queryByRole("button", { name: "Start private Neura voice chat" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
+    fireEvent.change(input, { target: { value: "  " } });
+    expect(screen.getByRole("button", { name: "Start private Neura voice chat" })).toBeEnabled();
+  });
+  it("opens one searchable mobile history drawer despite a saved open desktop sidebar", async () => {
+    const gateway = new FakeGateway();
+    gateway.sessions = [session, { ...session, key: "older", sessionId: "older", title: "Earlier planning chat" }, { ...session, key: "archived", sessionId: "archived", title: "Archived notes", archived: true }];
+    writeDeviceState("mobile-neura", "neura", { selectedKey: session.key, sidebarOpen: true, showArchived: false });
+    const app = render(<AppViewportProvider width={390}><NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} storageNamespace="mobile-neura" /></AppViewportProvider>);
+    const toggle = screen.getByRole("button", { name: "Open conversation history" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("navigation", { name: "Neura conversation history" })).not.toBeInTheDocument();
+    toggle.focus(); fireEvent.click(toggle);
+    const drawer = screen.getByRole("dialog", { name: "Conversation history" });
+    expect(screen.getAllByRole("navigation", { name: "Neura conversation history" })).toHaveLength(1);
+    await within(drawer).findByRole("button", { name: /Earlier planning chat/ });
+    fireEvent.change(within(drawer).getByRole("searchbox"), { target: { value: "earlier" } });
+    expect(within(drawer).queryByRole("button", { name: /Realtime test/ })).not.toBeInTheDocument();
+    fireEvent.click(within(drawer).getByRole("button", { name: /Earlier planning chat/ }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(gateway.calls).toContain("history:older"));
+    fireEvent.click(toggle);
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Archived" }));
+    expect(await screen.findByRole("button", { name: /Archived notes/ })).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(toggle).toHaveFocus();
+    app.rerender(<AppViewportProvider width={1100}><NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} storageNamespace="mobile-neura" /></AppViewportProvider>);
+    expect(screen.getByRole("navigation", { name: "Neura conversation history" })).toBeInTheDocument();
+  });
+  it("uses Shift+Enter for a new line and Enter to send without breaking IME composition", async () => {
+    const gateway = new FakeGateway();
+    render(<AppViewportProvider width={390}><NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} /></AppViewportProvider>);
+    const input = await screen.findByPlaceholderText("Message Neura…");
+    fireEvent.change(input, { target: { value: "A multi-line draft" } });
+    fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    expect(gateway.sends).toHaveLength(0);
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(gateway.sends).toEqual([
+      { message: "A multi-line draft", queueMode: "steer" },
+    ]));
+  });
   it("opens on the new-chat screen after three hours without chat activity", async () => {
     const gateway = new FakeGateway();
     const oldActivityAt = Date.now() - NEURA_FRESH_START_AFTER_MS;
@@ -187,9 +241,35 @@ describe("Neura realtime conversation", () => {
     expect(invokesTeamAgent("@Neura help the team")).toBe(true);
     expect(invokesTeamAgent("Could you help, @neura?")).toBe(true);
     expect(invokesTeamAgent("Please use $local-business-website-builder for this")).toBe(true);
-    expect(invokesTeamAgent("$Neura is no longer the agent mention")).toBe(false);
+    expect(invokesTeamAgent("$neura summarize the voice memo")).toBe(false);
+    expect(invokesTeamAgent("$nerua summarize the voice memo")).toBe(false);
+    expect(invokesTeamAgent("Use $neura-helper if it is installed")).toBe(true);
     expect(invokesTeamAgent("The total is $100")).toBe(false);
     expect(invokesTeamAgent("email@example.org$skill")).toBe(false);
+  });
+
+  it("finds channel-member @ tags and inserts the selected mention", () => {
+    const members = [
+      { id: "salvador", handle: "salvador", displayName: "Salvador", role: "admin" as const },
+      { id: "maya", handle: "maya", displayName: "Maya Chen", role: "user" as const },
+    ];
+    expect(teamMentionTriggerAt("email@example.org", 17)).toBeNull();
+    const trigger = teamMentionTriggerAt("Please ask @sal", 15);
+    expect(trigger).toEqual({ start: 11, end: 15, query: "sal" });
+    const suggestions = matchingTeamMentionSuggestions(members, trigger);
+    expect(suggestions.map((suggestion) => suggestion.handle)).toEqual(["salvador"]);
+    expect(insertTeamMention("Please ask @sal", trigger!, suggestions[0]!)).toEqual({
+      value: "Please ask @salvador ",
+      caret: 21,
+    });
+    expect(matchingTeamMentionSuggestions(members, teamMentionTriggerAt("@", 1)).map((suggestion) => suggestion.handle))
+      .toEqual(["Neura", "maya", "salvador"]);
+  });
+
+  it("shares the Enter send shortcut between private and Team Chat composers", () => {
+    expect(submitsChatComposerShortcut({ key: "Enter", shiftKey: false })).toBe(true);
+    expect(submitsChatComposerShortcut({ key: "Enter", shiftKey: true })).toBe(false);
+    expect(submitsChatComposerShortcut({ key: "Tab", shiftKey: false })).toBe(false);
   });
 
   it("maps durable Team Chat run states to visible loader phases", () => {
@@ -410,6 +490,83 @@ describe("Neura realtime conversation", () => {
     expect(within(assistantMessages[0] as HTMLElement).getAllByText("I’ll check the deployment notes.")).toHaveLength(2);
   });
 
+  it("quarantines unphased durable progress frames while a run is still streaming", async () => {
+    const gateway = new FakeGateway();
+    gateway.sessionActive = true;
+    const view = render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
+    await waitFor(() => expect(screen.getByPlaceholderText("Steer Neura now, or queue what comes next…")).toBeEnabled());
+
+    act(() => gateway.emit({ event: "session.message", payload: {
+      sessionKey: session.key,
+      runId: "legacy-progress-run",
+      phase: "stream",
+      messageId: "progress-legacy-1",
+      message: { id: "progress-legacy-1", role: "assistant", content: [{ type: "text", text: "I’ll inspect the private remote history." }] },
+    } }));
+
+    expect(view.container.querySelectorAll("article.message-assistant")).toHaveLength(0);
+    const timeline = view.container.querySelector(".neura-activity-timeline") as HTMLDetailsElement;
+    expect(timeline).toBeInTheDocument();
+    expect(timeline.open).toBe(false);
+    expect(timeline).toHaveTextContent("I’ll inspect the private remote history.");
+
+    act(() => gateway.emit({ event: "session.message", payload: {
+      sessionKey: session.key,
+      runId: "legacy-progress-run",
+      phase: "end",
+      messageId: "answer-legacy-1",
+      message: { id: "answer-legacy-1", role: "assistant", content: [{ type: "text", text: "The repository is pushed." }] },
+    } }));
+
+    const assistantMessages = view.container.querySelectorAll("article.message-assistant");
+    expect(assistantMessages).toHaveLength(1);
+    expect(assistantMessages[0]).toHaveTextContent("The repository is pushed.");
+    expect(within(assistantMessages[0] as HTMLElement).getByText("Work details")).toBeInTheDocument();
+  });
+
+  it("recognizes signed commentary, streams the answer, and keeps work details below it", async () => {
+    const gateway = new FakeGateway();
+    gateway.sessionActive = true;
+    const view = render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
+    await waitFor(() => expect(screen.getByPlaceholderText("Steer Neura now, or queue what comes next…")).toBeEnabled());
+
+    act(() => gateway.emit({ event: "session.message", payload: {
+      sessionKey: session.key,
+      runId: "signed-run",
+      phase: "stream",
+      messageId: "commentary-1",
+      message: { id: "commentary-1", role: "assistant", content: [{
+        type: "text",
+        text: "I’ll inspect the source.",
+        textSignature: JSON.stringify({ v: 1, id: "commentary-1", phase: "commentary" }),
+      }] },
+    } }));
+    expect(view.container.querySelectorAll("article.message-assistant")).toHaveLength(0);
+    const timeline = view.container.querySelector(".neura-activity-timeline") as HTMLDetailsElement;
+    expect(timeline.open).toBe(false);
+    expect(timeline).toHaveTextContent("I’ll inspect the source.");
+
+    act(() => gateway.emit({ event: "chat", payload: {
+      sessionKey: session.key,
+      runId: "signed-run",
+      state: "delta",
+      deltaText: "The source now streams",
+    } }));
+    act(() => gateway.emit({ event: "chat", payload: {
+      sessionKey: session.key,
+      runId: "signed-run",
+      state: "delta",
+      deltaText: " the final answer.",
+    } }));
+
+    const answer = screen.getByText("The source now streams the final answer.");
+    const article = answer.closest("article") as HTMLElement;
+    expect(article).toHaveClass("message-assistant");
+    expect(within(article).getByLabelText("Neura is responding")).toBeInTheDocument();
+    expect(article.compareDocumentPosition(timeline) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(timeline.open).toBe(false);
+  });
+
   it("follows new messages at the bottom but preserves a reader's scroll position", async () => {
     const gateway = new FakeGateway();
     const view = render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
@@ -539,12 +696,14 @@ describe("Neura realtime conversation", () => {
     } }));
 
     fireEvent.change(composer, { target: { value: "Focus on the queue behavior" } });
+    fireEvent.keyDown(composer, { key: "Enter", shiftKey: true });
+    expect(gateway.sends).toHaveLength(0);
     fireEvent.keyDown(composer, { key: "Enter" });
 
     await waitFor(() => expect(gateway.sends).toEqual([
       { message: "Focus on the queue behavior", queueMode: "steer" },
     ]));
-    expect(screen.getByRole("button", { name: "Steer active run" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start private Neura voice chat" })).toBeInTheDocument();
   });
 
   it("shows FIFO follow-ups and keeps them queued through the admission acknowledgement", async () => {
@@ -562,12 +721,13 @@ describe("Neura realtime conversation", () => {
     } }));
 
     fireEvent.change(composer, { target: { value: "Run the tests next" } });
-    fireEvent.keyDown(composer, { key: "Enter", ctrlKey: true });
+    fireEvent.click(screen.getByLabelText("Send options"));
+    fireEvent.click(screen.getByRole("button", { name: "Queue after this run" }));
     await waitFor(() => expect(gateway.sends).toEqual([
       { message: "Run the tests next", queueMode: "followup" },
     ]));
     fireEvent.change(composer, { target: { value: "Then rebuild the workspace" } });
-    fireEvent.keyDown(composer, { key: "Enter", ctrlKey: true });
+    fireEvent.click(screen.getByRole("button", { name: "Queue after this run" }));
     await waitFor(() => expect(gateway.sends).toEqual([
       { message: "Run the tests next", queueMode: "followup" },
       { message: "Then rebuild the workspace", queueMode: "followup" },
@@ -583,7 +743,7 @@ describe("Neura realtime conversation", () => {
       state: "final",
     } }));
     expect(screen.getByRole("region", { name: "Queued messages" })).toHaveTextContent("Run the tests next");
-    expect(screen.getByRole("button", { name: "Steer active run" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start private Neura voice chat" })).toBeInTheDocument();
 
     act(() => gateway.emit({ event: "chat", payload: {
       sessionKey: session.key,
@@ -614,8 +774,8 @@ describe("Neura realtime conversation", () => {
     const composer = await screen.findByPlaceholderText("Steer Neura now, or queue what comes next…");
     await waitFor(() => expect(composer).toBeEnabled());
     expect(screen.getByText("Neura is working")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Steer active run" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Queue after this run/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop Neura" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start private Neura voice chat" })).toBeInTheDocument();
   });
 
   it("removes an admitted follow-up from the Gateway queue", async () => {
@@ -626,7 +786,8 @@ describe("Neura realtime conversation", () => {
     const composer = await screen.findByPlaceholderText("Steer Neura now, or queue what comes next…");
     await waitFor(() => expect(composer).toBeEnabled());
     fireEvent.change(composer, { target: { value: "Skip this if plans change" } });
-    fireEvent.keyDown(composer, { key: "Enter", metaKey: true });
+    fireEvent.click(screen.getByLabelText("Send options"));
+    fireEvent.click(screen.getByRole("button", { name: "Queue after this run" }));
     const remove = await screen.findByRole("button", { name: "Remove queued message 1" });
     await waitFor(() => expect(remove).toBeEnabled());
     fireEvent.click(remove);

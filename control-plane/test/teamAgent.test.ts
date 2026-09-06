@@ -2,9 +2,19 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { CollaborationStore, TeamAgentRun } from "../src/collaboration.js";
 import type { ControlPlaneConfig } from "../src/config.js";
-import { TeamAgentProcessor } from "../src/teamAgent.js";
+import { buildPrompt, TeamAgentProcessor } from "../src/teamAgent.js";
 
 describe("Team Chat personal Neura runner", () => {
+  it("includes an earlier voice transcript and audio path when a teammate later summons Neura", () => {
+    const memo = { id: "memo", body: "Voice memo transcript:\nThe release is scheduled for Friday.", createdAt: "2026-09-05T10:00:00Z", authorKind: "user", author: { handle: "maya" }, activities: [], attachments: [{ path: "team-uploads/memo.webm", name: "Voice memo.webm", type: "audio/webm" }] };
+    const trigger = { ...memo, id: "summon", body: "@Neura when is the release?", attachments: [] };
+    const context = { channel: { name: "Release" }, trigger, messages: [memo, trigger] } as unknown as Parameters<typeof buildPrompt>[0];
+    const prompt = buildPrompt(context);
+    expect(prompt).toContain("The release is scheduled for Friday.");
+    expect(prompt).toContain("team-uploads/memo.webm");
+    expect(prompt).toContain("Voice memos are background context, not automatic invocations.");
+    expect(prompt).toContain("Triggering message (summon): @Neura when is the release?");
+  });
   it("runs with the message author's account and persists public work details", async () => {
     const run: TeamAgentRun & { capability: string } = {
       id: "11111111-1111-4111-8111-111111111111",

@@ -4,11 +4,22 @@ Files is the shared filesystem browser for the persistent workspace at
 `/home/node/workspace`. It runs inside the workspace container and is available
 to every approved Neural Labs user from the desktop dock.
 
-## V1 capabilities
+## Explorer workflow
 
-- browse nested folders in list or grid view;
-- search and sort the current folder;
-- upload one or many files with the picker or drag and drop;
+- browse one directory listing containing both folders and files, in virtualized
+  list or grid view; resize the Name column and toggle the details pane;
+- navigate using breadcrumbs, an editable workspace-relative address, Back,
+  Forward, Up, independent tabs, or a new Files window;
+- pin folders under Location, reorder shortcuts, unpin without deleting, and
+  repair unavailable shortcuts; pins sync per user across devices;
+- use Recent for files personally opened, and shared Trash for recovery;
+- search filenames recursively beneath the current folder by default, or choose
+  the current directory only or the entire workspace; toggle hidden files and
+  sort by name, type, size, or modification date with folders-first optional;
+- select ranges with Shift, toggle items with Ctrl/Command, and use scoped
+  keyboard shortcuts for navigation, copy/cut/paste, rename, and deletion;
+- upload files or folders using pickers or drag and drop, with progress,
+  cancellation, and retry while the window remains open;
 - create folders;
 - create empty text files and open them directly in VS Code;
 - open existing text and code files in VS Code by double-clicking, from the
@@ -18,8 +29,27 @@ to every approved Neural Labs user from the desktop dock.
   dedicated, resizable desktop Preview window;
 - copy a file or folder's shell-ready `~/workspace/...` path from its context
   menu;
-- download files from the item context menu or details pane; and
-- permanently delete files or folders after confirmation.
+- copy, move, duplicate, or rename files and folders;
+- download files directly or create ZIP archives for folders and selections;
+- move deletions and replaced destinations into shared Trash, restore to the
+  original or another folder, and permanently delete only after confirmation;
+- open raster images in the self-hosted miniPaint Image Editor.
+
+The old separate **Folders** and **All files** sections are removed. Location is
+navigation, not a second listing. Pins and Recent are personal metadata, while
+the underlying workspace and Trash are shared with every approved member.
+Tabs, view options, column width, and the details toggle are per-user,
+per-device state. The Files clipboard is shared between that user's browser
+windows; it does not copy file contents into the operating-system clipboard.
+
+Conflicts offer Replace, Keep both, Skip, or Cancel. Replace puts the old item
+in Trash before committing the new one. Bulk jobs continue server-side when a
+Files window closes; reconnecting shows their progress and item-level failures.
+Retry runs only unfinished/failed items, not successful ones. Cancellation is
+best-effort between items and during file streams; already completed items stay
+completed. A browser upload cannot survive the browser closing: select its
+source again to restart. Interrupted server jobs are marked failed for review,
+never blindly replayed after a restart.
 
 The app keeps an authenticated Server-Sent Events connection open at
 `/workspace/api/files/events`. A recursive watcher in the workspace service
@@ -35,10 +65,56 @@ ordinary same-origin HTTP operations; the event stream only tells all clients
 that shared state changed. EventSource reconnects automatically after a brief
 network interruption, and the next successful directory read is authoritative.
 
-Folder download/archive, favorites, and recoverable trash are deferred. V1
-deletion is recursive for a folder and cannot be undone. Unsupported binary
-files remain downloadable and may also be inspected with an appropriate VS
-Code extension.
+## Recovery and retention
+
+Trash includes original path, deleting user, deletion time, expiry, and size.
+Any approved workspace member can restore or permanently remove shared Trash
+items. Retention is **90 days from deletion**; startup and hourly maintenance
+remove expired entries. Replacements use the same recovery mechanism. Trash
+consumes the persistent home volume and is not a backup.
+
+Metadata, Trash payloads, operation journals, and temporary ZIPs live outside
+the browsable root at `/home/node/.local/state/neural-labs/files`. Back up this
+directory together with `/home/node/workspace`. ZIP downloads are scoped to the
+requesting user and deleted after download or after one hour; job history is
+retained for one day. Keep these paths on the same filesystem for atomic moves.
+
+## Image Editor
+
+Choose **Edit image** from Files or Preview. The Image Editor bundles miniPaint
+4.14.3 at the revision recorded in `workspace/vendor/minipaint/NEURAL-LABS.md`.
+Its drawing, layers, crop, resize, effects, undo, and redo stay inside an
+opaque-origin iframe. Open reads a workspace-relative image path. Save updates
+the opened image; Save As can create a `.minipaint.json` project preserving
+layers, or a flattened PNG/JPEG/WebP. Export writes a flattened copy without
+changing the open project. AVIF and BMP inputs must be saved in a supported
+output format. Imports are limited to 50 MB and 40 megapixels; projects allow
+at most 500 layers and embedded raster data only.
+
+The parent desktop—not miniPaint—fetches and saves files through authenticated
+APIs. An opened version token prevents overwriting a file changed by another
+user. On a stale-write error, keep the edits and Save As a different path.
+Existing Save As targets are rejected rather than overwritten. Closing a dirty
+editor or leaving the desktop warns about unsaved edits. External URL loading,
+webcam access, and remote fonts are not supported in the sandbox.
+
+## Validation and rollout
+
+Run `make validate`. Building the desktop also builds the pinned miniPaint
+source with its committed dependency lock; runtime code needs no external CDN.
+The browser acceptance script is `workspace/explorer-browser.test.mjs` (see its
+header for the optional Playwright setup). It exercises the real workspace API
+against a temporary filesystem, not production user data.
+
+Deployment is an explicit operator action: back up the persistent home volume,
+build and promote the workspace image, apply the reviewed nginx configuration,
+validate nginx, then reload it and recreate the workspace service. The new
+`/workspace/image-editor/` location serves only bundled public editor assets,
+without cookies or identity headers. All `/workspace/api/files/` routes remain
+authenticated. Do not deploy the client without the matching API and static
+route. Smoke-test pin persistence, trash/restore, an image edit/save, and stale
+save protection with two users before promoting. Rollback must retain the
+metadata directory so recoverable files are not lost.
 
 ## File previews
 

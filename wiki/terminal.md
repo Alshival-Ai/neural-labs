@@ -8,6 +8,24 @@ one.
 
 ## Session behavior
 
+### Phone layout
+
+The top-left menu opens a searchable session drawer with named private and Team
+terminals, new-session actions, and **Add split pane**. Selecting a session or
+tapping outside closes the drawer; closing the drawer never ends a shell.
+On narrow windows, split panes become named tabs. Both xterm clients and their
+connections remain mounted while one pane is visible. Wider windows restore
+the saved split direction.
+
+Touch keys provide **Keyboard**, a one-shot **Ctrl** modifier, **Esc**, **Tab**,
+arrows, and **Ctrl+C** (scroll the key row for more). Keyboard focus is deliberate,
+not triggered by reconnecting or changing panes. Copy and Paste stay accessible;
+if browser clipboard permission is unavailable, the app explains how to use the
+phone keyboard's Paste action. The terminal canvas refits above the visible
+keyboard and desktop dock, and font-size controls have larger touch targets.
+
+### Persistence
+
 - A personal terminal is listed only for the signed-in user who created it.
 - Closing a personal terminal tab ends its shell process.
 - Closing, minimizing, or reloading the Terminal app only detaches its view.

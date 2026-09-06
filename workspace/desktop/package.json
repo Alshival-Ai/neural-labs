@@ -7,7 +7,7 @@
     "node": ">=22.19.0"
   },
   "scripts": {
-    "build": "vite build",
+    "build": "vite build && node ../build-minipaint.mjs",
     "dev": "vite --host 127.0.0.1",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",

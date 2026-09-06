@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { agentEnvironment } from "./provider-environment.mjs";
 
 const execFileAsync = promisify(execFile);
 const SECRET_ASSIGNMENT = /\b(api[_-]?key|access[_-]?token|auth[_-]?token|token|password|passwd|secret|authorization)\b(\s*[:=]\s*)([^\s,;]+)/giu;
@@ -182,11 +183,12 @@ export function activitiesFromExecSummary(value) {
   }];
 }
 
-export async function runTeamAgent({ prompt, capability, agentId, runId, workspaceRoot, execute = execFileAsync, loadConfig = loadOpenClawConfig }) {
+export async function runTeamAgent({ prompt, capability, agentId, runId, modelSettings, workspaceRoot, execute = execFileAsync, loadConfig = loadOpenClawConfig }) {
   if (typeof prompt !== "string" || !prompt.trim() || prompt.length > 1024 * 1024) throw new Error("The Team Chat prompt is invalid");
   if (typeof capability !== "string" || capability.length < 32 || capability.length > 512) throw new Error("The Team Chat capability is invalid");
   if (typeof agentId !== "string" || !/^nl-[a-z0-9]{1,60}$/u.test(agentId)) throw new Error("The Team Chat personal agent is invalid");
   if (typeof runId !== "string" || !/^[a-zA-Z0-9-]{8,128}$/u.test(runId)) throw new Error("The Team Chat run id is invalid");
+  if (modelSettings && (agentId !== "nl-teamneura" || modelSettings.agentId !== agentId || !/^openai\/[a-zA-Z0-9._/-]+$/u.test(modelSettings.model) || !/^[a-z]{1,20}$/u.test(modelSettings.effort) || !Number.isSafeInteger(modelSettings.revision) || modelSettings.revision < 1)) throw new Error("The Team Chat model snapshot is invalid");
   const temporaryDirectory = await mkdtemp(path.join(tmpdir(), "neural-labs-team-"));
   const messagePath = path.join(temporaryDirectory, "message.md");
   const configPath = path.join(temporaryDirectory, "openclaw.json");
@@ -194,15 +196,23 @@ export async function runTeamAgent({ prompt, capability, agentId, runId, workspa
   try {
     await writeFile(messagePath, prompt, { encoding: "utf8", mode: 0o600 });
     const config = personalAgentExecConfig(await loadConfig(agentId), agentId);
+    const environment = { ...agentEnvironment(process.env), NEURAL_LABS_TEAM_CAPABILITY: capability };
+    if (modelSettings) {
+      // Snapshot the accepted policy in this run's isolated config. Changes to
+      // workspace defaults while queued/running cannot change its model.
+      config.agents.entries = { ...config.agents.entries, [agentId]: { ...config.agents.entries[agentId], model: { primary: modelSettings.model, fallbacks: [] }, thinkingDefault: modelSettings.effort } };
+      if (config.models?.providers?.openai?.apiKey) throw new Error("The Team subscription route conflicts with a configured OpenAI API key");
+      delete environment.OPENAI_API_KEY;
+    }
     await writeFile(configPath, JSON.stringify(config), { encoding: "utf8", mode: 0o600 });
     ({ stdout } = await execute("openclaw", [
-      "agent", "exec", "--config", configPath, "--message-file", messagePath, "--cwd", workspaceRoot, "--json", "--timeout", "600",
+      "agent", "exec", "--config", configPath, "--message-file", messagePath, "--cwd", workspaceRoot, "--json", "--timeout", "1800",
     ], {
       cwd: workspaceRoot,
       encoding: "utf8",
-      timeout: 10 * 60 * 1000,
+      timeout: 30 * 60 * 1000,
       maxBuffer: 4 * 1024 * 1024,
-      env: { ...process.env, NEURAL_LABS_TEAM_CAPABILITY: capability },
+      env: environment,
     }));
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true });
