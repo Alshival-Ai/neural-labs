@@ -7,6 +7,7 @@ import {
   CopyPlus,
   FileSearch2,
   Folder,
+  Image as ImageIcon,
   Minimize2,
   PanelTopOpen,
   PictureInPicture2,
@@ -682,7 +683,7 @@ export function App() {
       <main id="desktop-canvas" className="desktop-canvas" aria-busy={!session?.authenticated}>
         {mountedWindows.map((desktopWindow) => {
           const title = desktopWindowTitle(desktopWindow);
-          const icon = desktopWindow.app === "neura" ? <WandSparkles /> : desktopWindow.app === "files" ? <Folder /> : desktopWindow.app === "preview" ? <FileSearch2 /> : desktopWindow.app === "settings" ? <Settings /> : desktopWindow.app === "automations" ? <CalendarClock /> : desktopWindow.app === "skills" ? <Bot /> : desktopWindow.app === "vscode" ? <Code2 /> : <TerminalSquare />;
+          const icon = desktopWindow.app === "neura" ? <WandSparkles /> : desktopWindow.app === "files" ? <Folder /> : desktopWindow.app === "preview" ? <FileSearch2 /> : desktopWindow.app === "image-editor" ? <ImageIcon /> : desktopWindow.app === "settings" ? <Settings /> : desktopWindow.app === "automations" ? <CalendarClock /> : desktopWindow.app === "skills" ? <Bot /> : desktopWindow.app === "vscode" ? <Code2 /> : <TerminalSquare />;
           return (
             <DesktopWindow
               key={desktopWindow.id}
@@ -725,7 +726,7 @@ export function App() {
       <nav className="dock" aria-label="Applications">
         <DockButton name="Neura" primary active={windowCount("neura") > 0} count={windowCount("neura")} onClick={() => toggleDockApp("neura")} onContextMenu={(event) => openDockMenu("neura", event)}><Sparkles /></DockButton>
         <DockButton name="Files" active={windowCount("files") > 0} count={windowCount("files")} onClick={() => toggleDockApp("files")} onContextMenu={(event) => openDockMenu("files", event)}><Folder /></DockButton>
-        <DockButton name="Image Editor" active={windowCount("image-editor") > 0} count={windowCount("image-editor")} onClick={() => toggleDockApp("image-editor")} onContextMenu={(event) => openDockMenu("image-editor", event)}><FileSearch2 /></DockButton>
+        <DockButton name="Image Editor" active={windowCount("image-editor") > 0} count={windowCount("image-editor")} onClick={() => toggleDockApp("image-editor")} onContextMenu={(event) => openDockMenu("image-editor", event)}><ImageIcon /></DockButton>
         <DockButton name="VS Code" active={windowCount("vscode") > 0} count={windowCount("vscode")} onClick={() => toggleDockApp("vscode")} onContextMenu={(event) => openDockMenu("vscode", event)}><Code2 /></DockButton>
         <DockButton name="Terminal" active={windowCount("terminal") > 0} count={windowCount("terminal")} onClick={() => toggleDockApp("terminal")} onContextMenu={(event) => openDockMenu("terminal", event)}><TerminalSquare /></DockButton>
         <span className="dock-separator" aria-hidden="true" />
