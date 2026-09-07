@@ -472,7 +472,7 @@ describe("Terminal app", () => {
     render(<TerminalApp />);
 
     expect(await screen.findByRole("heading", { name: "New Terminal" })).toBeInTheDocument();
-    expect(screen.getByText("No live team sessions")).toBeInTheDocument();
+    expect(screen.getByText("Be the first to open a room")).toBeInTheDocument();
     expect(fetch).not.toHaveBeenCalledWith(
       "/workspace/api/terminals",
       expect.objectContaining({ method: "POST" }),

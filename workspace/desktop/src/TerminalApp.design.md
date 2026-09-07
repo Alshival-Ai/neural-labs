@@ -22,7 +22,7 @@ activity, layout changes, and ephemeral emoji reactions over its own WebSocket.
 The desktop opens directly into Terminal's **New Terminal** launchpad. Discovery
 does not create a shell: the user can deliberately start a personal terminal,
 resume a running personal terminal, or join a live Team session. The launchpad's
-`+ Team` action opens the only Team-terminal creation flow as an inline composer
+primary **Create a team terminal** action and `+ Team` shortcut open the same Team-terminal creation flow as an inline composer
 beside the live session list; terminal toolbar actions remain focused on the
 active shell. Running sessions remain available in the narrow, independently
 scrolling rail to the left of both the launchpad and the terminal canvas. Its
@@ -65,3 +65,33 @@ Terminal chrome and xterm use the desktop-wide font scale owned by `App.tsx`.
 The status-bar control updates that same per-user, per-browser Appearance
 preference; legacy per-terminal `textScale` values are ignored while all other
 terminal layout state remains compatible.
+
+## Visual theme
+
+Terminal uses the shared Neural ink/paper palette, spectrum top rule, dark
+session rail, violet selections, and ink primary actions with colored offset
+shadows. The launchpad, pane headers, status bar, mobile navigation, touch keys,
+voice settings, and reaction pickers use warm surfaces and desktop typography.
+The reaction dialog defines its own tokens because it portals to `document.body`.
+
+The shell canvas keeps `NEURAL_TERMINAL_THEME` and its high-contrast ANSI colors.
+`--terminal-canvas` matches that theme's background so the host, viewport, and
+canvas gutters stay consistent. Keep pane rows, xterm insets, and the reserved
+reaction rail dimensions intact; visual changes must not alter terminal fitting
+or reconnect sessions.
+
+The launchpad fills the available width and introduces terminals as shared social
+spaces. A paper welcome card uses a decorative shell illustration and emoji/GIF
+stickers alongside a working team-create action. Voice and reaction feature labels
+remain visible on mobile; the illustration collapses to keep actions accessible.
+Live rooms display actual connected participants as initials, alongside existing
+connection and voice counts. Decorative artwork is hidden from assistive technology
+and does not imply live activity or request microphone access.
+
+The welcome header includes a shortcut to the team session list and a count of
+unique voice participants across running team rooms. Room-name suggestions in the
+composer prefill the editable name; they do not create a shell until Start Team.
+Feature cards introduce shared input, opt-in voice, and emoji/GIF reactions.
+At narrow widths, features stack, the room composer wraps, and touch actions use
+at least 44px targets. The room shortcut skips the welcome card on small screens;
+bottom padding respects the device safe area.

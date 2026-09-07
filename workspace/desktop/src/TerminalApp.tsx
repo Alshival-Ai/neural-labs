@@ -27,6 +27,7 @@ import {
   RefreshCw,
   Rows2,
   Search,
+  Smile,
   TerminalSquare,
   Users,
   Wifi,
@@ -589,14 +590,38 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
         <main className="terminal-launchpad" aria-labelledby="terminal-launchpad-title">
           <div className="terminal-launchpad__inner">
             <header className="terminal-launchpad__hero">
-              <span><i />Workspace shell manager</span>
+              <span><i />Your workspace, together</span>
               <h1 id="terminal-launchpad-title">New Terminal</h1>
-              <p>Start a private shell, resume your work, or join a live session with your team.</p>
+              <p>A place to build, talk, and celebrate the little wins. Drop into a team terminal or make a space of your own.</p>
+              <div className="terminal-launchpad__activity" aria-label="Team activity">
+                <button type="button" onClick={() => appRoot.current?.querySelector<HTMLElement>(".terminal-launchpad__teams")?.scrollIntoView({ block: "start" })}><Users />{loading ? "Finding rooms…" : `Browse ${runningTeamSessions.length} team ${runningTeamSessions.length === 1 ? "room" : "rooms"}`}<ArrowRight /></button>
+                <span><Headphones />{loading ? "Checking voice…" : `${new Set(runningTeamSessions.flatMap((session) => session.voiceParticipants.map((person) => person.id))).size} in voice`}</span>
+              </div>
             </header>
+
+            <section className="terminal-launchpad__social" aria-labelledby="terminal-social-title">
+              <div className="terminal-launchpad__social-copy">
+                <span className="terminal-launchpad__eyebrow">GOOD WORK. GOOD COMPANY.</span>
+                <h2 id="terminal-social-title">Same terminal.<br /> Shared energy.</h2>
+                <p>Work in the same live shell, hop into voice chat, and say it with an emoji or GIF.</p>
+                <button type="button" className="terminal-launchpad__create-room" disabled={Boolean(creatingScope)} aria-expanded={teamCreatorOpen} aria-controls={teamCreatorId} onClick={openTeamCreator}><Plus />Create a team terminal<ArrowRight /></button>
+                <small>Everyone in this workspace can join and type together.</small>
+              </div>
+              <div className="terminal-launchpad__social-art" aria-hidden="true">
+                <div className="terminal-launchpad__sample-shell"><div><span /><span /><span /><b>better-together</b><Users /></div><code><span>~/workspace</span><br />❯ build something great<span className="terminal-launchpad__cursor">▌</span></code><footer><Headphones />Room for your whole team<span>✦</span></footer></div>
+                <span className="terminal-launchpad__reaction-sticker">✨ 🙌 🎉</span>
+                <span className="terminal-launchpad__gif-sticker">GIF<span>BIG<br />SHIP<br />ENERGY ↗</span></span>
+              </div>
+              <div className="terminal-launchpad__social-features">
+                <span><TerminalSquare /><span><strong>Build together</strong><small>One shared, live shell</small></span></span>
+                <span><Headphones /><span><strong>Talk it through</strong><small>Join voice when you're ready</small></span></span>
+                <span><Smile /><span><strong>Bring the reactions</strong><small>Emoji + GIFs for every win</small></span></span>
+              </div>
+            </section>
 
             <div className="terminal-launchpad__grid">
               <section className="terminal-launchpad__start" aria-labelledby="terminal-start-title">
-                <div className="terminal-launchpad__section-heading"><span><TerminalSquare /></span><div><h2 id="terminal-start-title">Start something new</h2><p>Shells open in the shared workspace directory.</p></div></div>
+                <div className="terminal-launchpad__section-heading"><span><TerminalSquare /></span><div><h2 id="terminal-start-title">A little solo time</h2><p>Your own space to focus and experiment.</p></div></div>
                 <button className="terminal-launchpad__personal" type="button" disabled={Boolean(creatingScope)} onClick={() => void createPersonal()}>
                   <span><Plus /></span>
                   <span><strong>{creatingScope === "personal" ? "Starting terminal…" : "Personal terminal"}</strong><small>A private, persistent shell just for you</small></span>
@@ -609,6 +634,10 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
                 {teamCreatorOpen && <form id={teamCreatorId} className="terminal-launchpad__team-composer" aria-label="Create a team terminal" onSubmit={(event) => void createTeam(event)}>
                   <label htmlFor={teamTitleInputId}>Team terminal name</label>
                   <p>Everyone in this workspace can join and type together in the same live shell.</p>
+                  <fieldset className="terminal-launchpad__room-starters" disabled={Boolean(creatingScope)}>
+                    <legend>Give your room a starting point</legend>
+                    {[["🛠️", "Pair programming"], ["🎉", "Ship room"], ["☕", "Co-working"]].map(([emoji, name]) => <button key={name} type="button" aria-pressed={teamTitle === name} onClick={() => { setTeamTitle(name); teamTitleInputRef.current?.focus(); }}><span aria-hidden="true">{emoji}</span>{name}</button>)}
+                  </fieldset>
                   <div><input ref={teamTitleInputRef} id={teamTitleInputId} value={teamTitle} onChange={(event) => setTeamTitle(event.target.value)} maxLength={60} placeholder="e.g. Release room" /><button type="submit" disabled={Boolean(creatingScope)}>{creatingScope === "team" ? <RefreshCw className="terminal-spin" /> : <Users />}{creatingScope === "team" ? "Starting…" : "Start Team"}</button><button type="button" aria-label="Cancel team terminal creation" disabled={Boolean(creatingScope)} onClick={() => { setTeamCreatorOpen(false); setTeamTitle(""); }}><X /></button></div>
                 </form>}
                 <div className="terminal-launchpad__session-list">
@@ -616,10 +645,11 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
                     <button type="button" key={session.id} onClick={() => joinTeam(session)}>
                       <i className="is-running" />
                       <span><strong>{session.title}</strong><small>{session.teamChannel ? `#${session.teamChannel.name} · ` : ""}{session.participants.length} connected{voiceMemberCount(session) > 0 ? ` · ${voiceMemberCount(session)} in voice` : ""} · started by {session.owner.label}</small></span>
-                      <em>{hiddenTeamIds.has(session.id) ? "Join" : "Open"}<ArrowRight /></em>
+                      <span className="terminal-launchpad__people" aria-label={session.participants.length ? `Connected: ${session.participants.map((person) => person.label).join(", ")}` : "No one connected yet"}>{session.participants.slice(0, 3).map((person, index) => <span key={`${person.id}-${index}`} title={person.label}>{person.label.trim().slice(0, 1).toUpperCase() || "?"}</span>)}{session.participants.length > 3 && <span>+{session.participants.length - 3}</span>}</span>
+                      <em>{voiceMemberCount(session) > 0 && <Headphones aria-label="Voice chat active" />}{hiddenTeamIds.has(session.id) ? "Join" : "Open"}<ArrowRight /></em>
                     </button>
                   )) : (
-                    <div className="terminal-launchpad__empty"><Users /><strong>No live team sessions</strong><span>Create one here when you are ready to work together.</span></div>
+                    <div className="terminal-launchpad__empty"><Headphones /><strong>Be the first to open a room</strong><span>A shared shell, a voice hangout, a place to build together.</span></div>
                   )}
                 </div>
               </section>
