@@ -70,6 +70,8 @@ if (process.argv[2] === "setup-reset") {
     config,
     (event) => socketHub.publish(event),
   );
+  const notificationTimer = setInterval(() => { void application.notifications.tick().catch(() => console.warn("Notification reconciliation is unavailable")); }, 15_000);
+  notificationTimer.unref();
   const server = createServer(application.app);
   socketHub.attach(server);
   server.listen(config.port, config.host, () => {
@@ -81,6 +83,7 @@ if (process.argv[2] === "setup-reset") {
     if (stopping) return;
     stopping = true;
     clearInterval(modelPolicyTimer);
+    clearInterval(notificationTimer);
     modelPolicyStartupTimers.forEach(clearTimeout);
     console.log(`Received ${signal}; shutting down control plane`);
     // Upgrade connections are not counted as ordinary HTTP requests, so close

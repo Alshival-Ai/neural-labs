@@ -122,6 +122,20 @@ export class MicrosoftOidcClient {
       .sign(key);
   }
 
+  async applicationToken(config: EffectiveEntraConfig, scope: string): Promise<string> {
+    const discovery = await this.discover(config);
+    const parameters = new URLSearchParams({ client_id: config.clientId, grant_type: "client_credentials", scope });
+    if (config.credential.type === "secret") parameters.set("client_secret", config.credential.clientSecret);
+    else {
+      parameters.set("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-bearer");
+      parameters.set("client_assertion", await this.clientAssertion(config, discovery.token_endpoint));
+    }
+    const response = await this.fetchFn(discovery.token_endpoint, { method: "POST", body: parameters, signal: AbortSignal.timeout(15_000) });
+    const token = await response.json() as { access_token?: string };
+    if (!response.ok || !token.access_token) throw new Error("Microsoft application authentication failed");
+    return token.access_token;
+  }
+
   async exchange(input: {
     config: EffectiveEntraConfig;
     publicOrigin: URL;

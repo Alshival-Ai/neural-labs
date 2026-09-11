@@ -315,7 +315,14 @@ Neura window on the current device. Searching temporarily opens matching private
 history, and clearing the search restores the collapse preference. An older open
 conversation remains reachable under Current chat.
 
-Images display inline and open in an image preview. Use an attachment's overflow
+Images display inline and open in an image preview. Videos play directly in chat
+with native playback, seeking, volume, and fullscreen controls. A paused first
+frame provides a preview without autoplay; offscreen videos wait until they are
+near the viewport to load. Playback depends on the browser's codec support, and
+Download remains available when a video cannot play. Private video playback uses
+the same authorization tickets and supports byte-range requests for seeking.
+
+Use an attachment's overflow
 button or right-click menu for **Download** to your computer or **Download to
 Workspace**. The workspace action asks for a folder and filename, starts in
 Downloads, and remembers your last successful destination. Workspace files are

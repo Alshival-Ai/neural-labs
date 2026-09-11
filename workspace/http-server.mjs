@@ -1,3 +1,4 @@
+import { PersonalAutomationRuns, AutomationRunError } from "./personal-automation-runs.mjs";
 import { TerminalAgentBridge, terminalContextInstructions } from "./terminal-agent.mjs";
 import { readFile } from "node:fs/promises";
 import { randomBytes, timingSafeEqual } from "node:crypto";
@@ -196,16 +197,30 @@ function parseNeuraMediaRequest(url) {
   return `/api/chat/media/outgoing/${encodeURIComponent(sessionKey)}/${match[2]}/${match[3]}?mediaTicket=${encodeURIComponent(ticket)}`;
 }
 
-async function relayNeuraMedia(response, method, upstreamOrigin, upstreamPath, gatewayMediaFetch, downloadName) {
+async function relayNeuraMedia(response, method, upstreamOrigin, upstreamPath, gatewayMediaFetch, downloadName, rangeHeader) {
+  if (rangeHeader !== undefined && (typeof rangeHeader !== "string" || rangeHeader.length > 128 || !/^bytes=(?:\d+-\d*|-\d+)$/.test(rangeHeader))) {
+    throw new WorkspaceFileError(416, "invalid_range", "Request one byte range at a time");
+  }
   let upstream;
   try {
     upstream = await gatewayMediaFetch(new URL(upstreamPath, upstreamOrigin), {
       method,
+      ...(rangeHeader ? { headers: { Range: rangeHeader } } : {}),
       redirect: "error",
       signal: AbortSignal.timeout(15_000),
     });
   } catch {
     throw new WorkspaceFileError(502, "media_unavailable", "Neura could not load this attachment");
+  }
+  if (upstream.status === 416) {
+    await upstream.body?.cancel().catch(() => {});
+    response.setHeader("Cache-Control", "private, no-store");
+    response.setHeader("Accept-Ranges", "bytes");
+    const contentRange = upstream.headers.get("content-range");
+    if (contentRange && /^bytes \*\/\d+$/.test(contentRange)) response.setHeader("Content-Range", contentRange);
+    response.writeHead(416, { "Content-Length": "0" });
+    response.end();
+    return;
   }
   if (!upstream.ok) {
     await upstream.body?.cancel().catch(() => {});
@@ -413,6 +428,7 @@ export function createWorkspaceHttpServer({
   openclawModelReady,
   providerAuth,
   personalOpenAI,
+  gatewayAdminRequest,
   modelCatalog,
   modelPolicies,
   teamOpenAI,
@@ -458,6 +474,9 @@ export function createWorkspaceHttpServer({
   if (apiProviderRuntime) terminals.gifProvider = apiProviderRuntime.gifProvider(() => terminals.gifSelections.clear());
   const terminalAgent = new TerminalAgentBridge({ manager: terminals, resolveActor: terminalActorResolver ?? (async () => null) });
   const previewLaunches = new Map();
+  const personalAutomationRuns = gatewayAdminRequest ? new PersonalAutomationRuns({
+    root: path.join(filesStateRoot, "automations"), request: gatewayAdminRequest, accounts: personalOpenAI,
+  }) : undefined;
   const providerStates = new Map();
   const observeProvider = (key, result, userId) => {
     const state = `${result.authenticated}:${result.paused}:${result.modelReady}`;
@@ -470,6 +489,28 @@ export function createWorkspaceHttpServer({
     const method = request.method ?? "GET";
     const url = new URL(request.url ?? "/", "http://workspace.local");
     const pathname = url.pathname;
+    if (pathname === "/workspace/api/automations/snapshot" || pathname === "/workspace/api/automations/run") {
+      const userId = request.headers["x-forwarded-user"];
+      if (typeof userId !== "string" || !userId.trim()) { sendJson(response, 401, { error: { message: "Sign in to run automations" } }, method); return; }
+      if (request.headers["x-neural-labs-role"] !== "admin") { sendJson(response, 403, { error: { message: "Administrator access is required" } }, method); return; }
+      try {
+        if (!personalAutomationRuns) throw new AutomationRunError(503, "Automation account routing is unavailable");
+        if (pathname.endsWith("/snapshot") && method === "GET") {
+          sendJson(response, 200, await personalAutomationRuns.snapshot(), method);
+        } else if (pathname.endsWith("/run") && method === "POST") {
+          if (request.headers.origin !== publicOrigin) throw new AutomationRunError(403, "A same-origin request is required");
+          const body = await readJsonBody(request);
+          // Account identity comes exclusively from the authenticated proxy.
+          sendJson(response, 202, await personalAutomationRuns.run({ userId: userId.trim(), role: "admin",
+            email: typeof request.headers["x-neural-labs-email"] === "string" ? request.headers["x-neural-labs-email"] : undefined,
+          }, { jobId: body?.jobId, mode: body?.mode, requestId: body?.requestId }), method);
+        } else throw new AutomationRunError(405, "Method not allowed");
+      } catch (error) {
+        sendJson(response, error instanceof AutomationRunError ? error.status : 503,
+          { error: { message: error instanceof AutomationRunError ? error.message : "Automation scheduler unavailable" } }, method);
+      }
+      return;
+    }
     if (pathname === "/internal/plugins/providers/status" || /^\/internal\/plugins\/providers\/(google-maps|klipy|pexels)\/check$/.test(pathname)) {
       if (!workspaceControlToken || !validControlToken(request, workspaceControlToken)) { sendJson(response, 401, { error: { message: "Unauthorized" } }, method); return; }
       if (!apiProviderRuntime) { sendJson(response, 503, { error: { message: "Provider configuration is unavailable" } }, method); return; }
@@ -483,6 +524,13 @@ export function createWorkspaceHttpServer({
           sendJson(response, 200, await apiProviderRuntime.check(pathname.split("/")[4], body.revision), method);
         } catch { sendJson(response, 503, { error: { message: "Provider check could not run. Wait for the configuration to apply and try again." } }, method); }
       } else { response.setHeader("Allow", pathname.endsWith("/status") ? "GET" : "POST"); sendJson(response, 405, { error: { message: "Method not allowed" } }, method); }
+      return;
+    }
+    if (pathname.startsWith("/internal/notifications/")) {
+      if (!workspaceControlToken || !validControlToken(request, workspaceControlToken)) { sendJson(response, 401, { error: { message: "Unauthorized" } }, method); return; }
+      if (method !== "POST" || !gatewayAdminRequest) { sendJson(response, 503, { error: { message: "Notifications unavailable" } }, method); return; }
+      try { sendJson(response, 200, await personalAutomationRuns.notification(pathname.split("/").at(-1), await readJsonBody(request)), method); }
+      catch { sendJson(response, 503, { error: { message: "Scheduler unavailable" } }, method); }
       return;
     }
     if (pathname === "/internal/terminal-agent") {
@@ -783,7 +831,7 @@ export function createWorkspaceHttpServer({
         return;
       }
       try {
-        await relayNeuraMedia(response, method, gatewayMediaOrigin, parseNeuraMediaRequest(url), gatewayMediaFetch, url.searchParams.get("download") === "1" ? url.searchParams.get("name") || "attachment" : undefined);
+        await relayNeuraMedia(response, method, gatewayMediaOrigin, parseNeuraMediaRequest(url), gatewayMediaFetch, url.searchParams.get("download") === "1" ? url.searchParams.get("name") || "attachment" : undefined, request.headers.range);
       } catch (error) {
         fileApiError(response, error, method);
       }
@@ -885,7 +933,7 @@ export function createWorkspaceHttpServer({
       return;
     }
 
-    if (pathname === "/workspace/api/builder/drafts" || /^\/workspace\/api\/builder\/drafts\/[^/]+(?:\/(?:collaborators|asset|validate|publish|automation-published|test-snapshot))?$/.test(pathname)) {
+    if (pathname === "/workspace/api/builder/drafts" || /^\/workspace\/api\/builder\/drafts\/[^/]+(?:\/(?:collaborators|asset|validate|publish|automation-published|test-snapshot|duplicate))?$/.test(pathname)) {
       const actor = workspaceSkillActor(request.headers);
       if (!actor) {
         sendJson(response, 401, { error: { code: "unauthorized", message: "Authentication is required" } }, method);
@@ -905,10 +953,13 @@ export function createWorkspaceHttpServer({
           sendJson(response, 201, { draft: await builder.create(actor, await readJsonBody(request, 512 * 1024)) }, method);
           return;
         }
-        const match = pathname.match(/^\/workspace\/api\/builder\/drafts\/([^/]+)(?:\/(collaborators|asset|validate|publish|automation-published|test-snapshot))?$/);
+        const match = pathname.match(/^\/workspace\/api\/builder\/drafts\/([^/]+)(?:\/(collaborators|asset|validate|publish|automation-published|test-snapshot|duplicate))?$/);
         if (!match) throw new BuilderError(404, "draft_not_found", "Builder draft not found");
         const draftId = decodeURIComponent(match[1]);
         const action = match[2];
+        if (action === "duplicate" && method === "POST") {
+          sendJson(response, 201, {draft: await builder.duplicate(actor, draftId)}, method); return;
+        }
         if (!action && method === "GET") {
           sendJson(response, 200, await builder.get(actor, draftId), method);
           return;
@@ -962,12 +1013,14 @@ export function createWorkspaceHttpServer({
         sendJson(response, 401, { error: { code: "unauthorized", message: "Authentication is required" } }, method);
         return;
       }
-      const mutation = method === "POST" || method === "PUT";
+      const mutation = method === "POST" || method === "PUT" || method === "DELETE";
       if (mutation && request.headers.origin !== publicOrigin) {
         sendJson(response, 403, { error: { code: "same_origin_required", message: "A same-origin request is required" } }, method);
         return;
       }
       try {
+        if (pathname === "/workspace/api/skills/duplicate" && method === "POST") { sendJson(response,201,{skill:await skills.duplicate(actor,await readJsonBody(request))},method);return; }
+        if (pathname === "/workspace/api/skills/remove" && method === "DELETE") { sendJson(response,200,await skills.remove(actor,await readJsonBody(request)),method);return; }
         if (pathname === "/workspace/api/skills/instructions" && method === "GET") {
           sendJson(response, 200, await skills.readInstruction(url.searchParams.get("path") ?? ""), method);
           return;

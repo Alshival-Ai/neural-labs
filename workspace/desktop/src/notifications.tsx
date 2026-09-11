@@ -1,0 +1,48 @@
+import { createPortal } from "react-dom";
+import { useEffect, useState, useRef, useId } from "react";
+import { Bell } from "lucide-react";
+import "./notifications.css";
+export type NotificationChannel="neura"|"sms"|"email";
+export type NotificationPreferences={neura:boolean;email:boolean;sms:boolean;emailAvailable:boolean;account_email:string;defaults:NotificationChannel[];session_key?:string};
+export type NotificationEntry={id:string;job_id?:string;title:string;message:string;outcome:string;created_at:string;unread:boolean;links:Array<{label:string;url:string}>};
+export async function notificationRequest<T>(path:string,body?:unknown):Promise<T> {
+  let headers:Record<string,string>={};
+  if(body!==undefined){const response=await fetch("/api/session",{credentials:"same-origin"});const session=await response.json();if(!response.ok||!session.csrfToken)throw Error("Sign in to change notifications");headers={"Content-Type":"application/json","X-CSRF-Token":session.csrfToken};}
+  const response=await fetch(path,{credentials:"same-origin",...(body!==undefined?{method:path.endsWith('/read')?'POST':'PUT',headers,body:JSON.stringify(body)}:{})});
+  const value=await response.json();if(!response.ok)throw Error(value.error?.message??"Notification request failed");if(path==='/api/account/notifications' && !Array.isArray(value.defaults))throw Error("Notification preferences are unavailable");
+  if(path.endsWith('/inbox') && !Array.isArray(value.entries))throw Error("Automation updates are unavailable");
+  return value;
+}
+const labels={neura:"Neura",sms:"SMS",email:"Email"};
+function ChannelChoices({value,onChange,preferences}:{value:NotificationChannel[];onChange:(v:NotificationChannel[])=>void;preferences:NotificationPreferences}) {
+ return <fieldset className="notification-choices"><legend>Send updates through</legend>{(["neura","sms","email"] as const).map(channel=><label key={channel}><input type="checkbox" checked={value.includes(channel)} disabled={channel==='sms'?!preferences.sms:channel==='email'?!preferences.email||!preferences.emailAvailable:!preferences.neura} onChange={e=>onChange(e.target.checked?[...value,channel]:value.filter(c=>c!==channel))}/>{labels[channel]}</label>)}</fieldset>;
+}
+export function NotificationSettings() {
+ const [p,setP]=useState<NotificationPreferences>();const [error,setError]=useState("");const [busy,setBusy]=useState(false);const [notice,setNotice]=useState("");
+ useEffect(()=>{void notificationRequest<NotificationPreferences>("/api/account/notifications").then(setP).catch(e=>setError(e.message));},[]);
+ async function save(){if(!p)return;setBusy(true);setError("");try{setP(await notificationRequest("/api/account/notifications",{neura:p.neura,email:p.email,defaults:p.defaults}));setNotice("Notification preferences saved.");}catch(e){setError((e as Error).message);}finally{setBusy(false);}}
+ return <section className="settings-card user-settings-card notification-settings"><header><Bell/><div><h3>Automation and Neura updates</h3><p>Subscribe to individual automations in Skills → Automations. Your channel permissions always apply.</p></div></header>{error&&<p role="alert">{error}</p>}{notice&&<p role="status">{notice}</p>}{p?<><label><input type="checkbox" checked={p.neura} onChange={e=>setP({...p,neura:e.target.checked})}/> Allow updates in my private Neura Automations conversation</label><label><input type="checkbox" checked={p.email} disabled={!p.emailAvailable} onChange={e=>setP({...p,email:e.target.checked})}/> Allow email updates to {p.account_email}</label>{!p.emailAvailable&&<p>Email delivery is not configured by your administrator.</p>}<ChannelChoices value={p.defaults} onChange={defaults=>setP({...p,defaults})} preferences={p}/><p>SMS also requires the verified-phone permission below. Subscriptions can choose different channels.</p><button type="button" disabled={busy||!p.defaults.length} onClick={()=>void save()}>{busy?'Saving…':'Save notification preferences'}</button></>:<p>Loading preferences…</p>}</section>;
+}
+export function AutomationSubscription({jobId,openRequest}:{jobId:string;openRequest?:number}) {
+ const [open,setOpen]=useState(false);const [p,setP]=useState<NotificationPreferences>();const [events,setEvents]=useState<string[]>(["success","failure"]);const [channels,setChannels]=useState<NotificationChannel[]>(["neura"]);const [subscribed,setSubscribed]=useState(false);const [error,setError]=useState("");const [busy,setBusy]=useState(false);
+ const dialog=useRef<HTMLDialogElement>(null);const trigger=useRef<HTMLButtonElement>(null);const request=useRef(0);const titleId=useId();
+ const close=()=>{request.current++;dialog.current?.close();setOpen(false);trigger.current?.focus();};
+ useEffect(()=>{request.current++;setOpen(false);setP(undefined);setError("");return()=>{request.current++;};},[jobId]);
+ useEffect(()=>{if(openRequest)void load();},[openRequest]);
+ useEffect(()=>{if(open)dialog.current?.showModal();},[open]);
+ async function load(){const token=++request.current;setOpen(true);setP(undefined);setError("");try{const v=await notificationRequest<{preferences:NotificationPreferences;subscription:{events:string[];channels:NotificationChannel[]}|null}>(`/api/automations/${encodeURIComponent(jobId)}/subscription`);if(token!==request.current)return;setP(v.preferences);setSubscribed(Boolean(v.subscription));setEvents(v.subscription?.events??["success","failure"]);setChannels(v.subscription?.channels??v.preferences.defaults);}catch(e){if(token===request.current)setError((e as Error).message);}}
+ async function save(remove=false){const token=request.current;setBusy(true);setError("");try{await notificationRequest(`/api/automations/${encodeURIComponent(jobId)}/subscription`,{events:remove?[]:events,channels:remove?[]:channels});if(token===request.current){setSubscribed(!remove);close();}}catch(e){if(token===request.current)setError((e as Error).message);}finally{setBusy(false);}}
+ return <div className="automation-subscription"><button ref={trigger} type="button" aria-haspopup="dialog" aria-expanded={open} onClick={()=>void load()}><Bell/>{subscribed?'Subscribed':'Subscribe'}</button>{open&&createPortal(<dialog ref={dialog} className="automation-subscription__panel" aria-labelledby={titleId} onCancel={e=>{e.preventDefault();if(!busy)close();}}>
+ <header><h2 id={titleId}>My notifications</h2><button type="button" autoFocus aria-label="Close notification settings" disabled={busy} onClick={close}>Close</button></header>
+ {error&&<p role="alert">{error}</p>}{p?<><fieldset className="notification-choices" disabled={busy}><legend>Notify me about</legend>{['success','failure'].map(event=><label key={event}><input type="checkbox" checked={events.includes(event)} onChange={e=>setEvents(e.target.checked?[...events,event]:events.filter(v=>v!==event))}/>{event==='success'?'Results':'Failures'}</label>)}</fieldset><ChannelChoices value={channels} onChange={setChannels} preferences={p}/><p>Enable email or SMS permission in account Notification Settings.</p><footer><button type="button" disabled={busy||!events.length||!channels.length} onClick={()=>void save()}>{busy?'Saving…':'Save subscription'}</button>{subscribed&&<button type="button" disabled={busy} onClick={()=>void save(true)}>Unsubscribe</button>}</footer></>:!error&&<p role="status">Loading subscription…</p>}
+ </dialog>,document.body)}</div>;
+}
+export function NotificationMessages({entries}:{entries:NotificationEntry[]}) {
+ return <section className="notification-messages" aria-label="Automation updates">{!entries.length&&<p>Updates from your subscribed automations will appear here. Subscribe from Skills → Automations.</p>}{[...entries].reverse().map(entry=><article key={entry.id}><header><strong>{entry.title}</strong><span>{entry.outcome==='failure'?'Needs attention':'Completed'}</span><time dateTime={entry.created_at}>{new Date(entry.created_at).toLocaleString()}</time></header><p>{entry.message}</p>{entry.links.map(link=><a key={link.url} href={link.url} target="_blank" rel="noreferrer">{link.label}</a>)}</article>)}</section>;
+}
+export function NotificationEmailSettings() {
+ const [value,setValue]=useState({senderId:"",senderAddress:"",enabled:false});const [notice,setNotice]=useState("");const [busy,setBusy]=useState(false);
+ useEffect(()=>{void notificationRequest<{sender_id:string|null;sender_address:string|null;email_enabled:boolean}>("/api/admin/notifications/email").then(v=>setValue({senderId:v.sender_id??"",senderAddress:v.sender_address??"",enabled:v.email_enabled})).catch(e=>setNotice(e.message));},[]);
+ async function save(){setBusy(true);try{await notificationRequest("/api/admin/notifications/email",value);setNotice("Sender saved. Email uses the existing Microsoft Entra app's application Mail.Send permission.");}catch(e){setNotice((e as Error).message);}finally{setBusy(false);}}
+ return <section className="settings-card user-settings-card notification-settings"><h3>Microsoft 365 notification sender</h3><p>Administrator setting. Reuses the configured Entra app; users must opt in to email.</p><label>Shared mailbox ID<input value={value.senderId} onChange={e=>setValue({...value,senderId:e.target.value})}/></label><label>Sender address<input type="email" value={value.senderAddress} onChange={e=>setValue({...value,senderAddress:e.target.value})}/></label><label><input type="checkbox" checked={value.enabled} onChange={e=>setValue({...value,enabled:e.target.checked})}/> Enable email notifications</label><button type="button" disabled={busy||!value.senderId||!value.senderAddress} onClick={()=>void save()}>Save sender</button>{notice&&<p role="status">{notice}</p>}</section>;
+}

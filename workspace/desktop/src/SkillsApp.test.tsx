@@ -26,7 +26,7 @@ describe("Skills app", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /^OpenClaw/ }));
     expect(screen.getByText("Installed OpenClaw skills")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /GitHub/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^GitHub/ })).toBeInTheDocument();
   });
 
   it("saves a personal skill immediately without a proposal step", async () => {
@@ -85,7 +85,7 @@ describe("Skills app", () => {
     expect(onCreateAutomation).toHaveBeenCalledOnce();
 
     fireEvent.click(screen.getByRole("button", { name: /^Drafts/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Support workflow/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Support workflow/ }));
     expect(onOpenDraft).toHaveBeenCalledWith(expect.objectContaining({ id: "draft-1" }));
   });
 });

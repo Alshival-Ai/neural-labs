@@ -1,3 +1,4 @@
+import { NotificationSettings, NotificationEmailSettings } from "./notifications";
 import {
   browserSupportsWebAuthn,
   startRegistration,
@@ -357,6 +358,8 @@ function AccountSettingsPanel({ user, providers: initialProviders, csrfToken, in
           )}
       </section>}
 
+      {!security && <NotificationSettings />}
+      {!security && user.role === "admin" && <NotificationEmailSettings />}
       <PhoneSettings csrfToken={csrfToken} view={security ? "phone" : "notifications"} onOpenSecurity={onOpenSecurity} />
 
       {!security && <section className="user-settings-session">

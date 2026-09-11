@@ -20,7 +20,7 @@ import { createVoiceService } from "/usr/local/lib/neural-labs/voice.mjs";
 import { ModelCatalog, modelCredentialSource } from "/usr/local/lib/neural-labs/model-catalog.mjs";
 import { ModelPolicies } from "/usr/local/lib/neural-labs/model-policies.mjs";
 import { TeamOpenAI } from "/usr/local/lib/neural-labs/team-openai.mjs";
-import { agentEnvironment, importWorkspaceApiKey } from "/usr/local/lib/neural-labs/provider-environment.mjs";
+import { agentEnvironment, retireWorkspaceApiKey } from "/usr/local/lib/neural-labs/provider-environment.mjs";
 
 const openclawRuntime = await verifyOpenClawRuntime();
 const gatewayPort = parsePort(process.env.OPENCLAW_GATEWAY_PORT, 18789);
@@ -422,8 +422,9 @@ await installTerminalGuidance(workspaceRoot);
 ensureOfficialSmsPlugin();
 let twilioRuntimeConfig = await fetchTwilioConfig();
 configureGateway(twilioRuntimeConfig);
-try { importWorkspaceApiKey(); }
-catch { console.warn("Workspace API credential import failed; text model availability may require administrator attention"); }
+// Fail before starting the text Gateway if a legacy audio-key fallback cannot
+// be retired. The voice service retains its server-only API environment.
+retireWorkspaceApiKey();
 await refreshProviderStatus();
 const providerStatusTimer = setInterval(() => {
   void refreshProviderStatus();
@@ -480,7 +481,7 @@ const codeServer = spawn(
     "--app-name", "VS Code · Neural Labs",
     workspaceRoot,
   ],
-  { stdio: "inherit" },
+  { stdio: "inherit", env: agentEnvironment(process.env) },
 );
 
 const apiProviderRuntime = new ProviderRuntime(loadProviderConfig(process.env), process.env.NEURAL_LABS_PROVIDER_CONFIG_URL ?? "http://control-plane:4174/internal/plugins/providers/config", workspaceControlToken);
@@ -500,6 +501,7 @@ const workspaceServer = createWorkspaceHttpServer({
   openclawModelReady,
   providerAuth,
   personalOpenAI,
+  gatewayAdminRequest,
   modelCatalog,
   modelPolicies,
   teamOpenAI,

@@ -92,6 +92,7 @@ export const builderApi = {
   create: (input: { kind: BuilderDraftKind; targetKey?: string; baseRevision?: string; initial?: Record<string, unknown> }) =>
     json<{ draft: BuilderDraft }>("/workspace/api/builder/drafts", { method: "POST", body: JSON.stringify(input) }),
   get: (id: string) => json<{ draft: BuilderDraft; update: string }>(`/workspace/api/builder/drafts/${encodeURIComponent(id)}`),
+  duplicate: (id: string) => json<{draft: BuilderDraft}>(`/workspace/api/builder/drafts/${encodeURIComponent(id)}/duplicate`, {method:"POST",body:"{}"}),
   discard: (id: string) => json<{ discarded: true }>(`/workspace/api/builder/drafts/${encodeURIComponent(id)}`, { method: "DELETE" }),
   collaborators: (id: string, userIds: string[]) => json<{ draft: BuilderDraft }>(`/workspace/api/builder/drafts/${encodeURIComponent(id)}/collaborators`, { method: "PUT", body: JSON.stringify({ userIds }) }),
   validate: (id: string) => json<BuilderValidation>(`/workspace/api/builder/drafts/${encodeURIComponent(id)}/validate`, { method: "POST", body: "{}" }),

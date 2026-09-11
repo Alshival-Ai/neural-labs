@@ -26,7 +26,7 @@ const PEXELS_TOOLS = [
   "pexels_search_videos",
   "pexels_download_media",
 ];
-const SMS_TOOLS = ["notify_workspace_user"];
+const SMS_TOOLS = ["notify_workspace_user", "get_automation_notification_context"];
 
 export interface ProviderApplication {
   app: Express;

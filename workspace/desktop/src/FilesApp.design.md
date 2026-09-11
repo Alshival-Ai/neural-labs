@@ -10,9 +10,23 @@ is split between `workspace/http-server.mjs`, the root-confined
 `workspace/file-manager.mjs`, and `workspace/explorer-manager.mjs` for personal
 metadata, queued operations, search, recovery, and versioned binary saves.
 
-The component owns its scoped stylesheet via `import "./explorer.css"`.
+The implementation lives in `ExplorerApp.tsx`, re-exported by `FilesApp.tsx`,
+and owns its scoped stylesheet via `import "./explorer.css"`.
 Preview rendering is delegated through `onPreviewFile` to the lazy-loaded
 `PreviewApp` desktop window.
+
+## Visual theme
+
+- Match Skills, Automations, and Settings with the shared ink/paper palette,
+  dark navigation, a spectrum top rule, violet selections, and ink primary
+  buttons with a colored offset shadow.
+- Inherit the desktop font family and font-size tokens, including menus and dialogs.
+- Keep the paper theme consistent with the other Neural apps regardless of the
+  operating system color preference. Native form controls use the light palette.
+- Theme `explorer.css`, not the legacy `files-app.css`. Dialogs define their own
+  theme tokens because `ExplorerDialog` is also used outside the Files window.
+- Preserve the responsive layout and virtualized item heights (46px list / 152px
+  grid); styling must not change the measurements used by the virtualizer.
 
 ## Intended behavior
 

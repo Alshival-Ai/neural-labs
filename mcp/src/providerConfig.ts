@@ -46,7 +46,7 @@ export function loadProviderConfig(
       .digest(),
     terminalApi: { url: new URL(`http://127.0.0.1:${optional(env, "NEURAL_LABS_WORKSPACE_STATUS_PORT") ?? "18790"}/internal/terminal-agent`), token: workspaceToken },
     notificationApi: {
-      url: new URL(optional(env, "NEURAL_LABS_SMS_NOTIFICATION_URL") ?? "http://control-plane:4174/internal/plugins/twilio/send"),
+      url: new URL(optional(env, "NEURAL_LABS_NOTIFICATION_URL") ?? "http://control-plane:4174/internal/notifications/send"),
       token: workspaceToken,
     },
   };

@@ -1,5 +1,16 @@
 # Neural Labs wiki
 
+Documentation and user guides for the shared Neural Labs workspace.
+
+## Getting started
+
+Teammates: start with the [workspace guide](shared-workspace.md),
+[passkey login](passkeys.md), and [Neura guide](neura.md).
+Administrators: start with [deployment](container-deployment.md) and
+[administrator settings](desktop-settings.md).
+
+## Guides and release records
+
 - [v0.3.2 release record](releases/v0.3.2.md)
 - [v0.3.1 release record](releases/v0.3.1.md)
 - [v0.3.0 release record](releases/v0.3.0.md)
@@ -24,6 +35,8 @@
 - [Future public Microsoft Entra MCP](mcp-entra-oauth.md)
 - [Backup and restore](backup-restore.md)
 - [Web frontend](web-frontend.md)
+## Architecture decisions
+
 - [ADR 0001: Containerized loopback ingress](adr/0001-loopback-web-ingress.md)
 - [ADR 0002: Embedded control-plane console](adr/0002-embedded-control-plane-console.md)
 - [ADR 0003: Shared developer workspace](adr/0003-shared-developer-workspace.md)
@@ -55,3 +68,18 @@
 - [ADR 0028: Unmodified upstream OpenClaw runtime](adr/0028-upstream-openclaw-boundary.md)
 
 - [ADR 0029: Settings-managed provider credentials](adr/0029-settings-provider-credentials.md)
+
+- [ADR 0030: Preference-aware automation notifications](adr/0030-automation-notification-subscriptions.md)
+- [ADR 0031: Authorized saved-item context actions](adr/0031-skill-context-actions.md)
+- [ADR 0032: Restrict the workspace OpenAI API key to audio](adr/0032-audio-only-workspace-api-key.md)
+- [ADR 0033: Personal accounts for manual automation runs](adr/0033-personal-manual-automation-runs.md)
+
+## Project and maintenance
+
+- [Changelog](../CHANGELOG.md)
+- [Roadmap](../roadmap.md)
+- [Neura roadmap tracker](../tracker.md)
+- [Wiki publishing](wiki-publishing.md)
+- [Web deployment transition](web-deployment.md)
+- [OpenClaw 2026.9.2 assessment](upgrades/openclaw-2026.9.2.md)
+- [Upstream boundary verification](upgrades/upstream-boundary-2026-09-06.md)

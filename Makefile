@@ -11,6 +11,11 @@ validate:
 	node --check web/server.mjs
 	node --check workspace/start.mjs
 	node --check workspace/browser-config.mjs
+	node --check workspace/notification-scheduler.mjs
+	node --check workspace/personal-automation-runs.mjs
+	node --check bin/install-prospect-automation.mjs
+	python3 workspace/bundled-skills/prospect-video-site/scripts/test_helpers.py
+	node --check workspace/bundled-skills/prospect-video-site/scripts/qa-site.mjs
 	node --check workspace/http-server.mjs
 	node --check workspace/builder-manager.mjs
 	node --check workspace/vscode-proxy.mjs

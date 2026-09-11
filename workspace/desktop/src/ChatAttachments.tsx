@@ -25,7 +25,30 @@ function sourceUrl(item: ChatAttachment): string | undefined {
   return undefined;
 }
 function isImage(item: ChatAttachment) { return item.type?.startsWith("image/") || /\.(avif|bmp|gif|jpe?g|png|svg|webp)$/i.test(item.name); }
+function isVideo(item: ChatAttachment) {
+  if (item.type?.toLowerCase().startsWith("audio/")) return false;
+  return item.type?.toLowerCase().startsWith("video/") || /\.(mp4|m4v|mov|webm|ogv)$/i.test(item.name);
+}
 function isAudio(item: ChatAttachment) { return item.type?.startsWith("audio/") || /\.(m4a|mp3|oga|ogg|wav|webm)$/i.test(item.name); }
+
+function AttachmentVideo({ url, name, onError }: { url: string; name: string; onError: () => void }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  const [visible, setVisible] = useState(typeof IntersectionObserver === "undefined");
+  useEffect(() => {
+    if (typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) { setVisible(true); observer.disconnect(); }
+    }, { rootMargin: "200px" });
+    if (ref.current) observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, []);
+  return <video ref={ref} controls playsInline preload="metadata" aria-label={`Play ${name}`} src={visible ? url : undefined} onError={onError}
+    onLoadedMetadata={(event) => {
+      const video = event.currentTarget;
+      // Decode a first-frame preview without autoplay or a second media download.
+      if (video.paused && video.currentTime === 0 && Number.isFinite(video.duration) && video.duration > 0) video.currentTime = Math.min(.1, video.duration / 2);
+    }} />;
+}
 function clickDownload(url: string, name: string) {
   const link = document.createElement("a"); link.href = url; link.download = name;
   document.body.append(link); link.click(); link.remove();
@@ -46,6 +69,7 @@ function AttachmentCard({ attachment, notify, storageNamespace, refreshAttachmen
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const refreshingImage = useRef(false);
+  const refreshingVideo = useRef(false);
   const actionPending = useRef(false);
   const lifetime = useRef(new AbortController());
   const copyJob = useRef<string | undefined>(undefined);
@@ -56,7 +80,7 @@ function AttachmentCard({ attachment, notify, storageNamespace, refreshAttachmen
   const button = useRef<HTMLButtonElement>(null);
   const root = useRef<HTMLDivElement>(null);
   const menuRoot = useRef<HTMLDivElement>(null);
-  useEffect(() => { setItem(attachment); setError(""); refreshingImage.current = false; }, [attachment]);
+  useEffect(() => { setItem(attachment); setError(""); refreshingImage.current = false; refreshingVideo.current = false; }, [attachment]);
   useEffect(() => {
     if (!menu) return;
     menuRoot.current?.querySelector<HTMLButtonElement>("button")?.focus();
@@ -140,9 +164,17 @@ function AttachmentCard({ attachment, notify, storageNamespace, refreshAttachmen
     try { await fresh(); } catch (error) { setError(messageFor(error)); }
   };
   const url = sourceUrl(item);
+  const videoFailed = async () => {
+    if (!refreshingVideo.current && refreshAttachment && url?.startsWith(mediaPrefix)) {
+      refreshingVideo.current = true;
+      try { if (sourceUrl(await fresh()) !== url) return; } catch { /* Keep the download action available. */ }
+    }
+    setError("This video couldn't be played here. Use Download to watch it in another player, or reload the conversation and try again.");
+  };
   const actions = <><button type="button" disabled={busy} onClick={() => { closeMenu(); setSave(true); }}>Download to Workspace</button><button type="button" disabled={busy} onClick={() => void download()}>Download</button></>;
-  return <div ref={root} className={`chat-attachment${isImage(item) ? " is-image" : ""}`} onContextMenu={(event) => { if ((event.target as HTMLElement).closest("dialog")) return; event.preventDefault(); openMenu(event.clientX, event.clientY); }}>
+  return <div ref={root} className={`chat-attachment${isImage(item) ? " is-image" : isVideo(item) ? " is-video" : ""}`} onContextMenu={(event) => { if ((event.target as HTMLElement).closest("dialog,video")) return; event.preventDefault(); openMenu(event.clientX, event.clientY); }}>
     {isImage(item) ? url ? <button type="button" className="attachment-image-open" aria-label={`Preview ${item.name}`} onClick={() => setPreview(true)}><img src={url} alt={item.name} loading="lazy" onError={() => void imageFailed()} /></button> : <span aria-label={item.name}>Image unavailable</span>
+      : isVideo(item) ? <figure className="attachment-video">{url ? <AttachmentVideo url={url} name={item.name} onError={() => void videoFailed()} /> : <p>Video unavailable</p>}<figcaption>{item.name}</figcaption></figure>
       : <div className={`attachment-card${isAudio(item) ? " attachment-audio" : ""}`}>
         {isAudio(item) && url ? <audio controls preload="metadata" src={url} /> : <Paperclip />}
         <button type="button" className="attachment-file-open" onClick={() => void download()} disabled={busy}><strong>{item.name}</strong>{item.size !== undefined && <small>{item.size < 1024 ? `${item.size} B` : `${Math.ceil(item.size / 1024)} KB`}</small>}</button>

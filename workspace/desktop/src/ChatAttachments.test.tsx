@@ -10,6 +10,48 @@ const image = { name: "photo.png", path: "uploads/photo.png", type: "image/png",
 const directory = { path: "Downloads", parent: "", entries: [] };
 
 describe("chat attachment actions", () => {
+  it("embeds MP4 and video WebM attachments while keeping audio WebM as audio", () => {
+    render(<MessageAttachments attachments={[
+      { name: "demo.MP4", path: "uploads/demo.MP4", type: "application/octet-stream" },
+      { name: "clip.webm", path: "uploads/clip.webm", type: "video/webm" },
+      { name: "voice.webm", path: "uploads/voice.webm", type: "audio/webm" },
+    ]} />);
+    const video = screen.getByLabelText("Play demo.MP4") as HTMLVideoElement;
+    expect(video.tagName).toBe("VIDEO");
+    expect(video).toHaveAttribute("src", "/workspace/api/files/content?path=uploads%2Fdemo.MP4");
+    expect(video).toHaveAttribute("controls");
+    expect(video).toHaveAttribute("playsinline");
+    expect(video).toHaveAttribute("preload", "metadata");
+    expect(video).not.toHaveAttribute("autoplay");
+    Object.defineProperty(video, "duration", { value: 10 });
+    fireEvent.loadedMetadata(video);
+    expect(video.currentTime).toBe(.1);
+    expect(screen.getByLabelText("Play clip.webm").tagName).toBe("VIDEO");
+    expect(document.querySelectorAll("audio")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "demo.MP4" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for demo.MP4" }));
+    expect(screen.getByRole("menuitem", { name: "Download" })).toBeEnabled();
+    expect(screen.getByRole("menuitem", { name: "Download to Workspace" })).toBeEnabled();
+  });
+
+  it("refreshes an expired private video once and offers download if playback still fails", async () => {
+    const original = { name: "clip.mp4", type: "video/mp4", artifactId: "video", url: "/workspace/api/neura/media/outgoing/chat/id/full?mediaTicket=old" };
+    const refreshed = { ...original, url: original.url.replace("old", "new") };
+    const refresh = vi.fn().mockResolvedValue(refreshed);
+    render(<MessageAttachments attachments={[original]} refreshAttachment={refresh} />);
+    fireEvent.error(screen.getByLabelText("Play clip.mp4"));
+    await waitFor(() => expect(screen.getByLabelText("Play clip.mp4")).toHaveAttribute("src", refreshed.url));
+    fireEvent.error(screen.getByLabelText("Play clip.mp4"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Use Download");
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it("does not embed an untrusted video URL", () => {
+    render(<MessageAttachments attachments={[{ name: "clip.mp4", type: "video/mp4", url: "https://untrusted.example/clip.mp4" }]} />);
+    expect(screen.queryByLabelText("Play clip.mp4")).not.toBeInTheDocument();
+    expect(screen.getByText("Video unavailable")).toBeInTheDocument();
+  });
+
   it("previews images without visible filename metadata and restores focus", () => {
     render(<MessageAttachments attachments={[image]} />);
     expect(screen.queryByText("photo.png")).not.toBeInTheDocument();

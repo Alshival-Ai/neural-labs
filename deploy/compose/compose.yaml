@@ -132,7 +132,7 @@ services:
       NEURAL_LABS_TURN_CREDENTIAL_URL: http://control-plane:4174/internal/turn-credentials
       NEURAL_LABS_TEAM_CHANNEL_ACCESS_URL: http://control-plane:4174/internal/team-terminal/access
       NEURAL_LABS_TWILIO_CONFIG_URL: http://control-plane:4174/internal/plugins/twilio/config
-      NEURAL_LABS_SMS_NOTIFICATION_URL: http://control-plane:4174/internal/plugins/twilio/send
+      NEURAL_LABS_NOTIFICATION_URL: http://control-plane:4174/internal/notifications/send
     cap_drop:
       - ALL
     cap_add:

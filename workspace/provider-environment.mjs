@@ -11,12 +11,21 @@ export function agentEnvironment(environment) {
   return result;
 }
 
-export function importWorkspaceApiKey(environment = process.env, execute = spawnSync) {
-  const key = environment.OPENAI_API_KEY?.trim();
-  if (!key) return false;
-  const result = execute("openclaw", ["models", "auth", "paste-api-key", "--agent", "main", "--provider", "openai", "--profile-id", "openai:neural-labs-workspace-api"], {
-    env: environment, input: `${key}\n`, encoding: "utf8", timeout: 120_000, maxBuffer: 1024 * 1024, stdio: ["pipe", "pipe", "pipe"],
-  });
-  if (result.status !== 0) throw new Error("The workspace API key could not be imported into the native credential store");
+export function retireWorkspaceApiKey(environment = process.env, execute = spawnSync) {
+  // Earlier releases persisted the audio key in main's native auth store.
+  // Removing the environment variable alone does not retire that fallback.
+  const options = {
+    env: agentEnvironment(environment), encoding: "utf8", timeout: 120_000,
+    maxBuffer: 1024 * 1024, stdio: ["ignore", "pipe", "pipe"],
+  };
+  const listed = execute("openclaw", ["models", "auth", "list", "--agent", "main", "--provider", "openai", "--json"], options);
+  if (listed.status !== 0) throw new Error("Could not inspect retired workspace text credentials");
+  let profiles;
+  try { profiles = JSON.parse(listed.stdout).profiles; } catch {}
+  if (!Array.isArray(profiles)) throw new Error("Could not inspect retired workspace text credentials");
+  const profileId = "openai:neural-labs-workspace-api";
+  if (!profiles.some((profile) => profile.id === profileId)) return false;
+  const result = execute("openclaw", ["models", "auth", "logout", "--agent", "main", "--yes", profileId], options);
+  if (result.status !== 0) throw new Error("Could not retire the workspace API key from text authentication");
   return true;
 }

@@ -66,29 +66,30 @@ async function config(): Promise<ProviderConfig> {
 }
 
 describe("workspace provider MCP", () => {
-  it("sends agent notifications only through the workspace-identity SMS broker", async () => {
+  it("sends agent notifications only through the preference-aware notification broker", async () => {
     const providerConfig = await config();
     providerConfig.notificationApi = {
-      url: new URL("http://control-plane.test/internal/plugins/twilio/send"),
+      url: new URL("http://control-plane.test/internal/notifications/send"),
       token: "workspace-control-token-at-least-thirty-two-characters",
     };
     const fetchProvider = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
       expect(new Headers(init?.headers).get("Authorization")).toBe(`Bearer ${providerConfig.notificationApi!.token}`);
       expect(JSON.parse(String(init?.body))).toEqual({
-        handle: "salvador",
+        handle: "@member",
+        outcome: "success", title: "Neura update", links: [],
         message: "The automation is complete.",
         mediaUrls: [],
       });
-      return Response.json({ recipient: "@salvador", mediaCount: 0 });
+      return Response.json({ status: "queued", notificationId: "event-id" });
     });
     const application = createProviderApplication(providerConfig, fetchProvider as typeof fetch);
     const result = await callTool(application, "notify_workspace_user", {
-      handle: "@salvador",
+      handle: "@member",
       message: "The automation is complete.",
-    }) as { result: { structuredContent: { deliveredTo: string; policy: string } } };
+    }) as { result: { structuredContent: { status: string; notificationId: string } } };
     expect(result.result.structuredContent).toMatchObject({
-      deliveredTo: "@salvador",
-      policy: "verified-workspace-member-with-opt-in",
+      status: "queued",
+      notificationId: "event-id",
     });
     await application.close();
   });

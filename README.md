@@ -1,5 +1,8 @@
 # Neural Labs
 
+[GitHub repository](https://github.com/Alshival-Ai/neural-labs) ·
+[Documentation and user guides](https://github.com/Alshival-Ai/neural-labs/wiki)
+
 Neural Labs is an open-source, self-hosted control plane and shared developer
 workspace. This repository contains:
 

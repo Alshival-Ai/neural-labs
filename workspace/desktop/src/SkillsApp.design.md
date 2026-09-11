@@ -25,3 +25,10 @@ Gateway has no user-scoped install target.
 Responsive behavior keeps the three-section navigation at every width. On
 mobile, custom skill lists transition to the detail pane; OpenClaw search uses
 the existing compact card layout.
+
+The **+ Skill** and **+ Automation** draft builders share the desktop paper,
+ink, surface, and accent tokens, spectrum edge and icon treatment, and dark
+primary actions. Form, preview, and test panels fill the available canvas with
+consistent gutters. Only skill drafts reserve a package sidebar; automation
+drafts use a single full-width column at every window size. Narrow skill
+windows collapse the package sidebar and stack form fields.

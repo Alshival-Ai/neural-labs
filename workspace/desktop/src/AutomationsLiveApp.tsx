@@ -81,7 +81,7 @@ export function AutomationsLiveApp({ gateway, notify, workspaceName = "Workspace
   const onCreate = (draft: AutomationDraft) => mutate(() => gateway.create(draft), `${draft.name.trim()} created.`);
   const onUpdate = (job: AutomationJob, draft: AutomationDraft) => mutate(() => gateway.update(job, draft), `${draft.name.trim()} updated.`);
   const onToggle = (job: AutomationJob, enabled: boolean) => mutate(() => gateway.toggle(job, enabled), `${job.name} ${enabled ? "enabled" : "paused"}.`);
-  const onRun = (job: AutomationJob, mode: AutomationRunMode) => mutate(() => gateway.run(job, mode), `${job.name} was submitted to OpenClaw.`);
+  const onRun = (job: AutomationJob, mode: AutomationRunMode) => mutate(() => gateway.run(job, mode), `${job.name} was submitted using your ChatGPT account.`);
   const onDelete = (job: AutomationJob) => mutate(() => gateway.remove(job), `${job.name} removed.`);
 
   return (
@@ -96,6 +96,7 @@ export function AutomationsLiveApp({ gateway, notify, workspaceName = "Workspace
       onUpdate={onUpdate}
       onToggle={onToggle}
       onRun={onRun}
+      onDuplicate={async(job)=>{const id=await gateway.duplicate(job);await refresh();return id;}}
       onDelete={onDelete}
     />
   );

@@ -166,28 +166,39 @@ export class AutomationsGateway {
   }
 
   async snapshot(): Promise<AutomationsSnapshot> {
-    const [status, listed, history] = await Promise.all([
-      this.client.request<unknown>("cron.status", {}),
-      this.client.request<unknown>("cron.list", { includeDisabled: true, limit: 200, sortBy: "updatedAtMs", sortDir: "desc", includeDeliveryPreviews: true }),
-      this.client.request<unknown>("cron.runs", { scope: "all", limit: 200, sortDir: "desc" }),
-    ]);
-    const jobs = isRecord(listed) && Array.isArray(listed.jobs) ? listed.jobs : Array.isArray(listed) ? listed : [];
-    const entries = isRecord(history) && Array.isArray(history.entries) ? history.entries : Array.isArray(history) ? history : [];
-    const runsByJob = new Map<string, AutomationRun[]>();
-    for (const entry of entries) {
-      if (!isRecord(entry)) continue;
-      const jobId = stringValue(entry.jobId);
-      if (!jobId) continue;
-      runsByJob.set(jobId, [...(runsByJob.get(jobId) ?? []), mapRun(entry)]);
-    }
-    return {
-      schedulerOnline: !isRecord(status) || status.enabled !== false,
-      jobs: jobs.flatMap((job, index) => isRecord(job) ? [mapJob(job, runsByJob.get(stringValue(job.id) ?? "") ?? [], index)] : []),
-    };
+    const result = await automationRequest("/workspace/api/automations/snapshot");
+    return mapAutomationsSnapshot(result.status, result, result);
   }
 
   create(draft: AutomationDraft) {
     return this.client.request("cron.add", draftToGatewayParams(draft));
+  }
+
+  private async canonicalJobs(): Promise<RecordValue[]> {
+    const result:RecordValue[]=[];
+    for(let offset=0;offset<10000;offset+=200){
+      const page=await this.client.request<RecordValue>("cron.list",{includeDisabled:true,limit:200,offset});
+      const rows=Array.isArray(page.jobs)?page.jobs.filter(isRecord):[];result.push(...rows);
+      if(rows.length<200||page.hasMore===false)return result;
+    }
+    throw new Error("The scheduler returned too many jobs. Narrow the workspace inventory before copying.");
+  }
+
+  async duplicate(job: AutomationJob): Promise<string> {
+    const jobs=await this.canonicalJobs();
+    const original=jobs.find(row=>row.id===job.id);
+    if(!original)throw new Error("Refresh: the source automation is no longer available.");
+    const params=automationCopyParams(original,jobs.map(row=>String(row.name)));
+    const created=await this.client.request<RecordValue>("cron.add",params);
+    const id=stringValue(created.id)??(isRecord(created.job)?stringValue(created.job.id):undefined);
+    if(!id)throw new Error("Copy acceptance is unknown. Refresh before trying again.");
+    const payload=isRecord(params.payload)?params.payload:{};
+    const marker=`Use get_automation_notification_context with ${job.id}, capture currentRunId`;
+    if(typeof payload.message==='string'&&payload.message.includes(marker)) {
+      try {await this.client.request("cron.update",{id,patch:{payload:{...payload,message:payload.message.replace(marker,`Use get_automation_notification_context with ${id}, capture currentRunId`)}}});}
+      catch {throw new Error("The copy was saved paused, but its notification identity could not be updated. Refresh and edit it before enabling.");}
+    }
+    return id;
   }
 
   update(job: AutomationJob, draft: AutomationDraft) {
@@ -205,10 +216,15 @@ export class AutomationsGateway {
   }
 
   run(job: AutomationJob, mode: AutomationRunMode) {
-    return this.client.request("cron.run", { id: job.id, mode });
+    return automationRequest("/workspace/api/automations/run", { jobId: job.id, mode, requestId: crypto.randomUUID() });
   }
 
-  remove(job: AutomationJob) {
+  async remove(job: AutomationJob) {
+    const current=(await this.canonicalJobs()).find(row=>row.id===job.id);
+    if(!current)throw new Error("This automation was already removed. Refresh the list.");
+    const payload=isRecord(current.payload)?current.payload:{};const state=isRecord(current.state)?current.state:{};
+    if(["heartbeat","skillCollectionReview"].includes(String(payload.kind)))throw new Error("System automations cannot be deleted.");
+    if(state.runningAtMs||["running","starting"].includes(String(state.streamStatus)))throw new Error("Wait for the active run to finish before deleting this automation.");
     return this.client.request("cron.remove", { id: job.id });
   }
 
@@ -258,6 +274,16 @@ export class AutomationsGateway {
   scanSkillHistory() {
     return this.client.request("skills.proposals.historyScan", { agentId: "main", direction: "older" });
   }
+}
+
+export async function automationRequest(url: string, body?: RecordValue): Promise<RecordValue> {
+  const response = await fetch(url, { credentials: "same-origin", cache: "no-store",
+    ...(body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}),
+  });
+  const result: unknown = await response.json();
+  if (!response.ok) throw new Error(isRecord(result) && isRecord(result.error) ? stringValue(result.error.message) ?? "Automation request failed" : "Automation request failed");
+  if (!isRecord(result)) throw new Error("Invalid automation response");
+  return result;
 }
 
 export function mapAutomationsSnapshot(status: unknown, listed: unknown, history: unknown, operationalOnly = false): AutomationsSnapshot {
@@ -315,6 +341,7 @@ function mapJob(job: RecordValue, runs: AutomationRun[], index: number): Automat
     configRevision: stringValue(job.configRevision),
     name: stringValue(job.displayName) ?? stringValue(job.name) ?? "Untitled automation",
     description: stringValue(job.description) ?? "Shared OpenClaw automation",
+    manualRunWarning: stringValue(job.manualRunWarning),
     accent: accentFor(id),
     enabled: booleanValue(job.enabled) ?? false,
     running: Boolean(runningAt) || streamStatus === "running" || streamStatus === "starting",
@@ -551,4 +578,13 @@ function pacingLabel(value?: RecordValue): string | undefined {
   const min = stringValue(value.min);
   const max = stringValue(value.max);
   return min || max ? `${min ?? "open"}–${max ?? "open"}` : undefined;
+}
+
+export function automationCopyParams(original: RecordValue, names: string[]): RecordValue {
+ const payload=isRecord(original.payload)?original.payload:{};
+ if(["heartbeat","skillCollectionReview"].includes(String(payload.kind)))throw new Error("System automations cannot be duplicated.");
+ const allowed=["description","owner","agentId","sessionKey","deleteAfterRun","schedule","sessionTarget","wakeMode","payload","delivery","failureAlert","pacing","trigger"];
+ const copy:RecordValue={};for(const key of allowed)if(original[key]!==undefined)copy[key]=structuredClone(original[key]);
+ const base=String(original.displayName??original.name??"Automation").slice(0,150);let name=`${base} copy`,n=2;while(names.includes(name))name=`${base} copy ${n++}`;
+ return {...copy,name,enabled:false};
 }

@@ -339,4 +339,60 @@ export const migrations: Migration[] = [
         CHECK (char_length(body) > 0 OR jsonb_array_length(attachments) > 0);
     `,
   },
+  {
+    version: 11,
+    sql: `
+      CREATE TABLE notification_preferences (
+        user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        session_key text,
+        neura boolean NOT NULL DEFAULT true,
+        email boolean NOT NULL DEFAULT false,
+        defaults text[] NOT NULL DEFAULT ARRAY['neura'],
+        read_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE TABLE automation_subscriptions (
+        user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        job_id text NOT NULL,
+        events text[] NOT NULL,
+        channels text[] NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY(user_id,job_id)
+      );
+      CREATE TABLE notification_config (
+        singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),
+        sender_id text,
+        sender_address text,
+        email_enabled boolean NOT NULL DEFAULT false,
+        reconcile_after bigint NOT NULL DEFAULT (extract(epoch FROM now())*1000)::bigint
+      );
+      INSERT INTO notification_config(singleton) VALUES(true);
+      CREATE TABLE notification_run_summaries (
+        job_id text NOT NULL, run_id text NOT NULL, content jsonb NOT NULL,
+        PRIMARY KEY(job_id,run_id)
+      );
+      CREATE TABLE notification_events (
+        id uuid PRIMARY KEY,
+        event_key text UNIQUE NOT NULL,
+        job_id text,
+        run_id text,
+        outcome text NOT NULL,
+        title text NOT NULL,
+        message text NOT NULL,
+        links jsonb NOT NULL DEFAULT '[]',
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE TABLE notification_deliveries (
+        event_id uuid NOT NULL REFERENCES notification_events(id) ON DELETE CASCADE,
+        user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        channel text NOT NULL CHECK(channel IN ('neura','sms','email')),
+        status text NOT NULL DEFAULT 'pending',
+        attempts integer NOT NULL DEFAULT 0,
+        next_attempt_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        error_code text,
+        PRIMARY KEY(event_id,user_id,channel)
+      );
+      CREATE INDEX notification_pending ON notification_deliveries(next_attempt_at) WHERE status='pending';
+    `,
+  },
 ];

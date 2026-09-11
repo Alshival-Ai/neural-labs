@@ -1,3 +1,5 @@
+import { ItemActions, type ItemAction } from "./ItemActions";
+import { AutomationSubscription } from "./notifications";
 import {
   Activity,
   BellRing,
@@ -62,6 +64,7 @@ export type AutomationRun = {
 };
 
 export type AutomationJob = {
+  manualRunWarning?: string;
   id: string;
   configRevision?: string;
   name: string;
@@ -148,6 +151,7 @@ export type AutomationsAppProps = {
   onUpdate?: (job: AutomationJob, draft: AutomationDraft) => void | Promise<void>;
   onToggle?: (job: AutomationJob, enabled: boolean) => void | Promise<void>;
   onRun?: (job: AutomationJob, mode: AutomationRunMode) => void | Promise<void>;
+  onDuplicate?: (job: AutomationJob) => Promise<string>;
   onDelete?: (job: AutomationJob) => void | Promise<void>;
   onInspectRun?: (job: AutomationJob, run: AutomationRun) => void;
   onCreateDraft?: () => void;
@@ -388,6 +392,7 @@ export function AutomationsApp({
   onToggle,
   onRun,
   onDelete,
+  onDuplicate,
   onInspectRun,
   onCreateDraft,
   onEditDraft,
@@ -399,7 +404,7 @@ export function AutomationsApp({
   const [detailTab, setDetailTab] = useState<"overview" | "runs">("overview");
   const [expandedRunId, setExpandedRunId] = useState<string>();
   const [runMenuId, setRunMenuId] = useState<string>();
-  const [actionMenuId, setActionMenuId] = useState<string>();
+  const [subscriptionRequest,setSubscriptionRequest]=useState<{id:string;nonce:number}>();
   const [composerOpen, setComposerOpen] = useState(false);
   const [editingId, setEditingId] = useState<string>();
   const [draft, setDraft] = useState<AutomationDraft>(EMPTY_DRAFT);
@@ -564,15 +569,23 @@ export function AutomationsApp({
     }
   };
 
+  const jobActions = (job: AutomationJob): ItemAction[] => [
+    {label:"Open",run:()=>chooseJob(job)},
+    {label:"Edit",disabled:job.systemOwned||!(onUpdate||onEditDraft),reason:job.systemOwned?"Managed by OpenClaw":undefined,run:()=>openEdit(job)},
+    {label:"Duplicate",disabled:job.systemOwned||!onDuplicate,run:async()=>{const id=await onDuplicate?.(job);if(id){setSelectedId(id);setFilter("all");setQuery("");setMobileDetail(true);}setNotice("Automation copied and paused.");}},
+    {label:"Run now",disabled:!onRun||job.running||Boolean(pendingAction)||job.payload.kind!=="agentTurn"||Boolean(job.manualRunWarning),reason:job.payload.kind!=="agentTurn"?"Personal runs apply to AI tasks":job.manualRunWarning,run:()=>runJob(job,"force")},
+    {label:job.enabled?"Pause":"Enable",disabled:!onToggle||job.systemOwned||Boolean(pendingAction),run:()=>toggleJob(job)},
+    {label:"Manage subscription",run:()=>{chooseJob(job);setSubscriptionRequest({id:job.id,nonce:Date.now()});}},
+    {label:"Delete",danger:true,disabled:!onDelete||job.systemOwned||job.running,reason:job.running?"Wait for the active run to finish":job.systemOwned?"Managed by OpenClaw":undefined,confirm:"This removes the scheduled automation. Its history will no longer appear here. Generated projects and published sites remain.",run:()=>deleteJob(job)},
+  ];
   const deleteJob = async (job: AutomationJob) => {
-    setActionMenuId(undefined);
-    if (!window.confirm(`Remove “${job.name}”? Its run history will no longer appear with this job.`)) return;
+    if(job.systemOwned||job.running)throw new Error("This automation cannot be deleted while protected or running.");
     setPendingAction(`delete:${job.id}`);
     try {
       await onDelete?.(job);
       setNotice(`${job.name} removed.`);
     } catch (reason) {
-      setNotice(reason instanceof Error ? reason.message : "OpenClaw rejected the removal.");
+      throw reason;
     } finally {
       setPendingAction(undefined);
     }
@@ -635,7 +648,7 @@ export function AutomationsApp({
             {(["all", "active", "paused", "issues"] as const).map((value) => <button type="button" key={value} aria-pressed={filter === value} onClick={() => setFilter(value)}>{value}</button>)}
           </div>
           <div className="automations-job-list">
-            {visibleJobs.map((job) => <AutomationJobCard key={job.id} job={job} selected={selected.id === job.id} onSelect={() => chooseJob(job)} onRun={onRun ? () => void runJob(job, "force") : undefined} />)}
+            {visibleJobs.map((job) => <ItemActions key={job.id} name={job.name} actions={jobActions(job)}><AutomationJobCard job={job} selected={selected.id === job.id} onSelect={() => chooseJob(job)} onRun={onRun && job.payload.kind === "agentTurn" && !job.manualRunWarning ? () => void runJob(job, "force") : undefined} /></ItemActions>)}
             {visibleJobs.length === 0 && <div className="automations-list__empty"><Search /><strong>No matching jobs</strong><span>Try another name or filter.</span></div>}
           </div>
           <footer className="automations-list__footer"><Activity /><span>History retained by OpenClaw</span><button type="button" onClick={() => void refreshJobs()}>Refresh</button></footer>
@@ -656,19 +669,19 @@ export function AutomationsApp({
               <i />
             </label>
             <div className="automation-detail-header__actions">
-              {onRun && <div className="automation-run-control">
-                <button type="button" onClick={() => void runJob(selected, "force")} disabled={selected.running || pendingAction === `run:${selected.id}`}><Play />{selected.running || pendingAction === `run:${selected.id}` ? "Running" : "Run now"}</button>
+              <AutomationSubscription openRequest={subscriptionRequest?.id===selected.id?subscriptionRequest.nonce:undefined} jobId={selected.id} />
+              {onRun && selected.payload.kind === "agentTurn" && <div className="automation-run-control">
+                <button type="button" onClick={() => void runJob(selected, "force")} title="Run using your connected ChatGPT account" disabled={selected.running || Boolean(selected.manualRunWarning) || pendingAction === `run:${selected.id}`}><Play />{selected.running || pendingAction === `run:${selected.id}` ? "Running" : "Run now"}</button>
                 <button type="button" aria-label="Choose run mode" aria-expanded={runMenuId === selected.id} onClick={() => setRunMenuId((id) => id === selected.id ? undefined : selected.id)}><ChevronDown /></button>
-                {runMenuId === selected.id && <div className="automation-run-menu"><button type="button" onClick={() => void runJob(selected, "force")}><Zap /><span><strong>Force run now</strong><small>Run regardless of schedule</small></span></button><button type="button" onClick={() => void runJob(selected, "due")}><Clock3 /><span><strong>Run only if due</strong><small>Respect the pending schedule</small></span></button><button type="button" onClick={() => void runJob(selected, "if-enabled")}><CircleCheck /><span><strong>Run if enabled</strong><small>Preserve an operator pause</small></span></button></div>}
+                {runMenuId === selected.id && <div className="automation-run-menu"><button type="button" onClick={() => void runJob(selected, "force")}><Zap /><span><strong>Force run now</strong><small>Use your ChatGPT account, regardless of schedule</small></span></button><button type="button" onClick={() => void runJob(selected, "due")}><Clock3 /><span><strong>Run only if due</strong><small>Respect the pending schedule</small></span></button><button type="button" onClick={() => void runJob(selected, "if-enabled")}><CircleCheck /><span><strong>Run if enabled</strong><small>Preserve an operator pause</small></span></button></div>}
               </div>}
               {(onUpdate || onEditDraft) && <button type="button" onClick={() => openEdit(selected)} disabled={selected.systemOwned}><Settings2 />Edit</button>}
-              {onDelete && <div className="automation-more-control">
-                <button type="button" aria-label="More automation actions" aria-expanded={actionMenuId === selected.id} onClick={() => setActionMenuId((id) => id === selected.id ? undefined : selected.id)}><MoreHorizontal /></button>
-                {actionMenuId === selected.id && <div className="automation-more-menu"><button type="button" disabled={selected.systemOwned || pendingAction === `delete:${selected.id}`} onClick={() => void deleteJob(selected)}><Trash2 /><span><strong>Remove automation</strong><small>Delete the job from OpenClaw</small></span></button></div>}
-              </div>}
+              <ItemActions name={selected.name} actions={jobActions(selected)} />
             </div>
           </header>
 
+          {selected.payload.kind === "agentTurn" && <p>Run now uses your connected ChatGPT account. Scheduled runs use {selected.agent}.</p>}
+          {selected.manualRunWarning && <div className="automation-warning" role="status">{selected.manualRunWarning}</div>}
           {selected.autoDisabled && <div className="automation-warning"><ShieldAlert /><div><strong>Auto-disabled after {selected.autoDisabled.consecutiveErrors} failures</strong><span>OpenClaw stopped this recurring job as a safety backstop. Fix the cause, then enable it to clear the failure streak.</span></div>{onToggle && <button type="button" onClick={() => void toggleJob(selected)}>Review and enable</button>}</div>}
 
           <nav className="automation-detail-tabs" aria-label="Automation details">

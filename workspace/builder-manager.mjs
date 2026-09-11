@@ -471,6 +471,36 @@ export function createBuilderManager({ root, publishSkill }) {
     return publicManifest(manifest, room.doc, actor);
   }
 
+  async function duplicate(actor, id) {
+    const source=await openRoom(validDraftId(id)); assertCanAccess(source.manifest,actor);
+    const fields={};for(const [key,value] of source.doc.getMap("fields")) fields[key]=yTextValue(value);
+    const titles=new Set((await list(actor)).map(d=>d.title));const base=(fields.name||"Untitled").slice(0,65);let name=`${base} copy`,n=2;while(titles.has(name))name=`${base} copy ${n++}`;
+    const created=await create(actor,{kind:source.manifest.kind,initial:{name}});
+    try {
+      const target=await openRoom(created.id);
+      const files=source.doc.getMap("files"),targetFiles=target.doc.getMap("files");
+      target.doc.transact(()=>{
+        const targetFields=target.doc.getMap("fields");
+        for(const [key,value] of Object.entries(fields))targetFields.set(key,new Y.Text(value));
+        targetFields.set("name",new Y.Text(name));targetFields.set("displayName",new Y.Text(name));
+        if(source.manifest.kind==='skill'){targetFields.set("slug",new Y.Text(slugForName(name)));targetFields.set("scope",new Y.Text("personal"));}
+        targetFiles.clear();for(const [key,value] of files){
+          let content=yTextValue(value);
+          if(source.manifest.kind==='skill'&&key==='SKILL.md')content=content.replace(/^(name:\s*).*$/m,`$1${slugForName(name)}`).replace(/^(disable-model-invocation:\s*).*$/m,'$1true').replace(/^(\s+scope:\s*)(personal|team)\s*$/m,'$1personal');
+          if(key==='agents/openai.yaml')content=content.replace(/^(\s*display_name:\s*).*$/m,`$1${JSON.stringify(name)}`).replaceAll(`$${fields.slug}`,`$${slugForName(name)}`);
+          targetFiles.set(key,new Y.Text(content));
+        }
+        for(const [key,value] of source.doc.getMap("flags"))target.doc.getMap("flags").set(key,value);
+      });
+      for(const descriptor of collectAssetDescriptors(source)){
+        const blob=path.join(source.directory,BLOBS_DIRECTORY,descriptor.hash);const info=await lstat(blob);
+        if(!info.isFile()||info.isSymbolicLink()||info.size!==descriptor.size)throw new BuilderError(400,"invalid_asset","Draft asset is invalid");
+        await saveAsset(actor,created.id,{path:descriptor.path,data:(await readFile(blob)).toString('base64'),mimeType:descriptor.mimeType});
+      }
+      await persist(target);return publicManifest(target.manifest,target.doc,actor);
+    }catch(error){await discard(actor,created.id);throw error;}
+  }
+
   async function get(actor, id) {
     const room = await openRoom(validDraftId(id));
     assertCanAccess(room.manifest, actor);
@@ -654,7 +684,7 @@ export function createBuilderManager({ root, publishSkill }) {
     rooms.clear();
   }
 
-  return { list, create, get, collaborators, discard, saveAsset, removeAsset, validate, publish, finalizeAutomation, testSnapshot, connect, close };
+  return { list, create, duplicate, get, collaborators, discard, saveAsset, removeAsset, validate, publish, finalizeAutomation, testSnapshot, connect, close };
 }
 
 export function attachBuilderWebSocket(server, { manager, publicOrigin }) {

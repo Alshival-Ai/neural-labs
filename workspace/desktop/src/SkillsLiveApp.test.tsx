@@ -1,7 +1,8 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { SkillsLiveApp } from "./SkillsLiveApp";
+import { mergeCustomSkills, SkillsLiveApp } from "./SkillsLiveApp";
+import { SkillsApp } from "./SkillsApp";
 import type { NeuraGateway } from "./openclaw";
 import type { ConnectionState } from "./types";
 
@@ -27,6 +28,23 @@ function gatewayFixture() {
 }
 
 describe("Skills live app", () => {
+  it("lets an authorized admin edit the original Team skill without taking ownership", () => {
+    const skills = mergeCustomSkills([], [{
+      id: "team-workflow", key: "team-workflow", name: "Team workflow",
+      description: "Shared workflow", scope: "team", ownerUserId: "maya",
+      ownerDisplayName: "Maya", ownedByCurrentUser: false, editable: true,
+      instructions: "Original instructions", path: "/workspace/skills/team-workflow/SKILL.md",
+      createdAt: "2026-09-08T00:00:00Z", updatedAt: "2026-09-08T00:00:00Z",
+    }]);
+    const onEdit = vi.fn();
+    const onDuplicate = vi.fn();
+    render(<SkillsApp skills={skills} initialSection="team" onEditSkill={onEdit} onDuplicateSkill={onDuplicate} onShare={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Edit Team workflow" }));
+    expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ key: "team-workflow", scope: "team", ownedByCurrentUser: false }));
+    expect(onDuplicate).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Make personal" })).not.toBeInTheDocument();
+  });
+
   it("loads and renders the real SKILL.md when an installed skill is selected", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -48,7 +66,7 @@ describe("Skills live app", () => {
     render(<SkillsLiveApp reader={gateway} canManage={false} currentUser={{ id: "maya", displayName: "Maya", role: "user" }} />);
 
     fireEvent.click(await screen.findByRole("button", { name: /^OpenClaw/ }));
-    fireEvent.click(await screen.findByRole("button", { name: /Beta skill/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Beta skill/ }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("%2Fapp%2Fskills%2Fbeta-skill%2FSKILL.md"),

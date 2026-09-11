@@ -111,3 +111,16 @@ test("Yjs character updates converge without last-write-wins replacement", () =>
   assert.match(first.getText("source").toString(), /team/);
   assert.match(first.getText("source").toString(), /one/);
 });
+
+test("duplicated drafts preserve files and assets but reset publication and sharing",async(t)=>{
+ const {manager}=await fixture(t);
+ const source=await manager.create(maya,{kind:'skill',targetKey:'original',initial:{name:'Original',description:'Useful skill',files:[{path:'references/help.md',content:'Reference',kind:'text'}]}});
+ await manager.saveAsset(maya,source.id,{path:'assets/icon.png',data:Buffer.from([0,255,2]).toString('base64')});
+ await manager.collaborators(maya,source.id,[owen.userId]);
+ const copy=await manager.duplicate(owen,source.id);
+ assert.notEqual(copy.id,source.id);assert.equal(copy.ownerUserId,owen.userId);assert.equal(copy.targetKey,undefined);assert.equal(copy.publishedAt,undefined);assert.deepEqual(copy.collaboratorUserIds,[]);
+ const validation=await manager.validate(owen,copy.id);assert.deepEqual(validation.issues.filter(i=>i.level==='error'),[]);
+ const published=await manager.publish(owen,copy.id);assert.equal(published.skill.key,'original-copy');
+ await manager.discard(owen,copy.id);assert.equal((await manager.get(maya,source.id)).draft.id,source.id);
+ await assert.rejects(manager.duplicate({id:'stranger',userId:'stranger',role:'user'},source.id),e=>e.status===403);
+});

@@ -251,6 +251,13 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, summary:focus-vis
 }
 .chat-attachment { position: relative; max-width: 100%; padding-right: 40px; }
 .chat-attachment.is-image { padding-right: 0; }
+.chat-attachment.is-video { width: min(26rem, 100%); padding-right: 0; }
+.attachment-video { min-width: 0; margin: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--paper-bright); }
+.attachment-video video { display: block; width: 100%; max-height: 320px; aspect-ratio: 16 / 9; object-fit: contain; background: var(--ink); }
+.attachment-video figcaption { min-height: 44px; display: flex; align-items: center; padding: .5rem 48px .5rem .65rem; color: var(--window-muted); font-size: var(--desktop-font-small, 12px); overflow-wrap: anywhere; }
+.attachment-video > p { padding: .75rem; color: var(--window-muted); }
+.chat-attachment.is-video .attachment-menu-toggle { top: auto; bottom: 4px; }
+.chat-attachment.is-video:has(.attachment-error) .attachment-menu-toggle { top: 4px; bottom: auto; }
 .attachment-image-open { display: block; padding: 0; border: 0; border-radius: 10px; overflow: hidden; background: transparent; cursor: zoom-in; }
 .attachment-image-open img { display: block; max-width: 100%; max-height: 320px; object-fit: contain; }
 .attachment-menu-toggle { position: absolute; right: 2px; top: 2px; width: 36px; height: 36px; border: 1px solid #ffffff80; border-radius: 8px; background: #fff; color: #171823; cursor: pointer; display: grid; place-items: center; }

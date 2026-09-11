@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { AutomationDraft } from "./AutomationsApp";
 import { GATEWAY_CLIENT_IDS } from "@openclaw/gateway-protocol/client-info";
@@ -8,6 +8,7 @@ import {
   AUTOMATIONS_CONNECTION_SCOPES,
   draftToGatewayParams,
   mapAutomationsSnapshot,
+  automationRequest,
 } from "./automationsGateway";
 
 const baseDraft: AutomationDraft = {
@@ -37,6 +38,19 @@ const baseDraft: AutomationDraft = {
 };
 
 describe("OpenClaw automation request mapping", () => {
+  it("sends manual run identity to the authenticated HTTP adapter without an account override", async () => {
+    const mocked = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ accepted: true }) });
+    vi.stubGlobal("fetch", mocked);
+    try {
+      await automationRequest("/workspace/api/automations/run", { jobId: "job", mode: "force", requestId: "request" });
+      const [url, options] = mocked.mock.calls[0];
+      expect(url).toBe("/workspace/api/automations/run");
+      expect(options.credentials).toBe("same-origin");
+      expect(JSON.parse(options.body)).toEqual({ jobId: "job", mode: "force", requestId: "request" });
+      mocked.mockResolvedValue({ ok: false, json: async () => ({ error: { message: "Connect your ChatGPT account" } }) });
+      await expect(automationRequest(url, {})).rejects.toThrow("Connect your ChatGPT account");
+    } finally { vi.unstubAllGlobals(); }
+  });
   it("explicitly clears old pins when editing back to agent defaults", () => {
     expect(draftToGatewayParams({ ...baseDraft, model: "", thinking: "" }, true).payload)
       .toMatchObject({ model: null, fallbacks: null, thinking: null });
@@ -119,4 +133,13 @@ describe("OpenClaw automation request mapping", () => {
     expect(snapshot.jobs[0].delivery.target).toBeUndefined();
     expect(snapshot.jobs[0].runs[0].error).toBeUndefined();
   });
+});
+
+describe('saved automation copies',()=>{
+ it('preserves canonical settings while dropping runtime identity and pausing',async()=>{
+  const {automationCopyParams}=await import('./automationsGateway');
+  const original={id:'source',name:'Example',enabled:true,state:{runningAtMs:10},configRevision:'old',deleteAfterRun:true,schedule:{kind:'cron',expr:'0 9 * * *',tz:'America/Chicago',staggerMs:9000},payload:{kind:'agentTurn',message:'Run',lightContext:false,fallbacks:['model'],toolsAllow:[]},delivery:{mode:'none'},failureAlert:{after:3,cooldownMs:5000}};
+  const copy=automationCopyParams(original,['Example copy']);expect(copy.name).toBe('Example copy 2');expect(copy.enabled).toBe(false);expect(copy.id).toBeUndefined();expect(copy.state).toBeUndefined();expect(copy.configRevision).toBeUndefined();expect(copy.payload).toEqual(original.payload);expect(copy.schedule).toEqual(original.schedule);expect(copy.failureAlert).toEqual(original.failureAlert);expect(copy.deleteAfterRun).toBe(true);
+  expect(()=>automationCopyParams({payload:{kind:'heartbeat'}},[])).toThrow('System');
+ });
 });

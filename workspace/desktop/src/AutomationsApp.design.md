@@ -22,8 +22,11 @@ The design was checked against the installed `@openclaw/gateway-protocol` `2026.
    scheduler health, jobs, and durable history.
 2. Create and edit submissions map to `cron.add` and `cron.update`; updates send
    `expectedConfigRevision` when OpenClaw supplies it.
-3. Enable/pause uses `cron.update`, manual run controls use the exact `force`,
-   `due`, and `if-enabled` protocol values, and removal uses `cron.remove`.
+3. Enable/pause uses `cron.update` and removal uses `cron.remove`. AI task manual
+   runs use the authenticated personal-run HTTP adapter. It checks `force`, `due`
+   and `if-enabled` eligibility and submits an isolated execution using the
+   caller's ChatGPT account without changing the scheduled agent. The snapshot
+   adapter merges manual history under the parent automation. See ADR 0033.
 4. OpenClaw cron events prompt a debounced refresh, with periodic reconciliation
    as a fallback.
 5. The dedicated Automations WebSocket requires a live Neural Labs administrator

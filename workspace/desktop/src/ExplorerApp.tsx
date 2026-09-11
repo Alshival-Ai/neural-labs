@@ -221,7 +221,7 @@ function Thumbnail({ item }: { item: Entry }) {
     };
   }, [image, visible, item.path, item.version, item.modifiedAt]);
   return (
-    <span ref={ref} className="ex-thumbnail">
+    <span ref={ref} className={`ex-thumbnail ex-thumbnail--${item.type}`}>
       {item.type === "folder" ? (
         <Folder />
       ) : thumbnail && !failed ? (
@@ -1457,6 +1457,7 @@ export function ExplorerApp({
         </header>
         <div className="ex-actions">
           <button
+            className="ex-primary"
             disabled={tab.location !== "workspace"}
             onClick={(e) => {
               const r = e.currentTarget.getBoundingClientRect();

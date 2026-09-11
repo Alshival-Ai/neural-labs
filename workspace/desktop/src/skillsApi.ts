@@ -74,3 +74,6 @@ export async function setCustomSkillScope(key: string, scope: CustomSkillScope):
     body: JSON.stringify({ scope }),
   })).skill;
 }
+
+export const duplicateSavedSkill = (path: string) => requestJson<{skill: CustomSkill}>("/workspace/api/skills/duplicate", {method:"POST",body:JSON.stringify({path})});
+export const deleteSavedSkill = (path: string) => requestJson<{deleted:true}>("/workspace/api/skills/remove", {method:"DELETE",body:JSON.stringify({path})});

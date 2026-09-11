@@ -20,7 +20,7 @@ const mcpStatusFixture = (ready = true) => ({
   tools: ["google_places_search", "search_gif", "pexels_search_photos"],
 });
 
-async function fixture(ready = true, { maxUploadBytes, maxTextBytes, mcpReady = true, codeServerReady = true, runTeamAgent, personalOpenAI, modelCatalog, modelPolicies, teamOpenAI, voiceService, turnCredentialProvider, teamChannelAuthorizer, terminalHeartbeatMs, gatewayMediaOrigin, gatewayMediaFetch, terminalActorResolver, gifProvider, apiProviderRuntime } = {}) {
+async function fixture(ready = true, { gatewayAdminRequest, maxUploadBytes, maxTextBytes, mcpReady = true, codeServerReady = true, runTeamAgent, personalOpenAI, modelCatalog, modelPolicies, teamOpenAI, voiceService, turnCredentialProvider, teamChannelAuthorizer, terminalHeartbeatMs, gatewayMediaOrigin, gatewayMediaFetch, terminalActorResolver, gifProvider, apiProviderRuntime } = {}) {
   const desktopRoot = await mkdtemp(path.join(tmpdir(), "neural-labs-desktop-test-"));
   const workspaceRoot = path.join(desktopRoot, "workspace-root");
   await mkdir(path.join(desktopRoot, "assets"));
@@ -56,6 +56,7 @@ async function fixture(ready = true, { maxUploadBytes, maxTextBytes, mcpReady = 
       cancel: () => ({ provider: "openai", state: "disconnected" }),
     },
     personalOpenAI,
+    gatewayAdminRequest,
     modelCatalog,
     modelPolicies,
     teamOpenAI,
@@ -84,6 +85,35 @@ async function fixture(ready = true, { maxUploadBytes, maxTextBytes, mcpReady = 
     },
   };
 }
+
+test("personal automation routes authenticate the caller and ignore body account overrides", async () => {
+  const userId = "11111111-1111-1111-1111-111111111111";
+  const calls = [], owners = [];
+  const app = await fixture(true, {
+    personalOpenAI: { prepareRun: async id => { owners.push(id); return `nl-${id.replaceAll("-", "")}`; } },
+    gatewayAdminRequest: async (method, params) => {
+      calls.push({ method, params });
+      if (method === "cron.list") return { jobs: [{ id: "job", name: "Example", payload: { kind: "agentTurn", message: "Task" }, delivery: { mode: "none" } }], hasMore: false };
+      if (method === "cron.add") return { id: "child" };
+      if (method === "cron.update") return { id: "child" };
+      if (method === "cron.run") return { ok: true, queued: true };
+      return { entries: [] };
+    },
+  });
+  try {
+    const url = `${app.origin}/workspace/api/automations/run`;
+    const body = JSON.stringify({ jobId: "job", requestId: "22222222-2222-2222-2222-222222222222", userId: "someone-else", agentId: "main" });
+    const headers = { "Content-Type": "application/json", "Origin": "https://neural-labs.example.com", "X-Forwarded-User": userId, "X-Neural-Labs-Role": "admin" };
+    assert.equal((await fetch(url, { method: "POST", body })).status, 401);
+    assert.equal((await fetch(url, { method: "POST", body, headers: { ...headers, "X-Neural-Labs-Role": "user" } })).status, 403);
+    assert.equal((await fetch(url, { method: "POST", body, headers: { ...headers, Origin: "https://other.example.com" } })).status, 403);
+    assert.equal(calls.length, 0);
+    const response = await fetch(url, { method: "POST", body, headers });
+    assert.equal(response.status, 202);
+    assert.deepEqual(owners, [userId]);
+    assert.equal(calls.find(row => row.method === "cron.add").params.agentId, `nl-${userId.replaceAll("-", "")}`);
+  } finally { await app.close(); }
+});
 
 test("protects model control routes and preserves owner/workload routing", async () => {
   const calls = [];
@@ -228,6 +258,39 @@ test("relays only authenticated, ticketed Neura media through the workspace orig
   }
 });
 
+test("relays private video byte ranges without forwarding browser credentials", async () => {
+  const requests = [];
+  const route = "/workspace/api/neura/media/outgoing/chat/id/full?mediaTicket=v1.c2Vzc2lvbg.c2lnbmF0dXJl";
+  const app = await fixture(true, {
+    gatewayMediaOrigin: "http://127.0.0.1:18789",
+    gatewayMediaFetch: async (_url, init) => {
+      requests.push(init);
+      if (init.headers.Range === "bytes=100-") return new Response(null, { status: 416, headers: { "Content-Range": "bytes */10" } });
+      return new Response(init.method === "HEAD" ? null : new Uint8Array([2, 3, 4]), { status: 206, headers: { "Content-Type": "video/mp4", "Content-Length": "3", "Content-Range": "bytes 2-4/10", "Accept-Ranges": "bytes" } });
+    },
+  });
+  try {
+    const headers = { "X-Forwarded-User": "maya-id", Range: "bytes=2-4", Cookie: "private-session", Authorization: "Bearer browser-only" };
+    assert.equal((await fetch(`${app.origin}${route}`, { headers: { Range: "bytes=2-4" } })).status, 401);
+    const response = await fetch(`${app.origin}${route}`, { headers });
+    assert.equal(response.status, 206);
+    assert.equal(response.headers.get("content-range"), "bytes 2-4/10");
+    assert.equal(response.headers.get("accept-ranges"), "bytes");
+    assert.equal(response.headers.get("cache-control"), "private, no-store");
+    assert.deepEqual([...new Uint8Array(await response.arrayBuffer())], [2, 3, 4]);
+    assert.deepEqual(requests[0].headers, { Range: "bytes=2-4" });
+    const head = await fetch(`${app.origin}${route}`, { method: "HEAD", headers });
+    assert.equal(head.status, 206);
+    assert.equal(await head.text(), "");
+    const invalid = await fetch(`${app.origin}${route}`, { headers: { ...headers, Range: "bytes=0-1,3-4" } });
+    assert.equal(invalid.status, 416);
+    assert.equal(requests.length, 2);
+    const outside = await fetch(`${app.origin}${route}`, { headers: { ...headers, Range: "bytes=100-" } });
+    assert.equal(outside.status, 416);
+    assert.equal(outside.headers.get("content-range"), "bytes */10");
+  } finally { await app.close(); }
+});
+
 test("serves the desktop shell and its allowlisted assets", async () => {
   const app = await fixture();
   try {
@@ -364,7 +427,12 @@ test("saves personal skills directly and enforces owner-only sharing", async () 
       body: JSON.stringify({ scope: "team" }),
     });
     assert.equal(shared.status, 200);
-    assert.equal((await shared.json()).skill.scope, "team");
+    const sharedSkill=(await shared.json()).skill;assert.equal(sharedSkill.scope,"team");
+    const copyResponse=await fetch(`${app.origin}/workspace/api/skills/duplicate`,{method:"POST",headers:owenHeaders,body:JSON.stringify({path:sharedSkill.path})});
+    assert.equal(copyResponse.status,201);const copy=(await copyResponse.json()).skill;
+    assert.equal((await fetch(`${app.origin}/workspace/api/skills/remove`,{method:"DELETE",headers:{...owenHeaders,Origin:"https://attacker.example"},body:JSON.stringify({path:copy.path})})).status,403);
+    assert.equal((await fetch(`${app.origin}/workspace/api/skills/remove`,{method:"DELETE",headers:mayaHeaders,body:JSON.stringify({path:copy.path})})).status,403);
+    assert.equal((await fetch(`${app.origin}/workspace/api/skills/remove`,{method:"DELETE",headers:owenHeaders,body:JSON.stringify({path:copy.path})})).status,200);
   } finally {
     await app.close();
   }

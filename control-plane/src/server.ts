@@ -1,3 +1,5 @@
+import { Notifications } from "./notifications.js";
+import { registerNotificationRoutes } from "./notificationRoutes.js";
 import { ProviderPluginService, providerIdSchema, providerSettingsSchema, providerRuntimeReportSchema, providerCheckSchema } from "./providerPlugins.js";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import path from "node:path";
@@ -288,6 +290,7 @@ export interface ControlPlaneApplication {
   app: Express;
   sessions: SessionService;
   collaboration: CollaborationStore;
+  notifications: Notifications;
 }
 
 export type CollaborationEvent =
@@ -322,6 +325,7 @@ export function createApplication(input: {
   );
   const webauthn = input.webauthn ?? new WebAuthnService();
   const modelPolicies = input.modelPolicies ?? new ModelProviderPolicies(database.pool, config.workspace, workspaceFetch);
+  const notifications = new Notifications(database.pool, authConfiguration, twilio, config, workspaceFetch);
   const app = express();
   const publish = (event: CollaborationEvent) => input.onCollaborationEvent?.(event);
   app.disable("x-powered-by");
@@ -869,6 +873,7 @@ export function createApplication(input: {
     if (error instanceof PhoneError) jsonError(response, error.status, error.code, error.message);
     else jsonError(response, 503, "phone_unavailable", "Phone settings are temporarily unavailable. Try again later.");
   };
+  registerNotificationRoutes(app, notifications, { sameOrigin, active: requireActiveJson, admin: requireAdminJson, csrf: requireCsrfJson, token: config.workspace.controlToken });
   app.get("/api/account/phone", async (request, response) => {
     response.set("Cache-Control", "no-store");
     const actor = await requireActiveJson(request, response);
@@ -2396,5 +2401,5 @@ export function createApplication(input: {
     }
   });
 
-  return { app, sessions, collaboration };
+  return { app, sessions, collaboration, notifications };
 }

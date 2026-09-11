@@ -102,7 +102,7 @@ function publicRecord(metadata, instructions, directory, actor) {
     ownerUserId: metadata.ownerUserId,
     ownerDisplayName: metadata.ownerDisplayName,
     ownedByCurrentUser: metadata.ownerUserId === actor.id,
-    editable: metadata.ownerUserId === actor.id,
+    editable: metadata.ownerUserId === actor.id || (metadata.scope === "team" && actor.role === "admin"),
     instructions,
     path: path.join(directory, SKILL_FILE),
     createdAt: metadata.createdAt,
@@ -148,19 +148,25 @@ async function writePackage(directory, files) {
   return normalized;
 }
 
-async function packageFiles(directory, relative = "") {
+async function packageFiles(directory, relative = "", strict = false, budget = {files:0,bytes:0}) {
   const entries = await readdir(path.join(directory, relative), { withFileTypes: true });
   const files = [];
   for (const entry of entries) {
-    if (entry.name === METADATA_FILE || entry.isSymbolicLink()) continue;
+    if (entry.name === METADATA_FILE || ["__pycache__", ".git", "node_modules"].includes(entry.name)) continue;
+    if(entry.isSymbolicLink()){if(strict)throw new WorkspaceSkillError(400,"invalid_skill_path","Skill copies cannot contain symbolic links");continue;}
     const child = relative ? `${relative}/${entry.name}` : entry.name;
     if (entry.isDirectory()) {
-      if (["agents", "references", "scripts", "assets"].includes(child.split("/")[0])) files.push(...await packageFiles(directory, child));
+      if (["agents", "references", "scripts", "assets"].includes(child.split("/")[0])) files.push(...await packageFiles(directory, child, strict, budget));
       continue;
     }
     if (!entry.isFile()) continue;
     const filePath = safePackagePath(child);
-    const content = await readFile(path.join(directory, ...filePath.split("/")));
+    const source=path.join(directory, ...filePath.split("/"));
+    const info=await lstat(source);
+    if(!info.isFile()||info.isSymbolicLink())throw new WorkspaceSkillError(400,"invalid_skill_path","The skill package changed while reading");
+    budget.files++;budget.bytes+=info.size;
+    if(budget.files>MAX_PACKAGE_FILES||budget.bytes>MAX_PACKAGE_BYTES)throw new WorkspaceSkillError(413,"skill_too_large","Skill package exceeds the size limit");
+    const content = await readFile(source);
     files.push({
       path: filePath,
       kind: filePath.startsWith("assets/") ? "asset" : "text",
@@ -213,12 +219,12 @@ async function readManagedSkill(directory, actor) {
   }
 }
 
-async function listRoot(root, actor) {
+async function listRoot(root, actor, readSkill = readManagedSkill) {
   const resolvedRoot = await assertRoot(root);
   const entries = await readdir(resolvedRoot, { withFileTypes: true });
   const records = await Promise.all(entries
     .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink() && !entry.name.startsWith(".neural-labs-"))
-    .map((entry) => readManagedSkill(path.join(resolvedRoot, entry.name), actor)));
+    .map((entry) => readSkill(path.join(resolvedRoot, entry.name), actor)));
   return records.filter(Boolean);
 }
 
@@ -238,18 +244,43 @@ export function createSkillsManager({ personalRoot, teamRoot, instructionRoots =
     throw new Error("Skill instruction roots must be absolute paths");
   }
 
+  // Installed packages in the writable Team root can be adopted by an admin
+  // on their first edit. Other instruction roots remain read-only.
+  async function readTeamSkill(directory, actor) {
+    const managed = await readManagedSkill(directory, actor);
+    if (managed) return managed;
+    try {
+      if (await pathExists(path.join(directory, METADATA_FILE))) return undefined;
+      const info = await lstat(directory);
+      if (!info.isDirectory() || info.isSymbolicLink() || await realpath(directory) !== directory) return undefined;
+      const { content } = await readInstruction(path.join(directory, SKILL_FILE));
+      const fileInfo = await stat(path.join(directory, SKILL_FILE));
+      const slug = path.basename(directory);
+      if (skillSlug(slug) !== slug) return undefined;
+      return publicRecord({
+        slug, name: slug,
+        description: content.match(/^description:\s*(.+)$/m)?.[1]?.replace(/^['"]|['"]$/g, "") || "Installed team skill",
+        scope: "team", ownerUserId: "", ownerDisplayName: "Team",
+        createdAt: fileInfo.birthtime.toISOString(), updatedAt: fileInfo.mtime.toISOString(),
+      }, bodyFromDocument(content), directory, actor);
+    } catch (error) {
+      if (["ENOENT", "ENOTDIR"].includes(error?.code) || error instanceof WorkspaceSkillError) return undefined;
+      throw error;
+    }
+  }
+
   async function find(slug, actor) {
     const normalizedSlug = skillSlug(slug);
     for (const [scope, root] of [["personal", personalRoot], ["team", teamRoot]]) {
       const directory = path.join(await assertRoot(root), normalizedSlug);
-      const record = await readManagedSkill(directory, actor);
+      const record = await (scope === "team" ? readTeamSkill : readManagedSkill)(directory, actor);
       if (record) return { record, directory, scope, root };
     }
     throw new WorkspaceSkillError(404, "skill_not_found", "Skill not found");
   }
 
   async function list(actor) {
-    const [personal, team] = await Promise.all([listRoot(personalRoot, actor), listRoot(teamRoot, actor)]);
+    const [personal, team] = await Promise.all([listRoot(personalRoot, actor), listRoot(teamRoot, actor, readTeamSkill)]);
     return [...personal, ...team].sort((left, right) => left.name.localeCompare(right.name));
   }
 
@@ -264,7 +295,8 @@ export function createSkillsManager({ personalRoot, teamRoot, instructionRoots =
     try {
       if (existingSlug) {
         const existing = await find(slug, actor);
-        if (!existing.record.editable) throw new WorkspaceSkillError(403, "forbidden", "Only the skill owner can edit this skill");
+        if (!existing.record.editable) throw new WorkspaceSkillError(403, "forbidden", "Only the owner or a Team administrator can edit this skill");
+        if (scope !== existing.scope && !existing.record.ownedByCurrentUser) throw new WorkspaceSkillError(403, "forbidden", "Only the skill owner can change its scope");
         const metadata = {
           schema: "neural-labs.skill.v1",
           slug,
@@ -327,7 +359,7 @@ export function createSkillsManager({ personalRoot, teamRoot, instructionRoots =
     try {
       const slug = skillSlug(rawSlug);
       const existing = await find(slug, actor);
-      if (!existing.record.editable) throw new WorkspaceSkillError(403, "forbidden", "Only the skill owner can share this skill");
+      if (!existing.record.ownedByCurrentUser) throw new WorkspaceSkillError(403, "forbidden", "Only the skill owner can share this skill");
       if (existing.scope === nextScope) return existing.record;
       const destinationRoot = await assertRoot(nextScope === "team" ? teamRoot : personalRoot);
       const destination = path.join(destinationRoot, slug);
@@ -406,7 +438,8 @@ export function createSkillsManager({ personalRoot, teamRoot, instructionRoots =
     let previous;
     if (existingSlug) {
       previous = await find(slug, actor);
-      if (previous.record.ownerUserId !== actor.id) throw new WorkspaceSkillError(403, "forbidden", "Duplicate this skill before editing it");
+      if (!previous.record.editable) throw new WorkspaceSkillError(403, "forbidden", "Only the owner or a Team administrator can edit this skill");
+      if (scope !== previous.scope && !previous.record.ownedByCurrentUser) throw new WorkspaceSkillError(403, "forbidden", "Only the skill owner can change its scope");
     } else {
       const [personal, team] = await Promise.all([assertRoot(personalRoot), assertRoot(teamRoot)]);
       if (await pathExists(path.join(personal, slug)) || await pathExists(path.join(team, slug))) throw new WorkspaceSkillError(409, "skill_exists", "A skill with that name already exists");
@@ -424,7 +457,7 @@ export function createSkillsManager({ personalRoot, teamRoot, instructionRoots =
       name,
       description,
       scope,
-      ownerUserId: previous?.record.ownerUserId ?? actor.id,
+      ownerUserId: previous ? previous.record.ownerUserId : actor.id,
       ownerDisplayName: previous?.record.ownerDisplayName ?? actor.displayName,
       createdAt: previous?.record.createdAt ?? now,
       updatedAt: now,
@@ -454,7 +487,53 @@ export function createSkillsManager({ personalRoot, teamRoot, instructionRoots =
     }
   }
 
-  return { list, save, share, readPackage, readInstruction, savePackage };
+  // Serialize identity allocation and directory mutations within this workspace.
+  let mutationQueue = Promise.resolve();
+  function exclusive(action) { const result = mutationQueue.then(action); mutationQueue = result.catch(() => undefined); return result; }
+  async function sourceDirectory(actor, sourcePath) {
+    await readInstruction(sourcePath);
+    const directory = path.dirname(sourcePath);
+    if ((await realpath(directory)) !== directory) throw new WorkspaceSkillError(403, "invalid_skill_path", "Linked skill directories are not supported");
+    return directory;
+  }
+  async function duplicate(actor, input) {
+    return exclusive(async () => {
+      const directory = await sourceDirectory(actor, input?.path);
+      const source = await readFile(path.join(directory, SKILL_FILE), "utf8");
+      const record = await readManagedSkill(directory, actor);
+      const base = (record?.name || path.basename(directory)).slice(0, 65);
+      const description = record?.description || source.match(/^description:\s*(.+)$/m)?.[1]?.replace(/^['"]|['"]$/g, "") || "Copied skill";
+      const files = await packageFiles(directory, "", true);
+      for (let n=1;n<1000;n++) {
+        const name = `${base} copy${n===1?'':` ${n}`}`; const slug=skillSlug(name);
+        if(await pathExists(path.join(personalRoot,slug))||await pathExists(path.join(teamRoot,slug))) continue;
+        const renamed=files.map(file=>({ ...file, ...(file.kind==='asset'?{content:Buffer.from(file.data,'base64')}:{content:file.content}) }));
+        const main=renamed.find(file=>file.path===SKILL_FILE);
+        main.content=source.replace(/^(disable-model-invocation:\s*).*$/m,'$1true').replace(/^(name:\s*).*$/m,`$1${slug}`).replace(/^(\s+scope:\s*)(personal|team)\s*$/m,'$1personal');
+        if(!/^disable-model-invocation:/m.test(main.content))main.content=main.content.replace(/^---\r?\n/,'---\ndisable-model-invocation: true\n');
+        const agent=renamed.find(file=>file.path==='agents/openai.yaml');
+        if(agent) agent.content=agent.content.replace(/^(\s*display_name:\s*).*$/m,`$1${JSON.stringify(name)}`).replaceAll(`$${path.basename(directory)}`,`$${slug}`);
+        return savePackage(actor,{fields:{name,slug,description,scope:'personal'},files:renamed});
+      }
+      throw new WorkspaceSkillError(409,"skill_exists","Choose a different copy name");
+    });
+  }
+  async function remove(actor, input) {
+    return exclusive(async()=>{
+      const directory=await sourceDirectory(actor,input?.path);
+      const record=await readManagedSkill(directory,actor);
+      const parent=path.dirname(directory);
+      const personal=await assertRoot(personalRoot),team=await assertRoot(teamRoot);
+      const owner=record?.ownerUserId===actor.id;
+      if(!((parent===personal&&owner)||(parent===team&&(owner||actor.role==='admin')))) throw new WorkspaceSkillError(403,"forbidden","Only the owner or a Team administrator can delete this skill");
+      const hidden=path.join(parent,`.neural-labs-deleted-${randomUUID()}`);
+      await rename(directory,hidden);
+      try {await rm(hidden,{recursive:true,force:true});} catch(error){await rename(hidden,directory);throw error;}
+      return {deleted:true};
+    });
+  }
+  return { list, save, share, readPackage, readInstruction, savePackage, duplicate, remove };
+
 }
 
 export function workspaceSkillActorId(value) {
