@@ -110,3 +110,16 @@ test("rejects failed isolated execution envelopes", async () => {
   }), /Provider unavailable/);
   assert.deepEqual(activitiesFromExecSummary({ calls: 0, tools: ["exec_command"] }), []);
 });
+
+test("team model snapshots can delegate reasoning to the native runtime", async () => {
+  const settings = { agentId: "nl-teamneura", model: "openai/gpt-5.6-sol", effort: "", revision: 1 };
+  await runTeamAgent({ ...input, agentId: settings.agentId, modelSettings: settings,
+    loadConfig: async () => ({ agents: { defaults: { systemAgent: { agentId: "main" } }, entries: { [settings.agentId]: { workspace: "/workspace" } } } }),
+    execute: async (_command, args) => {
+      const config = JSON.parse(await readFile(args[args.indexOf("--config") + 1], "utf8"));
+      assert.equal(config.agents.entries[settings.agentId].model.primary, settings.model);
+      assert.equal(Object.hasOwn(config.agents.entries[settings.agentId], "thinkingDefault"), false);
+      return { stdout: JSON.stringify({ final: "Team reply" }) };
+    },
+  });
+});

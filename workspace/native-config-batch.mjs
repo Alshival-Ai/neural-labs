@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 // Hashed dist filenames and exports are build artifacts, not an integration
 // contract. Some official images contain multiple config-cli bundles.
 export async function applyNativeConfigBatch(operations, execute = promisify(execFile)) {
-  if (!Array.isArray(operations) || operations.length !== 2 || operations.some((op) =>
+  if (!Array.isArray(operations) || ![1, 2].includes(operations.length) || operations.some((op) =>
     !op || typeof op.path !== "string" || !op.path || !Object.hasOwn(op, "value"))) {
     throw new Error("Invalid model configuration batch");
   }

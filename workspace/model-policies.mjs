@@ -27,8 +27,9 @@ export function resolveModelPolicy(policy, catalog, previous) {
     } else throw new Error("No compatible recommendation is available. Choose an available model explicitly.");
   }
   if (selected.provider !== policy.provider) throw new Error("Changing provider requires a separate connection");
-  const effort = policy.effort || selected.defaultEffort;
-  if (!effort) throw new Error("The runtime has not published a default reasoning level for this model");
+  // Delegated runtimes can offer a model without publishing reasoning
+  // controls. An automatic policy must let that runtime choose its default.
+  const effort = policy.effort || selected.defaultEffort || "";
   return { model: selected.id, effort, held, catalogFetchedAt: catalog.fetchedAt, registryVersion: RECOMMENDATIONS.version };
 }
 
@@ -56,11 +57,11 @@ export class ModelPolicies {
     return this.personalOpenAI.queueMutation(async () => {
       const latest = this.applied.get(agentId);
       if (latest && latest.revision > revision) throw new Error("A newer model policy is already active");
-      // Both fields update in one native config transaction. Utility models,
+      // Published fields update in one native config transaction. Utility models,
       // session pins, cron pins, credentials and tool policy are untouched.
       const operations = [
         { path: `agents.entries.${agentId}.model`, value: { primary: resolved.model, fallbacks: [] } },
-        { path: `agents.entries.${agentId}.thinkingDefault`, value: resolved.effort },
+        ...(resolved.effort ? [{ path: `agents.entries.${agentId}.thinkingDefault`, value: resolved.effort }] : []),
       ];
       await this.personalOpenAI.execute(process.execPath, [fileURLToPath(new URL("./native-config-batch.mjs", import.meta.url)), JSON.stringify(operations)], {
         encoding: "utf8", timeout: 120_000, maxBuffer: 1024 * 1024,

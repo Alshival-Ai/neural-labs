@@ -25,11 +25,15 @@ function setup(connected = false, failDisconnect = false, staleRefresh = false) 
 it("shows provider cards without defaults before connection, and opens provider details", async () => {
   const fetch = setup();
   await screen.findByText("Not connected");
+  expect(screen.queryByRole("button", { name: "Refresh connection" })).toBeNull();
   expect(screen.queryByRole("heading", { name: "Agent defaults" })).toBeNull();
   expect(fetch.mock.calls.some(([url]) => String(url).includes("model-providers"))).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "Set up OpenAI" }));
   expect(await screen.findByRole("heading", { name: "Your ChatGPT account" })).toBeTruthy();
   expect(document.activeElement?.textContent).toBe("OpenAI");
+  expect(fetch.mock.calls.filter(([url]) => String(url) === "/api/account/openai/connect")).toHaveLength(1);
+  expect(await screen.findByRole("button", { name: "Connect ChatGPT" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Refresh connection" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Back to providers" }));
   fireEvent.click(screen.getByRole("button", { name: "Configure Claude" }));
   expect(screen.getByRole("heading", { name: "Claude is coming soon" })).toBeTruthy();
@@ -92,4 +96,22 @@ it("does not report cached fallback data as a successful refresh", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Refresh connection" }));
   await screen.findAllByText("Refresh failed. Showing cached models.");
   expect(screen.queryByText("Connection and models refreshed. Your defaults are unchanged.")).toBeNull();
+});
+
+
+it("shows refresh after the personal sign-in completes in provider details", async () => {
+  let authenticated = false;
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    if (String(input).endsWith("/connect")) {
+      expect(init?.method).toBe("POST");
+      expect(new Headers(init?.headers).get("x-csrf-token")).toBe("member-csrf");
+      authenticated = true;
+    }
+    return Response.json({ state: authenticated ? "connected" : "disconnected", authenticated, modelReady: authenticated, paused: !authenticated });
+  });
+  render(<ModelProviderPanel csrfToken="member-csrf" />);
+  fireEvent.click(await screen.findByRole("button", { name: "Configure OpenAI" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Connect ChatGPT" }));
+  expect(await screen.findByRole("button", { name: "Refresh connection" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Connect ChatGPT" })).toBeNull();
 });

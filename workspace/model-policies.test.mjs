@@ -33,3 +33,23 @@ test("atomic native defaults preserve unrelated settings and reject older revisi
   assert.deepEqual(operations[0].value.fallbacks, []);
   await assert.rejects(manager.apply({ userId: "owner", policy, revision: 1 }), /newer/);
 });
+
+test("automatic reasoning works when the delegated runtime omits reasoning metadata", async () => {
+  const native = { ...model("gpt-5.6-sol", []), defaultEffort: null };
+  const nativeCatalog = { ...catalog, models: [native, { ...model("gpt-6-astra"), available: false }] };
+  const resolved = resolveModelPolicy(policy, nativeCatalog);
+  assert.equal(resolved.model, "openai/gpt-5.6-sol");
+  assert.equal(resolved.effort, "");
+  assert.throws(() => resolveModelPolicy({ ...policy, effort: "high" }, nativeCatalog));
+  const calls = [];
+  const manager = new ModelPolicies({
+    catalog: { list: async () => nativeCatalog },
+    personalOpenAI: {
+      ensureProvisioned: async () => ({ agentId: "nl-owner" }),
+      queueMutation: async fn => fn(),
+      execute: async (...args) => calls.push(args),
+    },
+  });
+  await manager.apply({ userId: "owner", policy, revision: 1 });
+  assert.deepEqual(JSON.parse(calls[0][1][1]), [{ path: "agents.entries.nl-owner.model", value: { primary: native.id, fallbacks: [] } }]);
+});

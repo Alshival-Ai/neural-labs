@@ -9,6 +9,7 @@ import "./model-providers.css";
 
 export function ModelProviderPanel({ csrfToken }: { csrfToken: string }) {
   const [detail, setDetail] = useState<"openai" | "claude">();
+  const [startSignIn, setStartSignIn] = useState(false);
   const [connection, setConnection] = useState<PersonalOpenAIAuth>();
   const [error, setError] = useState<string>();
   const [disconnectError, setDisconnectError] = useState<string>();
@@ -71,7 +72,7 @@ export function ModelProviderPanel({ csrfToken }: { csrfToken: string }) {
   const connected = connection?.authenticated === true;
   const pending = connection && ["starting", "awaiting_user"].includes(connection.state);
   const status = !connection ? "Checking connection…" : connected ? connection.paused ? "Connected · paused" : connection.modelReady ? "Connected" : "Connected · setup pending" : pending ? "Sign-in in progress" : "Not connected";
-  const refreshControls = <div className="provider-refresh">
+  const refreshControls = connected && <div className="provider-refresh">
     <button type="button" className="settings-button" disabled={refreshing || busy || confirm || Boolean(pending)} onClick={() => void refreshProvider()}><RefreshCw aria-hidden="true" />{refreshing ? "Refreshing…" : "Refresh connection"}</button>
     {providerCatalog && <small>{providerCatalog.runtime ? `${providerCatalog.runtime.name} ${providerCatalog.runtime.version} · ` : ""}Models checked {new Date(providerCatalog.fetchedAt).toLocaleString()}{providerCatalog.stale ? " · cached" : ""}</small>}
     {refreshError && <p role="alert">{refreshError}</p>}
@@ -79,9 +80,9 @@ export function ModelProviderPanel({ csrfToken }: { csrfToken: string }) {
   </div>;
   return <div className="settings-panel user-settings-app model-provider-page">
     {detail ? <>
-      <button type="button" className="settings-button provider-back" disabled={refreshing} onClick={() => setDetail(undefined)}><ArrowLeft aria-hidden="true" />Back to providers</button>
+      <button type="button" className="settings-button provider-back" disabled={refreshing} onClick={() => { setStartSignIn(false); setDetail(undefined); }}><ArrowLeft aria-hidden="true" />Back to providers</button>
       <div className="settings-section-header"><div><h1 ref={focusTarget} tabIndex={-1}>{detail === "openai" ? "OpenAI" : "Claude"}</h1><p>{detail === "openai" ? "Manage your personal ChatGPT connection." : "Anthropic’s AI assistant."}</p></div></div>
-      {detail === "openai" ? <><PersonalProviderConnection csrfToken={csrfToken} refreshedStatus={refreshedStatus} />{refreshControls}<p className="provider-refresh-hint">Rechecks your connection and available models. It does not reinstall the plugin, disconnect your account, or change saved defaults.</p></> : <section className="settings-card"><h2>Claude is coming soon</h2><p className="model-provider-unavailable">Claude sign-in is not available in this release. It requires a supported subscription sign-in route and an isolated Claude runtime. You do not need to provide tokens or API keys.</p></section>}
+      {detail === "openai" ? <><PersonalProviderConnection csrfToken={csrfToken} startOnMount={startSignIn} refreshedStatus={refreshedStatus} onStatusChange={setConnection} />{refreshControls}{connected && <p className="provider-refresh-hint">Rechecks your connection and available models. It does not start a new ChatGPT sign-in or change saved defaults.</p>}</> : <section className="settings-card"><h2>Claude is coming soon</h2><p className="model-provider-unavailable">Claude sign-in is not available in this release. It requires a supported subscription sign-in route and an isolated Claude runtime. You do not need to provide tokens or API keys.</p></section>}
     </> : <>
       <div className="settings-section-header"><div><span><Bot />Personal agent</span><h1 ref={confirm ? undefined : focusTarget} tabIndex={-1}>Model Provider</h1><p>Connect your accounts and choose how your private Neura works.</p></div></div>
       {notice && <p role="status">{notice}</p>}
@@ -101,7 +102,7 @@ export function ModelProviderPanel({ csrfToken }: { csrfToken: string }) {
               {disconnectError && <p role="alert">{disconnectError}</p>}
               <button type="button" className="settings-button is-primary" disabled={busy} onClick={() => void disconnect()}>{busy ? "Disconnecting…" : "Confirm disconnect"}</button>
               <button type="button" className="settings-button" disabled={busy} onClick={() => { setConfirm(false); setDisconnectError(undefined); }}>Keep connected</button>
-            </div> : <button type="button" className={`settings-button${connected ? "" : " is-primary"}`} disabled={busy || refreshing || !connection || Boolean(error)} onClick={() => { setNotice(undefined); connected ? setConfirm(true) : setDetail("openai"); }}>{connected ? "Disconnect" : pending ? "Continue setup" : "Set up OpenAI"}</button>}
+            </div> : <button type="button" className={`settings-button${connected ? "" : " is-primary"}`} disabled={busy || refreshing || !connection || Boolean(error)} onClick={() => { setNotice(undefined); if (connected) setConfirm(true); else { setStartSignIn(!pending); setDetail("openai"); } }}>{connected ? "Disconnect" : pending ? "Continue setup" : "Set up OpenAI"}</button>}
             {refreshControls}
           </article>
           <article className="settings-card provider-card">

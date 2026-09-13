@@ -28,3 +28,13 @@ test("CLI rejection and timeouts fail without disclosing provider output", async
   await assert.rejects(applyNativeConfigBatch([], () => assert.fail("must not execute")));
   await assert.rejects(applyNativeConfigBatch([{}, {}], () => assert.fail("must not execute")));
 });
+
+test("a model-only update leaves native reasoning configuration untouched", async () => {
+  const modelOnly = operations.slice(0, 1);
+  let invoked = false;
+  await applyNativeConfigBatch(modelOnly, async (_command, args) => {
+    invoked = true;
+    assert.deepEqual(JSON.parse(args[3]), modelOnly);
+  });
+  assert.equal(invoked, true);
+});

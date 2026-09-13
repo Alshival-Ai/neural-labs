@@ -189,7 +189,7 @@ export async function runTeamAgent({ prompt, capability, agentId, runId, modelSe
   if (typeof capability !== "string" || capability.length < 32 || capability.length > 512) throw new Error("The Team Chat capability is invalid");
   if (typeof agentId !== "string" || !/^nl-[a-z0-9]{1,60}$/u.test(agentId)) throw new Error("The Team Chat personal agent is invalid");
   if (typeof runId !== "string" || !/^[a-zA-Z0-9-]{8,128}$/u.test(runId)) throw new Error("The Team Chat run id is invalid");
-  if (modelSettings && (agentId !== "nl-teamneura" || modelSettings.agentId !== agentId || !/^openai\/[a-zA-Z0-9._/-]+$/u.test(modelSettings.model) || !/^[a-z]{1,20}$/u.test(modelSettings.effort) || !Number.isSafeInteger(modelSettings.revision) || modelSettings.revision < 1)) throw new Error("The Team Chat model snapshot is invalid");
+  if (modelSettings && (agentId !== "nl-teamneura" || modelSettings.agentId !== agentId || !/^openai\/[a-zA-Z0-9._/-]+$/u.test(modelSettings.model) || typeof modelSettings.effort !== "string" || !/^[a-z]{0,20}$/u.test(modelSettings.effort) || !Number.isSafeInteger(modelSettings.revision) || modelSettings.revision < 1)) throw new Error("The Team Chat model snapshot is invalid");
   const temporaryDirectory = await mkdtemp(path.join(tmpdir(), "neural-labs-team-"));
   const messagePath = path.join(temporaryDirectory, "message.md");
   const configPath = path.join(temporaryDirectory, "openclaw.json");
@@ -201,7 +201,7 @@ export async function runTeamAgent({ prompt, capability, agentId, runId, modelSe
     if (modelSettings) {
       // Snapshot the accepted policy in this run's isolated config. Changes to
       // workspace defaults while queued/running cannot change its model.
-      config.agents.entries = { ...config.agents.entries, [agentId]: { ...config.agents.entries[agentId], model: { primary: modelSettings.model, fallbacks: [] }, thinkingDefault: modelSettings.effort } };
+      config.agents.entries = { ...config.agents.entries, [agentId]: { ...config.agents.entries[agentId], model: { primary: modelSettings.model, fallbacks: [] }, ...(modelSettings.effort ? { thinkingDefault: modelSettings.effort } : {}) } };
       if (config.models?.providers?.openai?.apiKey) throw new Error("The Team subscription route conflicts with a configured OpenAI API key");
       delete environment.OPENAI_API_KEY;
     }
