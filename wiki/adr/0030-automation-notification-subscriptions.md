@@ -1,5 +1,8 @@
 # ADR 0030: Preference-aware automation notifications
 
+> Design history: for current instructions, see [Run and manage automations](../automations.md).
+> See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
+
 - Status: Accepted
 - Date: 2026-09-07
 

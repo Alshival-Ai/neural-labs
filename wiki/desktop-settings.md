@@ -1,4 +1,4 @@
-# Desktop settings
+# Settings
 
 Neural Labs settings live inside the shared desktop at `/workspace`. Every
 active user receives the **Settings** cog in the dock. The account menu is kept
@@ -28,11 +28,9 @@ number without losing the existing verification, and confirmed removal. Pending
 verification is restored when Settings reopens. This does not enable phone login,
 recovery, or marketing messages.
 
-The owner-scoped API is `GET /api/account/phone`, `POST` to
-`/api/account/phone/request` (`phoneNumber`, `consent: true`), `/verify`
-(`challengeId`, `code`), `/cancel` (`challengeId`), and `DELETE /api/account/phone`.
-Mutations require the session CSRF token. SMS requires the three server-side
-Twilio settings documented in [ADR 0022](adr/0022-profile-phone-verification.md).
+Phone verification requires the administrator's Twilio SMS/MMS connection in
+**Settings → Plugins**. It does not opt you into proactive agent messages;
+those require the separate Personalization preference.
 
 | Area | Purpose |
 |---|---|
@@ -98,6 +96,8 @@ to every member; only administrators may add or manage it. Future global
 plugins may use a reviewed workspace credential or require each member to make
 their own connection, depending on the provider.
 
+## Plugins and SMS
+
 The global **Twilio SMS/MMS** channel uses one administrator-managed Twilio
 account and sender number. Credentials are entered manually, validated with a
 read-only Twilio request, and encrypted by the control plane. Neural Labs shows
@@ -109,7 +109,7 @@ them. Agent tools accept only a workspace handle or user ID, never an arbitrary
 phone number.
 
 The workspace image pins the official `@openclaw/sms` package to the same
-`2026.8.2` release as OpenClaw. In Twilio, configure the sender number's **A
+reviewed release as OpenClaw (see the [release manifest](../workspace/openclaw-release.json)). In Twilio, configure the sender number's **A
 message comes in** webhook as HTTP POST to the URL shown in Settings. SMS and
 MMS callbacks are signature-validated by the channel plugin.
 

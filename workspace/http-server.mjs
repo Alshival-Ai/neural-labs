@@ -566,6 +566,7 @@ export function createWorkspaceHttpServer({
     }
     const providerRoute = pathname === "/internal/provider-auth/openai";
     const providerStartRoute = pathname === "/internal/provider-auth/openai/start";
+    const providerProbeRoute = pathname === "/internal/provider-auth/openai/probe";
     const providerCancelRoute = pathname === "/internal/provider-auth/openai/cancel";
     const personalProviderMatch = pathname.match(/^\/internal\/provider-auth\/openai\/users\/([^/]+)(?:\/(start|cancel|pause|resume|disconnect))?$/u);
     const teamAgentRoute = pathname === "/internal/neura/team-run";
@@ -704,13 +705,26 @@ export function createWorkspaceHttpServer({
       }
       return;
     }
-    if (providerRoute || providerStartRoute || providerCancelRoute) {
+    if (providerRoute || providerStartRoute || providerCancelRoute || providerProbeRoute) {
       if (!providerAuth || !workspaceControlToken || !validControlToken(request, workspaceControlToken)) {
         sendJson(response, 401, { error: { code: "unauthorized", message: "Unauthorized" } }, method);
         return;
       }
       if (providerRoute && method === "GET") {
         sendJson(response, 200, providerAuth.snapshot(), method);
+        return;
+      }
+      if (providerProbeRoute && method === "POST") {
+        try {
+          if (!gatewayAdminRequest) throw new Error("Gateway unavailable");
+          // Operator-only diagnostic: no caller-selected owner, profile or text.
+          const result = await gatewayAdminRequest("models.probe", {
+            agentId: "main", provider: "openai", profileId: "openai:neural-labs-background", timeoutMs: 30000,
+          });
+          sendJson(response, 200, { provider: "openai", status: result.status,
+            results: result.results?.map(row => ({ status: row.status, model: row.model, latencyMs: row.latencyMs })),
+          }, method);
+        } catch { sendJson(response, 503, { error: { message: "Background connection probe could not complete" } }, method); }
         return;
       }
       if (providerStartRoute && method === "POST") {

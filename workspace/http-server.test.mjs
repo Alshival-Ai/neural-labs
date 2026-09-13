@@ -1502,3 +1502,19 @@ test("provider runtime status and checks require the workspace token and validat
     assert.deepEqual(checked, [{ provider: "klipy", revision: 2 }]);
   } finally { await app.close(); }
 });
+
+
+test("background live probe is operator-only and cannot select another account", async () => {
+  const calls = [];
+  const app = await fixture(true, { gatewayAdminRequest: async (method, params) => { calls.push({ method, params }); return { status: "ok", results: [{ status: "ok", model: "openai/example", private: "do not expose" }] }; } });
+  try {
+    const url = `${app.origin}/internal/provider-auth/openai/probe`;
+    assert.equal((await fetch(url, { method: "POST" })).status, 401);
+    const headers = { Authorization: "Bearer workspace-control-token-at-least-thirty-two-characters", "Content-Type": "application/json" };
+    assert.equal((await fetch(url, { headers })).status, 405);
+    const response = await fetch(url, { method: "POST", headers, body: JSON.stringify({ agentId: "other", profileId: "other" }) });
+    assert.equal(response.status, 200);
+    assert.deepEqual(calls, [{ method: "models.probe", params: {agentId: "main", provider: "openai", profileId: "openai:neural-labs-background", timeoutMs: 30000} }]);
+    assert.deepEqual(await response.json(), { provider: "openai", status: "ok", results: [{ status: "ok", model: "openai/example" }] });
+  } finally { await app.close(); }
+});

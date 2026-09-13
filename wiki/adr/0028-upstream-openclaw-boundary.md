@@ -1,5 +1,8 @@
 # ADR 0028: Unmodified upstream OpenClaw runtime
 
+> Design history: for current instructions, see [Updating the OpenClaw runtime](../openclaw-upgrades.md).
+> See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
+
 Date: 2026-09-06
 
 Status: Accepted; deployed on 2026-09-06; upgraded from OpenClaw 2026.8.2 to 2026.9.2.

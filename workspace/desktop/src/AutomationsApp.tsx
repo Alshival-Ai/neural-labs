@@ -42,6 +42,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import "./automations-app.css";
+import { TitleTooltip, useLibraryResize } from "./LibraryInteractions";
 import { ModelPicker } from "./ModelPicker";
 import { useModelCatalog } from "./modelProviders";
 
@@ -142,6 +143,8 @@ export type AutomationDraft = {
 };
 
 export type AutomationsAppProps = {
+  currentUserId?: string;
+  embedded?: boolean;
   jobs?: readonly AutomationJob[];
   workspaceName?: string;
   schedulerOnline?: boolean;
@@ -382,6 +385,8 @@ function draftFromJob(job: AutomationJob): AutomationDraft {
 }
 
 export function AutomationsApp({
+  currentUserId,
+  embedded = false,
   jobs = PLACEHOLDER_AUTOMATIONS,
   workspaceName = "Workspace",
   schedulerOnline = true,
@@ -398,6 +403,7 @@ export function AutomationsApp({
   onCreateDraft,
   onEditDraft,
 }: AutomationsAppProps) {
+  const libraryResize = useLibraryResize(currentUserId, "automations-list-width", 296);
   const [localJobs, setLocalJobs] = useState<AutomationJob[]>(() => jobs.map(cloneJob));
   const [selectedId, setSelectedId] = useState(() => jobs[0]?.id ?? "");
   const [query, setQuery] = useState("");
@@ -619,16 +625,16 @@ export function AutomationsApp({
   return (
     <section className="automations-app" aria-label="Workspace automations">
       <header className="automations-toolbar">
-        <div className="automations-toolbar__identity">
+        {!embedded && <div className="automations-toolbar__identity">
           <span><CalendarClock /></span><div><strong>Automations</strong><small>OpenClaw scheduler</small></div>
-        </div>
+        </div>}
         <div className={`automations-scheduler${schedulerOnline ? " is-online" : " is-offline"}`}>
           <i />
           <span><strong>{schedulerOnline ? "Scheduler online" : "Scheduler offline"}</strong><small>{schedulerOnline ? "Gateway is accepting jobs" : "Schedules will not fire"}</small></span>
         </div>
         <div className="automations-toolbar__actions">
           <button type="button" aria-label="Refresh automations" disabled={pendingAction === "refresh"} onClick={() => void refreshJobs()}><RefreshCw className={pendingAction === "refresh" ? "is-spinning" : undefined} /></button>
-          {(onCreate || onCreateDraft) && <button type="button" onClick={openCreate}><Plus />New automation</button>}
+          {!embedded && (onCreate || onCreateDraft) && <button type="button" onClick={openCreate}><Plus />New automation</button>}
         </div>
       </header>
 
@@ -639,7 +645,7 @@ export function AutomationsApp({
         <div className="is-mint"><span><CircleCheck /></span><div><strong>{successRate}%</strong><small>Recent success</small></div><em>{terminalRuns.length} runs</em></div>
       </div>
 
-      <div className="automations-workspace">
+      <div ref={libraryResize.containerRef} style={libraryResize.style} className="automations-workspace">
         <aside className="automations-list" aria-label="Automation jobs">
           <div className="automations-list__heading">
             <div><span>Workspace</span><strong>{workspaceName}</strong></div><small>{localJobs.length} jobs</small>
@@ -653,6 +659,7 @@ export function AutomationsApp({
             {visibleJobs.length === 0 && <div className="automations-list__empty"><Search /><strong>No matching jobs</strong><span>Try another name or filter.</span></div>}
           </div>
           <footer className="automations-list__footer"><Activity /><span>History retained by OpenClaw</span><button type="button" onClick={() => void refreshJobs()}>Refresh</button></footer>
+          {libraryResize.separator}
         </aside>
 
         <main className={`automations-detail${mobileDetail ? " is-mobile-open" : ""}`}>
@@ -714,14 +721,14 @@ function AutomationIcon({ kind }: { kind: AutomationScheduleKind }) {
 function AutomationJobCard({ job, selected, onSelect, onRun }: { job: AutomationJob; selected: boolean; onSelect: () => void; onRun?: () => void }) {
   return (
     <article className={`automation-job is-${job.accent}${selected ? " is-selected" : ""}${!job.enabled ? " is-paused" : ""}`}>
-      <button type="button" className="automation-job__select" aria-label={job.name} aria-pressed={selected} onClick={onSelect}>
+      <TitleTooltip title={job.name}><button type="button" className="automation-job__select" aria-label={job.name} aria-pressed={selected} onClick={onSelect}>
         <span className="automation-job__top"><i /><strong>{job.name}</strong>{job.systemOwned && <em>system</em>}</span>
         <span className="automation-job__schedule"><AutomationIcon kind={job.schedule.kind} />{job.schedule.label}</span>
         <span className="automation-job__status">
           <small className={`is-${job.running ? "running" : job.lastStatus}`}><i />{job.running ? "Running" : job.enabled ? statusLabel(job.lastStatus) : "Paused"}</small>
           <small>{job.nextRun}</small>
         </span>
-      </button>
+      </button></TitleTooltip>
       {onRun && <button type="button" className="automation-job__run" aria-label={`Run ${job.name} now`} disabled={job.running} onClick={onRun}><Play /></button>}
     </article>
   );

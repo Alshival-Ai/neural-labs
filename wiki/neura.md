@@ -5,6 +5,17 @@ agent. It runs in the workspace image and connects directly to the version-
 matched OpenClaw Gateway browser protocol through the authenticated same-origin
 WebSocket at `/workspace/neura/socket`.
 
+## Start a conversation
+
+Connect your account in **Settings → Model Provider → OpenAI**, open Neura from
+the dock, and create a private conversation. Enter sends a request; Shift+Enter
+adds a line. Use `$` to select a skill, or attach files using the composer.
+See [Your first workspace session](shared-workspace.md) for a complete first run.
+
+Private chats and [Team Chats](team-chats.md) have different audiences. Saving
+an attachment into Files makes that copy part of the shared workspace; see
+[Sharing and privacy](sharing-and-privacy.md).
+
 ## Phone navigation and composing
 
 At phone-sized app widths, the top-left menu opens a collapsible **Conversation
@@ -190,7 +201,7 @@ verified before browser QA.
 
 ## Personal OpenAI connection
 
-Open **Settings → Personalization → Your ChatGPT account** to connect through
+Open **Settings → Model Provider → OpenAI** to connect through
 OpenClaw's device-code flow. The UI shows only the verification URL, one-time
 code, expiry, and safe connection status. OpenClaw stores OAuth material in the
 personal agent's persistent auth directory; the control plane and browser do
@@ -210,14 +221,16 @@ workspace.
 
 On page load, Neural Labs provisions and verifies the personal agent before it
 starts the Neura WebSocket. If the safe account status is disconnected or paused, an
-actionable desktop toast opens Settings directly on Personalization. The login
+actionable desktop toast opens Settings directly on Model Provider. The login
 flow can begin before a Gateway browser profile exists; after successful OpenAI
 authentication, Neural Labs assigns the matching personal role.
 
-Private Neura and Team Chat `@Neura` turns fail closed when this connection is
-missing, paused, expired, or not model-ready. They never fall back to the
-workspace service credential. The separate Workspace connection continues to
-run automations, heartbeats, and other background work.
+Private Neura fails closed when this connection is missing, paused, expired,
+or not model-ready. Team Chat initially uses the message author's account;
+after an administrator activates dedicated Team Neura, it uses that separate
+account instead. Scheduled automations use their assigned agent, while manual
+AI task runs use the caller's personal account. None uses the shared audio API
+key as a text fallback. See [AI accounts and models](ai-accounts.md).
 
 ## Run controls
 
@@ -271,7 +284,7 @@ as synthetic completed work. OpenClaw approval events render inline with only
 their allowed decisions. Assistant text is rendered as Markdown without raw
 HTML.
 
-Team Chat uses the same timeline. After the author's isolated personal run
+Team Chat uses the same timeline. After its account-scoped run
 completes, the workspace stores the bounded tool summary exposed by the runner
 with the Team Chat run and includes it in later shared transcript handoffs. The
 temporary execution state is removed, and author-specific private sessions

@@ -35,7 +35,7 @@ test("background login explicitly owns main without resetting models or passing 
   const child = new FakeChild();
   const result = spawnBackgroundLogin((command, args, options) => {
     assert.equal(command, "script");
-    assert.equal(args[1], "openclaw models auth login --agent main --provider openai --device-code");
+    assert.equal(args[1], "openclaw models auth login --agent main --provider openai --device-code --profile-id openai:neural-labs-background");
     assert.equal(options.env.OPENAI_API_KEY, undefined);
     assert.equal(options.detached, true);
     return child;
@@ -166,4 +166,14 @@ test("refreshes provider status after a successful login before classifying the 
   assert.equal(refreshes, 1);
   assert.equal(controller.snapshot().state, "connected");
   assert.equal(controller.snapshot().authenticated, true);
+});
+
+
+test("background reconnect can replace a saved credential without reporting the old login as success", () => {
+  const child = new FakeChild();
+  const controller = createProviderAuthController({providerAuthenticated: () => true, modelReady: () => true, allowReconnect: true, spawnLogin: () => child});
+  assert.equal(controller.start().state, "starting");
+  child.stdout.emit("data", "URL: https://auth.openai.com/codex/device\nCode: TEST-CODE");
+  assert.equal(controller.snapshot().state, "awaiting_user");
+  controller.cancel();
 });

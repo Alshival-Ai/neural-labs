@@ -1,5 +1,8 @@
 # ADR 0020: Isolated managed browser for Neura QA
 
+> Design history: for current instructions, see [Neura desktop app](../neura.md).
+> See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
+
 ## Status
 
 Accepted

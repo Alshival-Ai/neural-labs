@@ -1,5 +1,8 @@
 # ADR 0006: Split Skills reads from administrator mutations
 
+> Design history: for current instructions, see [Skills and graphical builder](../skills.md).
+> See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
+
 - Status: Superseded for first-party authoring by ADR 0011; retained for OpenClaw administration
 - Date: 2026-09-01
 

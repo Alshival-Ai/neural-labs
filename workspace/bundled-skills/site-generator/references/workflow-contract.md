@@ -49,7 +49,9 @@ Read these engine references for the required data formats:
   rules below replace its legacy fixed presentation default for this workflow.
 - [Conversion and content](../../prospect-video-site/references/conversion-and-content.md):
   truthful copy and practical actions. Follow the selected template for visual
-  QA rather than that reference's default-template routing.
+  QA and action placement rather than that reference's default-template routing
+  or first-viewport action recommendation. Website Template 1 permits no hero
+  buttons and a primary action reached through navigation or a later section.
 - [Publication and handoff](../../prospect-video-site/references/publication-and-handoff.md):
   truthful demo metadata, noindex, preview verification and production limitations.
 - [Restaurant overlay](../../prospect-video-site/references/restaurant.md): only

@@ -8,8 +8,9 @@ content and visual language to the supplied brief.
 The finished site must combine all of these outcomes:
 
 1. a near-viewport opening with a full-bleed image or poster behind the exact
-   business identity, a dominant headline, and an immediately usable primary
-   action;
+   business identity and a dominant headline, which may be the business name;
+   useful next steps remain discoverable through navigation, inline links or
+   relevant page sections, with hero buttons optional;
 2. a preferred full-width, sticky scroll-controlled video background—beginning
    in the opening or elsewhere—with a distinct communication job; and
 3. a preferred image hover overlay or reveal that helps visitors explore a
@@ -38,9 +39,12 @@ the business.
 - Let the H1 establish visual dominance with a responsive display scale. It
   must overlap the media field, remain readable at 200% zoom, and avoid hiding
   the focal subject.
-- Keep category/location context, one concise value statement, and the primary
-  CTA legible on the initial still frame. Motion is never required to identify
-  the business or act.
+- Do not place an eyebrow or small introductory label above the H1. Compose the
+  business-name or editorial heading with supporting copy as needed, rather
+  than requiring a category/location label, value statement and CTA stack.
+  Useful context can live in supporting copy or practical details. A hero with
+  no buttons is valid; keep next steps discoverable elsewhere in the page.
+  Motion is never required to identify the business or reach an action.
 - Use a local responsive image/poster. A selected short-GOP scroll-controlled
   video may own the opening media field when its communication value and
   transfer budget are stronger than the still; do not add decorative autoplay

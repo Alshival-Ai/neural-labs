@@ -35,15 +35,27 @@ previous site's composition.
 Read [design-system.md](references/design-system.md) before implementation for
 header/navigation composition, font selection, responsive type, palette roles,
 spacing, buttons, section rhythm, galleries and footer design. Choose and record
-the applicable options; example palettes and font pairs are starting points.
+the applicable options; example font pairs are illustrations, not a shortlist.
+Choose the palette from usable brand guidance, logos and official materials;
+when these are absent, use the business's character, audience and positioning
+and record the palette as a creative assumption. There is no default accent color.
+
+Do not place an eyebrow, category/location label or decorative section number
+above the hero heading. Let the business name itself be the dominant headline
+when it makes a strong identity statement, with a catchphrase or slogan below;
+an editorial headline is another option. Choose the hierarchy, type treatment
+and alignment for this business. Put useful category/location context naturally
+in supporting copy or practical details. Explicit user design choices take precedence.
 
 ## Media-first composition
 
 Read [media-first-presentation.md](references/media-first-presentation.md) for
 the opening geometry, optional scenes, interaction behavior and QA hooks.
 Use a near-viewport full-bleed media field with readable identity, a dominant
-headline and an immediately usable primary action. Do not substitute a split
-hero, framed video or bounded image card for the opening media field.
+headline. Hero buttons are optional; keep useful next steps discoverable through
+navigation, inline links or relevant page sections without waiting for motion.
+Do not substitute a split hero, framed video or bounded image card for the
+opening media field.
 
 Map each asset to a communication role with an intentional desktop/mobile crop,
 focal point, aspect ratio, alt-text purpose and replacement notes. Keep source
@@ -53,10 +65,14 @@ before media or animation loads.
 
 ## Interaction and responsive behavior
 
-Choose one clear primary action from the supplied customer journey. Repeat it
-at natural decision points with consistent language; secondary actions should
-support it. A mobile sticky action is appropriate only when it remains reachable
-without covering content, trapping scroll or competing with navigation.
+Choose one clear primary action from the supplied customer journey and verified
+destinations. Place it at natural decision points with consistent language;
+secondary actions should support it. Do not automatically pair a call button
+with directions. One action, supporting text links or no hero buttons are valid
+choices. Choose control shape and treatment to fit the visual direction, without
+requiring a filled button. A mobile sticky action is appropriate only when it
+remains reachable without covering content, trapping scroll or competing with
+navigation.
 
 Honor an explicitly requested compatible effect and record the selected primitive,
 assets, placement and selection source. AUTO applies to omitted choices. If an
@@ -98,6 +114,10 @@ large text, 200% zoom, optional missing sections, crops, contrast, hierarchy and
 reachable actions. Verify keyboard order and all selected interactions. Check
 header contrast before and after scrolling, mobile navigation access, font-load
 and fallback layouts, button states, section transitions and footer usability.
+Check that the hero has no eyebrow, the headline and fonts suit the actual name
+and copy, the palette follows the recorded brand/business basis, and actions
+remain discoverable when hero buttons are absent. Assess the composition as a
+whole; changing an accent color alone does not establish a distinct design.
 
 Exercise slow or missing media, deep-scroll refresh, resize, back/forward
 navigation, no JavaScript, reduced motion and Save-Data. Selected scroll effects

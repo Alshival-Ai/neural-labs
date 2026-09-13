@@ -1,5 +1,8 @@
 # ADR 0012: Collaborative skill builder and automation read model
 
+> Design history: for current instructions, see [Skills and graphical builder](../skills.md).
+> See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
+
 - Status: Accepted
 - Date: 2026-09-03
 - Extends: ADR 0011 and ADR 0005

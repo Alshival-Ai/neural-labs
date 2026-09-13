@@ -80,7 +80,10 @@ describe("Skills app", () => {
     render(<SkillsApp onCreateSkill={onCreateSkill} onCreateAutomation={onCreateAutomation} onOpenDraft={onOpenDraft} drafts={[{ id: "draft-1", kind: "skill", title: "Support workflow", ownerDisplayName: "Maya", updatedAt: "2026-09-03T00:00:00.000Z" }]} />);
 
     fireEvent.click(screen.getByRole("button", { name: "New skill" }));
-    fireEvent.click(screen.getByRole("button", { name: "Automation" }));
+    expect(screen.queryByRole("button", { name: "New automation" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Automations" }));
+    fireEvent.click(screen.getByRole("button", { name: "New automation" }));
+    expect(screen.queryByRole("button", { name: "New skill" })).not.toBeInTheDocument();
     expect(onCreateSkill).toHaveBeenCalledOnce();
     expect(onCreateAutomation).toHaveBeenCalledOnce();
 

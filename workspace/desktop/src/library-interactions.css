@@ -1,0 +1,5 @@
+.library-title-tooltip { position:fixed; z-index:10000; max-width:min(320px,calc(100vw - 16px)); padding:.55rem .75rem; border:1px solid #a18ae2; border-radius:8px; color:#fffef9; background:#17181f; box-shadow:0 6px 22px #0b0c1133; font:13px/1.45 system-ui,sans-serif; overflow-wrap:anywhere; overflow:auto; box-sizing:border-box; }
+.library-resizer { position:absolute; z-index:5; inset:0 0 0 auto; width:9px; cursor:col-resize; touch-action:none; user-select:none; display:grid; align-items:center; justify-items:end; }
+.library-resizer span { width:3px; height:36px; margin-right:2px; border-radius:3px; background:#aca4c0; opacity:.65; }
+.library-resizer:hover,.library-resizer:focus-visible { outline:none; background:#7b4dff33; }
+.library-resizer:hover span,.library-resizer:focus-visible span { height:64px; opacity:1; background:linear-gradient(#08a9ef,#7b4dff,#f23aa9,#f6ae35); }

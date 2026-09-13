@@ -1,5 +1,8 @@
 # ADR 0004: Move administrator settings into the workspace desktop
 
+> Design history: for current instructions, see [Settings](../desktop-settings.md).
+> See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
+
 - Status: Accepted
 - Date: 2026-09-01
 

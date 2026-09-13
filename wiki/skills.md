@@ -15,9 +15,12 @@ Skills window and selects Automations; it does not open a separate app.
 
 ## Graphical skill builder
 
-Choose **+ Skill** to open a dedicated full-window builder. The metadata form
+Choose **New skill** to open a dedicated full-window builder. The metadata form
 and raw package source are two views of the same collaborative document.
-`SKILL.md` remains canonical. The package browser supports:
+`SKILL.md` remains canonical. The Edit view groups Basics, Instructions, and
+Availability before expandable Appearance and Advanced settings. Write the
+instructions directly in the form; use Source for the package files. The
+package browser supports:
 
 - `SKILL.md` instructions and frontmatter;
 - `agents/openai.yaml` display metadata, icons, default prompt, invocation
@@ -38,9 +41,13 @@ The only generated shortcut form is `$skill-name`. It uses the lowercase,
 hyphenated package slug. Once published, that slug cannot be renamed; duplicate
 the skill to create a differently named package.
 
-Owners can edit Neural Labs-managed skills directly. A read-only, unmanaged,
-system, or other-owner skill offers **Duplicate to My Skills**, creating an
-independent personal draft.
+Owners can edit their managed skills. Administrators can also edit packages
+in the writable Team skill root, including installed packages without app
+ownership metadata. Administrators cannot edit another user's personal skill
+through this API. Bundled and plugin instruction roots remain read-only.
+
+For a skill you cannot edit, use **Duplicate to My Skills** to make your own
+copy, then edit it independently.
 
 ## Collaboration and testing
 
@@ -61,9 +68,12 @@ approval prompt or stop it.
 
 ## Automation builder
 
-Administrators can choose **+ Automation** from Skills. Automation drafts use
+Administrators can choose **New automation** in the Automations section. Automation drafts use
 the same autosave, collaboration, validation, and explicit-publish lifecycle as
-skills. The action picker includes **Run a skill**: selecting `release-notes`
+skills. The sectioned editor groups Basics, What to run, When to run, and
+Delivery, with execution settings under Advanced. Controls adapt to the selected
+action and schedule while preserving hidden settings. The action picker
+includes **Use a skill**: selecting `release-notes`
 creates an agent-turn payload beginning with `$release-notes`, followed by the
 optional prompt.
 
@@ -71,7 +81,21 @@ Every active user can read operational automation names, schedules, enabled or
 running state, and run outcomes. The regular-user view removes commands,
 scripts, payloads, conditions, working directories, tool/model settings,
 delivery targets, errors, and usage details. Administrator reads and every
-scheduler mutation continue through the administrator-only Gateway connection.
+schedule-management mutation continue through the administrator-only Gateway
+connection. Members can manually run eligible AI tasks through the authenticated
+HTTP adapter using their own connected account; see [Automations](automations.md).
+
+## Duplicate or delete a saved item
+
+Right-click an item, use its **…** button, or press Shift+F10. Duplicating a
+skill copies its supported package files with new personal ownership. Draft
+copies are unpublished and have independent collaborators. Automation copies
+are paused and omit subscribers and run history.
+
+Delete requires confirmation. Owners can delete their own skill packages;
+administrators can also delete writable Team packages. Bundled/plugin sources
+and other users' personal packages remain protected from these administrator
+API actions. Deleting a draft does not remove an already published skill.
 
 ## Storage and trust boundary
 

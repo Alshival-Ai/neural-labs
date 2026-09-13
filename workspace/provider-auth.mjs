@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { agentEnvironment } from "./provider-environment.mjs";
 
-export const BACKGROUND_LOGIN_COMMAND = "openclaw models auth login --agent main --provider openai --device-code";
+export const BACKGROUND_LOGIN_COMMAND = "openclaw models auth login --agent main --provider openai --device-code --profile-id openai:neural-labs-background";
 const LOGIN_TIMEOUT_MS = 16 * 60 * 1000;
 const MAX_OUTPUT_BUFFER = 64 * 1024;
 
@@ -69,6 +69,7 @@ export function createProviderAuthController({
   spawnLogin = spawnBackgroundLogin,
   now = () => Date.now(),
   loginTimeoutMs = LOGIN_TIMEOUT_MS,
+  allowReconnect = false,
 } = {}) {
   if (typeof providerAuthenticated !== "function" || typeof modelReady !== "function") {
     throw new Error("Provider authentication checks are required");
@@ -114,8 +115,8 @@ export function createProviderAuthController({
       provider: "openai",
       authMethod: "chatgpt",
       ...state,
-      authenticated,
-      modelReady: ready,
+      authenticated: authenticated && !child,
+      modelReady: ready && !child,
     };
   }
 
@@ -153,7 +154,7 @@ export function createProviderAuthController({
 
   function start() {
     const current = snapshot();
-    if (child || current.authenticated) return current;
+    if (child || (current.authenticated && !allowReconnect)) return current;
 
     cancelled = false;
     const attempt = ++generation;

@@ -1,4 +1,4 @@
-# Container deployment and onboarding
+# Deploy your Neural Labs instance
 
 The supported deployment is Docker Compose behind an existing host Nginx. The
 four HTTP ports bind to loopback by default; PostgreSQL has no host port. The
@@ -8,24 +8,53 @@ not HTTP traffic and cannot traverse the Nginx reverse proxy.
 The provider MCP is a child process inside the workspace container and has no
 host or Compose-network listener.
 
+Start with the [quick setup](README.md) for the complete personal-installation
+sequence. This page provides the detailed host and ingress steps.
+
 ## Prerequisites
 
-- Docker Engine with the Compose plugin;
-- OpenSSL;
-- Nginx and a valid certificate for the final hostname;
-- a repository checkout owned by the operator, not by a service container.
+- a Linux host with Docker Engine and the Compose plugin;
+- Git, Bash, OpenSSL, curl, and Node.js 22 or newer on the operator host;
+- Nginx, working DNS, and a valid certificate for the final HTTPS hostname;
+- a repository checkout owned by the operator, not by a service container;
+- enough CPU, memory, and storage for builds, persistent data, and backups.
+  The workspace defaults to limits of 10 CPUs and 16 GiB; these are configurable
+  ceilings, not a measured minimum for a small personal installation.
+
+The CLI uses Docker during `init` and Node.js during `up` and updates. Check
+`docker compose version`, `docker info`, and `node --version` before starting.
+Installing these prerequisites and obtaining a certificate are operator steps.
 
 No service mounts the Docker socket or a host home directory.
+
+## Voice relay and network settings
+
+The supplied stack always starts TURN. Set `NEURAL_LABS_TURN_HOST`,
+`NEURAL_LABS_TURN_EXTERNAL_IP`, `NEURAL_LABS_TURN_RELAY_IP`, and
+`NEURAL_LABS_TURN_URLS` in `.env` before starting, even when initially testing
+only text chat. The relay IP must be an IPv4 address on the host; the example
+addresses cannot bind on your machine. On a directly addressed host, external
+and relay IPs may be the same. Behind NAT, use the host's interface address as
+the relay IP and the router's public address as the external IP.
+
+The current Compose file runs the separate coturn service with host networking;
+application containers, including the workspace, remain on Docker bridges.
+This existing relay configuration is distinct from the workspace's isolation.
 
 Team Terminal voice additionally requires the configured TURN listener port
 over TCP and UDP plus the configured narrow UDP relay range. If the host is
 behind NAT, forward those ports to `NEURAL_LABS_TURN_RELAY_IP`. Set
 `NEURAL_LABS_TURN_EXTERNAL_IP` to the public address for
-`NEURAL_LABS_TURN_HOST`. The control plane gives authenticated voice
+`NEURAL_LABS_TURN_HOST`. With the defaults, that means port **3478 TCP and UDP** and **49160–49200 UDP**.
+Keep the relay range narrow and match all STUN/TURN URLs to your configured
+host and port. Opening these ports is needed for remote Team Terminal voice;
+it is not required for a first text chat.
+
+The control plane gives authenticated voice
 participants one-hour credentials derived from `NEURAL_LABS_TURN_SECRET`; the
 shared secret reaches neither browsers nor the developer-accessible workspace.
 
-## 1. Configure public values and secrets
+## Configure public values and secrets
 
 ```bash
 bin/neural-labs init
@@ -40,7 +69,7 @@ Entra values. It is ignored by Git and must remain mode `0600`.
 Back up `.env` securely before continuing. Losing its control-plane master key
 makes an Entra credential stored in PostgreSQL undecryptable.
 
-## 2. Build and start on loopback
+## Build and start on loopback
 
 ```bash
 bin/neural-labs up
@@ -55,21 +84,54 @@ bin/neural-labs doctor
 ```
 
 The doctor checks the workspace-local MCP through the container and requires
-the TURN service to be healthy. Both provider credentials must be configured
-for it to pass.
+the TURN service to be healthy. All three optional provider credentials (Google Maps, KLIPY, and Pexels) must
+be configured for its MCP check to pass. A basic personal deployment can use
+Neura text chat, Files, and Terminal without those keys; inspect the other
+checks separately. Doctor checks that TURN is running, not end-to-end voice.
+See [Troubleshooting](troubleshooting.md#doctor-reports-a-provider-failure).
 
-## 3. Enable same-domain ingress
+## Enable HTTPS ingress
 
-Review `deploy/nginx/neural-labs.ai.conf`, replace the example hostname and
-certificate paths when self-deploying, then install it as an explicit host
-operation:
+The supplied [Nginx configuration](../deploy/nginx/neural-labs.ai.conf) contains
+the authentication checks and routes the desktop needs. Make an operator-owned
+copy outside the checkout so your hostname and certificate changes stay local:
 
 ```bash
-sudo install -o root -g root -m 0644 deploy/nginx/neural-labs.ai.conf \
-  /etc/nginx/sites-available/neural-labs.ai.conf
+install -m 0600 deploy/nginx/neural-labs.ai.conf ../neural-labs.nginx.conf
+```
+
+Edit that copy before installing it:
+
+1. Replace every `neural-labs.ai` hostname, including redirects and certificate
+   paths, with your final hostname.
+2. The template includes a `www` redirect server. Either provide DNS and a
+   certificate covering that alias or remove the alias from the HTTP server
+   and remove its separate HTTPS redirect server.
+3. Set the certificate/key paths and TLS helper files for your certificate
+   installation. The template's `/etc/letsencrypt/options-ssl-nginx.conf` and
+   `ssl-dhparams.pem` must exist if retained. It uses `http2 on;`; adapt that
+   directive to your installed Nginx version if configuration validation rejects it.
+4. If you changed the application ports in `.env`, update the matching loopback
+   upstreams. Keep the session subrequests, identity-header replacement,
+   WebSocket handling, upload limits, and disabled public MCP routes intact.
+
+For a host whose Nginx includes `/etc/nginx/sites-enabled/*`, install and enable
+the site explicitly:
+
+```bash
+sudo install -o root -g root -m 0644 ../neural-labs.nginx.conf \
+  /etc/nginx/sites-available/neural-labs.conf
+sudo ln -s /etc/nginx/sites-available/neural-labs.conf \
+  /etc/nginx/sites-enabled/neural-labs.conf
 sudo nginx -t
 sudo systemctl reload nginx
 ```
+
+Create the symlink only on first installation; if it already exists, verify
+that it points to the intended file. On hosts that use `conf.d` instead, install
+the site in the directory included by that host's `http` configuration. Keep
+only one active copy of these named upstreams and server blocks. Reload only
+after `nginx -t` succeeds. The CLI does not perform any of these host changes.
 
 The routing is:
 
@@ -95,7 +157,7 @@ sudo systemctl disable --now neural-labs-web.service
 Do not expose a container port on `0.0.0.0`; change the bind address only after
 an authenticated ingress review.
 
-## 4. Claim the configured administrator
+## Claim the configured administrator
 
 No SSH tunnel or host-specific alias is required. With local login enabled,
 open `https://<hostname>/signup` and register the exact email configured as
@@ -108,7 +170,7 @@ first-visitor race.
 Approved regular users are redirected to `/workspace`; administrators can open
 the same environment from the console.
 
-## 5. Verify the public deployment
+## Verify the public deployment
 
 ```bash
 curl --fail https://neural-labs.example.com/healthz
@@ -139,15 +201,17 @@ workspace media route accepts only that ticketed outgoing-media path and relays
 it to the container's loopback Gateway; it must not be expanded into a generic
 Gateway proxy.
 
-As the initial administrator, open `/workspace`, launch **Settings** from the
-dock, choose **Workspace**, and connect the shared OpenClaw runtime to a
-ChatGPT/Codex account. The
-[shared workspace guide](shared-workspace.md) includes the UI flow and operator
-recovery command.
+Open `/workspace` and connect your own ChatGPT account under **Settings → Model
+Provider → OpenAI**. Send a private Neura request to verify model access. If you
+want scheduled AI work, also connect the Background ChatGPT account under
+**Settings → Workspace**. These connections are independent; see
+[AI accounts and models](ai-accounts.md).
 
 ## Updating
 
-Create a backup, rebuild, replace containers, and verify health with:
+First obtain and review the source revision you intend to deploy. The CLI does
+not fetch Git updates. Then build, back up, replace containers, and verify
+health with:
 
 ```bash
 bin/neural-labs update

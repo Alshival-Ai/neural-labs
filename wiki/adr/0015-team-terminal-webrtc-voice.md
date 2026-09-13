@@ -1,5 +1,8 @@
 # ADR 0015: WebRTC Team Terminal voice
 
+> Design history: for current instructions, see [Terminal desktop app](../terminal.md).
+> See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
+
 ## Context
 
 Team Terminals already provide an authenticated, same-origin WebSocket per

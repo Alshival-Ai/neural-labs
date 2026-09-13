@@ -1,4 +1,4 @@
-# Microsoft Entra OAuth setup for the MCP server
+# Future public MCP reference
 
 > Future public mode: this implementation is retained for a later, separately
 > reviewed public MCP release. V1 deliberately returns `404` for public MCP
@@ -10,9 +10,10 @@ This runbook explains how Codex signs in with Microsoft and connects to the Stre
 
 Microsoft Entra authenticates users and signs the access tokens. The MCP process is the protected resource server and also exposes a narrow OAuth metadata façade at `/oauth/authorize` and `/oauth/token`.
 
-In the supported Compose deployment, the control plane owns Entra onboarding
-and sends MCP only public tenant, client, scope, audience, authority, and URL
-values through an internal bearer-authenticated endpoint. Disabling MCP in the
+The retained managed-mode implementation lets the control plane own Entra
+onboarding and send MCP only public tenant, client, scope, audience, authority,
+and URL values through an internal bearer-authenticated endpoint. The current
+Compose stack does not run this public server. Disabling MCP in the
 administrator UI causes the MCP listener to return `503`; re-enabling or
 rotating public configuration is picked up without copying credentials between
 containers.
@@ -57,7 +58,8 @@ Use the root `.env.example` only as a public field-name reference. Its identifie
 
 The app registration must be single-tenant and serve as the Neural Labs web
 client, the API resource, and Codex's pre-registered public client. Follow the
-complete [manual Entra app setup](entra-app-setup.md).
+[web sign-in setup](entra-app-setup.md) for the web portion, then the
+future-only API steps below.
 
 1. Under **Expose an API**, set the Application ID URI to `api://<AZURE_CLIENT_ID>`.
 2. Add an enabled delegated permission named `mcp.access`. Allow the intended tenant users or administrators to consent according to organizational policy.
@@ -112,7 +114,7 @@ codex mcp list
 
 Complete Microsoft sign-in in the browser. Then use the MCP `whoami` tool to verify the tenant and user identity returned by the validated access token.
 
-## Production checklist
+## Future release review checklist
 
 - Put the exact HTTPS endpoint in `MCP_PUBLIC_URL`; changing it changes Codex's callback ID.
 - Terminate TLS at reviewed ingress and forward the MCP endpoint, both OAuth façade endpoints, and both `/.well-known/` discovery paths. Expose health only where operations require it.

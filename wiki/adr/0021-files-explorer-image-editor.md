@@ -1,5 +1,8 @@
 # ADR 0021: Recoverable Files operations and isolated image editing
 
+> Design history: for current instructions, see [Files desktop app](../files.md).
+> See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
+
 Status: Accepted for implementation; deployment requires operator promotion.
 
 ## Context

@@ -1,5 +1,8 @@
 # ADR 0016: Scope Team Chat terminals to channel membership
 
+> Design history: for current instructions, see [Terminal desktop app](../terminal.md).
+> See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
+
 - Status: Accepted
 - Date: 2026-09-03
 

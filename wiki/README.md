@@ -1,85 +1,150 @@
-# Neural Labs wiki
+# Set up your Neural Labs
 
-Documentation and user guides for the shared Neural Labs workspace.
+Neural Labs gives you a self-hosted desktop with Neura, files, terminals, VS Code,
+skills, and automations. You can use it on your own or invite trusted teammates
+into the same workspace.
 
-## Getting started
+This quick setup takes you from a fresh checkout to your first Neura chat. If
+someone already hosts your workspace, skip deployment and follow
+[Your first workspace session](shared-workspace.md).
 
-Teammates: start with the [workspace guide](shared-workspace.md),
-[passkey login](passkeys.md), and [Neura guide](neura.md).
-Administrators: start with [deployment](container-deployment.md) and
-[administrator settings](desktop-settings.md).
+## 1. Prepare your host
 
-## Guides and release records
+Use a Linux host with Docker Engine and the Compose plugin, Git, Bash, OpenSSL,
+curl, and Node.js 22 or newer. You also need Nginx, a hostname pointing to the
+host, and a valid TLS certificate for that hostname. The supported setup uses
+HTTPS even for a personal instance; the deployment CLI requires a non-example
+HTTPS origin.
 
-- [v0.3.2 release record](releases/v0.3.2.md)
-- [v0.3.1 release record](releases/v0.3.1.md)
-- [v0.3.0 release record](releases/v0.3.0.md)
-- [v0.2.0 release record](releases/v0.2.0.md)
-- [Container deployment and onboarding](container-deployment.md)
-- [OpenClaw release upgrades](openclaw-upgrades.md)
-- [Authentication and administrator model](authentication.md)
-- [Administrator settings](desktop-settings.md)
-- [Shared developer workspace](shared-workspace.md)
-- [Desktop windows and device state](desktop-state.md)
-- [Passkey login](passkeys.md)
-- [Files desktop app](files.md)
-- [Retired Editor desktop app](editor.md)
-- [Terminal desktop app](terminal.md)
-- [VS Code desktop app](vscode.md)
-- [Neura desktop app](neura.md)
-- [Team Chats](team-chats.md)
-- [Automations desktop app](automations.md)
-- [Skills desktop app](skills.md)
-- [Workspace-local provider MCP](workspace-provider-mcp.md)
-- [Manual Microsoft Entra app setup](entra-app-setup.md)
-- [Future public Microsoft Entra MCP](mcp-entra-oauth.md)
-- [Backup and restore](backup-restore.md)
-- [Web frontend](web-frontend.md)
-## Architecture decisions
+The default workspace limit is **10 CPUs and 16 GiB RAM**, in addition to the
+other services and image builds. Adjust the limits in `.env` for your host;
+these defaults are not a tested minimum hardware requirement. Allow disk space
+for images, persistent files, and backups.
 
-- [ADR 0001: Containerized loopback ingress](adr/0001-loopback-web-ingress.md)
-- [ADR 0002: Embedded control-plane console](adr/0002-embedded-control-plane-console.md)
-- [ADR 0003: Shared developer workspace](adr/0003-shared-developer-workspace.md)
-- [ADR 0004: Desktop administrator settings](adr/0004-desktop-admin-settings.md)
-- [ADR 0005: Admin-gated Automations ingress](adr/0005-admin-gated-automations-ingress.md)
-- [ADR 0006: Skills read/admin permission split](adr/0006-skills-permission-split.md)
-- [ADR 0007: Private Neura sessions](adr/0007-private-neura-sessions.md)
-- [ADR 0008: Explicit Team Chat channels](adr/0008-explicit-team-chat-channels.md)
-- [ADR 0009: Workspace-local provider MCP](adr/0009-workspace-local-provider-mcp.md)
-- [ADR 0010: Embedded VS Code](adr/0010-embedded-vscode.md)
-- [ADR 0011: Direct personal and team skills](adr/0011-direct-personal-and-team-skills.md)
-- [ADR 0012: Collaborative Skill Builder and automation read model](adr/0012-collaborative-skill-builder-and-automation-read-model.md)
-- [ADR 0013: Personal Neura OpenAI accounts](adr/0013-personal-neura-openai-accounts.md)
-- [ADR 0014: Microsoft-bootstrapped passkeys](adr/0014-microsoft-bootstrapped-passkeys.md)
-- [ADR 0015: WebRTC Team Terminal voice](adr/0015-team-terminal-webrtc-voice.md)
-- [ADR 0016: Team Chat-scoped terminals](adr/0016-team-chat-scoped-terminals.md)
-- [ADR 0017: Private desktop site previews](adr/0017-private-desktop-site-previews.md)
-- [ADR 0018: Private Neura generated media](adr/0018-private-neura-generated-media.md)
-- [ADR 0019: Neura OpenAI voice](adr/0019-neura-openai-voice.md)
-- [ADR 0020: Isolated managed browser for Neura QA](adr/0020-neura-managed-browser.md)
-- [ADR 0021: Files recovery and isolated image editing](adr/0021-files-explorer-image-editor.md)
-- [ADR 0022: Private profile phone verification](adr/0022-profile-phone-verification.md)
-- [ADR 0023: Model provider policies and dedicated Team Neura](adr/0023-model-provider-policies.md)
-- [ADR 0024: Global Twilio SMS/MMS channel](adr/0024-twilio-sms-channel.md)
-- [ADR 0025: Neura participation in interactive terminals](adr/0025-neura-terminal-participation.md)
-- [ADR 0026: Chat attachment workspace saves](adr/0026-chat-attachment-workspace-saves.md)
-- [ADR 0027: Team Terminal reactions](adr/0027-team-terminal-reactions.md)
+Choose the final hostname now: sign-in callbacks and passkeys depend on it.
+Only approve people you trust with the workspace's files and credentials. See
+[Sharing and privacy](sharing-and-privacy.md) before inviting teammates.
 
-- [ADR 0028: Unmodified upstream OpenClaw runtime](adr/0028-upstream-openclaw-boundary.md)
+## 2. Download and configure
 
-- [ADR 0029: Settings-managed provider credentials](adr/0029-settings-provider-credentials.md)
+Run these commands as the operator who owns the checkout and can access Docker:
 
-- [ADR 0030: Preference-aware automation notifications](adr/0030-automation-notification-subscriptions.md)
-- [ADR 0031: Authorized saved-item context actions](adr/0031-skill-context-actions.md)
-- [ADR 0032: Restrict the workspace OpenAI API key to audio](adr/0032-audio-only-workspace-api-key.md)
-- [ADR 0033: Personal accounts for manual automation runs](adr/0033-personal-manual-automation-runs.md)
+```bash
+git clone https://github.com/Alshival-Ai/neural-labs.git
+cd neural-labs
+bin/neural-labs init
+```
 
-## Project and maintenance
+Open the generated root `.env` in your editor. `init` generates the internal
+secrets and protects the file with mode `0600`; keep those generated values.
+Replace the public placeholders with your own values:
 
-- [Changelog](../CHANGELOG.md)
-- [Roadmap](../roadmap.md)
-- [Neura roadmap tracker](../tracker.md)
-- [Wiki publishing](wiki-publishing.md)
-- [Web deployment transition](web-deployment.md)
-- [OpenClaw 2026.9.2 assessment](upgrades/openclaw-2026.9.2.md)
-- [Upstream boundary verification](upgrades/upstream-boundary-2026-09-06.md)
+| Setting | What to enter |
+|---|---|
+| `NEURAL_LABS_HOSTNAME` | Your final hostname, without a scheme or path |
+| `NEURAL_LABS_PUBLIC_ORIGIN` | `https://` followed by exactly that hostname, without a trailing slash |
+| `NEURAL_LABS_INITIAL_ADMIN_EMAIL` | The email you will use to create your administrator account |
+| `NEURAL_LABS_TURN_HOST` | The hostname clients use to reach this host's voice relay |
+| `NEURAL_LABS_TURN_EXTERNAL_IP` | The host's public IPv4 address, or its router's public address when behind NAT |
+| `NEURAL_LABS_TURN_RELAY_IP` | An IPv4 address actually assigned to the host's relay interface |
+| `NEURAL_LABS_TURN_URLS` | Replace the example hostname in all three STUN/TURN URLs; keep their ports aligned with `NEURAL_LABS_TURN_PORT` |
+
+The supplied Compose stack starts the TURN relay even if you do not use voice,
+so its host/address values must be real. The [deployment guide](container-deployment.md#voice-relay-and-network-settings)
+explains the network settings and the additional ports needed for Team Terminal
+voice.
+
+For your first personal deployment, keep these defaults:
+
+```dotenv
+NEURAL_LABS_BIND_ADDRESS=127.0.0.1
+NEURAL_LABS_AUTO_SETUP=true
+NEURAL_LABS_LOCAL_AUTH_ENABLED=true
+NEURAL_LABS_MICROSOFT_AUTH_ENABLED=false
+NEURAL_LABS_MCP_ENABLED=false
+```
+
+Microsoft sign-in, Google Maps, KLIPY, Pexels, SMS, and Neura voice are optional.
+You can leave their credentials blank and connect them later. Neura text chat
+uses a ChatGPT account connected after login; `OPENAI_API_KEY` is for audio.
+Keep `.env` out of Git and save a protected backup of it.
+
+## 3. Build and start
+
+```bash
+bin/neural-labs up
+bin/neural-labs status
+```
+
+The first command builds the images, creates persistent volumes, runs database
+migrations, and starts the stack. Status should show `postgres`, `landing`,
+`control-plane`, `workspace`, and `turn` running. Give new services time to become
+healthy. For a failing service, use `bin/neural-labs logs SERVICE`.
+
+The application listeners are on host loopback. Next, make the desktop reachable
+through authenticated HTTPS ingress.
+
+## 4. Enable HTTPS
+
+Copy the supplied Nginx configuration to an operator-owned file outside the
+checkout, replace the project hostname and certificate settings with yours,
+and enable it in your host's Nginx configuration. The complete, copyable steps
+are in [Enable HTTPS ingress](container-deployment.md#enable-https-ingress),
+including site activation and `nginx -t` before reload.
+
+The CLI does not install Nginx, obtain certificates, change DNS, or open firewall
+ports. Those are explicit host setup steps. Keep the supplied authentication
+routes and loopback upstreams when adapting the configuration.
+
+After enabling the site, replace the example hostname below and check:
+
+```bash
+curl --fail https://neural-labs.example.com/healthz
+curl --fail https://neural-labs.example.com/api/auth/providers
+```
+
+Both should succeed. Opening `/workspace` in a signed-out browser should send
+you to login. See [Troubleshooting](troubleshooting.md) for TLS, proxy, and
+startup problems.
+
+## 5. Create your account and connect Neura
+
+1. Open `https://YOUR-HOSTNAME/signup` and register using the **exact email** you
+   set in `NEURAL_LABS_INITIAL_ADMIN_EMAIL`. That account becomes the initial
+   administrator. Other addresses wait for approval.
+2. Open `/workspace`, then **Settings → Model Provider → OpenAI**.
+3. Connect your ChatGPT account. Open the displayed sign-in URL, enter the
+   one-time code, and keep Settings open until the connection is confirmed.
+4. Open **Neura** from the dock, start a private conversation, and send a simple
+   request, such as “Help me plan my first project.” A reply confirms that your
+   personal agent can use its account.
+5. Open **Files** or **VS Code** when you are ready to work with project files.
+
+Your Neural Labs login and ChatGPT connection are separate. Connecting an
+administrator's background account does not connect their personal Neura.
+For scheduled AI work, also connect **Settings → Workspace → Background ChatGPT
+connection**. See [AI accounts and models](ai-accounts.md) for personal,
+background, Team Chat, and audio settings.
+
+## 6. Check and protect your installation
+
+```bash
+bin/neural-labs doctor
+bin/neural-labs backup
+```
+
+`doctor` checks local services and bindings and currently requires **all three**
+optional Google Maps, KLIPY, and Pexels credentials. If you left those blank,
+its provider-configuration failure is expected; inspect the other results
+separately. It does not verify public TLS or a real model response.
+
+Backup briefly stops the workspace and writes a recovery set outside the
+checkout. Encrypt it and move a copy off-host. Follow [Backup and restore](backup-restore.md)
+to plan retention and test recovery.
+
+## Where to go next
+
+- [Use your workspace](shared-workspace.md): Neura, files, terminals, skills, and collaboration.
+- [Manage your instance](manage-instance.md): approve teammates, connect integrations, update, and recover.
+- [Browse all guides](navigation.md): documentation organized by task.
+- [Release history](release-history.md): changes and dated release records.

@@ -495,3 +495,11 @@
   .automation-composer { animation: none; }
   .automations-detail { transition: none; }
 }
+
+.automations-workspace { grid-template-columns:var(--library-width,18.5rem) minmax(0,1fr); }
+.automations-list { position:relative; padding-right:7px; }
+.automations-toolbar__actions { margin-left:auto; }
+@container app-window (max-width:720px) {
+  .automations-workspace .library-resizer { display:none; }
+  .automations-list { position:absolute; padding-right:0; }
+}

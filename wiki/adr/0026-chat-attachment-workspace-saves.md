@@ -1,5 +1,8 @@
 # ADR 0026: Explicitly save chat attachments into the shared workspace
 
+> Design history: for current instructions, see [Files desktop app](../files.md).
+> See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
+
 - Status: Accepted
 - Date: 2026-09-06
 

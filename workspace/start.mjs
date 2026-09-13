@@ -1,3 +1,4 @@
+import { backgroundProviderStatus } from "/usr/local/lib/neural-labs/background-provider-status.mjs";
 import { ProviderRuntime } from "/usr/local/lib/neural-labs/mcp/dist/providerRuntime.js";
 import { loadProviderConfig } from "/usr/local/lib/neural-labs/mcp/dist/providerConfig.js";
 import { installTerminalGuidance } from "/usr/local/lib/neural-labs/terminal-guidance.mjs";
@@ -17,7 +18,7 @@ import { gatewayIsolationOperations } from "/usr/local/lib/neural-labs/gateway-i
 import { createGatewayAdminRequest, PersonalOpenAIManager } from "/usr/local/lib/neural-labs/personal-openai.mjs";
 import { runTeamAgent } from "/usr/local/lib/neural-labs/team-agent.mjs";
 import { createVoiceService } from "/usr/local/lib/neural-labs/voice.mjs";
-import { ModelCatalog, modelCredentialSource } from "/usr/local/lib/neural-labs/model-catalog.mjs";
+import { ModelCatalog } from "/usr/local/lib/neural-labs/model-catalog.mjs";
 import { ModelPolicies } from "/usr/local/lib/neural-labs/model-policies.mjs";
 import { TeamOpenAI } from "/usr/local/lib/neural-labs/team-openai.mjs";
 import { agentEnvironment, retireWorkspaceApiKey } from "/usr/local/lib/neural-labs/provider-environment.mjs";
@@ -325,19 +326,7 @@ async function refreshProviderStatus() {
     const authenticationStatus =
       authentication.status === "fulfilled" ? authentication.value : null;
     const modelStatus = models.status === "fulfilled" ? models.value : null;
-    providerStatus = {
-      credentialSource: modelCredentialSource(authenticationStatus, modelStatus),
-      authenticated:
-        Array.isArray(authenticationStatus?.profiles) &&
-        authenticationStatus.profiles.some(
-          (profile) => profile?.provider === "openai" && profile?.type === "oauth",
-        ),
-      modelReady:
-        Array.isArray(modelStatus?.auth?.missingProvidersInUse) &&
-        modelStatus.auth.missingProvidersInUse.length === 0 &&
-        Array.isArray(modelStatus?.auth?.modelRouteIssues) &&
-        modelStatus.auth.modelRouteIssues.length === 0,
-    };
+    providerStatus = backgroundProviderStatus(authenticationStatus, modelStatus);
   })().finally(() => {
     providerStatusRefresh = undefined;
   });
@@ -347,6 +336,10 @@ async function refreshProviderStatus() {
 
 async function refreshProviderStatusAfterLogin() {
   if (providerStatusRefresh) await providerStatusRefresh;
+  providerStatus = { authenticated: false, modelReady: false, credentialSource: "unconfigured" };
+  // Bind the background agent to the credential created by this login, even
+  // when an expired historical profile still exists in its native store.
+  await execFileAsync("openclaw", ["models", "auth", "order", "set", "--agent", "main", "--provider", "openai", "openai:neural-labs-background"], { env: agentEnvironment(process.env), timeout: providerStatusCommandTimeoutMs });
   await refreshProviderStatus();
 }
 
@@ -435,6 +428,7 @@ const providerAuth = createProviderAuthController({
   providerAuthenticated,
   modelReady: openclawModelReady,
   refreshStatus: refreshProviderStatusAfterLogin,
+  allowReconnect: true,
 });
 
 const gateway = spawn(

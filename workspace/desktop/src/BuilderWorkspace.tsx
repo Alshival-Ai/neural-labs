@@ -19,6 +19,7 @@ import type { TeamDirectoryUser } from "./teamChat";
 import type { SkillRecord } from "./SkillsApp";
 import type { NeuraApproval } from "./types";
 import "./builder-workspace.css";
+import { BuilderForms, builderIssueField } from "./BuilderForms";
 
 type CurrentUser = { id: string; displayName: string; role: "admin" | "user" };
 type SharedTest = {
@@ -131,6 +132,8 @@ export function BuilderWorkspace({ draft, connection, currentUser, directory, sk
   const [testPrompt, setTestPrompt] = useState("");
   const [collaboratorsOpen, setCollaboratorsOpen] = useState(false);
   const [selectedCollaborators, setSelectedCollaborators] = useState<string[]>(draft.collaboratorUserIds);
+  const canvasRef = useRef<HTMLElement>(null);
+  const [issueTarget, setIssueTarget] = useState<string>();
   const activeTests = useRef(new Map<string, { sessionKey: string; runId?: string; subscription?: Awaited<ReturnType<NeuraGateway["subscribeSession"]>> }>());
 
   useEffect(() => connection.onChange(() => setVersion((value) => value + 1)), [connection]);
@@ -201,10 +204,36 @@ export function BuilderWorkspace({ draft, connection, currentUser, directory, sk
   const sourceCursors = presence.filter((person) => person.userId !== currentUser.id && person.file === selectedFile && person.selection);
   const cursorLine = (person: BuilderPresence) => 1 + (files.get(selectedFile)?.toString().slice(0, person.selection?.head ?? 0).match(/\n/g)?.length ?? 0);
 
+  useEffect(() => {
+    if (!issueTarget) return;
+    const field = Array.from(canvasRef.current?.querySelectorAll<HTMLElement>("[data-builder-field]") ?? []).find(element => element.dataset.builderField === issueTarget);
+    if (field) {
+      let parent = field.parentElement;
+      while (parent) { if (parent instanceof HTMLDetailsElement) parent.open = true; parent = parent.parentElement; }
+      field.focus();
+      field.scrollIntoView?.({ block: "center", behavior: "instant" });
+    } else canvasRef.current?.querySelector<HTMLTextAreaElement>(".builder-source textarea")?.focus();
+    setIssueTarget(undefined);
+  }, [tab, issueTarget]);
+
+  const inspectIssue = (issue: BuilderIssue) => {
+    const field = builderIssueField(issue, value("payloadKind"));
+    if (field || draft.kind === "automation") { setTab("form"); setIssueTarget(field || "name"); }
+    else { setSelectedFile(issue.file && files.has(issue.file) ? issue.file : "SKILL.md"); setTab("source"); setIssueTarget("source"); }
+  };
+
+  const updateInstructions = (next: string) => {
+    const file = ensureCollaborativeText(files, "SKILL.md");
+    const current = file.toString();
+    const end = current.startsWith("---\n") ? current.indexOf("\n---\n", 4) : -1;
+    replaceCollaborativeText(file, end < 0 ? next : current.slice(0, end + 5) + next);
+  };
+
   const setSkillValue = (key: string, next: string) => {
+    if (key === "slug") next = slug(next);
     setValue(key, next);
     const values = { name: key === "name" ? next : value("name"), description: key === "description" ? next : value("description"), scope: key === "scope" ? next : value("scope") };
-    const nextSlug = publishedSlug || (key === "slug" ? next : slug(values.name));
+    const nextSlug = publishedSlug || (key === "slug" ? next : key === "name" ? slug(values.name) : value("slug") || slug(values.name));
     if (!publishedSlug) setValue("slug", nextSlug);
     const skillFile = ensureCollaborativeText(files, "SKILL.md");
     replaceCollaborativeText(skillFile, patchFrontmatter(skillFile.toString(), { slug: nextSlug, description: values.description, scope: values.scope }));
@@ -236,7 +265,7 @@ export function BuilderWorkspace({ draft, connection, currentUser, directory, sk
 
   const validate = async () => {
     setBusy("validate");
-    try { const result = await builderApi.validate(draft.id); setIssues(result.issues); if (!result.issues.length) notify?.("Draft validation passed."); }
+    try { const result = await builderApi.validate(draft.id); setIssues(result.issues); if (!result.issues.length) notify?.("Draft validation passed."); else inspectIssue(result.issues[0]); }
     catch (reason) { notify?.(reason instanceof Error ? reason.message : "Validation failed."); }
     finally { setBusy(undefined); }
   };
@@ -245,6 +274,10 @@ export function BuilderWorkspace({ draft, connection, currentUser, directory, sk
     if (!draft.canPublish || busy) return;
     setBusy("publish");
     try {
+      const validation = await builderApi.validate(draft.id);
+      setIssues(validation.issues);
+      const firstError = validation.issues.find(issue => issue.level === "error");
+      if (firstError) { inspectIssue(firstError); return; }
       const result = await builderApi.publish(draft.id);
       if (result.kind === "automation") {
         if (!onPublishAutomation) throw new Error("Only an administrator can publish automations.");
@@ -306,40 +339,33 @@ export function BuilderWorkspace({ draft, connection, currentUser, directory, sk
     finally { setBusy(undefined); }
   };
 
-  const automationField = (key: string, label: string, options?: readonly string[]) => <label><span>{label}</span>{options
-    ? <select value={value(key)} onChange={(event) => setValue(key, event.target.value)}>{options.map((option) => <option key={option} value={option}>{option}</option>)}</select>
-    : <input value={value(key)} onChange={(event) => setValue(key, event.target.value)} />}</label>;
-
-  return <section className={`builder-workspace is-${draft.kind}`} aria-label={`${draft.kind === "skill" ? "Skill" : "Automation"} builder`}>
+  return <section className={`builder-workspace is-${draft.kind} view-${tab}`} aria-label={`${draft.kind === "skill" ? "Skill" : "Automation"} builder`}>
     <header className="builder-toolbar">
-      <button type="button" className="builder-back" onClick={onBack}><ArrowLeft /> Skills</button>
+      <button type="button" className="builder-back" onClick={onBack}><ArrowLeft /> Library</button>
       <div className={`builder-kind is-${draft.kind}`}>{draft.kind === "skill" ? <Bot /> : <Settings2 />}<span><small>{draft.kind} draft</small><strong>{value("name") || draft.title}</strong></span></div>
-      <div className={`builder-save-state is-${status}`}>{status === "connecting" ? <LoaderCircle /> : status === "connected" ? <Check /> : <CircleAlert />}<span>{status === "connected" ? "Autosaved" : status}</span></div>
+      <div className={`builder-save-state is-${status}`}>{status === "connecting" ? <LoaderCircle /> : status === "connected" ? <Check /> : <CircleAlert />}<span>{status === "connected" ? "Connected · autosave on" : status === "disconnected" ? "Offline · reconnect to sync" : status}</span></div>
       <div className="builder-presence" aria-label={`${presence.length} collaborators present`}>{presence.slice(0, 4).map((person, index) => <span key={`${person.userId}-${index}`} style={{ "--presence-color": person.color || PRESENCE_COLORS[index % PRESENCE_COLORS.length] } as React.CSSProperties} title={person.displayName}>{person.displayName.slice(0, 1).toUpperCase()}</span>)}</div>
       {draft.canManageCollaborators && <button type="button" onClick={() => setCollaboratorsOpen(true)}><Users /> Collaborate</button>}
       <button type="button" onClick={() => void validate()} disabled={Boolean(busy)}><PackageCheck /> Validate</button>
-      <button type="button" className="is-primary" onClick={() => void publish()} disabled={!draft.canPublish || Boolean(busy)}>{busy === "publish" ? <LoaderCircle /> : <Save />} Publish</button>
+      <button type="button" className="is-primary" onClick={() => void publish()} disabled={!draft.canPublish || Boolean(busy)}>{busy === "publish" ? <LoaderCircle /> : <Save />} {draft.targetKey || draft.publishedKey ? "Publish changes" : "Publish"}</button>
     </header>
 
     <nav className="builder-tabs" aria-label="Builder views">
-      {(["form", "source", "preview", "test"] as const).map((item) => <button type="button" key={item} aria-current={tab === item ? "page" : undefined} onClick={() => setTab(item)}>{item === "form" ? <Settings2 /> : item === "source" ? <Code2 /> : item === "preview" ? <PackageCheck /> : <FlaskConical />}{item}</button>)}
+      {(["form", ...(draft.kind === "skill" ? ["source" as const] : []), "preview", "test"] as const).map((item) => <button type="button" key={item} aria-current={tab === item ? "page" : undefined} onClick={() => setTab(item)}>{item === "form" ? <Settings2 /> : item === "source" ? <Code2 /> : item === "preview" ? <PackageCheck /> : <FlaskConical />}{item === "form" ? "Edit" : item}</button>)}
     </nav>
 
     <div className="builder-body">
-      {draft.kind === "skill" && <aside className="builder-package"><header><FolderOpen /><span><strong>Skill package</strong><small>{fileNames.length} editable files</small></span></header><div className="builder-package-list">{fileNames.map((name) => <button type="button" key={name} aria-current={selectedFile === name ? "page" : undefined} onClick={() => { setSelectedFile(name); setTab("source"); }}><File />{name}</button>)}{[...assets.entries()].filter(([name]) => name !== "version").map(([name, descriptor]) => <div key={name}><ImagePlus /><span>{name}<small>{typeof descriptor === "object" ? `${Math.ceil(descriptor.size / 1024)} KB` : "asset"}</small></span><button type="button" aria-label={`Remove ${name}`} onClick={() => void builderApi.removeAsset(draft.id, name)}><X /></button></div>)}</div><footer><button type="button" onClick={() => createTextFile("references")}><FilePlus2 /> Reference</button><button type="button" onClick={() => createTextFile("scripts")}><FilePlus2 /> Script</button><label><ImagePlus /> Asset<input type="file" onChange={(event) => void uploadAsset(event.target.files?.[0])} /></label></footer></aside>}
+      {draft.kind === "skill" && tab === "source" && <aside className="builder-package"><header><FolderOpen /><span><strong>Skill package</strong><small>{fileNames.length} editable files</small></span></header><div className="builder-package-list">{fileNames.map((name) => <button type="button" key={name} aria-current={selectedFile === name ? "page" : undefined} onClick={() => { setSelectedFile(name); setTab("source"); }}><File />{name}</button>)}{[...assets.entries()].filter(([name]) => name !== "version").map(([name, descriptor]) => <div key={name}><ImagePlus /><span>{name}<small>{typeof descriptor === "object" ? `${Math.ceil(descriptor.size / 1024)} KB` : "asset"}</small></span><button type="button" aria-label={`Remove ${name}`} onClick={() => void builderApi.removeAsset(draft.id, name)}><X /></button></div>)}</div><footer><button type="button" onClick={() => createTextFile("references")}><FilePlus2 /> Reference</button><button type="button" onClick={() => createTextFile("scripts")}><FilePlus2 /> Script</button><label><ImagePlus /> Asset<input type="file" onChange={(event) => void uploadAsset(event.target.files?.[0])} /></label></footer></aside>}
 
-      <main className="builder-canvas">
-        {tab === "form" && draft.kind === "skill" && <div className="builder-form">
-          <header><span>Graphical skill builder</span><h1>Teach Neura a reusable way to work.</h1><p>The form and package source stay synchronized. SKILL.md remains canonical.</p></header>
-          <section><h2>Identity and invocation</h2><div className="builder-field-grid"><label><span>Name</span><input maxLength={80} value={value("name")} onChange={(event) => setSkillValue("name", event.target.value)} /></label><label><span>Canonical shortcut</span><div className="builder-prefix"><span>$</span><input value={publishedSlug || value("slug")} readOnly={Boolean(publishedSlug)} onChange={(event) => setSkillValue("slug", slug(event.target.value))} /></div><small>{publishedSlug ? "Published shortcuts cannot be renamed." : "Lowercase letters, numbers, and hyphens."}</small></label><label className="is-wide"><span>Description</span><textarea rows={3} maxLength={500} value={value("description")} onChange={(event) => setSkillValue("description", event.target.value)} /></label><label><span>Library</span><select disabled={Boolean(draft.targetKey && skills.some((skill) => skill.key === draft.targetKey && !skill.ownedByCurrentUser))} value={value("scope")} onChange={(event) => setSkillValue("scope", event.target.value)}><option value="personal">My Skills</option><option value="team">Team Skills</option></select></label><label className="builder-checkbox"><input type="checkbox" checked={flags.get("allowImplicitInvocation") === true} onChange={(event) => { flags.set("allowImplicitInvocation", event.target.checked); const openai = ensureCollaborativeText(files, "agents/openai.yaml"); replaceCollaborativeText(openai, patchOpenAi(openai.toString(), Object.fromEntries(["displayName", "shortDescription", "defaultPrompt", "brandColor", "iconSmall", "iconLarge"].map((name) => [name, value(name)])), event.target.checked)); }} /><span><strong>Allow implicit invocation</strong><small>Let Neura choose this skill without the shortcut.</small></span></label></div></section>
-          <section><h2>Presentation</h2><div className="builder-field-grid"><label><span>Display name</span><input value={value("displayName")} onChange={(event) => setSkillValue("displayName", event.target.value)} /></label><label><span>Short description</span><input maxLength={64} value={value("shortDescription")} onChange={(event) => setSkillValue("shortDescription", event.target.value)} /></label><label className="is-wide"><span>Default prompt</span><textarea rows={2} value={value("defaultPrompt")} onChange={(event) => setSkillValue("defaultPrompt", event.target.value)} /></label><label><span>Brand color</span><input type="color" value={value("brandColor") || "#7B4DFF"} onChange={(event) => setSkillValue("brandColor", event.target.value)} /></label><label><span>Small icon path</span><input value={value("iconSmall")} onChange={(event) => setSkillValue("iconSmall", event.target.value)} placeholder="assets/icon.svg" /></label><label><span>Large icon path</span><input value={value("iconLarge")} onChange={(event) => setSkillValue("iconLarge", event.target.value)} placeholder="assets/icon-large.png" /></label><label className="is-wide"><span>MCP dependencies (YAML)</span><textarea className="is-code" rows={5} value={value("dependencies")} onChange={(event) => { setValue("dependencies", event.target.value); const openai = ensureCollaborativeText(files, "agents/openai.yaml"); replaceCollaborativeText(openai, patchDependencies(openai.toString(), event.target.value)); }} placeholder={'- type: "mcp"\n  value: "server-name"'} /></label></div></section>
-        </div>}
+      <main ref={canvasRef} className="builder-canvas">
+        {issues.length > 0 && <div className="builder-issues builder-validation" role="status" aria-label="Draft validation issues"><strong>Review before publishing</strong>{issues.map((issue, index) => <button type="button" key={`${issue.code}-${index}`} onClick={() => inspectIssue(issue)}><CircleAlert /><span><strong>{issue.level === "error" ? "Fix" : "Review"}{issue.file ? ` · ${issue.file}` : ""}</strong><small>{issue.message}</small></span></button>)}</div>}
+        {tab === "form" && <BuilderForms draft={draft} skills={skills} value={value} setValue={setValue} setSkillValue={setSkillValue} instructions={bodyFromSkill(source)} onInstructions={updateInstructions} issues={issues}
+          implicit={flags.get("allowImplicitInvocation") === true} onImplicit={next => { flags.set("allowImplicitInvocation", next); const openai = ensureCollaborativeText(files, "agents/openai.yaml"); replaceCollaborativeText(openai, patchOpenAi(openai.toString(), Object.fromEntries(["displayName", "shortDescription", "defaultPrompt", "brandColor", "iconSmall", "iconLarge"].map(name => [name, value(name)])), next)); }}
+          exact={flags.get("exact") === true} onExact={next => flags.set("exact", next)}
+          onDependencies={next => { setValue("dependencies", next); const openai = ensureCollaborativeText(files, "agents/openai.yaml"); replaceCollaborativeText(openai, patchDependencies(openai.toString(), next)); }} />}
 
-        {tab === "form" && draft.kind === "automation" && <div className="builder-form"><header><span>Graphical automation builder</span><h1>Schedule a team workflow.</h1><p>Draft changes autosave. Publishing to the shared scheduler is administrator-only.</p></header><section><h2>Trigger</h2><div className="builder-field-grid">{automationField("name", "Name")}<label className="is-wide"><span>Description</span><textarea rows={2} value={value("description")} onChange={(event) => setValue("description", event.target.value)} /></label>{automationField("scheduleKind", "Schedule type", ["cron", "every", "at", "on-exit", "stream"])}{automationField("scheduleValue", "Schedule")}{automationField("timezone", "Timezone")}{automationField("triggerScript", "Run condition")}{automationField("pacingMin", "Minimum pacing")}{automationField("pacingMax", "Maximum pacing")}<label className="builder-checkbox"><input type="checkbox" checked={flags.get("exact") === true} onChange={(event) => flags.set("exact", event.target.checked)} /><span><strong>Exact schedule</strong><small>Disable automatic staggering.</small></span></label></div></section><section><h2>Action</h2><div className="builder-field-grid">{automationField("payloadKind", "Action type", ["skill", "agentTurn", "systemEvent", "command", "script"])}{value("payloadKind") === "skill" ? <><label><span>Skill</span><select value={value("skillKey")} onChange={(event) => setValue("skillKey", event.target.value)}><option value="">Choose a skill</option>{skills.map((skill) => <option key={skill.key} value={skill.key}>${skill.key} · {skill.name}</option>)}</select></label><label className="is-wide"><span>Prompt after the shortcut</span><textarea rows={5} value={value("skillPrompt")} onChange={(event) => setValue("skillPrompt", event.target.value)} /></label></> : <label className="is-wide"><span>Payload</span><textarea className={value("payloadKind") === "command" || value("payloadKind") === "script" ? "is-code" : ""} rows={7} value={value("payload")} onChange={(event) => setValue("payload", event.target.value)} /></label>}{automationField("workingDirectory", "Working directory")}{automationField("sessionTarget", "Session", ["isolated", "main", "current"])}{automationField("wakeMode", "Wake mode", ["now", "next-heartbeat"])}{automationField("agent", "Agent")}</div></section><section><h2>Runtime and delivery</h2><div className="builder-field-grid">{automationField("model", "Model")}{automationField("thinking", "Thinking", ["off", "low", "medium", "high"])}{automationField("tools", "Allowed tools")}{automationField("timeoutSeconds", "Timeout seconds")}{automationField("failureAlertAfter", "Alert after failures")}{automationField("deliveryMode", "Delivery", ["none", "announce", "webhook"])}{value("deliveryMode") !== "none" && automationField("channel", "Channel")}{value("deliveryMode") !== "none" && automationField("target", "Delivery target")}</div></section></div>}
-
-        {tab === "source" && draft.kind === "skill" && <div className="builder-source"><header><div><span>Canonical source</span><strong>{selectedFile}</strong></div>{sourceCursors.length > 0 && <div className="builder-source-cursors" aria-label="Collaborator cursors">{sourceCursors.slice(0, 3).map((person) => <span key={person.userId} style={{ "--presence-color": person.color } as React.CSSProperties} title={`${person.displayName} is editing line ${cursorLine(person)}`}><i />{person.displayName} · L{cursorLine(person)}</span>)}</div>}<span className="builder-source-actions">{selectedFile !== "SKILL.md" && selectedFile !== "agents/openai.yaml" && <button type="button" onClick={() => { files.delete(selectedFile); setSelectedFile("SKILL.md"); }}><Trash2 /> Delete</button>}</span></header><textarea spellCheck={false} value={files.get(selectedFile)?.toString() ?? ""} onFocus={() => connection.updatePresence({ file: selectedFile })} onSelect={(event) => connection.updatePresence({ file: selectedFile, selection: { anchor: event.currentTarget.selectionStart, head: event.currentTarget.selectionEnd } })} onChange={(event) => replaceCollaborativeText(ensureCollaborativeText(files, selectedFile), event.target.value)} /></div>}
-        {tab === "source" && draft.kind === "automation" && <div className="builder-empty"><Code2 /><h2>Automation source is generated at publish time.</h2><p>Use the graphical form so credentials and raw scheduler payloads stay behind the administrator boundary.</p></div>}
-        {tab === "preview" && <div className="builder-preview"><header><span>Preview</span><h1>{value("name") || draft.title}</h1><p>{value("description")}</p></header>{issues.length > 0 && <div className="builder-issues">{issues.map((item, index) => <div key={`${item.code}-${index}`} className={`is-${item.level}`}><CircleAlert /><span><strong>{item.file ?? item.code}</strong><small>{item.message}</small></span></div>)}</div>}{draft.kind === "skill" ? <article><ReactMarkdown remarkPlugins={[remarkGfm]}>{bodyFromSkill(source)}</ReactMarkdown></article> : <dl className="builder-automation-preview"><div><dt>Trigger</dt><dd>{value("scheduleKind")} · {value("scheduleValue")}</dd></div><div><dt>Action</dt><dd>{value("payloadKind") === "skill" ? `$${value("skillKey")} ${value("skillPrompt")}` : value("payload")}</dd></div><div><dt>Session</dt><dd>{value("sessionTarget")}</dd></div><div><dt>Delivery</dt><dd>{value("deliveryMode")}</dd></div></dl>}</div>}
+        {tab === "source" && draft.kind === "skill" && <div className="builder-source"><header><div><span>Canonical source</span><strong>{selectedFile}</strong></div>{sourceCursors.length > 0 && <div className="builder-source-cursors" aria-label="Collaborator cursors">{sourceCursors.slice(0, 3).map((person) => <span key={person.userId} style={{ "--presence-color": person.color } as React.CSSProperties} title={`${person.displayName} is editing line ${cursorLine(person)}`}><i />{person.displayName} · L{cursorLine(person)}</span>)}</div>}<span className="builder-source-actions">{selectedFile !== "SKILL.md" && selectedFile !== "agents/openai.yaml" && <button type="button" onClick={() => { files.delete(selectedFile); setSelectedFile("SKILL.md"); }}><Trash2 /> Delete</button>}</span></header><textarea aria-label={`${selectedFile} source`} spellCheck={false} value={files.get(selectedFile)?.toString() ?? ""} onFocus={() => connection.updatePresence({ file: selectedFile })} onSelect={(event) => connection.updatePresence({ file: selectedFile, selection: { anchor: event.currentTarget.selectionStart, head: event.currentTarget.selectionEnd } })} onChange={(event) => replaceCollaborativeText(ensureCollaborativeText(files, selectedFile), event.target.value)} /></div>}
+        {tab === "preview" && <div className="builder-preview"><header><span>Preview</span><h1>{value("name") || draft.title}</h1><p>{value("description")}</p></header>{draft.kind === "skill" ? <article><ReactMarkdown remarkPlugins={[remarkGfm]}>{bodyFromSkill(source)}</ReactMarkdown></article> : <dl className="builder-automation-preview"><div><dt>Trigger</dt><dd>{value("scheduleKind")} · {value("scheduleValue")}</dd></div><div><dt>Action</dt><dd>{value("payloadKind") === "skill" ? `$${value("skillKey")} ${value("skillPrompt")}` : value("payload")}</dd></div><div><dt>Session</dt><dd>{value("sessionTarget")}</dd></div><div><dt>Delivery</dt><dd>{value("deliveryMode")}</dd></div></dl>}</div>}
         {tab === "test" && <div className="builder-tests">
           <header><span>Unpublished snapshot</span><h1>Test in Neura</h1><p>Tests use an immutable copy of this draft and never add it to the live skill catalog.</p></header>
           <div className="builder-test-composer"><textarea rows={3} value={testPrompt} onChange={(event) => setTestPrompt(event.target.value)} placeholder="Describe a realistic task for this draft…" /><button type="button" onClick={() => void runTest()} disabled={busy === "test" || !testPrompt.trim()}>{busy === "test" ? <LoaderCircle /> : <Play />} Run test</button></div>

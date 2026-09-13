@@ -861,3 +861,14 @@
 .skills-drafts>div>.item-actions>button:not(.item-actions-trigger)>div { min-width:0; display:grid; }.skills-drafts>div>.item-actions>button:not(.item-actions-trigger) strong,.skills-drafts>div>.item-actions>button:not(.item-actions-trigger) small,.skills-drafts>div>.item-actions>button:not(.item-actions-trigger) em { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.skills-drafts>div>.item-actions>button:not(.item-actions-trigger) small { color:#71727a; }.skills-drafts>div>.item-actions>button:not(.item-actions-trigger) em { margin-top:.18rem; color:#9999a0; font-size:10px; font-style:normal; }
 .skills-drafts__empty { grid-column:1/-1; min-height:16rem; display:grid; place-content:center; justify-items:center; color:#85868e; }.skills-drafts__empty svg { width:2rem; height:2rem; color:#9b83d8; }.skills-drafts__empty strong { margin-top:.5rem; color:#32333a; }
 .skills-automations-pane { height:100%; min-height:0; overflow:hidden; }.skills-automations-pane>.automations-app { height:100%; }
+
+/* Remembered list widths yield to the window's compact navigation. */
+.skills-library { grid-template-columns:var(--library-width, 18rem) minmax(0,1fr); }
+.skills-library-list { position:relative; min-width:0; padding-right:7px; }
+.skills-navigation nav button:focus-visible { outline:2px solid var(--skills-violet); outline-offset:2px; }
+@container app-window (max-width:650px) {
+  .skills-library .library-resizer { display:none; }
+  .skills-library-list { position:absolute; padding-right:0; }
+  .skills-navigation nav { display:flex; width:max-content; min-width:100%; }
+  .skills-navigation nav button { flex:1 0 auto; }
+}

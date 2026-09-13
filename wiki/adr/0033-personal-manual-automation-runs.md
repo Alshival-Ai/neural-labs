@@ -1,5 +1,8 @@
 # ADR 0033: Personal accounts for manual automation runs
 
+> Design history: for current instructions, see [Run and manage automations](../automations.md).
+> See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
+
 - Status: Accepted
 - Date: 2026-09-10
 - Extends ADR 0032 and the existing admin-only Automations ingress

@@ -60,6 +60,13 @@ template to produce the design notes and storyboard. The template owns visual
 choices and applicable acceptance criteria. Preserve explicit compatible user
 requirements; AUTO applies only to omitted choices.
 
+Pass usable brand guidance, logos and official visual cues into that handoff.
+Have the template record the headline approach, display/body font roles, palette
+basis and action placement in DESIGN.md. Review whether those choices fit this
+business instead of inheriting the previous site's hero, colors and controls.
+For the default template, apply its no-eyebrow hero guidance and allow a
+business-name headline, supporting slogan and no hero buttons when appropriate.
+
 Use the existing conversion/content and domain references linked from the workflow
 contract for truthful business copy. Plan asset roles before sourcing, prefer
 usable authentic identity media, and use the workspace Pexels tools only for

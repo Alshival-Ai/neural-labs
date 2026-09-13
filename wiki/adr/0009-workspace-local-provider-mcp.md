@@ -1,5 +1,8 @@
 # ADR 0009: Run provider MCP inside the trusted shared workspace
 
+> Design history: for current instructions, see [Workspace-local provider MCP](../workspace-provider-mcp.md).
+> See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
+
 - Status: Accepted
 - Date: 2026-09-01
 
