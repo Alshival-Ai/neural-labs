@@ -45,3 +45,19 @@ No upstream files, scheduled jobs, existing subscriptions or account credentials
 are rewritten. Deploy the workspace adapter, control-plane canonicalization and
 desktop together. Verification uses mocked account/scheduler services and the
 installed public protocol validators without executing real automation tasks.
+
+## Amendment: workspace member manual runs (2026-09-12)
+
+Active workspace members may now list operational automation state and submit
+manual AI task runs through the same-origin HTTP adapter. The proxy supplies the
+member identity and role; request bodies cannot select another account. The
+adapter retains personal connection checks, source execution-policy checks,
+no-fallback routing, concurrency protection and durable execution identities.
+Members receive job names, schedules, state and run timing/status only, without
+administrative payloads, delivery settings, result text or session identifiers.
+
+This extends the previous administrator-only submission boundary. Scheduler
+management, shared skill installation and the privileged Automations WebSocket
+remain administrator-only. The desktop uses HTTP for member listing and runs;
+no additional Gateway scopes or host proxy changes are needed. Scheduled runs
+continue to use their configured account.

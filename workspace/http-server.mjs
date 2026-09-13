@@ -492,16 +492,16 @@ export function createWorkspaceHttpServer({
     if (pathname === "/workspace/api/automations/snapshot" || pathname === "/workspace/api/automations/run") {
       const userId = request.headers["x-forwarded-user"];
       if (typeof userId !== "string" || !userId.trim()) { sendJson(response, 401, { error: { message: "Sign in to run automations" } }, method); return; }
-      if (request.headers["x-neural-labs-role"] !== "admin") { sendJson(response, 403, { error: { message: "Administrator access is required" } }, method); return; }
+      if (!["admin", "user"].includes(request.headers["x-neural-labs-role"])) { sendJson(response, 403, { error: { message: "Workspace membership is required" } }, method); return; }
       try {
         if (!personalAutomationRuns) throw new AutomationRunError(503, "Automation account routing is unavailable");
         if (pathname.endsWith("/snapshot") && method === "GET") {
-          sendJson(response, 200, await personalAutomationRuns.snapshot(), method);
+          sendJson(response, 200, await personalAutomationRuns.snapshot({ userId: userId.trim(), role: request.headers["x-neural-labs-role"] }), method);
         } else if (pathname.endsWith("/run") && method === "POST") {
           if (request.headers.origin !== publicOrigin) throw new AutomationRunError(403, "A same-origin request is required");
           const body = await readJsonBody(request);
           // Account identity comes exclusively from the authenticated proxy.
-          sendJson(response, 202, await personalAutomationRuns.run({ userId: userId.trim(), role: "admin",
+          sendJson(response, 202, await personalAutomationRuns.run({ userId: userId.trim(), role: request.headers["x-neural-labs-role"],
             email: typeof request.headers["x-neural-labs-email"] === "string" ? request.headers["x-neural-labs-email"] : undefined,
           }, { jobId: body?.jobId, mode: body?.mode, requestId: body?.requestId }), method);
         } else throw new AutomationRunError(405, "Method not allowed");

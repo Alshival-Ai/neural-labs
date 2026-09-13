@@ -216,7 +216,7 @@ export class AutomationsGateway {
   }
 
   run(job: AutomationJob, mode: AutomationRunMode) {
-    return automationRequest("/workspace/api/automations/run", { jobId: job.id, mode, requestId: crypto.randomUUID() });
+    return runPersonalAutomation(job, mode);
   }
 
   async remove(job: AutomationJob) {
@@ -274,6 +274,15 @@ export class AutomationsGateway {
   scanSkillHistory() {
     return this.client.request("skills.proposals.historyScan", { agentId: "main", direction: "older" });
   }
+}
+
+export async function personalAutomationsSnapshot(): Promise<AutomationsSnapshot> {
+  const result = await automationRequest("/workspace/api/automations/snapshot");
+  return mapAutomationsSnapshot(result.status, result, result);
+}
+
+export function runPersonalAutomation(job: AutomationJob, mode: AutomationRunMode) {
+  return automationRequest("/workspace/api/automations/run", { jobId: job.id, mode, requestId: crypto.randomUUID() });
 }
 
 export async function automationRequest(url: string, body?: RecordValue): Promise<RecordValue> {

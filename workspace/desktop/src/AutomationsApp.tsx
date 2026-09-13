@@ -1,3 +1,4 @@
+import "./minimal-apps.css";
 import { ItemActions, type ItemAction } from "./ItemActions";
 import { AutomationSubscription } from "./notifications";
 import {
@@ -680,7 +681,7 @@ export function AutomationsApp({
             </div>
           </header>
 
-          {selected.payload.kind === "agentTurn" && <p>Run now uses your connected ChatGPT account. Scheduled runs use {selected.agent}.</p>}
+          {selected.payload.kind === "agentTurn" && <p className="automation-account-note">Run now uses your connected ChatGPT account. Scheduled runs use {selected.agent}.</p>}
           {selected.manualRunWarning && <div className="automation-warning" role="status">{selected.manualRunWarning}</div>}
           {selected.autoDisabled && <div className="automation-warning"><ShieldAlert /><div><strong>Auto-disabled after {selected.autoDisabled.consecutiveErrors} failures</strong><span>OpenClaw stopped this recurring job as a safety backstop. Fix the cause, then enable it to clear the failure streak.</span></div>{onToggle && <button type="button" onClick={() => void toggleJob(selected)}>Review and enable</button>}</div>}
 
@@ -748,17 +749,17 @@ function AutomationOverview({ job, onShowRuns, onCopy }: { job: AutomationJob; o
       <section className="automation-payload-card">
         <div className="automation-card-heading"><div><span>Action</span><h2>{job.payload.label}</h2><p>{job.sessionTarget === "isolated" ? "Runs unattended in a dedicated session." : `Runs in ${job.sessionTarget.replace("session:", "session ")}.`}</p></div><div className={`automation-kind-mark is-${job.accent}`}><PayloadIcon kind={job.payload.kind} /></div></div>
         <div className="automation-payload-copy"><span>{payloadLabel(job.payload.kind)}</span><div className="automation-payload-scroll" role="region" aria-label={`${job.name} instructions`}>{job.payload.kind === "command" || job.payload.kind === "script" ? <pre>{job.payload.content}</pre> : <ReactMarkdown remarkPlugins={[remarkGfm]}>{job.payload.content}</ReactMarkdown>}</div></div>
-        <dl className="automation-detail-list is-grid">
+        <details className="automation-runtime-details"><summary>Model and runtime settings</summary><dl className="automation-detail-list is-grid">
           <div><dt>Agent</dt><dd>{job.agent}</dd></div>
           <div><dt>Session</dt><dd>{job.sessionTarget}</dd></div>
           <div><dt>Model</dt><dd>{job.payload.model ?? "Not applicable"}</dd></div>
           <div><dt>Thinking</dt><dd>{job.payload.thinking ?? "Not applicable"}</dd></div>
           <div><dt>Tools</dt><dd>{job.payload.tools?.join(", ") || "None"}</dd></div>
           <div><dt>Timeout</dt><dd>{job.payload.timeout ?? "Runtime default"}</dd></div>
-        </dl>
+        </dl></details>
       </section>
 
-      <section className="automation-route-card">
+      <details className="automation-route-card"><summary>Execution and delivery details</summary>
         <div className="automation-card-heading"><div><span>Execution path</span><h2>From trigger to delivery</h2><p>The resolved route OpenClaw will use for the next run.</p></div><Route /></div>
         <div className="automation-route">
           <div className={`is-${job.accent}`}><AutomationIcon kind={job.schedule.kind} /><span><small>Trigger</small><strong>{SCHEDULE_META[job.schedule.kind].label}</strong></span></div><ChevronRight />
@@ -766,7 +767,7 @@ function AutomationOverview({ job, onShowRuns, onCopy }: { job: AutomationJob; o
           <div className={`is-${job.accent}`}><DeliveryIcon mode={job.delivery.mode} /><span><small>Delivery</small><strong>{job.delivery.label}</strong></span></div>
         </div>
         <div className="automation-route__target"><span><strong>{job.delivery.target ?? "No fallback destination"}</strong><small>{job.delivery.bestEffort ? "Best effort" : job.delivery.mode === "none" ? "Completion is logged" : "Required delivery"}</small></span><span><strong>Wake mode</strong><small>{job.wakeMode}</small></span></div>
-      </section>
+      </details>
 
       <section className="automation-recent-card">
         <div className="automation-card-heading"><div><span>Recent activity</span><h2>Latest runs</h2><p>Execution and delivery are tracked separately.</p></div><button type="button" onClick={onShowRuns}>View all <ChevronRight /></button></div>

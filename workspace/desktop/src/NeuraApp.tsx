@@ -1,3 +1,4 @@
+import "./minimal-apps.css";
 import { NotificationMessages, notificationRequest, type NotificationEntry, type NotificationPreferences } from "./notifications";
 import { captureTerminalContext } from "./terminalAgentApi";
 import {

@@ -213,7 +213,7 @@ describe("Terminal app", () => {
 
   it("creates a named shared Team Terminal", async () => {
     render(<TerminalApp />);
-    fireEvent.click(await screen.findByRole("button", { name: "+ Team" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Create a team terminal" }));
     const composer = screen.getByRole("form", { name: "Create a team terminal" });
     fireEvent.change(within(composer).getByLabelText("Team terminal name"), { target: { value: "Incident room" } });
     fireEvent.click(within(composer).getByRole("button", { name: "Start Team" }));
@@ -246,7 +246,7 @@ describe("Terminal app", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Create team terminal" }));
     expect(screen.getByRole("heading", { name: "New Terminal" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "+ Team" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: "Create a team terminal" })).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByLabelText("Team terminal name")).toHaveFocus();
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel team terminal creation" }));

@@ -105,11 +105,16 @@ test("personal automation routes authenticate the caller and ignore body account
     const body = JSON.stringify({ jobId: "job", requestId: "22222222-2222-2222-2222-222222222222", userId: "someone-else", agentId: "main" });
     const headers = { "Content-Type": "application/json", "Origin": "https://neural-labs.example.com", "X-Forwarded-User": userId, "X-Neural-Labs-Role": "admin" };
     assert.equal((await fetch(url, { method: "POST", body })).status, 401);
-    assert.equal((await fetch(url, { method: "POST", body, headers: { ...headers, "X-Neural-Labs-Role": "user" } })).status, 403);
+    assert.equal((await fetch(url, { method: "POST", body, headers: { ...headers, "X-Neural-Labs-Role": "guest" } })).status, 403);
     assert.equal((await fetch(url, { method: "POST", body, headers: { ...headers, Origin: "https://other.example.com" } })).status, 403);
     assert.equal(calls.length, 0);
-    const response = await fetch(url, { method: "POST", body, headers });
+    const response = await fetch(url, { method: "POST", body, headers: { ...headers, "X-Neural-Labs-Role": "user" } });
     assert.equal(response.status, 202);
+    const memberHeaders = { ...headers, "X-Neural-Labs-Role": "user" };
+    const snapshot = await fetch(`${app.origin}/workspace/api/automations/snapshot`, { headers: memberHeaders }).then(r => r.json());
+    assert.deepEqual(snapshot.jobs[0].payload, { kind: "agentTurn" });
+    assert.equal(snapshot.jobs[0].delivery, undefined);
+    assert.equal((await fetch(url, { method: "DELETE", headers: memberHeaders })).status, 405);
     assert.deepEqual(owners, [userId]);
     assert.equal(calls.find(row => row.method === "cron.add").params.agentId, `nl-${userId.replaceAll("-", "")}`);
   } finally { await app.close(); }

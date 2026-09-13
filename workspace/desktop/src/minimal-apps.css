@@ -1,0 +1,207 @@
+/* Shared product UI. Keep status colors semantic and the terminal canvas dark.
+   App-prefixed selectors also work in standalone and lazy-loaded windows. */
+:is(.neura-app, .terminal-app, .settings-app, .skills-app, .automations-app) {
+  --ink: #202124;
+  --paper: #fafafa;
+  --paper-bright: #fff;
+  --accent: #5954c7;
+  --ui-border: #e4e4e7;
+  --ui-muted: #62636b;
+  --ui-selected: #eeedf8;
+  --settings-white: #fff;
+  --skills-white: #fff;
+  --automation-white: #fff;
+  --terminal-white: #fff;
+}
+:is(.neura-app, .terminal-app, .settings-app, .skills-app, .automations-app)::before { content: none; }
+:is(.neura-app, .terminal-app, .settings-app, .skills-app, .automations-app) :is(button, a):focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 3px;
+}
+:is(.neura-app, .terminal-app, .settings-app, .skills-app, .automations-app) :is(button, input, select, textarea) {
+  font-size: var(--desktop-font-control, 14px);
+}
+:is(.settings-app, .skills-app) :is(.settings-sidebar, .skills-navigation),
+.neura-app .neura-sidebar {
+  color: var(--ink); background: #f5f5f6; border-color: var(--ui-border);
+}
+.settings-app .settings-sidebar :is(strong, small, span, button, i, svg),
+.skills-app .skills-navigation :is(strong, small, span, button, em, svg),
+.neura-app .neura-sidebar :is(h2, p, small, span, button, input, svg) { color: var(--ui-muted); }
+.settings-app .settings-sidebar nav > button,
+.skills-app .skills-navigation nav > button { min-height: 44px; border-radius: 6px; }
+.settings-app .settings-sidebar nav > button strong,
+.skills-app .skills-navigation nav strong { color: var(--ink); font-weight: 550; }
+.settings-app .settings-sidebar nav > button.is-active,
+.skills-app .skills-navigation nav button[aria-current="page"],
+.neura-app .history-row.active { color: var(--ink); background: var(--ui-selected); box-shadow: none; }
+.settings-app .settings-sidebar nav > button.is-active::before { content: none; }
+.settings-app .settings-sidebar nav > button > i,
+.skills-app .skills-navigation nav button > span { background: transparent; color: var(--ui-muted); }
+.settings-app .settings-sidebar nav > button small,
+.skills-app .skills-navigation nav small { display: none; }
+.settings-app .settings-sidebar nav > span,
+.skills-app .skills-navigation__label { color: var(--ui-muted); letter-spacing: 0; text-transform: none; font-weight: 500; }
+.settings-app .settings-sidebar__heading > span { color: var(--ink); background: transparent; border: 0; box-shadow: none; }
+.settings-app .settings-sidebar__health,
+.skills-app .skills-navigation__footer { border-color: var(--ui-border); }
+.settings-app .settings-sidebar__health > small,
+.skills-app .skills-navigation__scope { display: none; }
+.settings-app .settings-main,
+.skills-app .skills-main,
+.skills-app .skills-library,
+.automations-app .automations-metrics,
+.terminal-app .terminal-launchpad { background: var(--paper); }
+:is(.settings-app, .skills-app, .automations-app, .neura-app, .terminal-app)
+:is(.settings-toolbar, .skills-toolbar, .automations-toolbar, .neura-toolbar, .terminal-toolbar) {
+  background: #fff; border-color: var(--ui-border); box-shadow: none; backdrop-filter: none;
+}
+:is(.settings-app, .skills-app, .automations-app, .terminal-app)
+:is(.settings-card, .provider-card, .skills-detail, .automation-job, .automation-detail, .terminal-launchpad__start, .terminal-launchpad__teams) {
+  border-color: var(--ui-border); border-radius: 8px; background: #fff; box-shadow: none;
+}
+.settings-app .settings-section-header h1 { font-size: var(--desktop-font-display-sm, 24px); line-height: 1.25; letter-spacing: -.025em; }
+.settings-app .settings-section-header > div > span { display: none; }
+.settings-app .settings-scroll { padding: 24px; }
+.settings-app .settings-panel { max-width: 800px; gap: 20px; }
+.settings-app .settings-card { padding: 20px; }
+.settings-app .settings-section-header p { color: var(--ui-muted); }
+.settings-app .settings-button { min-height: 36px; box-shadow: none; }
+.skills-app .skills-toolbar__identity > span,
+.automations-app .automations-toolbar__identity > span { border: 0; background: transparent; color: var(--ink); box-shadow: none; }
+.skills-app .skills-primary-button,
+.automations-app .automations-toolbar__actions button,
+.neura-app :is(.new-chat-button, .neura-welcome > button, .team-chat-empty button) { box-shadow: none; transform: none; }
+.skills-app .skills-primary-button { background: var(--ink); border-color: var(--ink); color: #fff; min-height: 36px; }
+.skills-app .skills-primary-button.is-automation { background: #fff; color: var(--ink); border-color: var(--ui-border); }
+.skills-app .skills-library-list { background: #fff; border-color: var(--ui-border); }
+.skills-app :is(.skills-simple-note, .skills-library-list__footer) { color: var(--ui-muted); background: transparent; }
+.skills-app .skills-simple-note { padding-block: 8px; }
+.skills-app .skills-detail { background: #fff; }
+.skills-app .skills-detail h1 { font-size: var(--desktop-font-display-sm, 24px); }
+.automations-app.automations-app { grid-template-rows: auto auto minmax(0, 1fr); }
+.automations-app .automations-toolbar { min-height: 52px; }
+.automations-app .automations-metrics { gap: 12px; padding: 10px 16px; }
+.automations-app .automations-metrics > div { padding: 0; border: 0; box-shadow: none; background: transparent; grid-template-columns: 1fr; }
+.automations-app .automations-metrics > div > span,
+.automations-app .automations-metrics em { display: none; }
+.automations-app .automations-metrics > div > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.automations-app .automations-metrics strong { font-size: var(--desktop-font-control, 14px); }
+.automations-app .automations-scheduler { border: 0; background: transparent; padding: 0; }
+.automations-app .automations-scheduler small { display: none; }
+.automations-app .automations-scheduler > i { box-shadow: none; }
+.neura-app .new-chat-button { color: var(--ink); background: #fff; border-color: var(--ui-border); font-size: var(--desktop-font-control, 14px); }
+.neura-app .history-switcher { background: #ebebee; border: 0; }
+.neura-app .history-switcher button.active { color: var(--ink); background: #fff; }
+.neura-app .team-chat-section > h2 { background: #f5f5f6; }
+.neura-app .history-row:hover { background: #eaeaec; }
+.neura-app .neura-history-search input { background: #fff; border-color: var(--ui-border); }
+.neura-app .neura-history-search input::placeholder { color: var(--ui-muted); }
+.neura-app .shared-note { border-color: var(--ui-border); color: var(--ui-muted); }
+.neura-app .history-select { color: var(--ink); }
+.neura-app .neura-orb { width: 44px; height: 44px; margin-bottom: 16px; border: 1px solid var(--ui-border); border-radius: 12px; background: #fff; color: var(--accent); box-shadow: none; font-size: 22px; }
+.neura-app .neura-orb::before,
+.neura-app .neura-orb::after { content: none; }
+.neura-app .neura-welcome h1 { font-size: var(--desktop-font-display-sm, 24px); font-weight: 600; }
+.neura-app .neura-welcome p { font-size: var(--desktop-font-control, 14px); }
+.neura-app .composer { box-shadow: none; border-color: var(--ui-border); background: #fff; }
+.terminal-app .terminal-launchpad__inner { max-width: 960px; padding: 28px; gap: 24px; }
+.terminal-app .terminal-launchpad__hero { text-align: left; }
+.terminal-app .terminal-launchpad__hero h1 { font-size: var(--desktop-font-display-sm, 24px); letter-spacing: -.025em; }
+.terminal-app .terminal-launchpad__hero p { max-width: none; margin: 8px 0 0; font-size: var(--desktop-font-control, 14px); }
+.terminal-app .terminal-launchpad__activity { justify-content: flex-start; margin-top: 16px; }
+.terminal-app .terminal-launchpad__grid { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+.terminal-app :is(.terminal-launchpad__start, .terminal-launchpad__teams) { padding: 20px; }
+.terminal-app .terminal-launchpad__personal { background: #fff; border: 1px solid var(--ui-border); box-shadow: none; border-radius: 6px; }
+.terminal-app .terminal-launchpad__personal > span:first-child { color: var(--ink); background: #f0f0f2; }
+.terminal-app .terminal-launchpad__section-heading > span { background: transparent; color: var(--ui-muted); }
+@container app-window (max-width: 600px) {
+  .settings-app .settings-scroll { padding: 16px; }
+  .settings-app .settings-card { padding: 16px; }
+  .terminal-app .terminal-launchpad__inner { padding: 20px 16px; }
+  .terminal-app :is(.terminal-launchpad__start, .terminal-launchpad__teams) { padding: 16px; }
+  .skills-app .skills-primary-button { min-height: 44px; }
+  .automations-app .automations-metrics { gap: 8px; padding: 8px; }
+}
+
+/* Neural Labs color stays in navigation and actions, with quiet work surfaces. */
+:is(.neura-app, .terminal-app, .settings-app, .skills-app, .automations-app) { --accent: #7040df; --ui-selected: #eee8fc; }
+:is(.neura-app, .terminal-app, .settings-app, .skills-app, .automations-app)::before {
+  content: ""; height: 2px; background: linear-gradient(90deg, #08a9ef, #7b4dff 40%, #f23aa9 70%, #ffb80f);
+}
+.skills-app .skills-navigation nav button > span { color: #087eaf; background: #e5f4fb; }
+.skills-app .skills-navigation nav button.is-violet > span { color: #7040df; background: #eee8fc; }
+.skills-app .skills-navigation nav button.is-pink > span { color: #b92578; background: #fce9f3; }
+.skills-app .skills-navigation nav button.is-amber > span { color: #89630a; background: #fff3d5; }
+.skills-app .skills-navigation nav button.is-mint > span { color: #16764f; background: #e6f5ed; }
+.skills-app .skills-navigation nav button > span svg { color: inherit; }
+.settings-app .settings-sidebar nav > button > i { color: #7040df; background: #eee8fc; }
+.settings-app .settings-sidebar nav > button > i svg { color: inherit; }
+.skills-app .skills-primary-button:not(.is-automation),
+.neura-app .new-chat-button { background: #7040df; border-color: #7040df; color: #fff; }
+.neura-app .new-chat-button svg { color: #fff; }
+.skills-app .skills-toolbar__identity > span { color: #7040df; }
+.automations-app .automations-toolbar__identity > span { color: #16764f; }
+.terminal-app .terminal-launchpad__personal > span:first-child { color: #7040df; background: #eee8fc; }
+.terminal-app .terminal-launchpad__hero::before { content: none; }
+.terminal-app .terminal-launchpad__personal { color: var(--ink); }
+.terminal-app .terminal-launchpad__personal small { color: var(--ui-muted); }
+.terminal-app .terminal-launchpad__personal:hover:not(:disabled) { color: var(--ink); background: var(--ui-selected); border-color: #b9a4ec; box-shadow: none; transform: none; }
+.neura-app .neura-sidebar .new-chat-button :is(span, svg) { color: #fff; }
+.neura-app .neura-main { background: var(--paper); }
+.neura-app .composer-shell { background: #fff; box-shadow: none; border-color: #d7d7dd; }
+.neura-app .composer-shell:focus-within { box-shadow: 0 0 0 2px #eee8fc; border-color: #9476d6; }
+.skills-app .skills-list-heading strong,
+.skills-app .skill-list-item__copy strong,
+.skills-app .skills-list-empty strong { color: var(--ink); }
+.skills-app .skill-list-item__copy small,
+.skills-app .skills-list-empty { color: var(--ui-muted); }
+.skills-app .skill-list-item.is-selected { background: var(--ui-selected); border-color: transparent; box-shadow: none; }
+.skills-app .skills-search { background: #f5f5f6; border-color: var(--ui-border); }
+.skills-app .skills-search input { color: var(--ink); }
+.skills-app .skills-search input::placeholder { color: var(--ui-muted); }
+.skills-app .skill-detail { background: #fff; }
+.skills-app .skill-simple-card { border: 0; border-bottom: 1px solid var(--ui-border); border-radius: 0; box-shadow: none; background: #fff; padding: 16px 0; }
+.skills-app .skill-simple-detail { padding: 8px 24px 24px; gap: 0 24px; }
+.skills-app .skill-simple-card > span { color: var(--ui-muted); text-transform: none; letter-spacing: 0; font-weight: 500; }
+.skills-app .skill-markdown-document { border: 1px solid var(--ui-border); background: #fafafa; color: var(--ink); min-height: 180px; }
+.skills-app .skill-markdown-document header { background: #f5f5f6; border-color: var(--ui-border); }
+.skills-app .skill-markdown-document article { color: var(--ink); }
+.skills-app .skill-markdown-document article :is(h1,h2,h3,p,li) { color: var(--ink); }
+.skills-app .skill-invoke { box-shadow: none; }
+.settings-app .provider-card-main { min-height: 180px; background: #fff; padding: 0; }
+.settings-app .plugin-card-action { color: #7040df; }
+.automations-app .automations-list { background: #f5f5f6; color: var(--ink); border-color: var(--ui-border); }
+.automations-app .automations-list__heading strong,
+.automations-app .automation-job__top strong { color: var(--ink); }
+.automations-app :is(.automations-list__heading span, .automations-list__heading small, .automation-job__top em, .automation-job__schedule, .automation-job__status small, .automations-list__footer) { color: var(--ui-muted); }
+.automations-app .automation-job { background: transparent; }
+.automations-app .automation-job.is-selected { background: var(--ui-selected); box-shadow: none; border-color: #ded4f5; }
+.automations-app .automation-job.is-paused { opacity: 1; }
+.automations-app .automation-job__top > i { box-shadow: none; }
+.automations-app .automations-search { background: #fff; border-color: var(--ui-border); min-height: 36px; }
+.automations-app .automations-search :is(input, svg),
+.automations-app .automations-search input::placeholder { color: var(--ui-muted); }
+.automations-app .automations-filters { border-color: var(--ui-border); }
+.automations-app .automations-filters button { color: var(--ui-muted); min-height: 32px; }
+.automations-app .automations-filters button[aria-pressed="true"] { color: #7040df; background: var(--ui-selected); }
+.automations-app .automation-detail { background: #fff; }
+.automations-app .automations-list__footer { border-color: var(--ui-border); }
+.automations-app .item-actions-trigger { color: var(--ui-muted); }
+.skills-app .skill-markdown-document :not(pre) > code { color: #6134bb; background: #eee8fc; }
+@container app-window (max-width: 600px) {
+  .automations-app .automations-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .automations-app .automations-metrics > div { min-width: 0; }
+  .automations-app .automations-filters button { min-height: 44px; }
+}
+.automations-app :is(.automation-job__run, .automations-list__footer button) { color: #62636b; border-color: var(--ui-border); }
+.automations-app .automation-job__run:hover { color: #7040df; background: var(--ui-selected); }
+.automations-app .automation-account-note { margin: 0; padding: 12px 20px; color: var(--ui-muted); font-size: var(--desktop-font-small, 12px); line-height: 1.5; border-bottom: 1px solid var(--ui-border); }
+.automations-app :is(.automation-schedule-card, .automation-payload-card, .automation-route-card, .automation-recent-card) { background: #fff; box-shadow: none; border-color: var(--ui-border); }
+.automations-app details > summary { padding: 12px 0; cursor: pointer; color: var(--ui-muted); font-size: var(--desktop-font-control, 14px); }
+.automations-app .automation-route-card { grid-column: 1 / -1; }
+.automations-app .automation-payload-copy { color: var(--ink); background: #f5f5f6; border: 1px solid var(--ui-border); }
+.automations-app .automation-payload-copy :is(p,span,li) { color: var(--ink); }
+.automations-app .automation-detail-header__mark { box-shadow: none; }
+.skills-app .skill-detail-header__actions .skill-invoke { box-shadow: none; }
+.skills-app .automations-app::before { content: none; }
+.neura-app .neura-sidebar button.new-chat-button { color: #fff; }

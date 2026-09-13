@@ -6,13 +6,16 @@ It reads and writes the same durable jobs and run history as the
 
 The dock launcher is visible to every workspace user and routes to the
 Automations section inside the canonical Skills app. Every user can inspect
-redacted operational state; administrators additionally can:
+redacted operational state and manually run AI task automations with their own
+connected ChatGPT account. Missing or paused personal connections block the run.
+Manual runs do not change the original schedule or its configured account.
+Administrators additionally can:
 
 - show scheduler connectivity, enabled/running/error counts, and live job state;
 - search and filter jobs;
 - create and edit one-time, interval, cron, process-exit, and stream schedules;
 - create system-event, agent-turn, command, and script payloads;
-- pause or enable jobs and force a run, run only when due, or run only when enabled;
+- pause or enable jobs;
 - inspect durable execution and delivery history; and
 - remove non-system jobs.
 

@@ -330,7 +330,7 @@ export function App() {
           const restored = desktopDeviceState(userId);
           setFontScale(appearanceDeviceState(userId).fontScale);
           if (restored) {
-            const allowedWindows = restored.windows.filter((window) => window.app !== "automations" || payload.user?.role === "admin");
+            const allowedWindows = restored.windows;
             setWindows(allowedWindows);
           } else {
             setWindows([]);
@@ -393,7 +393,6 @@ export function App() {
   };
 
   const newAppWindow = useCallback((app: DesktopApp) => {
-    if (app === "automations" && session?.user?.role !== "admin") return;
     if (windows.length >= 24 || windows.filter((window) => window.app === app).length >= 8) {
       notify("Close a window before opening another one.");
       setDockMenu(undefined);
@@ -408,7 +407,6 @@ export function App() {
   }, [notify, session?.user?.role, windows]);
 
   const revealApp = useCallback((app: DesktopApp) => {
-    if (app === "automations" && session?.user?.role !== "admin") return;
     setDockMenu(undefined);
     const popped = windows.filter((window) => window.app === app && window.visibility === "popped-out").sort((left, right) => right.order - left.order)[0];
     if (popped) {
@@ -431,7 +429,6 @@ export function App() {
   }, [initialSettingsLaunch.open, revealApp, session?.user]);
 
   const toggleDockApp = useCallback((app: DesktopApp) => {
-    if (app === "automations" && session?.user?.role !== "admin") return;
     setDockMenu(undefined);
     const appWindows = windows.filter((window) => window.app === app);
     const popped = appWindows.filter((window) => window.visibility === "popped-out").sort((left, right) => right.order - left.order)[0];

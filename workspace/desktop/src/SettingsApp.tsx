@@ -1,3 +1,4 @@
+import "./minimal-apps.css";
 import { PluginCardsPanel } from "./PluginCardsPanel";
 import {
   Activity,

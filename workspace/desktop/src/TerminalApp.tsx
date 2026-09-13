@@ -1,3 +1,4 @@
+import "./minimal-apps.css";
 import { TerminalReactionSidebar, ReactionOverlays, safeGifUrl, type ReactionSelection, type TeamReaction } from "./TerminalReactions";
 import { setTerminalParticipation } from "./terminalAgentApi";
 import { FitAddon } from "@xterm/addon-fit";
@@ -590,38 +591,18 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
         <main className="terminal-launchpad" aria-labelledby="terminal-launchpad-title">
           <div className="terminal-launchpad__inner">
             <header className="terminal-launchpad__hero">
-              <span><i />Your workspace, together</span>
+
               <h1 id="terminal-launchpad-title">New Terminal</h1>
-              <p>A place to build, talk, and celebrate the little wins. Drop into a team terminal or make a space of your own.</p>
+              <p>Start a personal terminal or join a team session.</p>
               <div className="terminal-launchpad__activity" aria-label="Team activity">
                 <button type="button" onClick={() => appRoot.current?.querySelector<HTMLElement>(".terminal-launchpad__teams")?.scrollIntoView({ block: "start" })}><Users />{loading ? "Finding rooms…" : `Browse ${runningTeamSessions.length} team ${runningTeamSessions.length === 1 ? "room" : "rooms"}`}<ArrowRight /></button>
                 <span><Headphones />{loading ? "Checking voice…" : `${new Set(runningTeamSessions.flatMap((session) => session.voiceParticipants.map((person) => person.id))).size} in voice`}</span>
               </div>
             </header>
 
-            <section className="terminal-launchpad__social" aria-labelledby="terminal-social-title">
-              <div className="terminal-launchpad__social-copy">
-                <span className="terminal-launchpad__eyebrow">GOOD WORK. GOOD COMPANY.</span>
-                <h2 id="terminal-social-title">Same terminal.<br /> Shared energy.</h2>
-                <p>Work in the same live shell, hop into voice chat, and say it with an emoji or GIF.</p>
-                <button type="button" className="terminal-launchpad__create-room" disabled={Boolean(creatingScope)} aria-expanded={teamCreatorOpen} aria-controls={teamCreatorId} onClick={openTeamCreator}><Plus />Create a team terminal<ArrowRight /></button>
-                <small>Everyone in this workspace can join and type together.</small>
-              </div>
-              <div className="terminal-launchpad__social-art" aria-hidden="true">
-                <div className="terminal-launchpad__sample-shell"><div><span /><span /><span /><b>better-together</b><Users /></div><code><span>~/workspace</span><br />❯ build something great<span className="terminal-launchpad__cursor">▌</span></code><footer><Headphones />Room for your whole team<span>✦</span></footer></div>
-                <span className="terminal-launchpad__reaction-sticker">✨ 🙌 🎉</span>
-                <span className="terminal-launchpad__gif-sticker">GIF<span>BIG<br />SHIP<br />ENERGY ↗</span></span>
-              </div>
-              <div className="terminal-launchpad__social-features">
-                <span><TerminalSquare /><span><strong>Build together</strong><small>One shared, live shell</small></span></span>
-                <span><Headphones /><span><strong>Talk it through</strong><small>Join voice when you're ready</small></span></span>
-                <span><Smile /><span><strong>Bring the reactions</strong><small>Emoji + GIFs for every win</small></span></span>
-              </div>
-            </section>
-
             <div className="terminal-launchpad__grid">
               <section className="terminal-launchpad__start" aria-labelledby="terminal-start-title">
-                <div className="terminal-launchpad__section-heading"><span><TerminalSquare /></span><div><h2 id="terminal-start-title">A little solo time</h2><p>Your own space to focus and experiment.</p></div></div>
+                <div className="terminal-launchpad__section-heading"><span><TerminalSquare /></span><div><h2 id="terminal-start-title">Personal terminal</h2><p>A private shell that stays available when you leave.</p></div></div>
                 <button className="terminal-launchpad__personal" type="button" disabled={Boolean(creatingScope)} onClick={() => void createPersonal()}>
                   <span><Plus /></span>
                   <span><strong>{creatingScope === "personal" ? "Starting terminal…" : "Personal terminal"}</strong><small>A private, persistent shell just for you</small></span>
@@ -630,7 +611,7 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
               </section>
 
               <section className="terminal-launchpad__teams" aria-labelledby="terminal-team-sessions-title">
-                <div className="terminal-launchpad__section-heading"><span><Users /></span><div><h2 id="terminal-team-sessions-title">Team sessions</h2><p>{loading ? "Checking the workspace…" : `${runningTeamSessions.length} live now`}</p></div><div className="terminal-launchpad__heading-actions"><button type="button" className="terminal-launchpad__add-team" aria-expanded={teamCreatorOpen} aria-controls={teamCreatorId} disabled={Boolean(creatingScope)} onClick={() => teamCreatorOpen ? setTeamCreatorOpen(false) : openTeamCreator()}>+ Team</button><button type="button" className="terminal-launchpad__refresh" aria-label="Refresh terminal sessions" disabled={loading} onClick={() => void retryDiscovery()}><RefreshCw className={loading ? "terminal-spin" : ""} /></button></div></div>
+                <div className="terminal-launchpad__section-heading"><span><Users /></span><div><h2 id="terminal-team-sessions-title">Team sessions</h2><p>{loading ? "Checking the workspace…" : `${runningTeamSessions.length} live now`}</p></div><div className="terminal-launchpad__heading-actions"><button type="button" className="terminal-launchpad__add-team" aria-expanded={teamCreatorOpen} aria-controls={teamCreatorId} disabled={Boolean(creatingScope)} onClick={() => teamCreatorOpen ? setTeamCreatorOpen(false) : openTeamCreator()} aria-label="Create a team terminal">+ Team</button><button type="button" className="terminal-launchpad__refresh" aria-label="Refresh terminal sessions" disabled={loading} onClick={() => void retryDiscovery()}><RefreshCw className={loading ? "terminal-spin" : ""} /></button></div></div>
                 {teamCreatorOpen && <form id={teamCreatorId} className="terminal-launchpad__team-composer" aria-label="Create a team terminal" onSubmit={(event) => void createTeam(event)}>
                   <label htmlFor={teamTitleInputId}>Team terminal name</label>
                   <p>Everyone in this workspace can join and type together in the same live shell.</p>

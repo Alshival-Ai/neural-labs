@@ -94,3 +94,21 @@ describe("Skills live app", () => {
     expect(instructions.queryByText(/Loading SKILL.md/)).not.toBeInTheDocument();
   });
 });
+
+it("lets members run an automation without an administrator gateway", async () => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    const body = url.endsWith("/workspace/api/skills") ? { skills: [] }
+      : url.endsWith("/workspace/api/builder/drafts") ? { drafts: [] }
+      : url.endsWith("/api/team/directory") ? { users: [] }
+      : url.endsWith("/automations/snapshot") ? { status: { enabled: true }, jobs: [{ id: "example", name: "Member task", enabled: true, schedule: { kind: "every", everyMs: 60000 }, payload: { kind: "agentTurn" }, state: {} }], entries: [] }
+      : url.endsWith("/automations/run") ? { accepted: true } : {};
+    return { ok: true, status: 200, json: async () => body } as Response;
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  render(<SkillsLiveApp reader={gatewayFixture()} canManage={false} currentUser={{ id: "maya", displayName: "Maya", role: "user" }} initialSection="automations" />);
+  const run = await screen.findByRole("button", { name: "Run now" });
+  fireEvent.click(run);
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/workspace/api/automations/run", expect.objectContaining({ method: "POST", body: expect.stringContaining('"jobId":"example"') })));
+  expect(screen.queryByRole("button", { name: "Save automation" })).toBeNull();
+});

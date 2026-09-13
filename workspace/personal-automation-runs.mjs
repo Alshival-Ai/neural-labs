@@ -56,7 +56,7 @@ export class PersonalAutomationRuns {
   }
 
   async runOnce(actor, { jobId, mode = "force", requestId } = {}) {
-    if (!actor?.userId || actor.role !== "admin") throw new AutomationRunError(403, "Administrator access is required");
+    if (!actor?.userId || !["admin", "user"].includes(actor.role)) throw new AutomationRunError(403, "Workspace membership is required");
     if (typeof jobId !== "string" || !/^[a-zA-Z0-9-]{1,200}$/.test(jobId)
         || !/^[a-f0-9-]{36}$/.test(requestId ?? "") || !["force", "due", "if-enabled"].includes(mode)) {
       throw new AutomationRunError(422, "Invalid automation run request");
@@ -188,11 +188,28 @@ export class PersonalAutomationRuns {
     return { ...page, entries: (await this.project(jobs, page.entries ?? [])).entries };
   }
 
-  async snapshot() {
+  async snapshot(actor) {
     const [status, jobs, history] = await Promise.all([
       this.request("cron.status", {}), this.jobs(),
       this.request("cron.runs", { scope: "all", limit: 200, sortDir: "desc" }),
     ]);
-    return { status, ...(await this.project(jobs, history.entries ?? [])) };
+    const projected = await this.project(jobs, history.entries ?? []);
+    if (actor?.role === "user") {
+      // Members see shared operational state, never another caller's transcript
+      // or the scheduler's administrative payload and delivery configuration.
+      return { status: { enabled: status?.enabled }, jobs: projected.jobs.map(job => ({
+        id: job.id, name: job.name, enabled: job.enabled,
+        schedule: { kind: job.schedule?.kind, at: job.schedule?.at,
+          everyMs: job.schedule?.everyMs, expr: job.schedule?.expr, tz: job.schedule?.tz },
+        state: { runningAtMs: job.state?.runningAtMs, nextRunAtMs: job.state?.nextRunAtMs,
+          lastRunAtMs: job.state?.lastRunAtMs, lastRunStatus: job.state?.lastRunStatus },
+        manualRunWarning: job.manualRunWarning,
+        payload: { kind: job.payload?.kind },
+      })), entries: projected.entries.map(entry => ({
+        jobId: entry.jobId, status: entry.status, action: entry.action,
+        ts: entry.ts, runAtMs: entry.runAtMs, durationMs: entry.durationMs,
+      })) };
+    }
+    return { status, ...projected };
   }
 }

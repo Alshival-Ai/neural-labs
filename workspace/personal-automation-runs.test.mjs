@@ -60,7 +60,7 @@ test("rejects disconnected accounts, wrong ownership and unauthorized callers be
     assert.equal(f.calls.some(row => row.method === "cron.add"), false);
   }
   const f = await fixture(t);
-  await assert.rejects(f.service.run({ ...actor, role: "user" }, input), /Administrator/);
+  await assert.rejects(f.service.run({ ...actor, role: "guest" }, input), /membership/);
   assert.equal(f.calls.length, 0);
 });
 
@@ -119,4 +119,22 @@ test("refuses system jobs and existing scheduled runs", async t => {
   f.original.state = {};
   f.original.payload.kind = "heartbeat";
   await assert.rejects(f.service.run(actor, input), /AI task automations only/);
+});
+
+test("members run with their own account and receive only operational history", async t => {
+  const f = await fixture(t);
+  const member = { ...actor, role: "user" };
+  const result = await f.service.run(member, input);
+  assert.equal(result.agentId, personalAgentId(userId));
+  f.entries.push({jobId: "child", status: "ok", summary: "private result", sessionKey: "private-session"});
+  f.original.schedule = { kind: "stream", command: "private command", cwd: "/private" };
+  f.original.state.lastError = "private failure";
+  const snapshot = await f.service.snapshot(member);
+  assert.equal(snapshot.jobs.length, 1);
+  assert.deepEqual(snapshot.jobs[0].payload, {kind: "agentTurn"});
+  assert.equal(snapshot.jobs[0].delivery, undefined);
+  assert.equal(snapshot.jobs[0].schedule.command, undefined);
+  assert.equal(snapshot.jobs[0].state.lastError, undefined);
+  assert.equal(snapshot.entries[0].summary, undefined);
+  assert.equal(snapshot.entries[0].sessionKey, undefined);
 });
