@@ -1,5 +1,8 @@
 # ADR 0018: Relay generated Neura media with short-lived capabilities
 
+> Design history: for current instructions, see [Neura desktop app](../neura.md).
+> See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
+
 - Status: Accepted
 - Date: 2026-09-03
 

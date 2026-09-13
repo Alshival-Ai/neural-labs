@@ -1,7 +1,9 @@
 # Web frontend
 
-The public landing page lives in `web/`. The authenticated React interface
-lives in `console/` and is compiled into the `control-plane/` image. First-run
+The public landing page lives in `web/`. The React login, signup, and pending-account interface lives in `console/`
+and is compiled into the `control-plane/` image. The authenticated desktop,
+including Settings, lives in `workspace/desktop/` and ships in the workspace
+image. First-run
 setup remains server-rendered by the control plane so an unbuilt or failed
 console cannot weaken the bootstrap checks. Keeping the public static surface
 separate makes both runtime containers smaller and their trust boundaries
@@ -24,15 +26,14 @@ The site is currently plain HTML, CSS, and JavaScript. Keep it framework-free
 until application requirements justify adding a build system.
 
 The landing page and control-plane console deliberately use different build
-pipelines. See [Administrator settings](desktop-settings.md) for the application UI
-routes and validation commands.
+pipelines. See [Administrator settings](desktop-settings.md) for the current application UI; run `make validate` for repository checks.
 
 ## Local preview
 
 From the repository root, run:
 
 ```bash
-python3 -m http.server 8080 --directory web
+python3 -m http.server 8080 --bind 127.0.0.1 --directory web
 ```
 
 Then open <http://127.0.0.1:8080/>. The landing page's `/login` link only works

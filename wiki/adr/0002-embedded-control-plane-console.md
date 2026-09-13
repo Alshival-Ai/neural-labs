@@ -1,5 +1,8 @@
 # ADR 0002: Embed the control-plane console
 
+> Design history: for current instructions, see [Authentication and administrator model](../authentication.md).
+> See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
+
 - Status: Superseded by [ADR 0004](0004-desktop-admin-settings.md)
 - Date: 2026-09-01
 

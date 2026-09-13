@@ -1,9 +1,9 @@
 # Authentication and administrator model
 
 The control plane supports local email/password accounts and optional Microsoft
-Entra sign-in. Local authentication is enabled by default. Microsoft web login
-and Microsoft-authenticated MCP access are independent switches, but both use
-the same Entra app registration.
+Entra sign-in. Local authentication is enabled by default. Microsoft web login is optional. Public MCP ingress is disabled in the
+supported deployment; its retained implementation is a maintainer reference,
+not a sign-in setup requirement.
 
 ## Bootstrap and approval
 
@@ -17,8 +17,8 @@ until an administrator approves it.
 Pending users receive a restricted account-status page and cannot call active
 account, workspace, or administrator APIs. Once approved, non-administrators
 are sent to the shared workspace. Every active user can review and link sign-in
-methods in **Settings → Personalization**. Legacy `/account` requests open that
-area in the workspace.
+methods in **Settings → Security**. Legacy `/account` requests redirect into the
+workspace Settings app.
 
 Administrators can approve, reject, disable, promote, or demote accounts. The
 database refuses any change that would remove the last active administrator and
@@ -27,7 +27,7 @@ invalidates sessions when an account is deactivated.
 ## Identity linking
 
 Matching email addresses do not silently merge accounts. A signed-in user must
-explicitly add another provider from **Settings → Personalization**. The
+explicitly add another provider from **Settings → Security**. The
 Microsoft linking flow is bound to that user's live session and a one-time OIDC
 transaction. A local password is hashed with Argon2id before storage.
 
@@ -49,8 +49,8 @@ keys are never serialized.
 ## Provider lockout protection
 
 At least one web login provider must remain enabled. Before local login can be
-disabled, an active administrator must already have a Microsoft identity. MCP
-cannot be enabled without an effective Entra configuration. These checks also
+disabled, an active administrator must already have a Microsoft identity. The retained MCP configuration also requires Entra, but its switch does not
+expose the disabled public routes. These checks also
 run in the database-sensitive administrator paths; the UI is not the security
 boundary.
 
@@ -78,9 +78,10 @@ The root `.env` accepts either:
 The control plane validates the certificate/key pair and certificate expiry.
 Credentials later saved through the administrator rotation form are encrypted
 with AES-256-GCM before being written to PostgreSQL.
-The encryption key is supplied only to the control plane. The MCP container never
-receives the secret or private key. It polls an internal bearer-authenticated
-endpoint for public tenant, client, scope, audience, and URL values only.
+The encryption key is supplied only to the control plane. The workspace-local
+provider MCP does not perform Microsoft web login. The retained public MCP
+implementation reads only public Entra metadata; it is not a running service
+in the supported Compose stack.
 
 Saved configuration changed later in the administrator UI takes precedence.
 The initial environment configuration uses:
@@ -91,7 +92,6 @@ The initial environment configuration uses:
 | `AZURE_CLIENT_ID` | App registration client ID |
 | `AZURE_AUTHORITY_HOST` | Microsoft cloud authority; defaults to the public cloud |
 | `AZURE_CLIENT_SECRET` | Confidential client secret, when secret mode is used |
-| `AZURE_CLIENT_CERTIFICATE_PATH` | PEM certificate/private-key bundle |
 | `AZURE_CLIENT_CERTIFICATE_BASE64` | Base64-encoded PEM bundle stored in the protected root `.env` |
 | `AZURE_CLIENT_CERTIFICATE_PASSPHRASE` | Optional PEM key passphrase |
 
@@ -104,7 +104,7 @@ Setup is permanently closed after a user exists. If onboarding was marked
 complete but no user was ever created, an operator can reopen it with:
 
 ```bash
-docker compose -f deploy/compose/compose.yaml run --rm control-plane \
+docker compose --env-file .env -f deploy/compose/compose.yaml run --rm control-plane \
   node dist/index.js setup-reset
 ```
 

@@ -1,5 +1,8 @@
 # ADR 0008: Store Team Chats as explicit control-plane channels
 
+> Design history: for current instructions, see [Team Chats](../team-chats.md).
+> See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
+
 - Status: Accepted
 - Date: 2026-09-01
 

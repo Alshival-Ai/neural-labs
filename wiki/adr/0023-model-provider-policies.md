@@ -1,5 +1,8 @@
 # ADR 0023: Scoped model connections and versioned workload defaults
 
+> Design history: for current instructions, see [AI accounts and models](../ai-accounts.md).
+> See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
+
 - Status: Accepted for OpenAI; Claude subscription adapter remains release-gated
 - Date: 2026-09-05
 - Partially supersedes ADR 0013 for Team Chat after administrator activation

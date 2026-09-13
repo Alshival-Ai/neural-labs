@@ -1,5 +1,8 @@
 # ADR 0019: Scope Neura voice by private and team chat boundaries
 
+> Design history: for current instructions, see [AI accounts and models](../ai-accounts.md).
+> See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
+
 - Status: Accepted
 - Date: 2026-09-04
 

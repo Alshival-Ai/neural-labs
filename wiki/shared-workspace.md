@@ -1,183 +1,96 @@
-# Shared developer workspace
+# Your first workspace session
 
-Neural Labs V1 provides one continuously running OpenClaw environment shared by
-every approved user. It is a trusted collaboration cell, not a general
-operating-system security boundary between developers. Files, workspace-wide
-Team Terminals, skills, and automations are shared by design. A Team Terminal
-launched from a Team Chat is an application-level channel boundary: only current
-channel members may discover or attach to that PTY. Interactive Neura
-credentials and histories are separated by OpenClaw agent and app authorization,
-but workspace-root users remain inside the same operating-system trust domain.
+Use this guide when your Neural Labs instance is already running. To host your
+own instance, start with [Quick setup](README.md).
 
-The workspace remains a container so its passwordless `sudo` cannot administer
-the host, PostgreSQL, Nginx, Docker, or the control-plane secrets. It has no
-Docker socket, host home mount, privileged mode, host network, host PID/IPC
-namespace, or host devices. Its desktop and Gateway listeners are published
-only on loopback.
+## Sign in and connect Neura
 
-## Versions and resources
+1. Open your instance's `/signup` page and create an account, or use `/login`
+   for Microsoft sign-in if your administrator enabled it.
+2. Wait for administrator approval. A pending account cannot enter the desktop.
+3. Open `/workspace`. The dock launches Neura, Files, Terminal, VS Code, Skills,
+   and Settings. A new browser profile starts with an empty desktop.
+4. Open **Settings → Model Provider → OpenAI** and connect your own ChatGPT
+   account using the displayed sign-in URL and one-time code.
+5. Open **Neura**, create a private conversation, and send your first request.
 
-The reviewed release pins:
+The account connection and usable model must be confirmed before private
+Neura can answer. See [AI accounts and models](ai-accounts.md) for connection
+troubleshooting, pause/resume, background work, and dedicated Team accounts.
 
-- OpenClaw `2026.9.2` using the official multi-architecture image digest;
-- Codex CLI `0.152.0` as an exact npm package version;
-- code-server `4.133.0` from checksum-verified architecture-specific release
-  archives; and
-- 10 CPUs and 16 GiB of memory for the shared container.
+## Work on a project
 
-The root `.env` controls the image reference, exact versions, loopback port,
-CPU/memory ceiling, and the dedicated Docker subnet. Keep the OpenClaw tag and
-digest aligned. If the subnet overlaps another Docker or host network, choose a
-different private `/29` and set its first usable address as
-`NEURAL_LABS_WORKSPACE_PROXY_IP`.
+Open **Files**, create a project folder, and upload files or create a new text
+file. Text and code open in **VS Code**. **Terminal** starts shells in the same
+workspace, and Neura can help with those files.
 
-The container is always on with `restart: unless-stopped`. Do not schedule idle
-shutdown: OpenClaw automations and heartbeats require the Gateway to remain
-running.
+Files, VS Code, terminals, and agent tools share `/home/node/workspace`. Changes
+saved there are immediately part of the shared project tree. Files refreshes
+when another user or a tool changes a directory. Use **Open Preview** for a
+static website or supported media, and **Edit image** for raster images.
 
-## Initial setup
+See [Files and previews](files.md), [VS Code](vscode.md), and
+[Terminal](terminal.md) for detailed workflows. Files' shared Trash can recover
+normal deletions for 90 days; it is not a backup.
 
-Start the cluster and install the reviewed nginx configuration using the
-explicit host steps in the [container deployment guide](container-deployment.md).
-After the initial administrator can sign in, open `/workspace`, launch
-**Settings** from the dock, choose **Workspace**, and select **Connect ChatGPT
-account**. Neural Labs requests an OpenAI device code from
-OpenClaw inside the workspace container. Open the displayed OpenAI URL, sign
-in, and enter the one-time code. Keep the administrator page open until it
-reports **Connected**.
+## Reuse skills and run automations
 
-That Workspace connection is the service account for automations and other
-background work. Each teammate separately opens **Settings → Personalization →
-Your ChatGPT account** and completes the same supported device-code flow for
-their personal Neura agent. Interactive private chats and a Team Chat `@Neura`
-turn use the initiating human's account. They fail closed when that account is
-not connected or is paused; Neural Labs never silently charges interactive work
-to the workspace service account.
+Open **Skills** to browse My Skills and Team Skills or build a reusable workflow.
+Use `$skill-name` in Neura to invoke an enabled skill. Drafts autosave; publishing
+makes a skill available to the live catalog. **Test in Neura** lets you try a
+snapshot before publication.
 
-Device-code login may first need to be enabled in the ChatGPT account or
-workspace security settings. The OAuth access and refresh tokens are written by
-OpenClaw to its own persistent agent auth store. They are never returned to the
-browser, copied into the control-plane database, or placed in the root `.env`.
-Treat the workspace volumes and their backups as passwords.
+The Automations dock shortcut opens the Automations section of Skills. Members
+can inspect operational status and run eligible AI tasks with their own
+connected account. Administrators manage schedules and publish automations.
+Scheduled work uses the job's configured agent and keeps running while browsers
+are closed, as long as the workspace is running.
 
-The operator CLI provides the same OpenClaw flow as a recovery path:
+Read [Skills](skills.md) and [Automations](automations.md) for permissions,
+subscriptions, and run behavior.
 
-```bash
-sudo bin/neural-labs workspace status
-sudo bin/neural-labs workspace provider-login
-```
+## Collaborate with teammates
 
-The separately installed Codex CLI has its own account cache. Authenticate it
-only when developers need to run `codex` directly in the workspace terminal:
+Use **Team chats** inside Neura to create a channel for selected teammates or
+Everyone. Mention `@Neura` for an agent request, or select a skill with `$`.
+An ordinary user mention does not invoke the agent. The administrator's Team
+account configuration determines which account runs Team requests.
 
-```bash
-sudo bin/neural-labs workspace codex-login
-```
+Start a Team Terminal for a shared shell. A terminal opened from a restricted
+Team Chat follows that channel's membership; a workspace-wide Team Terminal is
+available to all approved users. Team terminals accept concurrent input, so
+coordinate commands with other participants.
 
-That CLI cache does not configure Neura. Neura always sends requests through
-OpenClaw, whose canonical model route is `openai/*` and whose bundled Codex
-runtime is enabled by the workspace image.
+Private conversation lists and personal terminal tabs are separated in the app,
+but all approved developers share one operating-system trust domain. Uploaded
+Team Chat attachments may be in shared Files regardless of the channel's
+membership. Read [Sharing and privacy](sharing-and-privacy.md) and
+[Team Chats](team-chats.md) before sharing sensitive work.
 
-Official references:
+## Personalize and return later
 
-- [Codex CLI](https://learn.chatgpt.com/docs/codex/cli)
-- [Codex authentication and headless device login](https://learn.chatgpt.com/docs/auth)
-- [OpenClaw OpenAI provider and ChatGPT/Codex OAuth](https://docs.openclaw.ai/openai)
-- [OpenClaw Docker deployment](https://docs.openclaw.ai/install/docker)
-- [OpenClaw trusted-proxy authentication](https://docs.openclaw.ai/gateway/trusted-proxy-auth)
+**Settings → Personalization** manages appearance, your profile, and notification
+preferences. **Security** manages sign-in methods, passkeys, and phone
+verification. Microsoft must be linked before you can enroll a
+[passkey](passkeys.md).
 
-## Access and persistence
+Window positions and open apps are remembered per user and browser profile.
+They do not roam to another device. Minimize keeps a live app mounted. Closing
+Neura or a Terminal window does not stop its server-side run or shell; use its
+explicit Stop or terminal end action when you want that work to end.
+See [Desktop layout](desktop-state.md).
 
-Active users enter the Neural Labs desktop at `/workspace`. The React desktop is
-built into and served by the same container as OpenClaw, so custom skills,
-automations, and GUI applications can work against the shared runtime without a
-host-level service. The desktop uses responsive wide, tablet, and mobile
-Spectrum Paper artwork as its default wallpaper.
+## What survives a restart?
 
-Window visibility, stacking, geometry, and safe application presentation state
-are retained per signed-in user in each browser profile. They are not synced
-between devices and do not include credentials, terminal contents, conversation
-bodies, or file bodies. Static hashed bundles and responsive wallpaper assets
-use browser caching appropriate to their update model. See [Desktop windows and
-device state](desktop-state.md).
+Saved project files, published skills, draft state, editor settings, and AI
+credentials live in persistent volumes. Team Chat and account records live in
+PostgreSQL. They survive container recreation when the deployment retains its
+volumes.
 
-Neura is the first desktop app. Each approved user receives a dedicated
-OpenClaw agent and private conversation roster. Neura provides streamed responses, compact tool
-activity timelines, inline approvals, file/image attachments, and run steering.
-The transcript follows live WebSocket updates at the bottom without overriding
-an intentional upward scroll. The window is a singleton with drag,
-eight-direction resize, minimize, maximize, and close controls; minimizing
-keeps its live UI mounted, and closing it does not stop an agent run. On narrow
-screens it becomes a full-screen app with a history drawer.
+Running terminal processes end when the workspace container is recreated.
+Packages installed interactively with `sudo apt` change only the current
+container layer and disappear on replacement. Ask the operator to add durable
+system tools to the workspace image.
 
-Files is the desktop browser for `/home/node/workspace`. Approved developers can
-navigate folders, upload files by picker or drag and drop, create folders,
-download files, and permanently delete files or folders after confirmation.
-Uploads stream into atomic temporary files and default to a generous 2 GiB cap
-per file. Files creates new text files in VS Code, opens text and code there by
-default, and provides an **Open in VS Code** action for every file and folder.
-See the [Files guide](files.md) and [VS Code guide](vscode.md).
-
-Terminal provides private per-user PTYs plus opt-in, multi-writer Team
-Terminals. Shells continue running when their browser view disconnects and have
-no idle timeout; they end when explicitly terminated or when the workspace
-container is recreated. See the [Terminal guide](terminal.md) for session,
-collaboration, clipboard, and reconnect behavior.
-
-VS Code runs as code-server inside the same container and opens from the desktop
-dock in an embedded window, with a new-tab fallback. Its listener is loopback
-only and every proxied HTTP and WebSocket request remains behind Neural Labs
-authentication. VS Code settings and extensions are shared in the persistent
-home volume. See the [VS Code guide](vscode.md) for routing, framing, persistence,
-and trusted-origin details.
-
-Approved users can create, switch, rename, archive, restore, and delete their
-own Neura conversations. Explicit Team Chats provide the shared history.
-Deletion requires a confirmation but is permanent. Press
-Enter to send or steer an active run, Ctrl/Cmd+Enter to queue a follow-up, and
-Shift+Enter to add a line. Active-run steering remains enabled across
-intermediate transcript commits and when a run began before the app opened.
-Queued follow-ups are shown in FIFO order and are owned and advanced by the
-Gateway rather than a browser timer. The raw OpenClaw Control UI is disabled.
-Nginx exposes only the authenticated `/workspace/neura/socket` Gateway WebSocket;
-navigating to `/workspace/openclaw/` returns `404`. Generated Neura media uses
-the authenticated `/workspace/api/neura/media/outgoing/*` workspace route only
-after the user-scoped Gateway connection resolves an artifact to a short-lived
-OpenClaw media ticket. The route is an allowlisted loopback relay, not a general
-Gateway HTTP proxy or public file URL.
-
-Nginx performs a session subrequest for every desktop, asset, API, and Neura
-WebSocket connection, strips caller-supplied identity headers, and injects the
-immutable Neural Labs user ID. Pending, rejected, disabled, and anonymous users
-cannot reach either the desktop or the Gateway.
-
-Three named volumes preserve the shared home, OpenClaw state, and OpenClaw
-credential encryption material. User files and provider authentication therefore
-survive recreation. Packages installed with `sudo apt` modify only the current
-container layer and disappear when the image is replaced; add durable operating
-system tools to `workspace/Containerfile` instead.
-
-Useful operator commands:
-
-```bash
-sudo bin/neural-labs workspace status
-sudo bin/neural-labs workspace logs
-sudo bin/neural-labs workspace shell
-sudo bin/neural-labs workspace update
-```
-
-The workspace update command creates a complete backup, retains the previous
-image under a timestamped rollback tag, and records its immutable image ID.
-It checks the reviewed release pins and builds before downtime, then backs up,
-recreates only the workspace and checks its loopback health endpoint. Version
-discovery never changes pins automatically. Follow the
-[OpenClaw upgrade guide](openclaw-upgrades.md) to review upstream compatibility,
-integration packages, state migrations and recovery before promotion.
-
-## Trust warning
-
-Every approved user can influence shared files, terminals, skills, and Team
-Chats. Commands can obtain root inside the workspace through passwordless
-`sudo`, which means per-agent OpenAI auth files prevent accidental product-level
-cross-use but are not private from another approved workspace-root user. Use
-separate containers or virtual machines if users are not mutually trusted.
+For instance health, updates, and backups, see
+[Manage your instance](manage-instance.md).

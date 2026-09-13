@@ -1,5 +1,8 @@
 # ADR 0031: Authorized saved-item context actions
 
+> Design history: for current instructions, see [Skills and graphical builder](../skills.md).
+> See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
+
 Status: Accepted
 
 Skills now support immediate package duplication and confirmed deletion from the

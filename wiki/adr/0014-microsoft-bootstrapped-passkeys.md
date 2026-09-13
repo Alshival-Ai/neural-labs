@@ -1,5 +1,8 @@
 # ADR 0014: Microsoft-bootstrapped passkeys
 
+> Design history: for current instructions, see [Passkeys](../passkeys.md).
+> See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
+
 ## Context
 
 Neural Labs supports local passwords and Microsoft Entra sign-in. Requiring a

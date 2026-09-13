@@ -1,5 +1,8 @@
 # ADR 0032: Restrict the workspace OpenAI API key to audio
 
+> Design history: for current instructions, see [AI accounts and models](../ai-accounts.md).
+> See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
+
 - Status: Accepted
 - Date: 2026-09-10
 - Supersedes ADR 0023's workspace API credential import decision

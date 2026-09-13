@@ -1,5 +1,8 @@
 # ADR 0024: Global Twilio SMS/MMS channel
 
+> Design history: for current instructions, see [Settings](../desktop-settings.md).
+> See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
+
 - Status: Accepted (deployment and Twilio Console configuration are operator steps)
 - Date: 2026-09-05
 - Extends ADR 0022

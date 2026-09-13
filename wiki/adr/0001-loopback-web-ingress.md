@@ -1,5 +1,8 @@
 # ADR 0001: Containerize application services behind loopback ingress
 
+> Design history: for current instructions, see [Deploy your Neural Labs instance](../container-deployment.md).
+> See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
+
 - Status: Accepted
 - Date: 2026-09-01
 

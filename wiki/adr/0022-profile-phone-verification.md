@@ -1,5 +1,8 @@
 # ADR 0022: Private profile phone verification
 
+> Design history: for current instructions, see [Settings](../desktop-settings.md).
+> See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
+
 - Status: Accepted (implementation; SMS enablement is an operator step)
 - Date: 2026-09-05
 - Extended by ADR 0024 for the shared credential source and SMS/MMS channel

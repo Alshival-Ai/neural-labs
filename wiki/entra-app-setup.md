@@ -1,13 +1,16 @@
-# Manual Microsoft Entra app setup
+# Enable Microsoft sign-in
 
 Microsoft integration is optional. Neural Labs does not call Microsoft Graph to
 create or mutate an app registration; an Entra administrator performs these
 steps manually and then places the resulting values in the ignored root `.env`.
 
-Use one single-tenant app registration for the Neural Labs web login and MCP
-API. Replace `https://neural-labs.example.com` with the instance's final HTTPS
-origin. Decide that origin before configuring Codex because the MCP URL affects
-its generated callback.
+Use a single-tenant app registration for Neural Labs web login. Replace
+`https://neural-labs.example.com` with the instance's final HTTPS origin.
+Personal deployments can keep local email/password login and skip this guide.
+
+Public MCP is disabled. You do not need to expose an API, add an `mcp.access`
+scope, enable public-client flows, or register a Codex callback for web sign-in.
+The retained [future public MCP reference](mcp-entra-oauth.md) is separate.
 
 ## 1. Create the registration
 
@@ -62,63 +65,28 @@ copy its value immediately into `AZURE_CLIENT_SECRET` in the root `.env`; do not
 store it in Git or a shell profile. Record its expiry in the operator's secret-management
 system so it can be rotated before expiration.
 
-## 4. Expose the MCP API
-
-Under **Expose an API**:
-
-1. Set the Application ID URI to `api://<application-client-id>`.
-2. Add a delegated scope named `mcp.access`.
-3. Enable the scope for admins and users, or require administrator consent if
-   that matches the tenant's policy.
-
-The resulting full scope is:
-
-```text
-api://<application-client-id>/mcp.access
-```
-
-Neural Labs validates the tenant, issuer, audience, Microsoft signature,
-expiration, client, and this delegated `scp` value. If the tenant issues v1
-access tokens for the custom API, set the app manifest's requested access-token
-version to 2.
-
-## 5. Add the Codex public-client callback
-
-Once `https://neural-labs.example.com/mcp` is reachable, register the server in
-Codex using the final URL and the same app client ID:
-
-```bash
-codex mcp add neural-labs \
-  --url https://neural-labs.example.com/mcp \
-  --oauth-client-id <application-client-id>
-```
-
-Codex prints an OAuth callback URL derived from the server registration. Add
-that exact URL under **Authentication → Mobile and desktop applications** and
-enable public-client flows. Preserve the entire callback path. For an HTTP
-`127.0.0.1` URI, Entra may require editing the application manifest rather than
-using the portal text box.
-
-Then authenticate and verify the connection:
-
-```bash
-codex mcp login neural-labs
-codex mcp list
-```
-
-Use the MCP `whoami` tool to confirm the expected tenant and identity.
-
-The callback behavior and client-registration requirements are documented in
-[OpenAI's official MCP OAuth guide](https://learn.chatgpt.com/docs/extend/mcp?surface=app#app-__codexlocalizedvalueprops__codextranslations-u0069-oauth-client-registration-and-callbacks).
-
-## 6. Complete Neural Labs configuration
+## 4. Complete Neural Labs configuration
 
 Set the final public origin, intended administrator email, tenant ID, client ID,
 authority host (`https://login.microsoftonline.com` for the public cloud), and
-one credential in the root `.env`. Enable the desired Microsoft provider
-switches and run `bin/neural-labs up`. Microsoft buttons appear automatically
+one credential in the root `.env`. Set `NEURAL_LABS_MICROSOFT_AUTH_ENABLED=true`, keep
+`NEURAL_LABS_MCP_ENABLED=false`, and run `bin/neural-labs up` for an initial
+installation. On an already configured instance, use **Settings → Authentication**
+to save the credential and enable Microsoft: saved settings override `.env`. Microsoft buttons appear automatically
 when an effective credential exists and Microsoft web login is enabled.
 
 After the first administrator signs in, rotate credentials and provider switches
 from the administrator-only Settings app inside `/workspace`. Saved
 configuration overrides environment fallback values.
+
+## 5. Verify sign-in before changing local access
+
+Open `/login` in a separate browser session and choose Microsoft. Confirm the
+expected tenant and approved Neural Labs identity. The configured initial
+administrator email controls first-account claiming for Microsoft too; other
+new users remain pending until approved.
+
+Existing local users should link Microsoft from **Settings → Security** while
+signed in. Matching email addresses do not automatically merge identities. Keep
+local login available until an active administrator has linked and tested
+Microsoft. You can then enroll a [passkey](passkeys.md).

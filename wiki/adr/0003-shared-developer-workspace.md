@@ -1,5 +1,8 @@
 # ADR 0003: Use one shared developer workspace
 
+> Design history: for current instructions, see [Sharing and privacy](../sharing-and-privacy.md).
+> See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
+
 - Status: Accepted
 - Date: 2026-09-01
 

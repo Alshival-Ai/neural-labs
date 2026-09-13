@@ -1,5 +1,8 @@
 # ADR 0011: Direct personal and team skills
 
+> Design history: for current instructions, see [Skills and graphical builder](../skills.md).
+> See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
+
 - Status: Accepted
 - Date: 2026-09-02
 - Supersedes: ADR 0006 for first-party skill authoring

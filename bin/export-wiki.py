@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parent.parent
 REPO = 'https://github.com/Alshival-Ai/neural-labs'
 
 
-def export(destination):
+def export(destination=None):
     sources = sorted((ROOT / 'wiki').rglob('*.md'))
     sources += [ROOT / name for name in ('CHANGELOG.md', 'roadmap.md', 'tracker.md')]
     pages = {}
@@ -46,25 +46,25 @@ def export(destination):
                 url += '#' + parsed.fragment
             return match.group(1) + url + match.group(3)
         output[name + '.md'] = re.sub(r'(\]\()([^\s)]+)(\))', rewrite, source.read_text())
-    navigation = ['# Neural Labs', '', f'[Home]({REPO}/wiki) · [Source repository]({REPO})', '']
-    for heading, names in [
-        ('User guides', ['shared-workspace', 'passkeys', 'neura', 'team-chats', 'files', 'terminal', 'vscode', 'automations', 'skills', 'desktop-state']),
-        ('Administration', ['container-deployment', 'desktop-settings', 'authentication', 'entra-app-setup', 'backup-restore', 'openclaw-upgrades', 'workspace-provider-mcp']),
-    ]:
-        navigation += [f'## {heading}', '']
-        for name in names:
-            title = output[name + '.md'].splitlines()[0].lstrip('# ')
-            navigation.append(f'- [{title}]({REPO}/wiki/{name})')
-        navigation.append('')
-    output['_Sidebar.md'] = '\n'.join(navigation)
+    # Keep the browsable guide directory and GitHub sidebar in sync. Its links
+    # have already passed through the same validation and rewrite as every page.
+    output['_Sidebar.md'] = output['navigation.md']
     output['_Footer.md'] = f'Maintained in [`wiki/`]({REPO}/tree/main/wiki). To update these pages, edit the source documentation and follow the [publishing guide]({REPO}/wiki/wiki-publishing).\n'
-    destination.mkdir(parents=True, exist_ok=True)
-    for filename, content in output.items():
-        (destination / filename).write_text(content)
-    print(f'Exported {len(pages)} documentation pages and navigation to {destination}')
+    if destination is not None:
+        destination.mkdir(parents=True, exist_ok=True)
+        for filename, content in output.items():
+            (destination / filename).write_text(content)
+        print(f'Exported {len(pages)} documentation pages and navigation to {destination}')
+    else:
+        print(f'Validated {len(pages)} documentation pages and navigation; no files written')
+    return output
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('destination', type=Path, help='Local checkout of neural-labs.wiki.git')
-    export(parser.parse_args().destination)
+    parser.add_argument('destination', nargs='?', type=Path, help='Local checkout of neural-labs.wiki.git')
+    parser.add_argument('--check', action='store_true', help='Validate the export without writing files')
+    args = parser.parse_args()
+    if args.check == (args.destination is not None):
+        parser.error('provide either a destination or --check')
+    export(args.destination)

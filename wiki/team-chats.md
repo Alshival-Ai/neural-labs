@@ -16,11 +16,12 @@ Open Neura and use the **Team chats** section in the conversation sidebar.
 - Use `@handle` to mention a channel member. Each user can edit their unique
   handle in Settings → Personalization.
 - Type `$` to open the same enabled-skill picker used in a private Neura chat.
-  Sending a `$skill-name` command asks Neura to run that skill through the
-  message author's personal OpenAI account. Use `@Neura` for a general request;
-  `$Neura` is not an agent mention. The author first connects that account in Settings →
-  Personalization. An ordinary mention such as `@salvador` does not invoke the
-  agent.
+  Sending a `$skill-name` command asks Neura to run that skill. Use `@Neura`
+  for a general request; `$Neura` is not an agent mention. Before dedicated Team
+  Neura activation, the author connects a personal account in **Settings → Model
+  Provider**. After activation, Team Chat uses the dedicated account. See
+  [AI accounts](ai-accounts.md). An ordinary mention such as `@teammate` does not
+  invoke the agent.
 - Images appear as embedded previews, while other attachments appear as
   download cards. User attachments are uploaded into the shared workspace under
   `team-uploads/`, and Neura can attach files it generated in the workspace.
@@ -73,9 +74,11 @@ the archive. A source conversation can be shared only once by its creator.
 a random, short-lived capability. Only a hash of that capability is stored in
 PostgreSQL. The control plane sends the recent channel transcript and the run
 capability to the workspace's authenticated internal runner. The runner starts
-a headless OpenClaw execution on the message author's personal agent in the
-shared workspace. A missing, paused, or expired personal account fails the turn
-rather than falling back to the automation service account.
+an isolated OpenClaw execution using the selected Team account policy. Until
+an administrator first activates dedicated Team Neura, it uses the message
+author's personal agent. After activation, queued requests capture the applied
+Team model defaults and use the dedicated credential. Missing credentials fail
+the turn without falling back to a personal, background, or audio API account.
 
 For that process only, OpenClaw receives an MCP server configuration whose
 authorization header comes from the run capability. The built-in MCP surface
@@ -95,23 +98,13 @@ message, 500 messages per history page, 2,000 members or imported messages per
 channel operation, and up to 16 MiB of copied private-chat text. These remain
 finite so a malformed client cannot allocate memory without bound.
 
-## Public MCP tools
+## Workspace tools and public MCP
 
-When Microsoft MCP access is enabled, the public Neural Labs MCP server also
-offers these authenticated tools:
-
-- `list_team_channels`
-- `list_team_directory`
-- `read_team_channel`
-- `list_team_channel_members`
-- `create_team_channel`
-- `post_team_channel_message`
-
-The MCP server forwards the already validated Entra tenant, subject, and object
-ID to the control plane over the private Compose network. The control plane maps
-that identity to an active Neural Labs Microsoft identity and then applies the
-same channel membership rules as the desktop. An Entra account without active
-Neural Labs access cannot use the Team Chat tools.
+Team Chat's internal tools use a short-lived capability scoped to the current
+channel. They do not require public MCP ingress. The public `/mcp` and OAuth
+routes return `404`, including when Microsoft web login is enabled. The
+[future public MCP reference](mcp-entra-oauth.md) describes retained development
+code, not a supported connection for this deployment.
 
 ## Operations and recovery
 
@@ -121,7 +114,7 @@ backup procedure. Workspace attachments are covered by the shared workspace
 volume backup. Live socket tickets are intentionally short-lived and are not
 useful backup data.
 
-After upgrading an existing instance, rebuild the control plane, MCP, workspace,
-and desktop images so database migrations and the agent bridge are installed.
+After upgrading an existing instance, update the control-plane and workspace images, including their
+bundled desktop and local MCP builds so database migrations and the agent bridge are installed.
 The repository does not make host changes during validation. An operator applies
 the deployment with the normal deployment command after reviewing the diff.

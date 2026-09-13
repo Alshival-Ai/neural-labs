@@ -1,5 +1,8 @@
 # ADR 0029: Settings-managed provider credentials
 
+> Design history: for current instructions, see [Workspace-local provider MCP](../workspace-provider-mcp.md).
+> See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
+
 Status: Accepted, implemented locally; deployment pending.
 Date: 2026-09-06
 

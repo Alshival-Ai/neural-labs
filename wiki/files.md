@@ -55,7 +55,7 @@ The app keeps an authenticated Server-Sent Events connection open at
 `/workspace/api/files/events`. A recursive watcher in the workspace service
 coalesces filesystem changes and broadcasts a small invalidation event to every
 connected browser. This covers changes made by another developer as well as
-files written by Neura, OpenClaw, Codex, or a future Terminal app. Each client
+files written by Neura, OpenClaw, Codex, or Terminal. Each client
 then re-reads only its current directory over the normal file API. The existing
 list remains visible during that background reconciliation, so live updates do
 not replace the app with a loading screen or disturb a still-valid selection.

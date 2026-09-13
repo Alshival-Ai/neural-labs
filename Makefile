@@ -2,6 +2,8 @@
 
 validate:
 	bash tests/public_boundary_test.sh
+	python3 bin/export-wiki.py --check
+	python3 tests/wiki_export_test.py
 	node bin/openclaw-release.mjs check
 	node --test tests/openclaw-release.test.mjs tests/openclaw-tree.test.mjs
 	npm --prefix console run validate
