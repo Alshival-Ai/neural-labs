@@ -38,7 +38,7 @@ import remarkGfm from "remark-gfm";
 import { useAppViewport } from "./appViewport";
 import { AppDrawer } from "./AppDrawer";
 import { useMobileAppLayout } from "./useMobileAppLayout";
-import { activitiesFromGatewayEvent, eventRecord, eventText, messagesFromSessionEvent, NeuraGateway } from "./openclaw";
+import { activitiesFromGatewayEvent, eventRecord, assistantMessageContent, messagesFromSessionEvent, NeuraGateway } from "./openclaw";
 import { readDeviceState, writeDeviceState } from "./deviceState";
 import { createWorkspaceFolder, uploadWorkspaceFile, workspaceContentUrl, workspaceDownloadUrl, type WorkspacePreviewFile } from "./filesApi";
 import { listCustomSkills } from "./skillsApi";
@@ -48,6 +48,7 @@ import { transcribeVoiceMemo, voiceMemoExtension } from "./voiceApi";
 import { usePrivateNeuraVoice, useTeamVoiceMemo, type VoiceMode } from "./useNeuraVoice";
 import { VoiceControl } from "./VoiceControl";
 import { MessageAttachments } from "./ChatAttachments";
+import { workspacePathFromMessageReference } from "./neuraMedia";
 export { MessageAttachments } from "./ChatAttachments";
 import { NeuraQuestions } from "./NeuraQuestions";
 import { implementationRequest, latestActionablePlan, planningRequest, planningTranscript, type NeuraComposeMode } from "./neuraPlanning";
@@ -247,24 +248,6 @@ export function resolveNeuraMessageLink(href: string | undefined, _message: stri
   if (!href) return href;
   const path = workspacePathFromMessageReference(href);
   return path ? workspaceDownloadUrl(path) : href;
-}
-
-function workspacePathFromMessageReference(reference: string | undefined): string | undefined {
-  if (!reference || reference.startsWith("#") || reference.includes("\\")) return undefined;
-  const withoutSuffix = reference.split(/[?#]/, 1)[0] ?? "";
-  let decoded: string;
-  try {
-    decoded = decodeURIComponent(withoutSuffix);
-  } catch {
-    return undefined;
-  }
-  const workspacePrefix = "/home/node/workspace/";
-  const candidate = (decoded.startsWith(workspacePrefix) ? decoded.slice(workspacePrefix.length) : decoded).replace(/^\.\//, "");
-  if (!candidate || candidate.startsWith("/") || candidate.includes(":")) return undefined;
-  const segments = candidate.split("/");
-  if (segments.some((segment) => !segment || segment === "." || segment === "..")) return undefined;
-  if (!/\.[A-Za-z0-9]{1,12}$/.test(segments.at(-1) ?? "")) return undefined;
-  return candidate;
 }
 
 export function resolveNeuraMessageImage(src: string | undefined): string | undefined {
@@ -498,6 +481,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
   const [teamMentionMenuIndex, setTeamMentionMenuIndex] = useState(0);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const selectedKeyRef = useRef(selectedKey);
+  const selectedActiveRef = useRef(false);
   const subscribedKeyRef = useRef<string | undefined>(undefined);
   const sessionsRequestRef = useRef(0);
   const initialSessionRefreshPending = useRef(true);
@@ -568,7 +552,18 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
   const sessionQueue = queuedPrompts.filter((prompt) => prompt.sessionKey === selectedKey);
   const composeModeKey = JSON.stringify([storageNamespace, selectedKey]);
   const composeMode = composeModes[composeModeKey] ?? "default";
-  const displayedMessages = useMemo(() => planningTranscript(messages), [messages]);
+  // Chat deltas have no reliable answer/commentary phase. Keep them in work
+  // details until a completed message identifies the answer.
+  const displayedMessages = useMemo(() => planningTranscript(messages.filter((message) => !message.pending)), [messages]);
+  const displayedActivities: NeuraActivity[] = [...activities, ...messages.flatMap((message): NeuraActivity[] =>
+    message.role === "assistant" && message.pending && message.text.trim() && selectedKey ? [{
+      id: `thinking:${message.id}`,
+      sessionKey: selectedKey,
+      kind: "thinking",
+      title: "Progress update",
+      detail: message.text.trim().slice(0, 2_400),
+      state: "running",
+    }] : [])];
   const modeLocked = !sessionReady || connection !== "connected" || agentBusy || composerSubmitting || sessionQueue.length > 0 || (selected?.queuedRunCount ?? 0) > 0;
   const latestPlan = latestActionablePlan(displayedMessages);
 
@@ -576,6 +571,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
   const privateVoice = usePrivateNeuraVoice(selectedChannelId ? undefined : selectedKey, voiceMode, notify);
 
   selectedKeyRef.current = selectedKey;
+  selectedActiveRef.current = Boolean(selected?.active);
   selectedChannelRef.current = selectedChannelId;
   runIdRef.current = runId;
   freshStartForActivityAtRef.current = freshStartForActivityAt;
@@ -990,6 +986,18 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
     writeDeviceState(storageNamespace, storageArea, { selectedKey, selectedChannelId, freshStartForActivityAt, sidebarOpen, terminalSidebarOpen, showArchived, privateChatsCollapsed, voiceMode } satisfies NeuraDeviceState);
   }, [freshStartForActivityAt, selectedKey, selectedChannelId, showArchived, sidebarOpen, storageArea, storageNamespace, terminalSidebarOpen, privateChatsCollapsed, voiceMode]);
 
+  function resolveAttachmentUrls(sessionKey: string, incoming: NeuraMessage[]) {
+    if (!incoming.some((message) => message.attachments?.some((attachment) => attachment.artifactId))) return;
+    void gateway.resolveMessageAttachments(sessionKey, incoming).then((resolved) => {
+      if (sessionKey !== selectedKeyRef.current && sessionKey !== subscribedKeyRef.current) return;
+      const byId = new Map(resolved.map((message) => [message.id, message.attachments]));
+      setMessages((current) => current.map((message) => {
+        const attachments = byId.get(message.id);
+        return attachments ? { ...message, attachments } : message;
+      }));
+    }).catch(() => undefined);
+  }
+
   function handleGatewayEvent(event: GatewayEvent) {
     const payload = eventRecord(event);
     if (!payload) return;
@@ -1030,7 +1038,9 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
         }
         return;
       }
-      const unphasedStreamingAssistant = persisted.phase === "stream"
+      const unphasedStreamingAssistant = (persisted.phase === "stream"
+        || !persisted.phase && Boolean(runIdRef.current || selectedActiveRef.current)
+          && !(persisted.runId && finishedRuns.current.has(persisted.runId)))
         && persisted.messagePhase === undefined
         && persisted.messages.filter((message) => message.role === "assistant" && message.text.trim());
       if (unphasedStreamingAssistant && unphasedStreamingAssistant.length) {
@@ -1046,11 +1056,8 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
         if (persisted.runId) {
           runIdRef.current = persisted.runId;
           setRunId(persisted.runId);
-          const streamedText = unphasedStreamingAssistant.at(-1)?.text.trim();
-          if (pendingAssistantText.current.get(persisted.runId)?.trim() === streamedText) {
-            pendingAssistantText.current.delete(persisted.runId);
-            setMessages((current) => current.filter((message) => message.id !== `run:${persisted.runId}`));
-          }
+          pendingAssistantText.current.delete(persisted.runId);
+          setMessages((current) => current.filter((message) => message.id !== `run:${persisted.runId}`));
         }
         return;
       }
@@ -1068,16 +1075,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
           : message;
         setMessages((current) => reconcilePersistedMessage(current, enriched, persisted.runId));
       }
-      if (persisted.messages.some((message) => message.attachments?.some((attachment) => attachment.artifactId))) {
-        void gateway.resolveMessageAttachments(persisted.sessionKey, persisted.messages).then((resolved) => {
-          if (persisted.sessionKey !== selectedKeyRef.current && persisted.sessionKey !== subscribedKeyRef.current) return;
-          const byId = new Map(resolved.map((message) => [message.id, message.attachments]));
-          setMessages((current) => current.map((message) => {
-            const attachments = byId.get(message.id);
-            return attachments ? { ...message, attachments } : message;
-          }));
-        }).catch(() => undefined);
-      }
+      resolveAttachmentUrls(persisted.sessionKey, persisted.messages);
       if (runFinished && finalAssistantIndex < 0 && completedActivities.length) {
         setMessages((current) => [...current, { id: `activity:${persisted.runId}`, role: "assistant", text: "", activities: completedActivities }]);
       }
@@ -1119,24 +1117,37 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
         pendingAssistantText.current.delete(eventRunId);
         if (runIdRef.current === eventRunId) runIdRef.current = undefined;
         setRunId((current) => current === eventRunId ? undefined : current);
-        const finalText = eventText(payload.message);
-        const completedActivities = finishRunActivities(eventRunId, state === "error");
+        const finalContent = assistantMessageContent(payload.message);
+        const runActivities = finishRunActivities(eventRunId, state === "error");
         setMessages((current) => {
           const id = `run:${eventRunId}`;
-          if (!current.some((message) => message.id === id) && !finalText && completedActivities.length) {
+          const existing = current.find((message) => message.id === id);
+          const pending = existing?.pending ? existing : undefined;
+          const content = payload.message ? finalContent : state === "final"
+            ? assistantMessageContent(existing) : { text: "" };
+          const finalText = content.text;
+          const hasAnswer = Boolean(finalText || content.attachments?.length);
+          const completedActivities: NeuraActivity[] = pending?.text.trim() && state !== "final" ? [...runActivities, {
+            id: `thinking:${id}`, sessionKey, runId: eventRunId, kind: "thinking",
+            title: "Progress update", detail: pending.text.trim().slice(0, 2_400),
+            state: state === "error" ? "error" : "done",
+          }] : runActivities;
+          if (!current.some((message) => message.id === id) && !hasAnswer && completedActivities.length) {
             return [...current, { id, role: "assistant", text: state === "aborted" ? "Stopped." : "", pending: false, activities: completedActivities }];
           }
-          if (!current.some((message) => message.id === id) && finalText) {
-            const duplicate = current.find((message) => message.role === "assistant" && message.text === finalText);
+          if (!current.some((message) => message.id === id) && hasAnswer) {
+            const duplicate = current.find((message) => message.role === "assistant" && message.text === finalText
+              && JSON.stringify(message.attachments ?? []) === JSON.stringify(content.attachments ?? []));
             if (duplicate) return completedActivities.length
               ? current.map((message) => message.id === duplicate.id ? { ...message, activities: message.activities?.length ? message.activities : completedActivities } : message)
               : current;
-            return [...current, { id, role: "assistant", text: finalText, pending: false, ...(completedActivities.length ? { activities: completedActivities } : {}) }];
+            return [...current, { id, role: "assistant", ...content, pending: false, ...(completedActivities.length ? { activities: completedActivities } : {}) }];
           }
           return current.map((message) => message.id === id
-            ? { ...message, text: finalText || message.text, pending: false, ...(completedActivities.length ? { activities: completedActivities } : {}) }
+            ? { ...message, ...content, text: finalText || (state === "aborted" ? "Stopped." : ""), pending: false, ...(completedActivities.length ? { activities: completedActivities } : {}) }
             : message);
         });
+        resolveAttachmentUrls(sessionKey, [{ id: `run:${eventRunId}`, role: "assistant", ...finalContent }]);
         if (state === "error") {
           const rawError = recordString(payload, "errorMessage") ?? "Neura could not finish that request";
           const displayError = modelProviderErrorMessage(rawError);
@@ -1932,7 +1943,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
               </div>
             </div>
           </article>}
-          {!selectedChannel && activities.length > 0 && <NeuraActivityTimeline activities={activities} live={agentBusy} />}
+          {!selectedChannel && displayedActivities.length > 0 && <NeuraActivityTimeline activities={displayedActivities} live={agentBusy} />}
           </>}
           </div>
         </div>

@@ -1,4 +1,5 @@
 import { stripTerminalContext, terminalMessageContext } from "./terminalAgentApi";
+import { projectGeneratedMedia, workspacePathFromMessageReference } from "./neuraMedia";
 import {
   GatewayBrowserDeviceAuthLifecycle,
   GatewayProtocolClient,
@@ -677,7 +678,7 @@ function foldAssistantProgress(messages: NeuraMessage[], sessionKey: string): Ne
       folded.push(group[0]);
       continue;
     }
-    const answerIndex = group.findLastIndex((message) => Boolean(message.text.trim()));
+    const answerIndex = group.findLastIndex((message) => Boolean(message.text.trim() || message.attachments?.length));
     const answer = group[Math.max(0, answerIndex)];
     const activities: NeuraActivity[] = [];
     for (const [groupIndex, message] of group.entries()) {
@@ -835,7 +836,8 @@ function attachmentFromRecord(value: unknown): NonNullable<NeuraMessage["attachm
   if (!isRecord(value)) return [];
   const record = isRecord(value.attachment) ? value.attachment : value;
   const source = isRecord(record.source) ? record.source : {};
-  const path = stringValue(record.path) ?? stringValue(record.filePath) ?? stringValue(record.file_path);
+  const rawPath = stringValue(record.path) ?? stringValue(record.filePath) ?? stringValue(record.file_path);
+  const path = workspacePathFromMessageReference(rawPath);
   const name = stringValue(record.fileName) ?? stringValue(record.file_name) ?? stringValue(record.name)
     ?? stringValue(record.title) ?? stringValue(record.label) ?? stringValue(record.alt) ?? path?.split("/").pop();
   const artifactId = stringValue(record.artifactId) ?? stringValue(record.artifact_id);
@@ -893,7 +895,7 @@ function attachmentsFromMessage(message: Record<string, unknown>): NonNullable<N
     ...(Array.isArray(message.attachments) ? message.attachments : []),
     ...(Array.isArray(message.content) ? message.content.filter((part) => {
       if (!isRecord(part)) return false;
-      return ["image", "file", "attachment", "document"].includes((stringValue(part.type) ?? "").toLowerCase().replaceAll(/[_-]+/g, ""));
+      return ["image", "video", "audio", "file", "attachment", "document"].includes((stringValue(part.type) ?? "").toLowerCase().replaceAll(/[_-]+/g, ""));
     }) : []),
   ];
   const seen = new Set<string>();
@@ -915,16 +917,19 @@ function normalizeMessage(value: unknown, fallbackId: string): NeuraMessage[] {
       ? assistantCommentaryText(value)
       : assistantAnswerText(value)
     : textFromContent(nested.content) || stringValue(nested.text) || stringValue(value.text) || "";
-  const attachments = attachmentsFromMessage(nested);
+  const generated = rawRole === "assistant"
+    ? projectGeneratedMedia(text, attachmentsFromMessage(nested))
+    : { text, attachments: attachmentsFromMessage(nested) };
+  const attachments = generated.attachments;
   // Hide only native media marker lines backed by structured attachment metadata.
   // A filename-like caption without this provenance remains ordinary user text.
   const metadata = isRecord(nested.__openclaw) ? nested.__openclaw : {};
   const media = Array.isArray(metadata.media) ? metadata.media.filter(isRecord) : [];
   const references = new Set([...attachments.flatMap((item) => [item.path, item.url]), ...media.flatMap((item) => [stringValue(item.path), stringValue(item.url)])].filter(Boolean));
-  const displayText = attachments.length ? text.split("\n").filter((line) => {
+  const displayText = attachments.length ? generated.text.split("\n").filter((line) => {
     const marker = /^\[media attached: ([^\]\r\n]+)\]$/.exec(line);
     return !marker || !references.has(marker[1]);
-  }).join("\n") : text;
+  }).join("\n") : generated.text;
   if (!text && attachments.length === 0) return [];
   return [{
     id: stringValue(value.id) ?? stringValue(nested.id) ?? fallbackId,
@@ -1077,9 +1082,10 @@ export function eventRecord(event: GatewayEvent): RecordValue | null {
   return isRecord(event.payload) ? event.payload : null;
 }
 
-export function eventText(value: unknown): string {
-  if (!isRecord(value)) return "";
-  return textFromContent(value.content) || stringValue(value.text) || "";
+export function assistantMessageContent(value: unknown): Pick<NeuraMessage, "text" | "attachments"> {
+  if (!isRecord(value) || normalizedMessagePhase(value) === "commentary") return { text: "" };
+  const message = normalizeMessage({ ...value, role: "assistant" }, "final")[0];
+  return { text: message?.text ?? "", ...(message?.attachments ? { attachments: message.attachments } : {}) };
 }
 
 export function messagesFromSessionEvent(event: GatewayEvent) {

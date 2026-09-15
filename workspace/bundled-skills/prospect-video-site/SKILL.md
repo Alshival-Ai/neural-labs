@@ -55,6 +55,13 @@ content, primary action and usable assets; record its decisions in `DESIGN.md`
 and the website brief. For a verified restaurant also read
 [restaurant.md](references/restaurant.md).
 
+Use the shared [act production guidance](../site-generator/references/act-production.md)
+for the storyboard, Act I proof and Act II/later continuation, while retaining
+this director's lifecycle. Prove the chosen visual direction and highest-risk
+interaction before expanding the page; a static header and later cinematic
+scene are valid. Record act checks in `VALIDATION.md` and reserve the pipeline's
+complete-build handoff for the finished site. Do not invoke a second director.
+
 Follow [the presentation integration contract](references/cinematic-media-first.md)
 to retain the profile values and hooks required by this pipeline's browser QA.
 

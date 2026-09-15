@@ -5,24 +5,44 @@ content and visual language to the supplied brief.
 
 ## Outcome contract
 
-The finished site must combine all of these outcomes:
+Aim for these outcomes:
 
 1. a near-viewport opening with a full-bleed image or poster behind the exact
    business identity and a dominant headline, which may be the business name;
    useful next steps remain discoverable through navigation, inline links or
    relevant page sections, with hero buttons optional;
-2. a preferred full-width, sticky scroll-controlled video background—beginning
-   in the opening or elsewhere—with a distinct communication job; and
-3. a preferred image hover overlay or reveal that helps visitors explore a
-   service, detail or relationship.
+2. advanced UI effects chosen for a distinct communication job, with creative
+   freedom in their type, combination and page position; and
+3. a composition and section rhythm shaped by this business's story.
 
-For AUTO, plan both effects and seek suitable assets. Exceptions follow the
-template's interaction policy and must be recorded. The two effects need not
-share a section or footage; vary their placement with the business story.
+For AUTO, explore purposeful interactions and seek suitable assets within the
+template's effect budget. Scroll-video backgrounds and image overlays/reveals
+are examples, not mandatory ingredients. A static header/hero is a complete
+design choice; advanced effects may live entirely in middle or later sections.
+Choose those sections from the content rather than repeating a page formula.
 
 The preferred examples succeed through scale, layering, pacing, and media
 coverage. Do not copy their palettes, typefaces, chapter names, progress rails,
 headlines, or exact section structures.
+
+## Compose scenes, then connect them
+
+Use the storyboard to coordinate media, words and page progress. A scene needs
+an initial composition, a useful development and an intentional exit. Decide
+what the visitor should notice at each beat; let copy length, focal subjects and
+meaningful media changes determine the pacing. Avoid cycling interchangeable
+headlines over an unrelated clip.
+
+Several narrative beats may share one video background and controller. Give each
+beat a defined local progress range, media range, copy placement and mobile
+treatment. Keep one narrative panel visible at a time in enhanced mode. In the
+static version, place the useful content in readable document order. A scene
+with one strong message can keep its copy still while the media develops.
+
+Design the handoff into the next section as carefully as the immersive field:
+release sticky positioning, restore normal reading pace and connect the next
+message through spacing, alignment, color or a deliberate image edge. Carry
+the business's visual language across the change without repeating its layout.
 
 ## Build the opening as a media field
 
@@ -56,12 +76,14 @@ otherwise polished.
 
 ## When selected, use scroll video as a background scene
 
-A recorded `scrollVideoEffect` is the preferred AUTO choice. When selected for
-this profile, it must be a viewport-scale background scene rather than a video
-card beside copy.
+A recorded `scrollVideoEffect` is one available advanced effect. When selected
+for this profile, it must be a viewport-scale background scene rather than a
+video card beside copy. Its section does not have to be the header/hero.
 
-- Use a section with roughly `220–400svh` of native scroll travel and a sticky
-  stage close to `100svh`; shorten travel on compact screens when needed.
+- Use a sticky stage close to `100svh` with native scroll travel sufficient for
+  the planned beats. Roughly `220–400svh` is a starting range for a multi-beat
+  scene, not a required length; shorten simple scenes and adapt compact screens
+  to avoid empty travel or rushed copy.
 - Position the local poster and video to cover the stage. Use `object-fit:
   cover` and art-directed `object-position`; create a mobile derivative only
   when crop or decode measurements justify it.
@@ -93,16 +115,17 @@ both initial-screen and scroll behavior contracts.
 
 ## Image overlay and pointer interaction patterns
 
-Use at most one of these as the second effect, and only with a separate purpose
-from the scroll-video background.
+These are optional patterns within the overall effect budget. They can stand
+alone or accompany another effect when each serves a distinct purpose; they do
+not require a scroll-video background or a fixed position in the page.
 
 ### Image hover overlay
 
 Use a service or gallery image with an intentional overlay that reveals a useful
 caption, detail or action on hover and `:focus-within`. Animate the overlay's
 opacity or translation with restrained timing; image zoom alone is insufficient.
-This pattern needs only one image, so missing paired assets does not by itself
-justify omitting the second effect.
+This pattern needs only one image; choose it when revealing detail helps the
+visitor understand or act on the content.
 
 - Use a semantic link for navigation or button for disclosure; avoid nested
   interactive elements. Keep an accessible name and visible focus indicator.
@@ -162,7 +185,7 @@ The opening media may be a CSS background or a full-cover descendant `<img>` or
 `<video>`. The H1 must geometrically overlap that media. The scroll stage, video,
 and overlay copy must occupy the same viewport-scale field. Use
 `data-image-hover-overlay`, `data-image-reveal` or `data-pointer-scrub` on the
-selected second effect. Check its actual input behavior and save before/after
+selected pattern. Check its actual input behavior and save before/after
 captures separately; the common QA helper does not test these pointer patterns.
 
 These attributes document intent; they do not replace screenshot inspection.

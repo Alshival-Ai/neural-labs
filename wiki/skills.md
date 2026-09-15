@@ -119,3 +119,26 @@ There is no new public port.
 See [ADR 0012](adr/0012-collaborative-skill-builder-and-automation-read-model.md)
 for the collaboration and automation-read decision and [ADR 0011](adr/0011-direct-personal-and-team-skills.md)
 for the published-skill ownership model.
+
+## Kiki Models API skill
+
+The Kiki deployment has an operator-installed `models-api` Team Skill, invoked
+with `$models-api`. Its package lives in `/home/node/workspace/skills/models-api`
+in the persistent workspace home; the operator copy is in `skills/models-api`
+on the deployment host. Include both in deployment backups; the operator copy
+is ignored by Git, as are other instance-specific skills.
+
+The skill covers live model discovery, Nomic and Qwen embeddings, GPT OSS chat,
+and Wan2.2 text-to-video and image-to-video jobs. Its Python helper handles bearer
+authentication, JSON requests, saved video job IDs, and MP4 downloads.
+For requests in Neura, the skill instructs the agent to attach the downloaded
+MP4 to its final reply through OpenClaw’s native media directive. Neura then
+shows inline playback and Download / Download to Workspace actions. The skill
+also documents verification and the deployed 16 MiB outgoing video limit.
+
+Configure `MODELS_API_URL` and a dedicated `MODELS_API_KEY` in the protected root
+`.env`. Compose passes these into the workspace and OpenClaw agent environment;
+recreate the workspace after changing them. The Kiki endpoint is
+`http://192.168.10.113:8000`. Never copy the key into a skill, generated project,
+browser code, or chat. The skill instructs agents to read live `/models` and
+`/openapi.json` when checking current capabilities and limits.

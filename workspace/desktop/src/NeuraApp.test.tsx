@@ -368,9 +368,9 @@ describe("Neura realtime conversation", () => {
     expect(onOpen).toHaveBeenCalledWith(terminal);
   });
 
-  it("subscribes before history and renders live streamed and durable replies", async () => {
+  it("subscribes before history and keeps streamed text collapsed until the durable reply", async () => {
     const gateway = new FakeGateway();
-    render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
+    const view = render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
 
     await waitFor(() => expect(gateway.calls).toEqual([
       "sessions.list",
@@ -386,7 +386,10 @@ describe("Neura realtime conversation", () => {
       state: "delta",
       deltaText: "Streaming now",
     } }));
-    expect(screen.getByText("Streaming now")).toBeInTheDocument();
+    const timeline = view.container.querySelector(".neura-activity-timeline") as HTMLDetailsElement;
+    expect(timeline.open).toBe(false);
+    expect(timeline).toHaveTextContent("Streaming now");
+    expect(view.container.querySelectorAll("article.message-assistant")).toHaveLength(0);
 
     act(() => gateway.emit({ event: "session.message", payload: {
       sessionKey: session.key,
@@ -493,7 +496,7 @@ describe("Neura realtime conversation", () => {
     expect(within(assistantMessages[0] as HTMLElement).getAllByText("I’ll check the deployment notes.")).toHaveLength(2);
   });
 
-  it("quarantines unphased durable progress frames while a run is still streaming", async () => {
+  it.each(["stream", undefined])("quarantines unphased durable progress frames with phase %s while a run is active", async (phase) => {
     const gateway = new FakeGateway();
     gateway.sessionActive = true;
     const view = render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
@@ -502,7 +505,7 @@ describe("Neura realtime conversation", () => {
     act(() => gateway.emit({ event: "session.message", payload: {
       sessionKey: session.key,
       runId: "legacy-progress-run",
-      phase: "stream",
+      phase,
       messageId: "progress-legacy-1",
       message: { id: "progress-legacy-1", role: "assistant", content: [{ type: "text", text: "I’ll inspect the private remote history." }] },
     } }));
@@ -527,7 +530,7 @@ describe("Neura realtime conversation", () => {
     expect(within(assistantMessages[0] as HTMLElement).getByText("Work details")).toBeInTheDocument();
   });
 
-  it("recognizes signed commentary, streams the answer, and keeps work details below it", async () => {
+  it("keeps signed commentary and unclassified deltas collapsed until the final answer", async () => {
     const gateway = new FakeGateway();
     gateway.sessionActive = true;
     const view = render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
@@ -562,12 +565,44 @@ describe("Neura realtime conversation", () => {
       deltaText: " the final answer.",
     } }));
 
+    expect(view.container.querySelectorAll("article.message-assistant")).toHaveLength(0);
+    expect(timeline).toHaveTextContent("The source now streams the final answer.");
+    expect(timeline.open).toBe(false);
+
+    act(() => gateway.emit({ event: "chat", payload: {
+      sessionKey: session.key,
+      runId: "signed-run",
+      state: "final",
+      message: { role: "assistant", content: [
+        { type: "text", text: "I’ll inspect the source.", phase: "commentary" },
+        { type: "text", text: "The source now streams the final answer.", phase: "final_answer" },
+      ] },
+    } }));
     const answer = screen.getByText("The source now streams the final answer.");
     const article = answer.closest("article") as HTMLElement;
     expect(article).toHaveClass("message-assistant");
-    expect(within(article).getByLabelText("Neura is responding")).toBeInTheDocument();
-    expect(article.compareDocumentPosition(timeline) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(article).queryByLabelText("Neura is responding")).not.toBeInTheDocument();
+    const workDetails = article.querySelector(".neura-activity-timeline") as HTMLDetailsElement;
+    expect(workDetails).toHaveTextContent("I’ll inspect the source.");
+    expect(workDetails.open).toBe(false);
+    expect(answer.compareDocumentPosition(workDetails) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it.each(["aborted", "error"])("keeps partial progress collapsed when a run is %s", async (state) => {
+    const gateway = new FakeGateway();
+    const view = render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
+    await waitFor(() => expect(screen.getByPlaceholderText("Message Neura…")).toBeEnabled());
+    act(() => gateway.emit({ event: "chat", payload: {
+      sessionKey: session.key, runId: "interrupted-run", state: "delta", deltaText: "I’m checking the setup.",
+    } }));
+    act(() => gateway.emit({ event: "chat", payload: {
+      sessionKey: session.key, runId: "interrupted-run", state,
+    } }));
+    const timeline = view.container.querySelector(".neura-activity-timeline") as HTMLDetailsElement;
     expect(timeline.open).toBe(false);
+    expect(timeline).toHaveTextContent("I’m checking the setup.");
+    const answerText = [...view.container.querySelectorAll("article.message-assistant .message-body > p")].map((node) => node.textContent).join("\n");
+    expect(answerText).not.toContain("I’m checking the setup.");
   });
 
   it("follows new messages at the bottom but preserves a reader's scroll position", async () => {
@@ -676,6 +711,44 @@ describe("Neura realtime conversation", () => {
     expect(screen.queryByText("mockup.png")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^brief\.pdf/i })).toBeInTheDocument();
     expect(container.querySelectorAll("img")).toHaveLength(1);
+  });
+
+  it.each(["chat", "session.message", "buffered"])("embeds generated video from a %s reply", async (transport) => {
+    const gateway = new FakeGateway();
+    const view = render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
+    await waitFor(() => expect(screen.getByPlaceholderText("Message Neura…")).toBeEnabled());
+    const text = "Generated and verified: 2.042 seconds.\n\nMEDIA:/home/node/workspace/projects/cat-video/cat-windowsill.mp4";
+    const message = { role: "assistant", content: [{ type: "text", text }] };
+    if (transport === "buffered") act(() => gateway.emit({ event: "chat", payload: {
+      sessionKey: session.key, runId: "video-run", state: "delta", deltaText: text,
+    } }));
+    act(() => gateway.emit({ event: transport === "session.message" ? transport : "chat", payload: {
+      sessionKey: session.key, runId: "video-run", state: "final", phase: "end",
+      ...(transport !== "buffered" ? { message } : {}),
+    } }));
+    const video = screen.getByLabelText("Play cat-windowsill.mp4");
+    expect(video.tagName).toBe("VIDEO");
+    expect(video).toHaveAttribute("src", "/workspace/api/files/content?path=projects%2Fcat-video%2Fcat-windowsill.mp4");
+    expect(video).toHaveAttribute("controls");
+    expect(screen.getByText("Generated and verified: 2.042 seconds.")).toBeInTheDocument();
+    expect(view.container).not.toHaveTextContent("MEDIA:");
+    expect(view.container.querySelectorAll("article.message-assistant")).toHaveLength(1);
+    act(() => gateway.emit({ event: "chat", payload: {
+      sessionKey: session.key, runId: "video-run", state: "final",
+    } }));
+    expect(screen.getByLabelText("Play cat-windowsill.mp4")).toBeInTheDocument();
+    expect(screen.getByText("Generated and verified: 2.042 seconds.")).toBeInTheDocument();
+  });
+
+  it("shows an attachment-only final reply without requiring a durable message event", async () => {
+    const gateway = new FakeGateway();
+    render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
+    await waitFor(() => expect(screen.getByPlaceholderText("Message Neura…")).toBeEnabled());
+    act(() => gateway.emit({ event: "chat", payload: {
+      sessionKey: session.key, runId: "video-run", state: "final",
+      message: { role: "assistant", content: [{ type: "video", path: "/home/node/workspace/clip.mp4", mimeType: "video/mp4" }] },
+    } }));
+    expect(screen.getByLabelText("Play clip.mp4")).toHaveAttribute("src", "/workspace/api/files/content?path=clip.mp4");
   });
 
   it("steers the active run even after an intermediate assistant message is persisted", async () => {

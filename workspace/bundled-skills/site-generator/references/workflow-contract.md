@@ -65,6 +65,13 @@ Keep the current maximum of two scroll-video effects and verified local derivati
 The publisher limits are 12 MiB per video, 25 MiB total video, 50 MiB/200 static
 files overall, with no symlinks. These are engine constraints, not design choices.
 
+Follow [act-production.md](act-production.md) for the storyboard and progressive
+build checks. Research and `begin-build` must pass before the Act I implementation;
+record act results in `VALIDATION.md` without inventing engine stages. A partial
+act proof does not satisfy `complete-build`; reserve that handoff for the finished
+site and its full browser QA. Acts and narrative panels do not each consume an
+effect slot: count the selected interactions across the whole site.
+
 ## Template selection and QA
 
 Store the supplied skill name without `$` in `experience.templateSkill`; default
@@ -76,10 +83,12 @@ For `website-template-1`, follow its own presentation reference and hooks; recor
 `presentationProfile: cinematic-media-first` and `motionPolicy: auto` unless the
 caller supplies a compatible explicit motion requirement. The profile value is
 a validator identifier, not the name of another skill to load.
-For this template, its preferred AUTO effects and default budget of two override
-the legacy brief's illustrative budget of one and equally optional motion
-guidance. Record selected effects in the brief and concrete exceptions in
-DESIGN.md; retain explicit user budgets and static requests.
+For this template, its default effect budget of two overrides the legacy brief's
+illustrative budget of one. This is a maximum, not a required effect count or
+pair. AUTO encourages advanced UI effects with content-led selection and
+placement; the header/hero may be static and scroll video may appear in middle
+or later sections. Record selected effects in the brief and their design and
+placement rationale in DESIGN.md; retain explicit user budgets and static requests.
 
 For another explicitly supplied template, use the engine's `evidence-led` profile
 when the cinematic geometry checks do not apply. Run and record that template's

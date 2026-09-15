@@ -1,15 +1,20 @@
 ---
 name: site-generator
-description: Generate and deploy a business website to the Raspberry Pi from a specified business or a location to scout. Orchestrates prospect hunting when needed, business research, the caller's chosen website template, asset preparation, implementation, QA and verified demo-pi release. Defaults to website-template-1 when no template is supplied.
+description: Create a polished, business-specific website through research, creative direction, an Act I cinematic proof, narrative continuation, browser QA and verified Raspberry Pi publication. Accepts a specified business, a location to scout or a project to resume; uses the caller's chosen template and defaults to website-template-1.
 ---
 # Site generator
 
-Own the end-to-end workflow, not the visual design. Use the template explicitly
-supplied by the user or automation; use `$website-template-1` only when none is
-specified. Load that template and retain its identity in the brief. If the chosen
-template is unavailable, report the missing dependency rather than substituting
-another. Keep typography, layout, palette, components, motion choices and UI/UX
-guardrails in the selected template; do not load a second presentation director.
+Create a site that makes the business feel understood: a strong visual concept,
+considered typography, compelling media, purposeful interactions and a clear
+visitor journey. Take time to compose and inspect the experience. A page full of
+generic sections is not a finished design, even when it passes automated QA.
+
+Own the finished experience and its production sequence. Use the template
+explicitly supplied by the user or automation; use `$website-template-1` only
+when none is specified. The template is the art director for layout, palette,
+components and motion. Give it a rich business brief and review the result as
+a whole. Retain its identity in the brief; report a missing template rather than
+substituting another or loading a second presentation director.
 
 ## Resolve the request
 
@@ -29,6 +34,10 @@ authorized production workflow handles those changes.
 Read [workflow-contract.md](references/workflow-contract.md) before creating
 project state. It defines the current helper interfaces, input branches, evidence
 contracts, template selection and release handoff.
+Read [act-production.md](references/act-production.md) before design for the
+Act I proof, storyboard contract, specialist handoffs and continuation gates.
+These are working checkpoints within the authorized task, not extra approval
+turns or mandatory visible section titles.
 
 ## Select once, then research
 
@@ -52,7 +61,15 @@ research and actual authentic-image inspection before design, stock sourcing or
 implementation. Record findings, source access limitations and media usage basis
 in the pipeline's evidence formats. Missing facts remain missing.
 
-## Build using the chosen template
+For the matched Google Places listing, call `google_place_details` and, when
+photos are available, `google_place_photo`; actually view promising images.
+Use suitable, source-compatible business photos for identity, premises, work or
+gallery roles rather than merely recording that photos exist. Follow the research
+skill's attribution and acquisition rules; when a Places photo cannot be retained
+as a static asset, seek its usable business-controlled original. Record specific
+unavailability or rejection reasons instead of silently defaulting to stock.
+
+## Stage 0 — Creative direction and storyboard
 
 Prepare the website brief with selected business, customer needs, primary action,
 content evidence, intended output and `experience.templateSkill`. Use the selected
@@ -60,35 +77,97 @@ template to produce the design notes and storyboard. The template owns visual
 choices and applicable acceptance criteria. Preserve explicit compatible user
 requirements; AUTO applies only to omitted choices.
 
+Study the current website when one exists. Understand the offering, audience,
+setting, authentic imagery and what makes this business worth visiting or
+choosing. Separate the website's job from the visitor's primary action. Translate
+that understanding into a one-sentence art direction and a story worth scrolling
+through, then use the template to choose its visual language.
+
 Pass usable brand guidance, logos and official visual cues into that handoff.
 Have the template record the headline approach, display/body font roles, palette
 basis and action placement in DESIGN.md. Review whether those choices fit this
 business instead of inheriting the previous site's hero, colors and controls.
 For the default template, apply its no-eyebrow hero guidance and allow a
 business-name headline, supporting slogan and no hero buttons when appropriate.
+Encourage advanced UI effects that serve the business's content, while leaving
+their type, combination and placement to the template's creative direction.
+The header/hero can be static. A scroll-video background may appear in a middle
+or later section when it helps tell that part of the story; it is not a required
+opening treatment. Avoid carrying the same effect sequence from site to site.
+
+Write `DESIGN.md` and `STORYBOARD.md` before substantial implementation. Plan
+ordered acts/scenes, the customer question and message of each, media/copy
+relationships, transitions and mobile/static versions. Identify the experience
+that will establish the design's quality in Act I. An act can contain still
+composition, useful business content or interactive scenes; it is not synonymous
+with a video or full-screen section. Let the story determine the page length.
+
+## Prepare the selected media
 
 Use the existing conversion/content and domain references linked from the workflow
-contract for truthful business copy. Plan asset roles before sourcing, prefer
-usable authentic identity media, and use the workspace Pexels tools only for
-remaining conceptual roles. Preserve local files, provenance and credits; do not
-imply that representative or generated media depicts the actual business.
+contract for truthful business copy. Plan asset roles before sourcing and prefer
+usable authentic identity media. Use `pexels_search_photos`,
+`pexels_search_videos` and `pexels_download_media` for thematic wallpapers,
+backgrounds, textures, section imagery and media supporting selected effects.
+Pexels can complement available business photos; it is not only a fallback when
+all authentic imagery is missing. Search for the recorded brand/business mood,
+palette, subject, crop and effect requirements, inspect candidates, and download
+selected assets using the existing project slug to `site/assets/`. Do not let a
+stock result dictate the brand palette or
+replace a suitable authentic identity image simply because it is more cinematic.
+Preserve provenance and credits, label conceptual media appropriately, and never
+imply that it depicts the actual premises, staff, customers or work.
 
 When the template selects video, use `$web-video-asset-preparation` to inspect and
-prepare it. When it selects interactive media, use `$cinematic-interactions` for
-the relevant implementation and input/fallback tests. These are conditional
+prepare it. When it selects a cinematic interaction, use `$cinematic-interactions` and its
+shared `references/effect-catalog.md` to resolve the exact recipe, including
+text/DOM scroll effects and interactive media. Follow the selected recipe's
+input, fallback and browser checks. These are conditional
 implementation dependencies, not a quota for effects.
+
+## Act I — Prove the signature experience
 
 Begin the build only after the evidence gate passes. Implement the prepared
 static `site/` with local assets, publisher-compatible external scripts and the
 recorded content/integration limitations. Keep non-public research outside `site/`.
 Respect existing project conventions and the destination's size/security limits.
 
-## Validate and deploy
+Build the smallest coherent proof of the visual direction around the strongest
+message and highest-risk selected interaction. Compose its real copy, prepared
+media, typography, entry, progression and exit. If the signature scene belongs
+later in the page, prove it there with enough surrounding flow to test it; Act I
+does not force an animated header.
+
+Inspect it in a browser on desktop, tablet and mobile. Prove the intended inputs,
+readable static state and clean return to document flow. Refine weak composition
+or unreliable motion before expanding. Record observed Act I results in
+`VALIDATION.md`; a static design proves its composition and usability without
+manufacturing a video test. Follow the act reference's completion criteria.
+
+## Act II and later — Narrative continuation
+
+Continue only after Act I passes its applicable checks. Develop the remaining
+story from the storyboard, reusing the visual system and working interaction
+primitives. Give each scene a new message and a deliberate transition. Combine
+cinematic moments with readable business sections that help visitors decide
+and act. Later acts can be entirely static; the effect budget spans the site.
+
+Inspect each addition and its handoff before expanding further. Load later media
+near its section, keep controls independent of the cinematic sequence and check
+the complete forward/reverse journey. Preserve the same standard of composition
+through the practical information and closing action; do not append filler to
+make the site longer.
+
+## Final inspection and release
 
 Run the pipeline's local browser QA plus the chosen template's visual and
 interaction checks. Inspect the screenshots; report unavailable browser/device
 checks as incomplete. Resolve failures before release. Save `VALIDATION.md` and
 require the helper-generated `BUILD-RESULT.json` to pass; never hand-author a pass.
+Review the full scroll journey as well as individual captures: does the site
+build interest, vary pace, explain the actual business and make its next step
+easy? Refine composition, transitions, copy and mobile pacing until they support
+the recorded direction. A working controller alone does not establish quality.
 
 For the normal hosted-preview output, load `$deploy` and `$demo-pi`. Inventory
 the Raspberry Pi and deployment registry first, reserve a suitable unoccupied
@@ -121,7 +200,8 @@ Return the selected business, input path (hunted/named/resumed), template used,
 project-relative report path, verified URL when published, release identity,
 QA evidence and remaining limitations. A blocked workflow returns a clear failure
 and its last durable checkpoint, never a claim that an unverified site is live.
-Name the implemented effects and their observed QA results, plus any template
-defaults omitted and why. Distinguish common browser checks from interaction
+Describe the art direction, the acts/visitor journey, the implemented effects
+and why their placement fits the content. Include act-gate and final QA results.
+Distinguish common browser checks from interaction
 checks; a successful release or responsive screenshot is not evidence that a
 scroll controller or hover overlay works.

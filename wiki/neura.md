@@ -274,7 +274,8 @@ explicit commentary intended for display. Assistant messages marked with
 OpenClaw's `commentary` phase—whether top-level or carried in signed text-block
 metadata—become **Progress update** steps inside this card,
 both live and after history reload; only the final answer remains in the main
-chat and streams as it is generated. While a run is active, a refresh treats
+chat. Unclassified streamed text stays in the collapsed work details until the
+completed reply arrives. While a run is active, a refresh treats
 the unfinished assistant tail as work-in-progress rather than guessing that its
 last durable message is the answer. Older unphased preambles are folded when a
 later tool, plan, same-turn assistant answer, or active-history reload establishes
@@ -334,6 +335,15 @@ frame provides a preview without autoplay; offscreen videos wait until they are
 near the viewport to load. Playback depends on the browser's codec support, and
 Download remains available when a video cannot play. Private video playback uses
 the same authorization tickets and supports byte-range requests for seeking.
+
+In private Neura replies, standalone `MEDIA:` lines pointing to files already in
+the shared workspace become attachments, including after reopening a conversation.
+For example, `MEDIA:/home/node/workspace/projects/demo/clip.mp4` becomes an inline
+video with download actions. The marker is removed from the displayed caption.
+Images and audio use their respective players, and other files become download
+cards. Code examples and paths outside the workspace remain text. These files
+use the existing authenticated Files route; private Gateway artifacts continue
+to use conversation-scoped authorization tickets.
 
 Use an attachment's overflow
 button or right-click menu for **Download** to your computer or **Download to

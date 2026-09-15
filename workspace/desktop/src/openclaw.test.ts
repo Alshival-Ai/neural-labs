@@ -221,6 +221,37 @@ describe("Neura Gateway projections", () => {
       size: 4_096,
     }]);
   });
+
+  it("restores generated workspace media from history without converting user examples", () => {
+    const marker = "MEDIA:/home/node/workspace/projects/cat-video/cat-windowsill.mp4";
+    const history = normalizeNeuraHistory([
+      { role: "user", content: marker },
+      { role: "assistant", content: `Generated and verified.\n${marker}` },
+    ], "chat");
+    expect(history[0]).toMatchObject({ text: marker });
+    expect(history[0].attachments).toBeUndefined();
+    expect(history[1]).toMatchObject({ text: "Generated and verified.", attachments: [
+      { name: "cat-windowsill.mp4", type: "video/mp4", path: "projects/cat-video/cat-windowsill.mp4" },
+    ] });
+  });
+
+  it.each(["video", "audio"])("projects structured %s blocks with workspace paths", (type) => {
+    const history = normalizeNeuraHistory([{ role: "assistant", content: [{
+      type, path: `/home/node/workspace/generated/clip.${type === "video" ? "mp4" : "mp3"}`, mimeType: `${type}/mpeg`,
+    }] }], "chat");
+    expect(history[0].attachments?.[0].path).toBe(`generated/clip.${type === "video" ? "mp4" : "mp3"}`);
+  });
+
+  it("keeps an attachment-only final answer when folding earlier progress", () => {
+    const history = normalizeNeuraHistory([
+      { role: "assistant", content: "The video is rendering." },
+      { role: "assistant", phase: "final_answer", content: "MEDIA:/home/node/workspace/clip.mp4" },
+    ], "chat");
+    expect(history).toHaveLength(1);
+    expect(history[0].text).toBe("");
+    expect(history[0].attachments?.[0].path).toBe("clip.mp4");
+    expect(history[0].activities?.[0].detail).toBe("The video is rendering.");
+  });
 });
 
 describe("Native proposed plan metadata", () => {

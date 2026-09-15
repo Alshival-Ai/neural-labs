@@ -88,6 +88,20 @@ usable authentic identity assets merely because stock is more cinematic.
 A genuine no-usable-media result is allowed, with specific evidence and an
 explanation of the alternatives tried. Stock must remain visibly representative.
 
+For a website handoff, recommend suitable inspected Google Places/business
+images for concrete identity, premises, work and gallery roles, with a usable
+source and acquisition status. An inventory of photo metadata alone is not a
+completed media handoff.
+
+Also identify complementary conceptual roles for Pexels: thematic wallpapers,
+backgrounds, textures, section imagery and footage or stills for selected effects.
+These can coexist with authentic business photos; the presence of business
+imagery is not a reason to skip useful thematic media. The building workflow
+uses `pexels_search_photos`, `pexels_search_videos` and `pexels_download_media`
+after this research pass, matching the chosen brand/business direction and
+inspecting selected files. Keep these assets classified as `conceptual-ui`,
+with provenance and credits, rather than evidence of the real business.
+
 ## Identity and publication handoff
 
 Record the official name, public address or service area, phone, hours and
