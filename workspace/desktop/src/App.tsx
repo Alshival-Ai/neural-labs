@@ -58,7 +58,7 @@ type Session = {
 };
 
 type Runtime = { status: string };
-type PersonalOpenAIBootstrap = { agentId: string; authenticated: boolean; paused: boolean };
+type PersonalModelBootstrap = { agentId: string; authenticated: boolean; paused: boolean };
 type ToastNotice = { message: string; action?: "open-personalization" };
 type DesktopApp = "neura" | "files" | "preview" | "image-editor" | "settings" | "terminal" | "vscode" | "automations" | "skills";
 type WindowVisibility = "open" | "minimized" | "popped-out";
@@ -295,7 +295,7 @@ export function App() {
       neuraBootstrapTimer = undefined;
       neuraBootstrapPending = true;
       try {
-        const account = await fetchJson<PersonalOpenAIBootstrap>("/api/account/openai");
+        const account = await fetchJson<PersonalModelBootstrap>("/api/account/model-providers/access");
         if (account.agentId !== expectedNeuraAgentId) throw new Error("The personal Neura agent does not match this session");
         if (!stopped) {
           gateway.setAgentId(account.agentId);
@@ -303,8 +303,8 @@ export function App() {
           if ((!account.authenticated || account.paused) && !connectionToastShown) {
             connectionToastShown = true;
             notify(account.authenticated
-              ? "Resume your ChatGPT account to start using Neura."
-              : "Connect your ChatGPT account to start using Neura.", "open-personalization");
+              ? "Resume your selected model account to start using Neura."
+              : "Connect your selected model account to start using Neura.", "open-personalization");
           }
         }
       } catch {
@@ -740,7 +740,7 @@ export function App() {
       </div>}
       {toast && <div className={`toast${toast.action ? " toast--action" : ""}`} role="status">
         {toast.action === "open-personalization"
-          ? <button type="button" className="toast-action" onClick={openPersonalizationSettings} aria-label="Open ChatGPT account settings in Model Provider"><span>{toast.message}</span><strong>Open Model Provider <ChevronRight /></strong></button>
+          ? <button type="button" className="toast-action" onClick={openPersonalizationSettings} aria-label="Open model account settings in Model Provider"><span>{toast.message}</span><strong>Open Model Provider <ChevronRight /></strong></button>
           : toast.message}
       </div>}
     </div>

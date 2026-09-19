@@ -19,11 +19,29 @@ paused connection. **Pause** suspends your personal agent's access while
 retaining the saved account; **Resume** restores access when the credential is
 still valid.
 
+## Connect Claude
+
+Open **Settings → Model Provider → Claude**, then **Connect Claude**. Settings
+starts a native Claude sign-in prompt inside this instance. Open the Anthropic
+URL it displays in your browser. If Anthropic gives you a login code, paste it
+into the native prompt. Keep Settings open until the connection finishes.
+
+This flow needs no additional public DNS, OAuth callback registration, or inbound
+port. The CLI and browser need outbound access to Anthropic. Claude keeps the
+subscription credentials in its own persistent account directory.
+
+You can keep ChatGPT and Claude connected together. Choose the provider and
+model in **Agent defaults**, then save. A conversation's explicit model selection
+can choose either connected provider. Pausing or disconnecting one provider
+affects requests using that provider and retains your chats and saved defaults.
+Reconnect uses a fresh native login home; an old Claude native session may need
+a new conversation after the account is replaced.
+
 ## Which account runs a request?
 
 | Work | Account used |
 |---|---|
-| Private Neura conversation or a personal skill test | Your connected personal ChatGPT account |
+| Private Neura conversation or a personal skill test | Your personal account for the selected model provider |
 | Manually running an AI task automation from the desktop | The person pressing Run's personal account |
 | Scheduled automation | The automation's assigned agent; `main` uses the background account |
 | Team Chat before dedicated Team Neura activation | The message author's personal account |
@@ -41,7 +59,10 @@ Administrators open **Settings → Workspace** to configure these separately:
 
 - **Background ChatGPT connection** supplies the main agent used by scheduled
   AI work and background tasks. Connect it if you plan to use those features.
-- **Team Neura** has its own connection and model defaults. Connect the dedicated
+- **Background AI Claude connection** provides an independent Claude sign-in or
+  workspace API key. Saving an API key explicitly selects separately billed API
+  usage for this workload. It does not change your model default.
+- **Team Neura** has its own OpenAI and Claude connections and model defaults. Connect the dedicated
   account, then explicitly confirm and save the Team defaults to activate it.
   Once activated, Team Chat requires that account; a later disconnect does not
   restore the message-author fallback.
@@ -64,14 +85,18 @@ conversation's override returns to the agent default. Automations may have
 explicit model settings of their own. Changing your personal default does not
 rewrite scheduled jobs or Team defaults.
 
-Claude connections and arbitrary new provider connections are not available in
-the current UI. A preview card is not a configured provider.
+Claude models use the native Claude runtime. The model list reports account
+readiness and runtime metadata; Anthropic can still reject a model because of
+plan eligibility or usage limits. A failed request does not switch billing or
+providers automatically. Arbitrary additional provider connections remain outside
+the fixed OpenAI and Claude bindings.
 
 ## Credential storage and recovery
 
 OpenClaw keeps ChatGPT credentials in the persistent workspace volumes. The
 browser receives connection status and the temporary login code, not OAuth
-tokens. All approved developers share the workspace operating-system trust
+tokens. Workspace Claude API keys stay in native credential profiles; subscription
+logins stay in the owning Claude configuration directory. All approved developers share the workspace operating-system trust
 boundary; see [Sharing and privacy](sharing-and-privacy.md).
 
 The separate terminal CLI can be connected with

@@ -1,6 +1,6 @@
 ---
 name: site-generator
-description: Create a polished, business-specific website through research, creative direction, an Act I cinematic proof, narrative continuation, browser QA and verified Raspberry Pi publication. Accepts a specified business, a location to scout or a project to resume; uses the caller's chosen template and defaults to website-template-1.
+description: Create a polished, business-specific website through research, creative direction, an Act I cinematic proof, narrative continuation, browser QA and verified Raspberry Pi publication. Accepts a specified business, a location to scout or a project to resume; uses the caller's chosen template and defaults to local-business-website-builder for name-and-address requests.
 ---
 # Site generator
 
@@ -10,7 +10,7 @@ visitor journey. Take time to compose and inspect the experience. A page full of
 generic sections is not a finished design, even when it passes automated QA.
 
 Own the finished experience and its production sequence. Use the template
-explicitly supplied by the user or automation; use `$website-template-1` only
+explicitly supplied by the user or automation; use `$local-business-website-builder` only
 when none is specified. The template is the art director for layout, palette,
 components and motion. Give it a rich business brief and review the result as
 a whole. Retain its identity in the brief; report a missing template rather than
@@ -87,8 +87,9 @@ Pass usable brand guidance, logos and official visual cues into that handoff.
 Have the template record the headline approach, display/body font roles, palette
 basis and action placement in DESIGN.md. Review whether those choices fit this
 business instead of inheriting the previous site's hero, colors and controls.
-For the default template, apply its no-eyebrow hero guidance and allow a
-business-name headline, supporting slogan and no hero buttons when appropriate.
+For the default template, choose an original hero composition and useful context
+labels based on this business. Read its asset-direction and visual-review
+references; retain a clear, reachable primary action.
 Encourage advanced UI effects that serve the business's content, while leaving
 their type, combination and placement to the template's creative direction.
 The header/hero can be static. A scroll-video background may appear in a middle
@@ -104,19 +105,14 @@ with a video or full-screen section. Let the story determine the page length.
 
 ## Prepare the selected media
 
-Use the existing conversion/content and domain references linked from the workflow
-contract for truthful business copy. Plan asset roles before sourcing and prefer
-usable authentic identity media. Use `pexels_search_photos`,
-`pexels_search_videos` and `pexels_download_media` for thematic wallpapers,
-backgrounds, textures, section imagery and media supporting selected effects.
-Pexels can complement available business photos; it is not only a fallback when
-all authentic imagery is missing. Search for the recorded brand/business mood,
-palette, subject, crop and effect requirements, inspect candidates, and download
-selected assets using the existing project slug to `site/assets/`. Do not let a
-stock result dictate the brand palette or
-replace a suitable authentic identity image simply because it is more cinematic.
-Preserve provenance and credits, label conceptual media appropriately, and never
-imply that it depicts the actual premises, staff, customers or work.
+Use the existing conversion/content references for truthful copy. For new builds
+read `$local-business-website-builder` references/business-photo-direction.md and
+asset-policy.md. Complete BUSINESS-VISUAL-BRIEF.json before implementation. Use
+the inspected place to shape an original composition and meaningful feature.
+Prefer usable authentic imagery, then coordinated generated representative
+assets from a discovered configured provider. Stock requires the explicit choice
+or documented fallback in that policy. Do not automatically search Pexels.
+Preserve provenance, license/credit and honest representative labeling.
 
 When the template selects video, use `$web-video-asset-preparation` to inspect and
 prepare it. When it selects a cinematic interaction, use `$cinematic-interactions` and its

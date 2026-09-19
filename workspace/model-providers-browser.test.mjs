@@ -55,7 +55,7 @@ test("model provider settings and conversation picker at mobile and desktop widt
       await page.getByRole("button", { name: "Set up OpenAI" }).waitFor();
       assert.equal(await page.getByRole("combobox", { name: "Default provider" }).count(), 0);
       await page.getByRole("button", { name: "Configure Claude" }).click();
-      await page.getByRole("heading", { name: "Claude is coming soon" }).waitFor();
+      await page.getByRole("heading", { name: "Your Claude account" }).waitFor();
       await page.getByRole("button", { name: "Back to providers" }).click();
       await page.screenshot({ path: `/tmp/neural-labs-provider-cards-empty-${process.env.BROWSER_ENGINE || "chromium"}-${width}.png` });
       await page.goto(`${url}?conversation=1`);
@@ -65,6 +65,52 @@ test("model provider settings and conversation picker at mobile and desktop widt
       await page.getByText("Saved for subsequent turns.", { exact: false }).waitFor();
       const box = await page.locator(".conversation-model-picker > div").boundingBox();
       assert.ok(box && box.x >= 0 && box.x + box.width <= width);
+      assert.deepEqual(errors, []);
+      await page.close();
+    }
+  } finally { await browser.close(); }
+});
+
+test("Claude native login fits narrow Settings and sends input only to its attempt", { skip: !process.env.PLAYWRIGHT_MODULE_PATH, timeout: 60_000 }, async () => {
+  const require = createRequire(import.meta.url);
+  const browser = await require(process.env.PLAYWRIGHT_MODULE_PATH).chromium.launch({ headless: true });
+  try {
+    for (const width of [320, 1280]) {
+      const page = await browser.newPage({ viewport: { width, height: 844 } });
+      const errors = []; page.on("pageerror", error => errors.push(error.message));
+      let phase = "disconnected", data = "";
+      const status = () => ({ provider: "anthropic", authMethod: "subscription", state: phase, authenticated: phase === "connected", modelReady: phase === "connected", paused: phase !== "connected", agentId: "nl-test" });
+      await page.route("**/api/**", async route => {
+        const request = route.request(), url = new URL(request.url());
+        if (url.pathname.includes("/anthropic/connection")) {
+          if (url.pathname.endsWith("/connect")) { phase = "awaiting_user"; return route.fulfill({ json: { ...status(), attemptId: "11111111-1111-4111-8111-111111111111" } }); }
+          if (url.pathname.endsWith("/terminal")) {
+            const body = request.postDataJSON();
+            assert.equal(body.attemptId, "11111111-1111-4111-8111-111111111111");
+            assert.equal(request.headers()["x-csrf-token"], "model-test-csrf");
+            data += body.data || "";
+            return route.fulfill({ json: { output: body.cursor ? "" : "Paste code here if prompted:\r\n", cursor: 30, verificationUrl: "https://claude.ai/oauth/authorize?code=true&state=test-only" } });
+          }
+          if (url.pathname.endsWith("/cancel")) phase = "disconnected";
+          return route.fulfill({ json: status() });
+        }
+        if (url.pathname.startsWith("/api/account/openai")) return route.fulfill({ json: { provider: "openai", authMethod: "chatgpt", state: "disconnected", authenticated: false, modelReady: false, paused: true, agentId: "nl-test" } });
+        return route.fulfill({ json: {} });
+      });
+      await page.goto(`${process.env.DESKTOP_TEST_ORIGIN || "http://127.0.0.1:4196"}/workspace/tests/providers.html`);
+      await page.getByRole("button", { name: "Configure Claude" }).click();
+      await page.getByRole("button", { name: "Connect Claude", exact: true }).click();
+      await page.getByRole("link", { name: "Open Anthropic sign-in" }).waitFor();
+      const input = page.locator(".claude-login-terminal .xterm-helper-textarea");
+      await input.pressSequentially("test-code"); await input.press("Enter");
+      await page.waitForTimeout(1000);
+      assert.ok(data.includes("test-code\r"));
+      const card = await page.locator(".claude-provider-card").boundingBox();
+      assert.ok(card && card.x >= 0 && card.x + card.width <= width, "Claude card must fit rather than be clipped by the app window");
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      await page.screenshot({ path: `/tmp/neural-labs-claude-login-${width}.png` });
+      await page.getByRole("button", { name: "Cancel sign-in" }).click();
+      await page.getByRole("button", { name: "Connect Claude", exact: true }).waitFor();
       assert.deepEqual(errors, []);
       await page.close();
     }

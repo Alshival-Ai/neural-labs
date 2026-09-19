@@ -679,16 +679,16 @@ export function AutomationsApp({
             <div className="automation-detail-header__actions">
               <AutomationSubscription openRequest={subscriptionRequest?.id===selected.id?subscriptionRequest.nonce:undefined} jobId={selected.id} />
               {onRun && selected.payload.kind === "agentTurn" && <div className="automation-run-control">
-                <button type="button" onClick={() => void runJob(selected, "force")} title="Run using your connected ChatGPT account" disabled={selected.running || Boolean(selected.manualRunWarning) || pendingAction === `run:${selected.id}`}><Play />{selected.running || pendingAction === `run:${selected.id}` ? "Running" : "Run now"}</button>
+                <button type="button" onClick={() => void runJob(selected, "force")} title="Run using your selected model account" disabled={selected.running || Boolean(selected.manualRunWarning) || pendingAction === `run:${selected.id}`}><Play />{selected.running || pendingAction === `run:${selected.id}` ? "Running" : "Run now"}</button>
                 <button type="button" aria-label="Choose run mode" aria-expanded={runMenuId === selected.id} onClick={() => setRunMenuId((id) => id === selected.id ? undefined : selected.id)}><ChevronDown /></button>
-                {runMenuId === selected.id && <div className="automation-run-menu"><button type="button" onClick={() => void runJob(selected, "force")}><Zap /><span><strong>Force run now</strong><small>Use your ChatGPT account, regardless of schedule</small></span></button><button type="button" onClick={() => void runJob(selected, "due")}><Clock3 /><span><strong>Run only if due</strong><small>Respect the pending schedule</small></span></button><button type="button" onClick={() => void runJob(selected, "if-enabled")}><CircleCheck /><span><strong>Run if enabled</strong><small>Preserve an operator pause</small></span></button></div>}
+                {runMenuId === selected.id && <div className="automation-run-menu"><button type="button" onClick={() => void runJob(selected, "force")}><Zap /><span><strong>Force run now</strong><small>Use your selected model account, regardless of schedule</small></span></button><button type="button" onClick={() => void runJob(selected, "due")}><Clock3 /><span><strong>Run only if due</strong><small>Respect the pending schedule</small></span></button><button type="button" onClick={() => void runJob(selected, "if-enabled")}><CircleCheck /><span><strong>Run if enabled</strong><small>Preserve an operator pause</small></span></button></div>}
               </div>}
               {(onUpdate || onEditDraft) && <button type="button" onClick={() => openEdit(selected)} disabled={selected.systemOwned}><Settings2 />Edit</button>}
               <ItemActions name={selected.name} actions={jobActions(selected)} />
             </div>
           </header>
 
-          {selected.payload.kind === "agentTurn" && <p className="automation-account-note">Run now uses your connected ChatGPT account. Scheduled runs use {selected.agent}.</p>}
+          {selected.payload.kind === "agentTurn" && <p className="automation-account-note">Run now uses your selected model account. Scheduled runs use {selected.agent}.</p>}
           {selected.manualRunWarning && <div className="automation-warning" role="status">{selected.manualRunWarning}</div>}
           {selected.autoDisabled && <div className="automation-warning"><ShieldAlert /><div><strong>Auto-disabled after {selected.autoDisabled.consecutiveErrors} failures</strong><span>OpenClaw stopped this recurring job as a safety backstop. Fix the cause, then enable it to clear the failure streak.</span></div>{onToggle && <button type="button" onClick={() => void toggleJob(selected)}>Review and enable</button>}</div>}
 

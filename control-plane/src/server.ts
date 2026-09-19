@@ -194,6 +194,13 @@ const personalOpenAIAuthSchema = workspaceProviderAuthSchema.extend({
   agentId: z.string().regex(/^nl-[a-z0-9]+$/),
   paused: z.boolean(),
 });
+const claudeConnectionSchema = z.object({
+  provider: z.literal("anthropic"), authMethod: z.enum(["subscription", "api-key"]),
+  agentId: z.string().regex(/^(main|nl-[a-z0-9]+)$/), authenticated: z.boolean(), modelReady: z.boolean(), paused: z.boolean(),
+  state: z.enum(["disconnected", "connected", "awaiting_user", "error"]), message: z.string().max(500).nullable(), attemptId: z.string().uuid().optional(),
+});
+const claudeTerminalSchema = z.object({ attemptId: z.string().uuid(), output: z.string().max(65536), cursor: z.number().int().min(0), verificationUrl: z.string().url().startsWith("https://").nullable() });
+const modelAccessSchema = z.object({ agentId: z.string().regex(/^nl-[a-z0-9]+$/), provider: z.enum(["openai", "anthropic"]), authenticated: z.boolean(), modelReady: z.boolean(), paused: z.boolean(), selectedModel: z.string().max(200).nullable() });
 const TURN_CREDENTIAL_TTL_SECONDS = 60 * 60;
 
 function personalAgentId(userId: string): string {
@@ -1036,6 +1043,42 @@ export function createApplication(input: {
     response.status(204).end();
   });
 
+  app.get("/api/account/model-providers/access", async (request, response) => {
+    const actor = await requireActiveJson(request, response); if (!actor) return;
+    const url = new URL("/internal/model-providers/access", config.workspace.controlUrl);
+    url.searchParams.set("userId", actor.user.id);
+    try {
+      const result = await workspaceFetch(url, { headers: { Authorization: `Bearer ${config.workspace.controlToken}` }, signal: AbortSignal.timeout(30_000) });
+      if (!result.ok) throw new Error();
+      response.setHeader("Cache-Control", "no-store"); response.json(modelAccessSchema.parse(await result.json()));
+    } catch { jsonError(response, 503, "model_access_unavailable", "Your model connection could not be checked."); }
+  });
+  for (const scope of ["account", "admin/workspace"] as const) {
+    const route = `/api/${scope}/model-providers/anthropic/connection`;
+    const handler = async (request: Request, response: Response) => {
+      const actor = scope === "account" ? await requireActiveJson(request, response) : await requireAdminJson(request, response);
+      if (!actor || (request.method !== "GET" && !requireCsrfJson(request, response, actor))) return;
+      const action = typeof request.params.action === "string" ? request.params.action : undefined;
+      if (action && !["connect", "cancel", "pause", "resume", "disconnect", "refresh", "terminal", "api-key"].includes(action)) { jsonError(response, 404, "not_found", "Unknown connection action"); return; }
+      if (action === "api-key" && scope === "account") { jsonError(response, 403, "forbidden", "Workspace administrator access is required"); return; }
+      if (action && !await database.consumeRateLimit(`claude-${action === "terminal" ? "terminal" : "action"}:${actor.user.id}`, action === "terminal" ? 600 : 20, 60)) { jsonError(response, 429, "rate_limited", "Wait a moment and try again."); return; }
+      const input = z.object({ attemptId: z.string().uuid().optional(), cursor: z.number().int().min(0).optional(), data: z.string().max(8192).optional(), key: z.string().trim().min(1).max(4096).optional() }).strict().safeParse(request.body ?? {});
+      if (action && !input.success) { jsonError(response, 400, "invalid_connection_input", "Invalid connection input"); return; }
+      const url = new URL("/internal/model-providers/anthropic", config.workspace.controlUrl);
+      if (scope === "account") url.searchParams.set("userId", actor.user.id);
+      else url.searchParams.set("workload", request.query.workload === "team" ? "team" : "background");
+      try {
+        const result = await workspaceFetch(url, { method: action ? "POST" : "GET", headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.workspace.controlToken}` },
+          ...(action ? { body: JSON.stringify({ action, input: input.success ? input.data : {}, actorId: actor.user.id }) } : {}), signal: AbortSignal.timeout(45_000) });
+        if (!result.ok) throw new Error();
+        response.setHeader("Cache-Control", "no-store");
+        if (action && action !== "terminal") await database.audit(actor.user.id, `model_provider.anthropic.${action}`, scope === "account" ? actor.user.id : null, { scope, workload: scope === "account" ? "personal" : url.searchParams.get("workload") });
+        response.json((action === "terminal" ? claudeTerminalSchema : claudeConnectionSchema).parse(await result.json()));
+      } catch { jsonError(response, 409, "claude_unavailable", "Claude setup could not complete. Refresh the connection and try again."); }
+    };
+    app.get(route, handler); app.post(`${route}/:action`, sameOrigin, handler);
+  }
+
   for (const scope of ["account", "admin/workspace"] as const) {
     const defaultsRoute = `/api/${scope}/model-providers/defaults`;
     app.get(defaultsRoute, async (request, response) => {
@@ -1854,6 +1897,9 @@ export function createApplication(input: {
         return;
       }
       if (inputState.data.status && inputState.data.status !== "active") {
+        const claudeUrl = new URL("/internal/model-providers/anthropic", config.workspace.controlUrl);
+        claudeUrl.searchParams.set("userId", updated.id);
+        await workspaceFetch(claudeUrl, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.workspace.controlToken}` }, body: JSON.stringify({ action: "pause", input: {}, actorId: actor.user.id }), signal: AbortSignal.timeout(30_000) }).catch(() => undefined);
         await personalOpenAIData(updated.id, "pause").catch(() => undefined);
       }
       response.json({ user: publicUser(updated) });

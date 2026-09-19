@@ -222,9 +222,9 @@ describe("Neura realtime conversation", () => {
 
   it("directs personal provider failures to Personalization without blaming an administrator", () => {
     expect(modelProviderErrorMessage("401 Unauthorized: Missing bearer or basic authentication in header"))
-      .toBe("Neura couldn't activate your ChatGPT connection. Open Personalization and try Resume; reconnect if the problem continues.");
+      .toBe("Neura couldn't activate your selected model connection. Open Personalization and try Resume; reconnect if the problem continues.");
     expect(modelProviderErrorMessage("401 Unauthorized: invalid token"))
-      .toBe("Your ChatGPT sign-in was rejected or expired. Reconnect it in Personalization, then try again.");
+      .toBe("Your model provider sign-in was rejected or expired. Reconnect it in Personalization, then try again.");
     expect(modelProviderErrorMessage("The model timed out"))
       .toBe("The model timed out");
   });

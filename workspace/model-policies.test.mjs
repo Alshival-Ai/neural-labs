@@ -53,3 +53,17 @@ test("automatic reasoning works when the delegated runtime omits reasoning metad
   await manager.apply({ userId: "owner", policy, revision: 1 });
   assert.deepEqual(JSON.parse(calls[0][1][1]), [{ path: "agents.entries.nl-owner.model", value: { primary: native.id, fallbacks: [] } }]);
 });
+
+test("Claude policies require an active Claude owner and select its native runtime atomically", async () => {
+  const operations = [];
+  const row = { id: "anthropic/claude-test", provider: "anthropic", available: true, supportsTools: true, efforts: [{ id: "high" }], defaultEffort: "high" };
+  const manager = { ensureProvisioned: async () => ({ agentId: "nl-alice" }), queueMutation: fn => fn(), execute: async (_command, args) => operations.push(JSON.parse(args[1])) };
+  const { ModelPolicies } = await import("./model-policies.mjs");
+  const policies = new ModelPolicies({ personalOpenAI: manager, claudeAccounts: { snapshot: async () => ({ modelReady: true }) }, catalog: { list: async () => ({ models: [row], fetchedAt: "test", stale: false }) } });
+  await policies.apply({ userId: "alice", revision: 1, policy: { provider: "anthropic", mode: "pinned", model: row.id, effort: "high" } });
+  assert.equal(operations[0][0].value.id, "neural-labs-claude");
+  assert.deepEqual(operations[0][1].value, { primary: row.id, fallbacks: [] });
+  assert.equal(operations[0][2].value, "high");
+  policies.claudeAccounts.snapshot = async () => ({ modelReady: false });
+  await assert.rejects(policies.apply({ userId: "alice", revision: 2, policy: { provider: "anthropic", mode: "pinned", model: row.id, effort: "high" } }));
+});

@@ -163,3 +163,11 @@ CMD ["node", "/usr/local/lib/neural-labs/start.mjs"]
 COPY --chown=node:node workspace/notification-scheduler.mjs /usr/local/lib/neural-labs/notification-scheduler.mjs
 COPY --chown=node:node workspace/personal-automation-runs.mjs /usr/local/lib/neural-labs/personal-automation-runs.mjs
 COPY --chown=node:node workspace/bundled-skills /usr/local/share/neural-labs/prospect-skills
+
+# Native Claude owns login and refresh. The adapter lives outside /app.
+USER root
+ARG CLAUDE_VERSION=2.1.226
+RUN npm install --global "@anthropic-ai/claude-code@${CLAUDE_VERSION}" && claude --version
+COPY workspace/claude-runtime.mjs workspace/claude-accounts.mjs workspace/claude-native-key.mjs workspace/native-provider-order.mjs workspace/model-accounts.mjs /usr/local/lib/neural-labs/
+COPY workspace/claude-plugin /usr/local/lib/neural-labs/claude-plugin
+USER node

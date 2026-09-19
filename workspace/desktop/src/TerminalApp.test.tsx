@@ -109,6 +109,7 @@ beforeEach(() => {
   nonce.name = "csp-nonce";
   nonce.content = "terminal-test-nonce";
   document.head.append(nonce);
+  vi.stubGlobal("confirm", vi.fn(() => true));
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   vi.stubGlobal("WebSocket", MockWebSocket);
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -149,7 +150,7 @@ describe("Terminal app", () => {
     await within(drawer).findByRole("button", { name: /workspace.*Private/ });
     fireEvent.change(within(drawer).getByRole("searchbox"), { target: { value: "release" } });
     expect(within(drawer).queryByRole("button", { name: /workspace.*Private/ })).not.toBeInTheDocument();
-    fireEvent.click(within(drawer).getByRole("button", { name: /Release room/ }));
+    fireEvent.click(within(drawer).getByRole("button", { name: /^Release room/ }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     await screen.findByLabelText("Release room interactive terminal");
     fireEvent.click(toggle);
@@ -157,6 +158,151 @@ describe("Terminal app", () => {
     expect(toggle).toHaveFocus();
     expect(fetch).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ method: "DELETE" }));
   });
+  it("opens the creation menu with keyboard navigation and starts Personal immediately", async () => {
+    render(<TerminalApp />);
+    const plus = await screen.findByRole("button", { name: "Create terminal" });
+    fireEvent.keyDown(plus, { key: "ArrowDown" });
+    const personalAction = screen.getByRole("menuitem", { name: /^Personal/ });
+    expect(personalAction).toHaveFocus();
+    fireEvent.keyDown(personalAction, { key: "End" });
+    expect(screen.getByRole("menuitem", { name: /^Team/ })).toHaveFocus();
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    expect(plus).toHaveFocus();
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    fireEvent.click(plus);
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    fireEvent.click(plus);
+    fireEvent.click(screen.getByRole("menuitem", { name: /^Personal/ }));
+    await screen.findByLabelText("shell 2 interactive terminal");
+    expect(fetch).toHaveBeenCalledWith("/workspace/api/terminals", expect.objectContaining({ method: "POST", body: JSON.stringify({ scope: "personal" }) }));
+  });
+
+  it("opens an inactive session menu without switching shells and leaves a team without DELETE", async () => {
+    render(<TerminalApp openRequest={{ id: "open-personal", session: personal }} />);
+    const button = await screen.findByRole("button", { name: "Open team session Release room" });
+    fireEvent.contextMenu(button, { clientX: 50, clientY: 80 });
+    expect(screen.getByLabelText("workspace interactive terminal")).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /End for everyone/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: /^Leave session/ }));
+    expect(fetch).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ method: "DELETE" }));
+    expect(screen.getByLabelText("workspace interactive terminal")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "New Terminal" }));
+    expect(within(screen.getByRole("region", { name: "Team sessions" })).getByRole("button", { name: /Release room.*Join/ })).toBeInTheDocument();
+    fireEvent.click(button);
+    expect(await screen.findByLabelText("Release room interactive terminal")).toBeInTheDocument();
+  });
+
+  it.each([true, false])("allows server-authorized team termination (owned=%s), with cancellation", async (owned) => {
+    const allowed = descriptor({ ...team, owned, canTerminate: true });
+    vi.mocked(fetch).mockImplementationOnce(async () => json({ sessions: [personal, allowed] }));
+    render(<TerminalApp />);
+    const button = await screen.findByRole("button", { name: "Open team session Release room" });
+    fireEvent.keyDown(button, { key: "F10", shiftKey: true });
+    vi.mocked(confirm).mockReturnValueOnce(false);
+    fireEvent.click(screen.getByRole("menuitem", { name: /^End for everyone/ }));
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("Release room” for everyone"));
+    expect(fetch).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ method: "DELETE" }));
+    fireEvent.contextMenu(button);
+    fireEvent.click(screen.getByRole("menuitem", { name: /^End for everyone/ }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Open team session Release room" })).not.toBeInTheDocument());
+    expect(fetch).toHaveBeenCalledWith("/workspace/api/terminals/team-1", expect.objectContaining({ method: "DELETE" }));
+  });
+
+  it("keeps the last personal terminal stopped across stale discovery", async () => {
+    let finishDelete!: (response: Response) => void;
+    const fallback = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((input, init) => init?.method === "DELETE" ? new Promise((resolve) => { finishDelete = resolve; }) : fallback(input, init));
+    render(<TerminalApp openRequest={{ id: "personal-end", session: personal }} />);
+    await waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
+    const button = screen.getByRole("button", { name: "Open personal terminal workspace" });
+    fireEvent.contextMenu(button);
+    fireEvent.click(screen.getByRole("menuitem", { name: /^Terminate session/ }));
+    fireEvent.contextMenu(button);
+    expect(screen.getByRole("menuitem", { name: /^Terminate session/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Close workspace pane" }));
+    expect(vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "DELETE")).toHaveLength(1);
+    await act(async () => finishDelete(json({ closed: true })));
+    expect(screen.getByRole("heading", { name: "New Terminal" })).toBeInTheDocument();
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh terminal sessions" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Refresh terminal sessions" })).toBeEnabled());
+    expect(screen.queryByRole("button", { name: "Open personal terminal workspace" })).not.toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalledWith("/workspace/api/terminals", expect.objectContaining({ method: "POST" }));
+  });
+
+  it("ignores an unavailable ticket while intentional termination is still pending", async () => {
+    let finishDelete!: (response: Response) => void;
+    let finishTicket!: (response: Response) => void;
+    const fallback = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((input, init) => {
+      if (init?.method === "DELETE") return new Promise((resolve) => { finishDelete = resolve; });
+      if (String(input).endsWith("personal-1/ticket")) return new Promise((resolve) => { finishTicket = resolve; });
+      return fallback(input, init);
+    });
+    render(<TerminalApp openRequest={{ id: "pending-end", session: personal }} />);
+    await waitFor(() => expect(finishTicket).toBeDefined());
+    fireEvent.click(screen.getByRole("button", { name: "Close workspace pane" }));
+    await act(async () => finishTicket(json({ error: { code: "terminal_not_found", message: "Gone" } }, 404)));
+    expect(fetch).not.toHaveBeenCalledWith("/workspace/api/terminals", expect.objectContaining({ method: "POST" }));
+    await act(async () => finishDelete(json({ closed: true })));
+    expect(screen.getByRole("heading", { name: "New Terminal" })).toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalledWith("/workspace/api/terminals", expect.objectContaining({ method: "POST" }));
+  });
+
+  it("reports failed termination and lets the user retry", async () => {
+    const fallback = vi.mocked(fetch).getMockImplementation()!;
+    let fail = true;
+    vi.mocked(fetch).mockImplementation((input, init) => init?.method === "DELETE" && fail ? Promise.resolve(json({ error: { message: "Could not stop shell" } }, 500)) : fallback(input, init));
+    render(<TerminalApp openRequest={{ id: "failed-end", session: personal }} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Close workspace pane" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not stop shell");
+    expect(screen.getByLabelText("workspace interactive terminal")).toBeInTheDocument();
+    fail = false;
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Open personal terminal workspace" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /^Terminate session/ }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Open personal terminal workspace" })).not.toBeInTheDocument());
+  });
+
+  it("terminates the secondary personal pane through the same confirmed action", async () => {
+    writeDeviceState("split-user", "terminal", { activeId: team.id, secondaryId: personal.id, hiddenTeamIds: [] });
+    render(<TerminalApp storageNamespace="split-user" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open team session Release room" }));
+    expect(screen.getAllByLabelText(/interactive terminal/)).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Close workspace pane" }));
+    await screen.findByRole("heading", { name: "New Terminal" });
+    fireEvent.click(screen.getByRole("button", { name: "Open team session Release room" }));
+    expect(screen.getAllByLabelText(/interactive terminal/)).toHaveLength(1);
+    expect(fetch).toHaveBeenCalledWith("/workspace/api/terminals/personal-1", expect.objectContaining({ method: "DELETE" }));
+  });
+
+  it("keeps mobile menus inside the drawer and restores focus without closing navigation", async () => {
+    render(<AppViewportProvider width={390}><TerminalApp /></AppViewportProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "Open terminal sessions" }));
+    const drawer = screen.getByRole("dialog", { name: "Terminal sessions" });
+    const actions = await within(drawer).findByRole("button", { name: "Actions for Release room" });
+    fireEvent.click(actions);
+    expect(within(drawer).getByRole("menuitem", { name: /^Leave session/ })).toHaveFocus();
+    fireEvent.keyDown(within(drawer).getByRole("menu"), { key: "Escape" });
+    expect(drawer).toBeInTheDocument();
+    expect(actions).toHaveFocus();
+    fireEvent.click(within(drawer).getByRole("button", { name: "New terminal" }));
+    fireEvent.click(within(drawer).getByRole("menuitem", { name: /^Team/ }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Team terminal name")).toHaveFocus();
+  });
+
+  it("surfaces creation failures without leaving the launchpad", async () => {
+    const fallback = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((input, init) => input === "/workspace/api/terminals" && init?.method === "POST" ? Promise.resolve(json({ error: { message: "Session limit reached" } }, 409)) : fallback(input, init));
+    render(<TerminalApp />);
+    fireEvent.click(await screen.findByRole("button", { name: "Create terminal" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /^Personal/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Session limit reached");
+    expect(screen.getByRole("heading", { name: "New Terminal" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create terminal" })).toBeEnabled();
+  });
+
   it("sends mobile control keys to the active PTY without auto-opening the keyboard", async () => {
     render(<AppViewportProvider width={390}><TerminalApp openRequest={{ id: "mobile-open", session: personal }} /></AppViewportProvider>);
     await waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
@@ -244,7 +390,8 @@ describe("Terminal app", () => {
     expect(screen.queryByRole("button", { name: "Team terminals" })).not.toBeInTheDocument();
     expect(screen.queryByRole("form", { name: "Create a team terminal" })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Create team terminal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create terminal" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /^Team/ }));
     expect(screen.getByRole("heading", { name: "New Terminal" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create a team terminal" })).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByLabelText("Team terminal name")).toHaveFocus();

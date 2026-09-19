@@ -104,12 +104,10 @@
 .neura-app .neura-welcome h1 { font-size: var(--desktop-font-display-sm, 24px); font-weight: 600; }
 .neura-app .neura-welcome p { font-size: var(--desktop-font-control, 14px); }
 .neura-app .composer { box-shadow: none; border-color: var(--ui-border); background: #fff; }
-.terminal-app .terminal-launchpad__inner { max-width: 960px; padding: 28px; gap: 24px; }
 .terminal-app .terminal-launchpad__hero { text-align: left; }
 .terminal-app .terminal-launchpad__hero h1 { font-size: var(--desktop-font-display-sm, 24px); letter-spacing: -.025em; }
 .terminal-app .terminal-launchpad__hero p { max-width: none; margin: 8px 0 0; font-size: var(--desktop-font-control, 14px); }
 .terminal-app .terminal-launchpad__activity { justify-content: flex-start; margin-top: 16px; }
-.terminal-app .terminal-launchpad__grid { grid-template-columns: minmax(0, 1fr); gap: 20px; }
 .terminal-app :is(.terminal-launchpad__start, .terminal-launchpad__teams) { padding: 20px; }
 .terminal-app .terminal-launchpad__personal { background: #fff; border: 1px solid var(--ui-border); box-shadow: none; border-radius: 6px; }
 .terminal-app .terminal-launchpad__personal > span:first-child { color: var(--ink); background: #f0f0f2; }

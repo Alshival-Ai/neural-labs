@@ -110,11 +110,11 @@ question, content status, primary action relationship, and asset roles.
 
 `experience.presentationProfile` must be `evidence-led` or
 `cinematic-media-first`. `AUTO` is an input instruction, not a stored value.
-The owner-created Alamo prospect-video automation selects
-`cinematic-media-first`; preserve that value through the build. That profile
-requires the media-first layout and QA contract in the routed
-`prospect-video-site` skill. It does not authorize deceptive media use or
-waive factual, accessibility, performance, or release gates.
+Use the current caller-selected template and profile, not a remembered automation
+default. Website Template 1 normally selects `evidence-led` for original
+composition, including image/DOM cinematic effects. An explicitly selected
+`cinematic-media-first` design must satisfy its full-bleed geometry and QA contract.
+Both profiles retain factual, accessibility, performance and release gates.
 
 `effects.budget` is a maximum, not a quota. `effects.selected` may be empty when
 the director decides motion would be decorative or suitable media is missing.

@@ -1,20 +1,24 @@
+> Current workflow: use local-business-website-builder as the presentation owner.
+> Read its business-photo-direction, asset-policy and quality-contract references.
+> The active policy supersedes older stock defaults in this process supplement.
+
 # Design system and component guidance
 
-Use with the template's media-first presentation. Resolve visual choices from
+Use with the template's selected presentation and art direction. Resolve visual choices from
 the supplied brand, content, audience, assets and primary action. Examples
 illustrate possibilities, not a shortlist of fonts, section orders or
 business-category rules.
 
 ## Header, navigation and first screen
 
-Compose the header and opening together. Prefer a compact overlay or visually
-continuous header when the image supports readable navigation. Use a solid or
-translucent contrast surface when identity, a complex logo or the crop needs it.
-Avoid a bulky detached band that makes the opening feel like a secondary banner.
-Keep required notices compact and distinct from the site's navigation.
+Compose the header and opening together: a compact overlay, a typographic
+masthead or a separate navigation rail can each work. Choose from the identity,
+headline and available image composition. A bounded photograph and text outside
+the image are valid. Keep required notices distinct from navigation and preserve
+readability through every scrolled-header state.
 
 Align the identity, navigation, hero copy and following sections to shared inner
-rails while letting the media run full width. Use the supplied logo with its
+rails; let media width follow the selected composition. Use the supplied logo with its
 clear space and proportions. If none exists, use a readable text identity rather
 than fabricating an official-looking mark. Pick left-aligned or centered identity
 from the composition and available width; do not squeeze navigation around it.
@@ -33,9 +37,9 @@ to whether the menu is an inline disclosure or modal drawer.
 
 ## Hero heading and supporting copy
 
-Do not put small introductory text, an eyebrow, category/location label or
-decorative section number above the hero heading. This does not remove the
-site's navigation, identity or required concept disclosure.
+Use a small location/category label when it adds useful context and suits the
+composition. It is optional, as are section numbers. Avoid generic filler labels
+and keep the H1 dominant. Preserve navigation, identity and concept disclosure.
 
 Choose the heading's job from the identity and content: a business name as the
 dominant H1, a meaningful editorial headline, or a concise offer-led statement
@@ -45,8 +49,8 @@ with a generic slogan. Supporting slogans are creative copy, not evidence of an
 official tagline, service promise or other business claim.
 
 Choose alignment, measure, case, scale and line breaks around the actual words
-and media focal point. Put useful category/location context into supporting
-copy or practical details without recreating the eyebrow elsewhere above the H1.
+and media focal point. Put category/location context where it reads most clearly:
+a concise label, supporting copy or practical details.
 Do not force a two-line slogan, paragraph and paired-button stack on every site.
 These are composition options, not a rotation schedule; explicit user choices
 take precedence.

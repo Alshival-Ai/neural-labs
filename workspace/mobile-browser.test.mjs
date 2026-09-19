@@ -350,7 +350,7 @@ test("Team Terminal reaction pickers preserve input and fit desktop and narrow p
       const sessions = page.getByRole("button", { name: "Open terminal sessions" });
       if (await sessions.isVisible()) {
         await sessions.click();
-        await page.getByRole("dialog", { name: "Terminal sessions", exact: true }).getByRole("button", { name: /Release room/ }).click();
+        await page.getByRole("dialog", { name: "Terminal sessions", exact: true }).getByRole("button", { name: /^Release room/ }).click();
       } else {
         await page.getByRole("button", { name: "Open team session Release room" }).click();
       }

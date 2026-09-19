@@ -138,15 +138,16 @@ class SiteGeneratorRouting(unittest.TestCase):
             for mode in ['prospect', 'named']:
                 self.assertEqual(pipeline.validate_website_brief(root, {'mode': mode}, {}), 'evidence-led')
 
-    def test_default_template_cannot_bypass_its_geometry_checks(self):
+    def test_default_template_uses_selected_profile_checks(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             for template in ['', 'website-template-1']:
                 brief = {'schemaVersion': 1, 'experience': {
                     'templateSkill': template, 'presentationProfile': 'evidence-led'}}
                 (root / 'WEBSITE-BRIEF.json').write_text(json.dumps(brief))
-                with self.assertRaises(pipeline.PipelineError):
-                    pipeline.validate_website_brief(root, {'mode': 'prospect'}, {})
+                self.assertEqual(
+                    pipeline.validate_website_brief(root, {'mode': 'prospect'}, {}),
+                    'evidence-led')
             brief['experience']['presentationProfile'] = 'cinematic-media-first'
             (root / 'WEBSITE-BRIEF.json').write_text(json.dumps(brief))
             with self.assertRaises(pipeline.PipelineError):

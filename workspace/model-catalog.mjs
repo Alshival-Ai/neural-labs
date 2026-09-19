@@ -34,10 +34,11 @@ export function publicModelCatalog(payload) {
 }
 
 export class ModelCatalog {
-  constructor({ gatewayRequest, personalOpenAI, teamOpenAI, runtime, now = Date.now, ttlMs = 3_600_000 }) {
+  constructor({ gatewayRequest, personalOpenAI, teamOpenAI, claudeAccounts, runtime, now = Date.now, ttlMs = 3_600_000 }) {
     this.gatewayRequest = gatewayRequest;
     this.personalOpenAI = personalOpenAI;
     this.teamOpenAI = teamOpenAI;
+    this.claudeAccounts = claudeAccounts;
     this.runtime = runtime;
     this.now = now;
     this.ttlMs = ttlMs;
@@ -78,7 +79,7 @@ export class ModelCatalog {
         const agent = roster?.agents?.find((row) => row.id === agentId);
         const defaultModel = typeof agent?.model?.primary === "string" ? agent.model.primary : null;
         let models = publicModelCatalog(payload);
-        // Personal access currently uses the owner-bound OpenAI OAuth adapter.
+        // Personal access uses only explicitly supported owner-bound adapters.
         // Do not expose a workspace environment-key route as a personal option.
         if (userId) {
           const account = await this.personalOpenAI.snapshot(userId);
@@ -86,6 +87,16 @@ export class ModelCatalog {
             ...model, available: model.available && account.authenticated && !account.paused,
             unavailableReason: !account.authenticated || account.paused ? "Connect or resume your personal account" : model.unavailableReason,
           }));
+        }
+        if (this.claudeAccounts && (userId || agentId === "main" || agentId === this.teamOpenAI?.agentId)) {
+          const claude = await this.claudeAccounts.snapshot(userId ? { userId } : { workload: agentId === this.teamOpenAI?.agentId ? "team" : "background" });
+          // Native CLI login is private to this owner. Gateway's ambient auth
+          // probe cannot attest it; only supplement missing-auth catalog rows.
+          const nativeRows = publicModelCatalog(payload).filter(row => row.provider === "anthropic");
+          models = models.filter(row => row.provider !== "anthropic").concat(nativeRows.map(row => ({ ...row,
+            available: claude.modelReady && (row.available || row.unavailableReason === "missing-auth"),
+            unavailableReason: !claude.modelReady ? "Connect or resume this Claude connection" : row.unavailableReason === "missing-auth" ? null : row.unavailableReason,
+          })));
         }
         const fetchedAtMs = this.now();
         const result = { agentId, defaultModel, models, ...(this.runtime ? { runtime: this.runtime } : {}), fetchedAt: new Date(fetchedAtMs).toISOString(), fetchedAtMs, stale: false };

@@ -1,0 +1,1 @@
+{"id":"neural-labs-claude","name":"Neural Labs Claude runtime","configSchema":{"type":"object","additionalProperties":false,"properties":{"credentialOwner":{"type":"string","pattern":"^(main|nl-[a-z0-9]+)$"}}}}

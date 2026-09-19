@@ -144,6 +144,7 @@ terminals[1].teamChannel = {
   id: "release",
   name: "Release planning",
 };
+let nextTerminalId = terminals.length;
 const originalFetch = window.fetch.bind(window);
 window.fetch = async (input, init) => {
   const url = String(input);
@@ -166,13 +167,21 @@ window.fetch = async (input, init) => {
       expiresAt: Date.now() + 60000,
     });
   if (url === "/workspace/api/terminals" && init?.method === "POST") {
+    const input = JSON.parse(String(init.body)) as { scope: "personal" | "team"; title?: string };
     const next = {
       ...terminals[0],
-      id: `shell-${terminals.length}`,
-      title: `New shell ${terminals.length}`,
+      id: `shell-${nextTerminalId++}`,
+      scope: input.scope,
+      teamChannel: undefined,
+      title: input.title || `New shell ${nextTerminalId - 1}`,
     };
     terminals.push(next);
     return Response.json({ session: next });
+  }
+  if (url.startsWith("/workspace/api/terminals/") && init?.method === "DELETE") {
+    const index = terminals.findIndex((session) => session.id === url.split("/").at(-1));
+    if (index >= 0) terminals.splice(index, 1);
+    return Response.json({ closed: true });
   }
   if (/\/terminals\/[^/]+\/gifs/.test(url)) return originalFetch(input, init);
   if (url.startsWith("/workspace/api/terminals"))

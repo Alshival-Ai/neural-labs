@@ -21,6 +21,7 @@ from typing import Any
 from urllib.parse import unquote, urlsplit
 
 from candidates import published_evidence
+from visual_quality import QualityError, validate_quality
 
 
 RUNS_ROOT = Path(
@@ -58,6 +59,13 @@ EXECUTABLE_SCRIPT_TYPES = {
 
 class PipelineError(RuntimeError):
     pass
+
+
+def validate_visual_quality(run_dir, state, manifest=None):
+    try:
+        return validate_quality(run_dir, state, manifest)
+    except QualityError as exc:
+        raise PipelineError(str(exc)) from exc
 
 
 class PublisherCspParser(HTMLParser):
@@ -448,11 +456,8 @@ def validate_website_brief(
     template = clean_text(experience.get("templateSkill"))
     if template and not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", template):
         raise PipelineError("experience.templateSkill must be a skill name")
-    default_template = not template or template == "website-template-1"
-    if default_template and (state.get("mode") == "prospect" or template) and profile != CINEMATIC_MEDIA_FIRST:
-        raise PipelineError(
-            "The default website template requires the cinematic-media-first profile"
-        )
+    # Presentation is chosen in the brief, not implied by a template's name.
+    # Retain the cinematic profile's geometry checks whenever it is selected.
     if profile != CINEMATIC_MEDIA_FIRST:
         return profile
 
@@ -591,6 +596,7 @@ def validate_build(run_dir: Path) -> dict[str, Any]:
         require_nonempty(run_dir / name)
     validate_research(run_dir)
     media_manifest = validate_media_manifest(run_dir)
+    visual_quality = validate_visual_quality(run_dir, state, media_manifest)
     if selection["businessKind"] == "restaurant":
         restaurant = load_json(run_dir / "restaurant.json")
         if restaurant.get("schemaVersion") != 1:
@@ -616,6 +622,7 @@ def validate_build(run_dir: Path) -> dict[str, Any]:
         "media": media,
         "scrollEffectCount": scroll_effect_count,
         "presentationProfile": presentation_profile,
+        "visualQuality": visual_quality,
     }
 
 
@@ -634,6 +641,7 @@ def cmd_init(args: argparse.Namespace) -> dict[str, Any]:
             "mode": args.mode,
             "city": args.city,
             "stage": "initialized",
+            "qualityVersion": 2,
             "createdAtUtc": utc_now(),
             "selection": None,
             "build": None,
@@ -673,6 +681,7 @@ def cmd_begin_build(args: argparse.Namespace) -> dict[str, Any]:
             raise PipelineError(f"Prospect already published ({published}); select a fresh business")
         stage = require_stage(state, {"selected", "build-ready"})
         validate_research(run_dir)
+        validate_visual_quality(run_dir, state)
         if stage == "build-ready":
             return {"ok": True, "idempotent": True, "state": state}
         state["stage"] = "build-ready"
@@ -709,6 +718,7 @@ def cmd_complete_build(args: argparse.Namespace) -> dict[str, Any]:
             "posterAssets": evidence["media"]["posters"],
             "scrollVideoEffectCount": evidence["scrollEffectCount"],
             "presentationProfile": evidence["presentationProfile"],
+            "visualQuality": evidence["visualQuality"],
             "physicalDeviceStatus": "not-tested",
             "validatedAtUtc": utc_now(),
         }

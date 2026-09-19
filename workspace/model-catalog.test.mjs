@@ -108,3 +108,20 @@ test("admin catalog caches cannot bypass personal connection filtering", async (
   assert.equal((await catalog.list({ agentId: "nl-owner" })).models[0].available, true);
   assert.equal((await catalog.list({ userId: "owner" })).models[0].available, false);
 });
+
+test("Claude availability is bound to the requested owner and never borrows background status", async () => {
+  const owners = [];
+  const catalog = new ModelCatalog({
+    gatewayRequest: async () => ({ models: [
+      { id: "claude-test", provider: "anthropic", available: false, unavailableReason: "missing-auth", supportsTools: true },
+      { id: "denied-test", provider: "anthropic", available: false, unavailableReason: "auth-failed", supportsTools: true },
+    ] }),
+    personalOpenAI: { ensureProvisioned: async id => ({ agentId: `nl-${id}` }), snapshot: async () => ({ authenticated: false, paused: true }) },
+    claudeAccounts: { snapshot: async owner => { owners.push(owner); return { modelReady: owner.userId === "alice" }; } },
+  });
+  assert.equal((await catalog.list({ userId: "alice" })).models[0].available, true);
+  assert.equal((await catalog.list({ userId: "alice" })).models[1].available, false);
+  assert.equal((await catalog.list({ userId: "bob" })).models[0].available, false);
+  await catalog.list({ agentId: "other-agent" });
+  assert.deepEqual(owners, [{ userId: "alice" }, { userId: "bob" }]);
+});

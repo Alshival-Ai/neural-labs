@@ -81,7 +81,7 @@ export function BuilderForms({ draft, skills, value, setValue, setSkillValue, in
       <Section title="What to run" description="Choose the task this automation carries out." icon={Bot} accent="violet">
         {select("payloadKind", "Action", [["skill", "Use a skill"], ["agentTurn", "Ask an agent"], ["systemEvent", "Send a system event"], ["command", "Run a command"], ["script", "Run a script"]])}
         {action === "skill" ? <>{select("skillKey", "Skill", [["", "Choose a skill"], ...skills.map(item => [item.key, `${item.name} · $${item.key}`] as const)])}{text("skillPrompt", "Task for this skill", "Additional instructions to include after the shortcut.", { rows: 5 })}</> : text("payload", action === "command" ? "Command" : action === "script" ? "Script" : action === "systemEvent" ? "Event message" : "Instructions for the agent", undefined, { rows: 7, code: action === "command" || action === "script" })}
-        {input("agent", "Scheduled run agent", "Scheduled runs use this agent. Run now uses your connected ChatGPT account.")}
+        {input("agent", "Scheduled run agent", "Scheduled runs use this agent. Run now uses your selected model account.")}
       </Section>
       <Section title="When to run" description="Set the trigger and timing." icon={CalendarClock} accent="amber">
         {select("scheduleKind", "Schedule type", [["cron", "Recurring schedule (cron)"], ["every", "Repeat at an interval"], ["at", "Once at a date and time"], ["on-exit", "When a command exits"], ["stream", "When a stream matches"]])}

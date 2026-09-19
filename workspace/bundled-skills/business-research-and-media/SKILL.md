@@ -46,8 +46,13 @@ Search in priority order: official website/media, official social profiles,
 matched Google Places photos, then clearly matched public business listings.
 Look for the logo, exterior, interior, work, products, staff and services.
 
-When Places details contain relevant photos, call `google_place_photo` on up to
-five promising photo resources, prioritizing business-attributed imagery.
+When Places details contain relevant photos, call `google_place_photo` for the returned relevant photo resources and inspect
+the accessible Maps gallery using browser navigation when available. Prioritize
+business-attributed imagery while covering exterior, interior, work/products,
+service/menu boards and distinctive details. Read the active builder's
+references/business-photo-direction.md; inspect all accessible unique relevant
+photos for manageable galleries, or record category/date coverage and a reasoned
+sampling limit for large galleries. An API result is not the complete gallery.
 Actually view the resolved images with the available image/browser tools. Match
 what they show to the exact business; listing metadata alone is not inspection.
 Do not skip this because a production license statement was not in the listing.
@@ -93,14 +98,12 @@ images for concrete identity, premises, work and gallery roles, with a usable
 source and acquisition status. An inventory of photo metadata alone is not a
 completed media handoff.
 
-Also identify complementary conceptual roles for Pexels: thematic wallpapers,
-backgrounds, textures, section imagery and footage or stills for selected effects.
-These can coexist with authentic business photos; the presence of business
-imagery is not a reason to skip useful thematic media. The building workflow
-uses `pexels_search_photos`, `pexels_search_videos` and `pexels_download_media`
-after this research pass, matching the chosen brand/business direction and
-inspecting selected files. Keep these assets classified as `conceptual-ui`,
-with provenance and credits, rather than evidence of the real business.
+For website work, write BUSINESS-VISUAL-BRIEF.json using the active
+local-business-website-builder's photo-direction and quality-contract references.
+Translate specific observed characteristics into proposed layout/content/interaction
+features. Separate source inspection from permission to reuse its pixels.
+Follow that builder's asset-policy for gaps: authentic, then coordinated generated
+representative imagery, then a justified stock exception. Do not default to Pexels.
 
 ## Identity and publication handoff
 

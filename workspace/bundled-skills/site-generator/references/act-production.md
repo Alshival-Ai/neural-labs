@@ -16,7 +16,7 @@ Act I proves the strongest still composition and its usable responsive layout.
 
 Use `Act I`, `Act II` and later act names in the working storyboard and validation
 notes. Visible act/chapter titles are an optional editorial choice for later
-sections, not required copy or an excuse to add a hero eyebrow. The number of
+sections, not required copy; useful hero context labels remain a composition choice. The number of
 acts is independent of the effect budget. A new act does not require another
 video, controller, pinned region or full viewport of empty scroll travel.
 
@@ -60,14 +60,14 @@ workflow; a fresh repository clone does not guarantee they are installed.
 | Find a business when only an area is supplied | `$prospect-hunter`; retain its selected identity and reservation |
 | Research and inspect authentic media | `$business-research-and-media`; use Neural Labs Google Places tools and the existing research evidence contract |
 | Art direction, composition and visual QA | The selected template, default `$website-template-1`; supply the business brief and storyboard |
-| Acquire conceptual assets | Neural Labs `pexels_search_photos`, `pexels_search_videos`, `pexels_download_media`; search planned roles and retain local provenance |
+| Acquire conceptual assets | Neural Labs Pexels tools or configured `image_generate` after discovery; follow the template asset-direction reference, planned roles and local provenance |
 | Prepare selected video and posters | `$web-video-asset-preparation`; pass the chosen local source and intended role, retain verified derivatives |
 | Implement interactive media | `$cinematic-interactions`; pass selected modules, explicit order/placement, asset mapping and the required behavior as the implementation brief |
 | Evidence and build lifecycle | `prospect-video-site` scripts/references through [workflow-contract.md](workflow-contract.md); do not invoke another workflow director |
 | Publish and verify a requested hosted preview | `$deploy` and `$demo-pi`; retain their inventory, immutable release and verification interfaces |
 
 Read only the interaction recipes needed by the storyboard: section scroll
-video scrub, image reveal, pointer scrub, triggered playback or frame sequence.
+video scrub, GSAP text, sticky image scenes, parallax, image reveal, pointer scrub, triggered playback or frame sequence.
 For combined scenes, include their order and handoffs. Reuse the project's
 framework and primitives; keep each effect's progress local and preserve native
 page scrolling. Triggered playback is not forward/reverse video scrubbing, and

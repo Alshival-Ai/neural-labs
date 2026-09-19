@@ -20,7 +20,7 @@ const mcpStatusFixture = (ready = true) => ({
   tools: ["google_places_search", "search_gif", "pexels_search_photos"],
 });
 
-async function fixture(ready = true, { gatewayAdminRequest, maxUploadBytes, maxTextBytes, mcpReady = true, codeServerReady = true, runTeamAgent, personalOpenAI, modelCatalog, modelPolicies, teamOpenAI, voiceService, turnCredentialProvider, teamChannelAuthorizer, terminalHeartbeatMs, gatewayMediaOrigin, gatewayMediaFetch, terminalActorResolver, gifProvider, apiProviderRuntime } = {}) {
+async function fixture(ready = true, { gatewayAdminRequest, maxUploadBytes, maxTextBytes, mcpReady = true, codeServerReady = true, runTeamAgent, personalOpenAI, modelCatalog, modelPolicies, teamOpenAI, voiceService, turnCredentialProvider, teamChannelAuthorizer, terminalHeartbeatMs, gatewayMediaOrigin, gatewayMediaFetch, terminalActorResolver, gifProvider, apiProviderRuntime, claudeAccounts, modelAccounts } = {}) {
   const desktopRoot = await mkdtemp(path.join(tmpdir(), "neural-labs-desktop-test-"));
   const workspaceRoot = path.join(desktopRoot, "workspace-root");
   await mkdir(path.join(desktopRoot, "assets"));
@@ -55,7 +55,7 @@ async function fixture(ready = true, { gatewayAdminRequest, maxUploadBytes, maxT
       start: () => ({ provider: "openai", state: "starting" }),
       cancel: () => ({ provider: "openai", state: "disconnected" }),
     },
-    personalOpenAI,
+    personalOpenAI, claudeAccounts, modelAccounts,
     gatewayAdminRequest,
     modelCatalog,
     modelPolicies,
@@ -1516,5 +1516,20 @@ test("background live probe is operator-only and cannot select another account",
     assert.equal(response.status, 200);
     assert.deepEqual(calls, [{ method: "models.probe", params: {agentId: "main", provider: "openai", profileId: "openai:neural-labs-background", timeoutMs: 30000} }]);
     assert.deepEqual(await response.json(), { provider: "openai", status: "ok", results: [{ status: "ok", model: "openai/example" }] });
+  } finally { await app.close(); }
+});
+
+
+test("Claude internal routes require the control token and keep actor, owner, and workload separate", async () => {
+  const calls = [];
+  const app = await fixture(true, { claudeAccounts: {
+    snapshot: async owner => ({ provider: "anthropic", owner }),
+    action: async (...args) => { calls.push(args); return { provider: "anthropic", authenticated: false }; },
+  }, modelAccounts: { snapshot: async userId => ({ agentId: `nl-${userId}` }) } });
+  try {
+    assert.equal((await fetch(`${app.origin}/internal/model-providers/anthropic`)).status, 401);
+    const response = await fetch(`${app.origin}/internal/model-providers/anthropic?userId=alice`, { method: "POST", headers: { Authorization: "Bearer workspace-control-token-at-least-thirty-two-characters", "Content-Type": "application/json" }, body: JSON.stringify({ action: "connect", actorId: "actor-a", input: {} }) });
+    assert.equal(response.status, 200);
+    assert.deepEqual(calls, [[{ userId: "alice", workload: "background" }, "connect", {}, "actor-a"]]);
   } finally { await app.close(); }
 });

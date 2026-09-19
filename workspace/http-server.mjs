@@ -428,6 +428,7 @@ export function createWorkspaceHttpServer({
   openclawModelReady,
   providerAuth,
   personalOpenAI,
+  claudeAccounts, modelAccounts,
   gatewayAdminRequest,
   modelCatalog,
   modelPolicies,
@@ -475,7 +476,7 @@ export function createWorkspaceHttpServer({
   const terminalAgent = new TerminalAgentBridge({ manager: terminals, resolveActor: terminalActorResolver ?? (async () => null) });
   const previewLaunches = new Map();
   const personalAutomationRuns = gatewayAdminRequest ? new PersonalAutomationRuns({
-    root: path.join(filesStateRoot, "automations"), request: gatewayAdminRequest, accounts: personalOpenAI,
+    root: path.join(filesStateRoot, "automations"), request: gatewayAdminRequest, accounts: modelAccounts ?? personalOpenAI,
   }) : undefined;
   const providerStates = new Map();
   const observeProvider = (key, result, userId) => {
@@ -509,6 +510,26 @@ export function createWorkspaceHttpServer({
         sendJson(response, error instanceof AutomationRunError ? error.status : 503,
           { error: { message: error instanceof AutomationRunError ? error.message : "Automation scheduler unavailable" } }, method);
       }
+      return;
+    }
+    if (pathname === "/internal/model-providers/access" || pathname === "/internal/model-providers/anthropic") {
+      if (!workspaceControlToken || !validControlToken(request, workspaceControlToken)) { sendJson(response, 401, { error: { message: "Unauthorized" } }, method); return; }
+      try {
+        if (!claudeAccounts || !modelAccounts) throw new Error("Provider runtime unavailable");
+        const userId = url.searchParams.get("userId") || undefined;
+        const workload = url.searchParams.get("workload") || "background";
+        if (pathname.endsWith("/access")) {
+          if (method !== "GET" || !userId) throw new Error("Invalid access request");
+          sendJson(response, 200, await modelAccounts.snapshot(userId), method);
+        } else {
+          if (!["GET", "POST"].includes(method)) throw new Error("Invalid method");
+          const body = method === "POST" ? await readJsonBody(request, 16384) : null;
+          const owner = { userId, workload };
+          const result = body ? await claudeAccounts.action(owner, body.action, body.input, body.actorId) : await claudeAccounts.snapshot(owner);
+          if (body && body.action !== "terminal") modelCatalog?.invalidate(userId);
+          sendJson(response, 200, result, method);
+        }
+      } catch { sendJson(response, 409, { error: { message: "Claude operation could not complete. Refresh the connection and try again." } }, method); }
       return;
     }
     if (pathname === "/internal/plugins/providers/status" || /^\/internal\/plugins\/providers\/(google-maps|klipy|pexels)\/check$/.test(pathname)) {

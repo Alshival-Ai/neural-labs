@@ -3,11 +3,11 @@ import { z } from "zod";
 import type { ControlPlaneConfig } from "./config.js";
 
 export const modelPolicySchema = z.object({
-  provider: z.literal("openai"),
+  provider: z.enum(["openai", "anthropic"]),
   mode: z.enum(["latest", "pinned"]),
   model: z.string().max(200).default(""),
   effort: z.string().regex(/^[a-z]*$/).max(20).default(""),
-}).strict().refine((value) => value.mode !== "pinned" || /^openai\/[a-zA-Z0-9._/-]+$/.test(value.model), "Choose a provider-qualified model");
+}).strict().refine((value) => value.mode !== "pinned" || /^(openai|anthropic)\/[a-zA-Z0-9._/-]+$/.test(value.model) && value.model.startsWith(`${value.provider}/`), "Choose a provider-qualified model");
 export type ModelPolicy = z.infer<typeof modelPolicySchema>;
 export const voiceSettingsSchema = z.object({
   realtimeModel: z.string().regex(/^[a-zA-Z0-9._-]{1,100}$/),

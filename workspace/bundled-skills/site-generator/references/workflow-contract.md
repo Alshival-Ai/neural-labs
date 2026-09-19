@@ -65,30 +65,30 @@ Keep the current maximum of two scroll-video effects and verified local derivati
 The publisher limits are 12 MiB per video, 25 MiB total video, 50 MiB/200 static
 files overall, with no symlinks. These are engine constraints, not design choices.
 
-Follow [act-production.md](act-production.md) for the storyboard and progressive
-build checks. Research and `begin-build` must pass before the Act I implementation;
-record act results in `VALIDATION.md` without inventing engine stages. A partial
-act proof does not satisfy `complete-build`; reserve that handoff for the finished
-site and its full browser QA. Acts and narrative panels do not each consume an
-effect slot: count the selected interactions across the whole site.
+## Version-2 quality gates
+
+New pipeline projects record qualityVersion 2. Read
+[quality-contract.md](../../local-business-website-builder/references/quality-contract.md).
+The begin-build gate requires the visual research/design handoff. The complete-build
+gate checks asset origins/stock exceptions and continuous frame sequence density,
+files, duplication, budgets and observed motion QA. Existing historical runs remain
+readable; do not edit their state to claim they passed the new gates.
 
 ## Template selection and QA
 
 Store the supplied skill name without `$` in `experience.templateSkill`; default
-to `website-template-1` only when no template was supplied. Load it before design.
+to `local-business-website-builder` only when no template was supplied. Load it before design.
 If multiple templates conflict, resolve the intended choice rather than merging
 incompatible instructions. Missing templates must not cause silent fallback.
 
-For `website-template-1`, follow its own presentation reference and hooks; record
-`presentationProfile: cinematic-media-first` and `motionPolicy: auto` unless the
-caller supplies a compatible explicit motion requirement. The profile value is
-a validator identifier, not the name of another skill to load.
-For this template, its default effect budget of two overrides the legacy brief's
-illustrative budget of one. This is a maximum, not a required effect count or
-pair. AUTO encourages advanced UI effects with content-led selection and
-placement; the header/hero may be static and scroll video may appear in middle
-or later sections. Record selected effects in the brief and their design and
-placement rationale in DESIGN.md; retain explicit user budgets and static requests.
+For `local-business-website-builder` (or the `website-template-1` compatibility adapter), normally record `presentationProfile: evidence-led`
+and `motionPolicy: auto`. Follow its business-specific art direction, asset plan
+and visual-review contract. This supports GSAP text, sticky image choreography,
+parallax and other selected effects without imposing video or a full-bleed hero.
+Honor explicit effect requirements and budgets. Only when the selected design
+uses the legacy full-bleed overlay contract, record `cinematic-media-first`, load
+the template's media-first reference and satisfy its geometry checks. Preserve
+an existing project's recorded profile unless a requested redesign changes it.
 
 For another explicitly supplied template, use the engine's `evidence-led` profile
 when the cinematic geometry checks do not apply. Run and record that template's

@@ -22,11 +22,17 @@ activity, layout changes, and ephemeral emoji reactions over its own WebSocket.
 The desktop opens directly into Terminal's **New Terminal** launchpad. Discovery
 does not create a shell: the user can deliberately start a personal terminal,
 resume a running personal terminal, or join a live Team session. The launchpad's
-primary **Create a team terminal** action and `+ Team` shortcut open the same Team-terminal creation flow as an inline composer
-beside the live session list; terminal toolbar actions remain focused on the
-active shell. Running sessions remain available in the narrow, independently
-scrolling rail to the left of both the launchpad and the terminal canvas. Its
-Team-create shortcut returns to the same inline composer. Team icons expose
+primary **Create a team terminal** action and `+ Team` shortcut open the same
+inline name composer beside the live session list. The sidebar and toolbar `+`
+menus offer **Personal** (start immediately) and **Team** (open the composer).
+A separate home icon returns to New Terminal without creating a shell. Running
+sessions remain available in the narrow, independently scrolling rail to the
+left of both the launchpad and the terminal canvas. Right-click or Shift+F10
+opens actions for a rail session without switching
+to it. Menus support arrow keys, Home/End, Escape, outside-click dismissal, and
+focus return. On mobile, named session rows expose an overflow action; the menu
+portals into the drawer to remain inside its modal focus boundary. Team icons
+expose
 participant counts at rest and a participant badge card on hover or keyboard
 focus. No participant is presented as a driver or spectator.
 
@@ -52,9 +58,14 @@ overflow. Run the local Vite server on port 4196 and supply
 `PLAYWRIGHT_MODULE_PATH`; optionally select `BROWSER_ENGINE=firefox` or `webkit`.
 
 Closing the desktop window unmounts xterm and sends `detach`; it does not call
-the terminal DELETE route. Closing a personal pane explicitly ends its PTY.
-Closing a Team pane only hides it locally, while **End for everyone** calls DELETE
-after confirmation when the server grants that capability.
+the terminal DELETE route. Closing either personal pane confirms before ending
+its PTY. Closing a Team
+pane or choosing **Leave session** detaches it locally and preserves the shared
+shell for rejoining. **End for everyone** confirms before calling DELETE when
+the server grants `canTerminate` (creator or admin). Sidebar and pane actions
+share handlers and block duplicate termination requests. Intentionally ended
+IDs are excluded from stale discovery and socket updates, so terminating the
+last personal terminal returns to New Terminal without automatic recovery.
 
 The server sends WebSocket ping frames every 25 seconds. The client retries
 indefinitely with jittered exponential backoff capped at 15 seconds and retries
@@ -80,18 +91,19 @@ canvas gutters stay consistent. Keep pane rows, xterm insets, and the reserved
 reaction rail dimensions intact; visual changes must not alter terminal fitting
 or reconnect sessions.
 
-The launchpad fills the available width and introduces terminals as shared social
-spaces. A paper welcome card uses a decorative shell illustration and emoji/GIF
-stickers alongside a working team-create action. Voice and reaction feature labels
-remain visible on mobile; the illustration collapses to keep actions accessible.
-Live rooms display actual connected participants as initials, alongside existing
-connection and voice counts. Decorative artwork is hidden from assistive technology
-and does not imply live activity or request microphone access.
+The launchpad introduces terminals as shared social spaces. A compact activity
+header leads to a violet-accented team creation card and short explanations of
+shared input, opt-in voice, and emoji/GIF reactions. Live team rooms occupy the
+main column, with actual participant initials and voice counts. A separate
+personal column groups private creation and running personal terminals.
 
 The welcome header includes a shortcut to the team session list and a count of
-unique voice participants across running team rooms. Room-name suggestions in the
-composer prefill the editable name; they do not create a shell until Start Team.
-Feature cards introduce shared input, opt-in voice, and emoji/GIF reactions.
-At narrow widths, features stack, the room composer wraps, and touch actions use
-at least 44px targets. The room shortcut skips the welcome card on small screens;
-bottom padding respects the device safe area.
+unique voice participants across running team rooms. Room-name suggestions in
+the composer prefill the editable name; they do not create a shell until Start
+Team. At narrow widths, sections stack, the room composer wraps, and touch
+actions use at least 44px targets. The room shortcut skips the welcome card on
+small screens; bottom padding respects the device safe area.
+
+`workspace/terminal-controls-browser.test.mjs` checks creation, menu positioning,
+confirmation, inactive-session actions, and mobile overflow menus at four widths
+using the same synthetic fixture and Vite/Playwright setup as the mobile suite.

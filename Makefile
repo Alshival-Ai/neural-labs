@@ -17,6 +17,8 @@ validate:
 	node --check workspace/personal-automation-runs.mjs
 	node --check bin/install-prospect-automation.mjs
 	python3 workspace/bundled-skills/prospect-video-site/scripts/test_helpers.py
+	python3 workspace/bundled-skills/prospect-video-site/scripts/test_presentation_profiles.py
+	python3 workspace/bundled-skills/prospect-video-site/scripts/test_visual_quality.py
 	node --check workspace/bundled-skills/prospect-video-site/scripts/qa-site.mjs
 	node --check workspace/http-server.mjs
 	node --check workspace/builder-manager.mjs
@@ -26,6 +28,11 @@ validate:
 	node --check workspace/build-minipaint.mjs
 	node --check workspace/skills-manager.mjs
 	node --check workspace/file-events.mjs
+	node --check workspace/claude-accounts.mjs
+	node --check workspace/claude-runtime.mjs
+	node --check workspace/model-accounts.mjs
+	node --check workspace/claude-native-key.mjs
+	node --check workspace/native-provider-order.mjs
 	node --check workspace/provider-auth.mjs
 	node --check workspace/provider-environment.mjs
 	node --check workspace/model-catalog.mjs

@@ -1,5 +1,6 @@
 .terminal-app,
-.terminal-reaction-dialog {
+.terminal-reaction-dialog,
+.terminal-menu {
   --terminal-ink: var(--ink, #0b0c11);
   --terminal-paper: var(--paper, #f6f4ef);
   --terminal-white: var(--paper-bright, #fffef9);
@@ -126,7 +127,7 @@
 .terminal-session-rail__empty svg { width: 16px; }
 .terminal-session-rail__create { color: var(--terminal-violet) !important; border-style: dashed !important; background: #171520 !important; }
 .terminal-session-rail__create svg:first-child { width: 16px; }
-.terminal-session-rail__create svg:last-child { position: absolute; right: 5px; bottom: 5px; width: 9px; height: 9px; padding: 1px; border-radius: 50%; color: #14111b; background: var(--terminal-violet); stroke-width: 3; }
+.terminal-session-rail__create svg + svg { position: absolute; right: 5px; bottom: 5px; width: 9px; height: 9px; padding: 1px; border-radius: 50%; color: #14111b; background: var(--terminal-violet); stroke-width: 3; }
 .terminal-session-rail__workspace { width: 24px; height: 20px; display: grid; place-items: center; flex: 0 0 auto; color: #667080; }
 .terminal-session-rail__workspace svg { width: 12px; color: var(--terminal-mint); }
 .terminal-session-preview { position: absolute; z-index: 40; left: 54px; width: min(290px, calc(100% - 68px)); padding: 11px; border: 1px solid var(--terminal-border); border-radius: 9px; color: var(--terminal-text); background: var(--terminal-white); box-shadow: 0 18px 48px rgba(22, 23, 31, .18); transform: translateY(-50%); pointer-events: none; backdrop-filter: blur(14px); }
@@ -270,7 +271,7 @@
 .terminal-launchpad__hero > span i { width: 7px; height: 7px; border-radius: 50%; background: var(--terminal-mint); box-shadow: 0 0 0 4px rgba(22, 138, 88, .1); }
 .terminal-launchpad__hero h1 { position: relative; margin: 0; color: var(--terminal-text); font-size: clamp(var(--desktop-font-display, 28px), 4.2cqi, var(--desktop-font-hero, 36px)); line-height: 1.06; letter-spacing: -.05em; }
 .terminal-launchpad__hero p { margin: 9px 0 0; color: var(--terminal-muted); font-size: var(--terminal-font-12); line-height: 1.55; }
-.terminal-launchpad__grid { display: grid; grid-template-columns: minmax(0, .92fr) minmax(0, 1.08fr); gap: 12px; }
+.terminal-launchpad__grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(250px, 1fr); align-items: start; gap: 18px; }
 .terminal-launchpad__start,
 .terminal-launchpad__teams { min-width: 0; padding: 16px; border: 1px solid var(--terminal-border); border-radius: 11px; background: var(--terminal-surface); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .025); }
 .terminal-launchpad__teams { background: var(--terminal-surface); }
@@ -498,7 +499,7 @@
 .terminal-app .app-drawer__header button { color: var(--terminal-muted); background: var(--terminal-surface); }
 .terminal-app .app-drawer :focus-visible { outline-color: var(--terminal-violet); }
 .terminal-session-drawer { display: grid; gap: 8px; padding: 12px; }
-.terminal-session-drawer > button, .terminal-session-drawer section > button { width: 100%; min-width: 0; min-height: 48px; display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--terminal-border); border-radius: 8px; color: var(--terminal-text); background: var(--terminal-surface); cursor: pointer; text-align: left; }
+.terminal-session-drawer > button, .terminal-session-drawer section > button, .terminal-session-drawer__row > button { width: 100%; min-width: 0; min-height: 48px; display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--terminal-border); border-radius: 8px; color: var(--terminal-text); background: var(--terminal-surface); cursor: pointer; text-align: left; }
 .terminal-session-drawer svg { width: 20px; height: 20px; flex-shrink: 0; }
 .terminal-session-drawer button > span { min-width: 0; display: grid; gap: 4px; }
 .terminal-session-drawer strong { font-size: 14px; overflow-wrap: anywhere; }
@@ -608,3 +609,43 @@
   .terminal-app.is-mobile .terminal-neura-participation:not(:has(button)):not(:has(strong)) { display: none; }
   .terminal-app.is-mobile .terminal-toolbar { min-height: 48px; }
 }
+
+/* Session menus share the terminal palette even when portalled outside the app. */
+.terminal-menu { position: fixed; z-index: 10000; width: 280px; max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px); overflow: auto; padding: 6px; border: 1px solid var(--terminal-border); border-radius: 12px; background: var(--terminal-white); color: var(--terminal-text); box-shadow: 0 14px 45px #0b0c1129; font-family: inherit; }
+.terminal-menu__label { padding: 8px 10px; color: var(--terminal-muted); font-size: var(--terminal-font-10); overflow-wrap: anywhere; }
+.terminal-menu button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 10px; border: 0; border-radius: 7px; background: transparent; color: inherit; text-align: left; cursor: pointer; font: inherit; }
+.terminal-menu button:hover, .terminal-menu button:focus-visible { outline: 2px solid var(--terminal-selection-line); outline-offset: -2px; background: var(--terminal-selection); }
+.terminal-menu button:disabled { opacity: .45; cursor: wait; }
+.terminal-menu button.is-danger { color: var(--terminal-danger); }
+.terminal-menu button > svg { flex: 0 0 auto; width: 18px; height: 18px; }
+.terminal-menu button > span { display: grid; gap: 4px; }
+.terminal-menu strong { font-size: var(--terminal-font-11); }
+.terminal-menu small { color: var(--terminal-muted); font-size: var(--terminal-font-10); line-height: 1.4; }
+.terminal-session-drawer__row { display: flex; gap: 4px; }
+.terminal-session-drawer .terminal-session-drawer__row > button:first-child { flex: 1; min-width: 0; }
+.terminal-session-drawer .terminal-session-drawer__row > button:last-child { width: 44px; flex: 0 0 44px; justify-content: center; }
+.terminal-app .terminal-launchpad__inner { max-width: 1320px; }
+.terminal-app .terminal-launchpad__grid { grid-template-columns: minmax(0, 1.6fr) minmax(250px, 1fr); gap: 18px; }
+.terminal-launchpad__hero { max-width: none; }
+.terminal-launchpad__hub { border: 1px solid var(--terminal-selection-line); border-radius: 16px; overflow: hidden; background: radial-gradient(ellipse at top right, #e5dcff, transparent 65%), var(--terminal-white); }
+.terminal-launchpad__hub-intro { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 24px; }
+.terminal-launchpad__hub-intro h2 { margin: 9px 0; font-size: clamp(22px, 2.6cqi, 32px); line-height: 1.15; letter-spacing: -.04em; }
+.terminal-launchpad__hub-intro p { margin: 0; color: var(--terminal-muted); font-size: var(--terminal-font-12); line-height: 1.6; }
+.terminal-launchpad__hub-intro .terminal-launchpad__create-room { flex-shrink: 0; margin: 0; }
+.terminal-launchpad__private-note { margin: 14px 0 0; font-size: var(--terminal-font-10); color: var(--terminal-muted); line-height: 1.5; }
+.terminal-launchpad__start .terminal-launchpad__recent { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--terminal-border); }
+.terminal-launchpad__start .terminal-launchpad__recent > div:last-child { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; overflow: visible; }
+.terminal-launchpad__recent button { min-width: 0; min-height: 52px; }
+.terminal-launchpad__session-list > button { min-height: 80px; }
+.terminal-launchpad__teams .terminal-launchpad__section-heading > .terminal-launchpad__heading-actions { flex: 0 0 auto; }
+.terminal-launchpad__teams .terminal-launchpad__section-heading { flex-wrap: wrap; }
+.terminal-launchpad__session-list small { white-space: normal; overflow-wrap: anywhere; }
+@container terminal-app (max-width: 1000px) {
+  .terminal-launchpad__hub-intro { flex-direction: column; align-items: flex-start; gap: 18px; }
+  .terminal-app .terminal-launchpad__grid { grid-template-columns: minmax(0, 1fr); }
+}
+@container terminal-app (max-width: 760px) {
+  .terminal-launchpad__hub-intro { padding: 20px; }
+  .terminal-launchpad__hub-intro .terminal-launchpad__create-room { width: 100%; }
+}
+.terminal-app.is-mobile .terminal-toolbar__actions > button:first-child > svg:last-child { display: none; }

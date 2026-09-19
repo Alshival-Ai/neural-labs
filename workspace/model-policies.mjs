@@ -1,10 +1,12 @@
 // Versioned fallback recommendations, used only within an already selected
 // provider and workload. Account availability and capabilities still win.
+import { CLAUDE_RUNTIME } from "./claude-runtime.mjs";
 import { fileURLToPath } from "node:url";
 
 export const RECOMMENDATIONS = Object.freeze({
-  version: "2026-09-05.1",
+  version: "2026-09-19.1",
   openai: ["openai/gpt-6-astra", "openai/gpt-5.6-sol"],
+  anthropic: ["anthropic/claude-opus-5", "anthropic/claude-sonnet-5"],
 });
 
 export function resolveModelPolicy(policy, catalog, previous) {
@@ -34,10 +36,11 @@ export function resolveModelPolicy(policy, catalog, previous) {
 }
 
 export class ModelPolicies {
-  constructor({ personalOpenAI, catalog, teamOpenAI }) {
+  constructor({ personalOpenAI, catalog, teamOpenAI, claudeAccounts }) {
     this.personalOpenAI = personalOpenAI;
     this.catalog = catalog;
     this.teamOpenAI = teamOpenAI;
+    this.claudeAccounts = claudeAccounts;
     this.applied = new Map();
   }
 
@@ -50,8 +53,9 @@ export class ModelPolicies {
   }
 
   async apply({ userId, policy, revision, previous, workload = "background" }) {
-    if (!Number.isSafeInteger(revision) || revision < 1 || policy?.provider !== "openai") throw new Error("Unsupported provider policy");
-    const agentId = userId ? (await this.personalOpenAI.ensureProvisioned(userId)).agentId : workload === "team" ? await this.teamOpenAI.prepareRun() : "main";
+    if (!Number.isSafeInteger(revision) || revision < 1 || !["openai", "anthropic"].includes(policy?.provider)) throw new Error("Unsupported provider policy");
+    const agentId = userId ? (await this.personalOpenAI.ensureProvisioned(userId)).agentId : workload === "team" ? policy.provider === "anthropic" ? await this.teamOpenAI.ensureProvisioned() : await this.teamOpenAI.prepareRun() : "main";
+    if (policy.provider === "anthropic" && !(await this.claudeAccounts?.snapshot({ userId, workload }))?.modelReady) throw new Error("Connect or resume Claude before selecting it");
     const catalog = await this.catalog.list({ userId, agentId, refresh: true });
     const resolved = resolveModelPolicy(policy, catalog, previous);
     return this.personalOpenAI.queueMutation(async () => {
@@ -60,6 +64,7 @@ export class ModelPolicies {
       // Published fields update in one native config transaction. Utility models,
       // session pins, cron pins, credentials and tool policy are untouched.
       const operations = [
+        ...(policy.provider === "anthropic" ? [{ path: `agents.entries.${agentId}.models["${resolved.model}"].agentRuntime`, value: { id: CLAUDE_RUNTIME } }] : []),
         { path: `agents.entries.${agentId}.model`, value: { primary: resolved.model, fallbacks: [] } },
         ...(resolved.effort ? [{ path: `agents.entries.${agentId}.thinkingDefault`, value: resolved.effort }] : []),
       ];

@@ -40,3 +40,10 @@
 @container (max-width: 620px) { .provider-defaults-grid { grid-template-columns: 1fr; } }
 @container (max-width: 420px) { .provider-card-grid { grid-template-columns: 1fr; } .provider-defaults-actions > .settings-button { flex: 1 1 110px; } }
 @media (max-width: 600px) { .conversation-model-picker summary { font-size: 12px; padding: 10px 8px; } }
+
+.claude-login-terminal { max-width: 100%; overflow-x: auto; min-height: 20rem; padding: .75rem; background: #171717; border-radius: .5rem; }
+
+.claude-provider-card, .claude-login { min-width: 0; max-width: 100%; }
+.claude-provider-card { width: 100%; box-sizing: border-box; }
+.claude-provider-card p { overflow-wrap: anywhere; }
+.claude-login-terminal { width: 100%; box-sizing: border-box; contain: inline-size; }

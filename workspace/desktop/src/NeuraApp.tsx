@@ -406,10 +406,10 @@ export function submitsChatComposerShortcut(event: Pick<KeyboardEvent<HTMLTextAr
 
 export function modelProviderErrorMessage(rawError: string): string {
   if (/missing bearer|missing basic authentication/i.test(rawError)) {
-    return "Neura couldn't activate your ChatGPT connection. Open Personalization and try Resume; reconnect if the problem continues.";
+    return "Neura couldn't activate your selected model connection. Open Personalization and try Resume; reconnect if the problem continues.";
   }
   if (/401|authentication|unauthorized|invalid.{0,20}(token|credential)|expired.{0,20}(token|credential)/i.test(rawError)) {
-    return "Your ChatGPT sign-in was rejected or expired. Reconnect it in Personalization, then try again.";
+    return "Your model provider sign-in was rejected or expired. Reconnect it in Personalization, then try again.";
   }
   return rawError;
 }
@@ -1866,7 +1866,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
         <div ref={messageScroll} className="message-scroll" aria-live="polite" onScroll={handleTranscriptScroll}>
           <div ref={messageContent} className="message-content">
           {creatingSession ? <NeuraSessionLoader stage="creating" /> : <>
-          {!selectedChannel && connection === "error" && <div className="connection-error"><strong>Neura is unavailable</strong><p>{connectionError ?? "The Gateway connection could not be established."} If this is your first visit, connect your ChatGPT account in Settings → Model Provider.</p></div>}
+          {!selectedChannel && connection === "error" && <div className="connection-error"><strong>Neura is unavailable</strong><p>{connectionError ?? "The Gateway connection could not be established."} If this is your first visit, connect your selected model account in Settings → Model Provider.</p></div>}
           {selectedChannel && teamConnection === "error" && <div className="connection-error"><strong>Team Chat is reconnecting</strong><p>Messages remain safely stored. Live updates will resume automatically.</p></div>}
           {selectedChannel && teamAgentError && <div className="connection-error"><strong>Neura could not join this turn</strong><p>{teamAgentError}</p></div>}
           {!selected && !selectedChannel && connection === "connected" && (

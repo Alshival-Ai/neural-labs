@@ -1,3 +1,5 @@
+import { ClaudeAccounts } from "./claude-accounts.mjs";
+import { ModelAccounts } from "./model-accounts.mjs";
 import { backgroundProviderStatus } from "/usr/local/lib/neural-labs/background-provider-status.mjs";
 import { ProviderRuntime } from "/usr/local/lib/neural-labs/mcp/dist/providerRuntime.js";
 import { loadProviderConfig } from "/usr/local/lib/neural-labs/mcp/dist/providerConfig.js";
@@ -214,6 +216,8 @@ function configureGateway(twilioConfig) {
   runOpenClaw(["config", "unset", "gateway.auth.password"], { quiet: true });
   runOpenClaw(["config", "unset", "gateway.controlUi.basePath"], { quiet: true });
 
+  const pluginPathsResult = runOpenClaw(["config", "get", "plugins.load.paths", "--json"], { quiet: true });
+  const pluginPaths = pluginPathsResult.status === 0 ? JSON.parse(pluginPathsResult.stdout) : [];
   const operations = [
     ...gatewayIsolationOperations(),
     { path: "gateway.mode", value: "local" },
@@ -246,6 +250,8 @@ function configureGateway(twilioConfig) {
     },
     { path: "gateway.controlUi.enabled", value: false },
     { path: "plugins.entries.codex.enabled", value: true },
+    { path: "plugins.load.paths", value: [...new Set([...(Array.isArray(pluginPaths) ? pluginPaths : []), "/usr/local/lib/neural-labs/claude-plugin"])] },
+    { path: "plugins.entries.neural-labs-claude.enabled", value: true },
     ...twilioOperations(twilioConfig),
     ...browserConfigurationOperations(),
     {
@@ -455,9 +461,12 @@ const personalOpenAI = new PersonalOpenAIManager({
   gatewayRequest: gatewayAdminRequest,
 });
 const teamOpenAI = new TeamOpenAI(personalOpenAI);
+const claudeAccounts = new ClaudeAccounts({ manager: personalOpenAI, team: teamOpenAI });
+const modelAccounts = new ModelAccounts({ openai: personalOpenAI, claude: claudeAccounts, team: teamOpenAI });
 await verifyCodexRuntime(process.env.NEURAL_LABS_CODEX_VERSION);
-const modelCatalog = new ModelCatalog({ gatewayRequest: gatewayAdminRequest, personalOpenAI, teamOpenAI, runtime: { name: "OpenClaw", version: openclawRuntime.version } });
-const modelPolicies = new ModelPolicies({ personalOpenAI, catalog: modelCatalog, teamOpenAI });
+const modelCatalog = new ModelCatalog({ gatewayRequest: gatewayAdminRequest, personalOpenAI, teamOpenAI, claudeAccounts, runtime: { name: "OpenClaw", version: openclawRuntime.version } });
+modelAccounts.catalog = modelCatalog;
+const modelPolicies = new ModelPolicies({ personalOpenAI, catalog: modelCatalog, teamOpenAI, claudeAccounts });
 const workspaceMcp = spawn(
   process.execPath,
   ["/usr/local/lib/neural-labs/mcp/dist/local.js"],
@@ -495,6 +504,7 @@ const workspaceServer = createWorkspaceHttpServer({
   openclawModelReady,
   providerAuth,
   personalOpenAI,
+  claudeAccounts, modelAccounts,
   gatewayAdminRequest,
   modelCatalog,
   modelPolicies,
@@ -541,7 +551,7 @@ const workspaceServer = createWorkspaceHttpServer({
     return (await response.json()).actor;
   },
   runTeamAgent: async (input) => {
-    const agentId = input.modelSettings ? await teamOpenAI.prepareRun() : await personalOpenAI.prepareRun(input.userId);
+    const agentId = input.modelSettings ? await modelAccounts.prepareTeamRun(input.modelSettings.model) : await modelAccounts.prepareRun(input.userId);
     return runTeamAgent({ ...input, agentId, workspaceRoot });
   },
 });

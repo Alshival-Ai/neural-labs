@@ -3,7 +3,7 @@
 > Design history: for current instructions, see [AI accounts and models](../ai-accounts.md).
 > See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
 
-- Status: Accepted for OpenAI; Claude subscription adapter remains release-gated
+- Status: Accepted; Claude extension superseded by [ADR 0034](0034-claude-account-connections.md)
 - Date: 2026-09-05
 - Partially supersedes ADR 0013 for Team Chat after administrator activation
 

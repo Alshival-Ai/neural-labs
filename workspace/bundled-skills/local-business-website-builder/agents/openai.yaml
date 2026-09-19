@@ -1,0 +1,4 @@
+interface:
+  display_name: "Local Business Website Builder"
+  short_description: "Plan and build premium local-business websites"
+  default_prompt: "Use $local-business-website-builder to turn this business brief and supplied assets into a production-ready website."

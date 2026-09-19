@@ -1,5 +1,6 @@
+import { ClaudeProviderConnection, type ClaudeConnection } from "./ClaudeProviderConnection";
 import { ArrowLeft, ArrowUpRight, Bot, RefreshCw, Sparkles } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { PersonalProviderConnection } from "./PersonalProviderConnection";
 import { ModelDefaultsPanel } from "./ModelDefaultsPanel";
 import { settingsMutationHeaders, settingsRequest } from "./settingsApi";
@@ -8,6 +9,8 @@ import type { ProviderCatalog } from "./modelProviders";
 import "./model-providers.css";
 
 export function ModelProviderPanel({ csrfToken }: { csrfToken: string }) {
+  const [claude, setClaude] = useState<ClaudeConnection>();
+  useEffect(() => { void settingsRequest<ClaudeConnection>("/api/account/model-providers/anthropic/connection").then(setClaude).catch(() => {}); }, []);
   const [detail, setDetail] = useState<"openai" | "claude">();
   const [startSignIn, setStartSignIn] = useState(false);
   const [connection, setConnection] = useState<PersonalOpenAIAuth>();
@@ -22,6 +25,12 @@ export function ModelProviderPanel({ csrfToken }: { csrfToken: string }) {
   const [refreshError, setRefreshError] = useState<string>();
   const [refreshNotice, setRefreshNotice] = useState<string>();
   const [refreshedStatus, setRefreshedStatus] = useState<PersonalOpenAIAuth>();
+  const claudeSignature = useRef("");
+  const handleClaudeStatus = useCallback((next: ClaudeConnection) => {
+    setClaude(next);
+    const signature = `${next.authenticated}:${next.paused}:${next.modelReady}:${next.authMethod}`;
+    if (signature !== claudeSignature.current) { claudeSignature.current = signature; setProviderCatalog(undefined); }
+  }, []);
   const focusTarget = useRef<HTMLHeadingElement>(null);
   const initial = useRef(true);
   useEffect(() => {
@@ -82,12 +91,12 @@ export function ModelProviderPanel({ csrfToken }: { csrfToken: string }) {
     {detail ? <>
       <button type="button" className="settings-button provider-back" disabled={refreshing} onClick={() => { setStartSignIn(false); setDetail(undefined); }}><ArrowLeft aria-hidden="true" />Back to providers</button>
       <div className="settings-section-header"><div><h1 ref={focusTarget} tabIndex={-1}>{detail === "openai" ? "OpenAI" : "Claude"}</h1><p>{detail === "openai" ? "Manage your personal ChatGPT connection." : "Anthropic’s AI assistant."}</p></div></div>
-      {detail === "openai" ? <><PersonalProviderConnection csrfToken={csrfToken} startOnMount={startSignIn} refreshedStatus={refreshedStatus} onStatusChange={setConnection} />{refreshControls}{connected && <p className="provider-refresh-hint">Rechecks your connection and available models. It does not start a new ChatGPT sign-in or change saved defaults.</p>}</> : <section className="settings-card"><h2>Claude is coming soon</h2><p className="model-provider-unavailable">Claude sign-in is not available in this release. It requires a supported subscription sign-in route and an isolated Claude runtime. You do not need to provide tokens or API keys.</p></section>}
+      {detail === "openai" ? <><PersonalProviderConnection csrfToken={csrfToken} startOnMount={startSignIn} refreshedStatus={refreshedStatus} onStatusChange={setConnection} />{refreshControls}{connected && <p className="provider-refresh-hint">Rechecks your connection and available models. It does not start a new ChatGPT sign-in or change saved defaults.</p>}</> : <ClaudeProviderConnection csrfToken={csrfToken} onStatusChange={handleClaudeStatus} />}
     </> : <>
       <div className="settings-section-header"><div><span><Bot />Personal agent</span><h1 ref={confirm ? undefined : focusTarget} tabIndex={-1}>Model Provider</h1><p>Connect your accounts and choose how your private Neura works.</p></div></div>
       {notice && <p role="status">{notice}</p>}
       {error && <div role="alert"><p>{error}</p>{!confirm && <button type="button" className="settings-button" onClick={() => setReload((value) => value + 1)}>Retry connection status</button>}</div>}
-      {connected && <ModelDefaultsPanel csrfToken={csrfToken} compact updatedCatalog={providerCatalog} onCatalog={setProviderCatalog} />}
+      {(connected || claude?.authenticated) && <ModelDefaultsPanel csrfToken={csrfToken} compact updatedCatalog={providerCatalog} onCatalog={setProviderCatalog} />}
       <section aria-label="Model providers" className="provider-overview">
         <div><h2>Your providers</h2><p>{connected ? "Select a provider to manage its connection." : "Set up a provider to choose your default model and reasoning."}</p></div>
         <div className="provider-card-grid">
@@ -98,7 +107,7 @@ export function ModelProviderPanel({ csrfToken }: { csrfToken: string }) {
             </button>
             {confirm ? <div className="provider-disconnect-confirm">
               <h3 ref={focusTarget} tabIndex={-1}>Disconnect OpenAI?</h3>
-              <p>Your private Neura will be unavailable until you reconnect. Chats and preferences stay saved. Workspace and Team connections are not affected.</p>
+              <p>Models using this OpenAI connection will be unavailable until you reconnect. Chats and preferences stay saved. Workspace and Team connections are not affected.</p>
               {disconnectError && <p role="alert">{disconnectError}</p>}
               <button type="button" className="settings-button is-primary" disabled={busy} onClick={() => void disconnect()}>{busy ? "Disconnecting…" : "Confirm disconnect"}</button>
               <button type="button" className="settings-button" disabled={busy} onClick={() => { setConfirm(false); setDisconnectError(undefined); }}>Keep connected</button>
@@ -108,9 +117,9 @@ export function ModelProviderPanel({ csrfToken }: { csrfToken: string }) {
           <article className="settings-card provider-card">
             <button type="button" className="provider-card-main" aria-label="Configure Claude" disabled={busy || confirm} onClick={() => setDetail("claude")}>
               <span className="provider-card-icon is-claude"><Sparkles aria-hidden="true" /></span><ArrowUpRight className="provider-card-arrow" aria-hidden="true" />
-              <strong>Claude</strong><span className="provider-card-description">Connect with Anthropic</span><span className="provider-card-status">Coming soon</span>
+              <strong>Claude</strong><span className="provider-card-description">Connect with Anthropic</span><span className="provider-card-status">{claude?.authenticated ? claude.paused ? "Connected · paused" : "Connected" : claude?.state === "awaiting_user" ? "Sign-in in progress" : "Not connected"}</span>
             </button>
-            <button type="button" className="settings-button" disabled>Set up Claude · unavailable</button>
+            <button type="button" className="settings-button" onClick={() => setDetail("claude")}>Set up Claude</button>
           </article>
         </div>
       </section>

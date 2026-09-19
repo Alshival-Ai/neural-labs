@@ -1,3 +1,4 @@
+import { CLAUDE_CLEAR_ENV } from "./claude-runtime.mjs";
 import { spawnSync } from "node:child_process";
 
 export function agentEnvironment(environment) {
@@ -5,6 +6,7 @@ export function agentEnvironment(environment) {
   // Audio keeps its server-only key. Text agents must resolve their native
   // credential store and explicit auth order, never an ambient API fallback.
   delete result.OPENAI_API_KEY;
+  for (const name of CLAUDE_CLEAR_ENV) delete result[name];
   // The Twilio token exists only for the trusted Gateway channel process.
   // Never place it in agent, terminal, or workspace MCP subprocesses.
   delete result.NEURAL_LABS_TWILIO_AUTH_TOKEN;

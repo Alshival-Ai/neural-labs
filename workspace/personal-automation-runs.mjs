@@ -86,9 +86,12 @@ export class PersonalAutomationRuns {
         throw new AutomationRunError(409, "A manual run is active or its acceptance is uncertain. Inspect it before starting another.");
       }
     }
-    let agentId;
-    try { agentId = await this.accounts.prepareRun(actor.userId); }
-    catch { throw new AutomationRunError(409, "Connect or resume your ChatGPT account in Settings → Model Provider before running this automation."); }
+    let agentId, selectedModel = job.payload.model;
+    try {
+      if (this.accounts.prepareExecution) ({ agentId, model: selectedModel } = await this.accounts.prepareExecution(actor.userId, job.payload.model));
+      else agentId = await this.accounts.prepareRun(actor.userId, job.payload.model);
+    }
+    catch { throw new AutomationRunError(409, "Connect or resume your selected model account in Settings → Model Provider before running this automation."); }
     if (agentId !== personalAgentId(actor.userId)) throw new AutomationRunError(409, "The connected account does not belong to the signed-in user");
     const record = { requestId, declarationKey: `neural-labs-manual:${requestId}`, jobId, userId: actor.userId,
       actorLabel: actor.email || actor.userId, agentId, phase: "preparing", createdAt: this.now() };
@@ -100,7 +103,7 @@ export class PersonalAutomationRuns {
       agentId, enabled: false, deleteAfterRun: false,
       schedule: { kind: "at", at: new Date(this.now() + 86400000).toISOString() },
       sessionTarget: "isolated", wakeMode: "now",
-      payload: { ...job.payload, fallbacks: [], message: `${job.payload.message}\n\nManual execution of automation ${jobId}. For get_automation_notification_context and notify_workspace_user use automation ID ${jobId} and the current run ID from that context. Preserve the original automation's project checkpoints and locking. Do not change its schedule or account.` },
+      payload: { ...job.payload, ...(selectedModel ? { model: selectedModel } : {}), fallbacks: [], message: `${job.payload.message}\n\nManual execution of automation ${jobId}. For get_automation_notification_context and notify_workspace_user use automation ID ${jobId} and the current run ID from that context. Preserve the original automation's project checkpoints and locking. Do not change its schedule or account.` },
       delivery: job.delivery ?? { mode: "none" },
     };
     try {
@@ -144,7 +147,7 @@ export class PersonalAutomationRuns {
     return { jobs: projectedJobs, entries: entries.map(entry => {
       const link = links.get(entry.jobId);
       return link ? { ...entry, jobId: link.jobId, executionJobId: entry.jobId, triggeredBy: link.actorLabel,
-        summary: `Run by ${link.actorLabel} using their ChatGPT account.\n${entry.summary ?? ""}` } : entry;
+        summary: `Run by ${link.actorLabel} using their selected model account.\n${entry.summary ?? ""}` } : entry;
     }) };
   }
 

@@ -44,7 +44,7 @@ function renderDesktop(role: "admin" | "user", { accountAuthenticated = true, ac
     const url = String(input);
     const method = init?.method ?? "GET";
     if (url === "/api/session") return json(session(role));
-    if (url === "/api/account/openai") return json({ agentId: session(role).neura.agentId, authenticated: accountAuthenticated, paused: accountPaused });
+    if (url === "/api/account/model-providers/access") return json({ agentId: session(role).neura.agentId, authenticated: accountAuthenticated, paused: accountPaused });
     if (url === "/api/workspace") return json({ status: "ready" });
     if (url === "/workspace/api/terminals" && method === "GET") return json({ sessions: [] });
     if (url === "/workspace/api/terminals" && method === "POST") return json({ session: {
@@ -150,7 +150,7 @@ describe("desktop admin navigation", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
       if (url === "/api/session") return json(session("user"));
-      if (url === "/api/account/openai") return json({ agentId: session("user").neura.agentId, authenticated: true, paused: false });
+      if (url === "/api/account/model-providers/access") return json({ agentId: session("user").neura.agentId, authenticated: true, paused: false });
       if (url === "/api/workspace") {
         workspaceRequests += 1;
         if (workspaceRequests === 1) throw new Error("workspace restarting");
@@ -232,26 +232,26 @@ describe("desktop admin navigation", () => {
 
     await waitFor(() => expect(gatewayMocks.setAgentId).toHaveBeenCalledWith("nl-userid"));
     expect(gatewayMocks.start).toHaveBeenCalledOnce();
-    expect(fetch).toHaveBeenCalledWith("/api/account/openai", expect.objectContaining({ credentials: "same-origin" }));
+    expect(fetch).toHaveBeenCalledWith("/api/account/model-providers/access", expect.objectContaining({ credentials: "same-origin" }));
     expect(gatewayMocks.setAgentId.mock.invocationCallOrder[0]).toBeLessThan(gatewayMocks.start.mock.invocationCallOrder[0]);
   });
 
   it("prompts disconnected users to open ChatGPT Model Provider settings", async () => {
     renderDesktop("admin", { accountAuthenticated: false });
 
-    const prompt = await screen.findByRole("button", { name: "Open ChatGPT account settings in Model Provider" });
-    expect(prompt).toHaveTextContent("Connect your ChatGPT account to start using Neura.");
+    const prompt = await screen.findByRole("button", { name: "Open model account settings in Model Provider" });
+    expect(prompt).toHaveTextContent("Connect your selected model account to start using Neura.");
     fireEvent.click(prompt);
 
     const settingsWindow = await screen.findByLabelText("Settings application");
     expect(await within(settingsWindow).findByRole("heading", { name: "Model Provider" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Open ChatGPT account settings in Model Provider" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open model account settings in Model Provider" })).not.toBeInTheDocument();
   });
 
   it("guides users with a paused ChatGPT connection to Model Provider", async () => {
     renderDesktop("user", { accountPaused: true });
 
-    expect(await screen.findByRole("button", { name: "Open ChatGPT account settings in Model Provider" })).toHaveTextContent("Resume your ChatGPT account to start using Neura.");
+    expect(await screen.findByRole("button", { name: "Open model account settings in Model Provider" })).toHaveTextContent("Resume your selected model account to start using Neura.");
   });
 
   it("does not reopen Terminal when the saved desktop has no Terminal window", async () => {

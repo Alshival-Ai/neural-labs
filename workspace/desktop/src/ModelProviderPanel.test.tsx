@@ -27,7 +27,7 @@ it("shows provider cards without defaults before connection, and opens provider 
   await screen.findByText("Not connected");
   expect(screen.queryByRole("button", { name: "Refresh connection" })).toBeNull();
   expect(screen.queryByRole("heading", { name: "Agent defaults" })).toBeNull();
-  expect(fetch.mock.calls.some(([url]) => String(url).includes("model-providers"))).toBe(false);
+  expect(fetch.mock.calls.some(([url]) => String(url).includes("model-providers/catalog"))).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "Set up OpenAI" }));
   expect(await screen.findByRole("heading", { name: "Your ChatGPT account" })).toBeTruthy();
   expect(document.activeElement?.textContent).toBe("OpenAI");
@@ -36,7 +36,7 @@ it("shows provider cards without defaults before connection, and opens provider 
   expect(screen.queryByRole("button", { name: "Refresh connection" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Back to providers" }));
   fireEvent.click(screen.getByRole("button", { name: "Configure Claude" }));
-  expect(screen.getByRole("heading", { name: "Claude is coming soon" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Your Claude account" })).toBeTruthy();
 });
 
 it("shows connected defaults above cards and requires confirmation to disconnect", async () => {
