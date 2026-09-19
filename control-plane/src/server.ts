@@ -199,7 +199,7 @@ const claudeConnectionSchema = z.object({
   agentId: z.string().regex(/^(main|nl-[a-z0-9]+)$/), authenticated: z.boolean(), modelReady: z.boolean(), paused: z.boolean(),
   state: z.enum(["disconnected", "connected", "awaiting_user", "error"]), message: z.string().max(500).nullable(), attemptId: z.string().uuid().optional(),
 });
-const claudeTerminalSchema = z.object({ attemptId: z.string().uuid(), output: z.string().max(65536), cursor: z.number().int().min(0), verificationUrl: z.string().url().startsWith("https://").nullable() });
+const claudeTerminalTicketSchema = z.object({ ticket: z.string().regex(/^[A-Za-z0-9_-]{43}$/), expiresAt: z.number().int(), path: z.literal("/workspace/api/claude-login/socket"), protocol: z.literal("neural-claude-login.v1") });
 const modelAccessSchema = z.object({ agentId: z.string().regex(/^nl-[a-z0-9]+$/), provider: z.enum(["openai", "anthropic"]), authenticated: z.boolean(), modelReady: z.boolean(), paused: z.boolean(), selectedModel: z.string().max(200).nullable() });
 const TURN_CREDENTIAL_TTL_SECONDS = 60 * 60;
 
@@ -1059,10 +1059,10 @@ export function createApplication(input: {
       const actor = scope === "account" ? await requireActiveJson(request, response) : await requireAdminJson(request, response);
       if (!actor || (request.method !== "GET" && !requireCsrfJson(request, response, actor))) return;
       const action = typeof request.params.action === "string" ? request.params.action : undefined;
-      if (action && !["connect", "cancel", "pause", "resume", "disconnect", "refresh", "terminal", "api-key"].includes(action)) { jsonError(response, 404, "not_found", "Unknown connection action"); return; }
+      if (action && !["connect", "cancel", "pause", "resume", "disconnect", "refresh", "terminal-ticket", "api-key"].includes(action)) { jsonError(response, 404, "not_found", "Unknown connection action"); return; }
       if (action === "api-key" && scope === "account") { jsonError(response, 403, "forbidden", "Workspace administrator access is required"); return; }
-      if (action && !await database.consumeRateLimit(`claude-${action === "terminal" ? "terminal" : "action"}:${actor.user.id}`, action === "terminal" ? 600 : 20, 60)) { jsonError(response, 429, "rate_limited", "Wait a moment and try again."); return; }
-      const input = z.object({ attemptId: z.string().uuid().optional(), cursor: z.number().int().min(0).optional(), data: z.string().max(8192).optional(), key: z.string().trim().min(1).max(4096).optional() }).strict().safeParse(request.body ?? {});
+      if (action && !await database.consumeRateLimit(`claude-${action === "terminal-ticket" ? "terminal-ticket" : "action"}:${actor.user.id}`, action === "terminal-ticket" ? 60 : 20, 60)) { jsonError(response, 429, "rate_limited", "Wait a moment and try again."); return; }
+      const input = z.object({ attemptId: z.string().uuid().optional(), key: z.string().trim().min(1).max(4096).optional() }).strict().safeParse(request.body ?? {});
       if (action && !input.success) { jsonError(response, 400, "invalid_connection_input", "Invalid connection input"); return; }
       const url = new URL("/internal/model-providers/anthropic", config.workspace.controlUrl);
       if (scope === "account") url.searchParams.set("userId", actor.user.id);
@@ -1072,8 +1072,8 @@ export function createApplication(input: {
           ...(action ? { body: JSON.stringify({ action, input: input.success ? input.data : {}, actorId: actor.user.id }) } : {}), signal: AbortSignal.timeout(45_000) });
         if (!result.ok) throw new Error();
         response.setHeader("Cache-Control", "no-store");
-        if (action && action !== "terminal") await database.audit(actor.user.id, `model_provider.anthropic.${action}`, scope === "account" ? actor.user.id : null, { scope, workload: scope === "account" ? "personal" : url.searchParams.get("workload") });
-        response.json((action === "terminal" ? claudeTerminalSchema : claudeConnectionSchema).parse(await result.json()));
+        if (action && action !== "terminal-ticket") await database.audit(actor.user.id, `model_provider.anthropic.${action}`, scope === "account" ? actor.user.id : null, { scope, workload: scope === "account" ? "personal" : url.searchParams.get("workload") });
+        response.json((action === "terminal-ticket" ? claudeTerminalTicketSchema : claudeConnectionSchema).parse(await result.json()));
       } catch { jsonError(response, 409, "claude_unavailable", "Claude setup could not complete. Refresh the connection and try again."); }
     };
     app.get(route, handler); app.post(`${route}/:action`, sameOrigin, handler);

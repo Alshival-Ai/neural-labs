@@ -67,16 +67,6 @@ export class ClaudeAccounts {
   async action(owner, action, input = {}, actorId) {
     const id = await this.owner(owner);
     return this.queue(id, async () => {
-      if (action === "terminal") {
-        const login = this.logins.get(id);
-        if (!login || login.actorId !== actorId || login.id !== input.attemptId) throw new Error("Login session expired. Start sign-in again.");
-        if (input.data !== undefined) {
-          if (typeof input.data !== "string" || input.data.length > 8192) throw new Error("Invalid terminal input");
-          login.child.write(input.data);
-        }
-        const cursor = Number.isSafeInteger(input.cursor) ? input.cursor : login.offset;
-        return { attemptId: login.id, verificationUrl: nativeLoginUrl(login.output), output: login.output.slice(Math.max(0, cursor - login.offset)), cursor: login.offset + login.output.length };
-      }
       if (action === "connect") {
         if (this.logins.has(id)) {
           const login = this.logins.get(id);
@@ -93,15 +83,17 @@ export class ClaudeAccounts {
         const home = this.home(id, candidate);
         await mkdir(home, { recursive: true, mode: 0o700 });
         const child = this.spawnPty("claude", ["auth", "login"], { cwd: home, env: { ...claudeEnvironment(home), BROWSER: "/bin/false" }, name: "xterm-256color", cols: 90, rows: 24 });
-        const login = { id: randomUUID(), actorId, child, output: "", offset: 0, cancelled: false };
+        const login = { id: randomUUID(), actorId, child, output: "", offset: 0, cancelled: false, exited: false, listeners: new Set() };
         this.logins.set(id, login);
         login.closed = new Promise(resolve => {
           child.onData(data => {
             login.output += data;
             if (login.output.length > 65536) { const dropped = login.output.length - 65536; login.output = login.output.slice(dropped); login.offset += dropped; }
+            for (const listener of login.listeners) listener({ type: "output", data, verificationUrl: nativeLoginUrl(login.output) });
           });
           child.onExit(({ exitCode }) => {
             clearTimeout(login.timer);
+            login.exited = true;
             // Resolve before the queued completion to avoid deadlock with cancel.
             resolve();
             void this.queue(id, async () => {
@@ -111,7 +103,7 @@ export class ClaudeAccounts {
                 await this.persist(id, { ...candidate, paused: false });
                 await this.onChange?.(owner);
               } else if (!login.cancelled) this.errors.set(id, "Claude sign-in did not complete. Start sign-in again.");
-            }).catch(() => { this.errors.set(id, "Claude signed in, but model setup could not complete. Refresh the connection to retry."); });
+            }).catch(() => { this.errors.set(id, "Claude signed in, but model setup could not complete. Refresh the connection to retry."); }).finally(() => this.finishLogin(login));
           });
         });
         login.timer = setTimeout(() => { this.errors.set(id, "Claude sign-in expired. Start sign-in again."); login.cancelled = true; child.kill("SIGKILL"); }, 16 * 60_000); login.timer.unref?.();
@@ -154,6 +146,15 @@ export class ClaudeAccounts {
       return this.snapshot(owner);
     });
   }
+  loginSession(id, attemptId, actorId) {
+    const login = this.logins.get(id);
+    if (!login || login.exited || login.cancelled || login.id !== attemptId || login.actorId !== actorId) throw new Error("Login session expired. Start sign-in again.");
+    return login;
+  }
+  finishLogin(login) {
+    for (const listener of login.listeners) listener({ type: "finished" });
+    login.listeners.clear();
+  }
   async stop(id, actorId, ownerOnly) {
     const login = this.logins.get(id); if (!login) return;
     if (ownerOnly && login.actorId !== actorId) throw new Error("This login belongs to another administrator");
@@ -162,6 +163,7 @@ export class ClaudeAccounts {
     try { await Promise.race([login.closed, new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error("Claude sign-in is still stopping")), 5000); })]); }
     finally { clearTimeout(timeout); }
     this.logins.delete(id); login.output = "";
+    this.finishLogin(login);
   }
 }
 function saveNativeKey(value) {

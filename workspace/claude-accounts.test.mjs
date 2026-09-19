@@ -50,15 +50,15 @@ test("native login has isolated homes, browser fallback, owner-bound terminal in
   assert.equal(f.children[0].options.env.BROWSER, "/bin/false");
   assert.deepEqual(f.children[0].args, ["auth", "login"]);
   f.children[0].receive("native auth link and code");
-  await assert.rejects(f.accounts.action({ userId: "alice" }, "terminal", { attemptId: a.attemptId }, "actor-b"));
-  await assert.rejects(f.accounts.action({ userId: "bob" }, "terminal", { attemptId: a.attemptId }, "actor-b"));
-  const output = await f.accounts.action({ userId: "alice" }, "terminal", { attemptId: a.attemptId, data: "one-time-code\r" }, "actor-a");
-  assert.match(output.output, /native auth/); assert.deepEqual(f.children[0].data, ["one-time-code\r"]);
+  assert.throws(() => f.accounts.loginSession("nl-alice", a.attemptId, "actor-b"));
+  assert.throws(() => f.accounts.loginSession("nl-bob", a.attemptId, "actor-b"));
+  assert.match(f.accounts.loginSession("nl-alice", a.attemptId, "actor-a").output, /native auth/);
+  await assert.rejects(f.accounts.action({ userId: "alice" }, "terminal", {}, "actor-a"));
   assert.equal(JSON.stringify(await f.accounts.snapshot({ userId: "alice" })).includes("one-time-code"), false);
   await f.finish(f.children[0]);
   assert.equal((await f.accounts.snapshot({ userId: "alice" })).modelReady, true);
   await f.accounts.action({ userId: "bob" }, "cancel", {}, "actor-b");
-  await assert.rejects(f.accounts.action({ userId: "bob" }, "terminal", { attemptId: b.attemptId }, "actor-b"));
+  assert.throws(() => f.accounts.loginSession("nl-bob", b.attemptId, "actor-b"));
 });
 test("pause persists across managers and disconnect retires the native home without touching other owners", async t => {
   const f = await fixture(t);

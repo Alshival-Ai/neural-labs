@@ -1,6 +1,6 @@
 # ADR 0034: Owner-scoped Claude account connections
 
-Status: Implemented locally; image and live account acceptance pending.
+Status: Deployed; authenticated live-account completion acceptance remains operator-driven.
 Date: 2026-09-19
 
 ## Decision
@@ -16,8 +16,18 @@ login` in a dedicated PTY. Users open Anthropic's URL and return any one-time
 code to the native prompt. This works with the native remote-terminal fallback;
 instances need no new public DNS, callback URL, or exposed port. Login input and
 output remain in bounded process memory, bound to the initiating actor and
-attempt. Polling and input use the existing authenticated HTTP ingress with
-same-origin and CSRF checks. They are not terminal history or audit content.
+attempt. Terminal output, keystrokes, pasted codes and resize events use a
+bidirectional WebSocket under the existing authenticated workspace ingress,
+matching the Terminal app's ticket pattern. There is no HTTP polling or SSE
+terminal transport. A same-origin, CSRF-protected control-plane request issues
+a single-use, 60-second ticket for the authenticated actor and exact native
+attempt. The ticket travels in a WebSocket subprotocol, never in a URL.
+The upgrade checks the current active member and workspace administrator role;
+heartbeats recheck access and retire sockets after cancellation or account
+changes. Buffered output and tickets remain bounded in memory. Neither native
+input/output nor tickets enter terminal history or audit content. Reconnection
+replays output only; a previously entered code is never replayed. Settings also
+provides clipboard and standard code-field entry through that same socket.
 
 Claude owns subscription storage and refresh inside a persistent, per-agent
 configuration directory. Reconnect advances a generation to prevent native

@@ -180,7 +180,7 @@ function application(user?: UserRecord, microsoftLinked = false, collaboration?:
     const url = String(input);
     if (url.includes("/internal/model-providers/anthropic")) {
       const body = JSON.parse(String(_init?.body ?? "{}"));
-      return new Response(JSON.stringify(body.action === "terminal" ? { attemptId: body.input.attemptId, output: "native prompt", cursor: 13, verificationUrl: null } : { provider: "anthropic", authMethod: "subscription", agentId: "nl-test", state: "disconnected", authenticated: false, modelReady: false, paused: true, message: null, secret: "must-not-leave-runtime" }), { headers: { "content-type": "application/json" } });
+      return new Response(JSON.stringify(body.action === "terminal-ticket" ? { ticket: "t".repeat(43), expiresAt: Date.now() + 60000, path: "/workspace/api/claude-login/socket", protocol: "neural-claude-login.v1", secret: "must-not-leave-runtime" } : { provider: "anthropic", authMethod: "subscription", agentId: "nl-test", state: "disconnected", authenticated: false, modelReady: false, paused: true, message: null, secret: "must-not-leave-runtime" }), { headers: { "content-type": "application/json" } });
     }
     const payload = url.includes("/internal/provider-auth/openai")
       ? {
@@ -723,7 +723,7 @@ describe("Claude account boundary", () => {
     await request(member.app).post("/api/account/model-providers/anthropic/connection/connect").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").set("Origin", "https://foreign.example").send({}).expect(403);
     expect(member.workspaceFetch).not.toHaveBeenCalled();
   });
-  it("takes the personal owner from the session and does not audit terminal input", async () => {
+  it("takes the personal owner from the session and keeps socket tickets out of audit", async () => {
     const member = application(regular);
     await request(member.app).post("/api/account/model-providers/anthropic/connection/connect?userId=someone-else&workload=team").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").send({}).expect(200);
     const status = await request(member.app).get("/api/account/model-providers/anthropic/connection").set("Cookie", cookies).expect(200);
@@ -733,7 +733,11 @@ describe("Claude account boundary", () => {
     expect(new URL(String(url)).searchParams.has("workload")).toBe(false);
     expect(JSON.parse(String(init?.body))).toMatchObject({ actorId: regular.id, action: "connect" });
     vi.mocked(member.database.audit).mockClear();
-    await request(member.app).post("/api/account/model-providers/anthropic/connection/terminal").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").send({ attemptId: "11111111-1111-4111-8111-111111111111", data: "one-time-test-code", cursor: 0 }).expect(200);
+    const ticket = await request(member.app).post("/api/account/model-providers/anthropic/connection/terminal-ticket").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").send({ attemptId: "11111111-1111-4111-8111-111111111111" }).expect(200);
+    expect(ticket.body).toMatchObject({ path: "/workspace/api/claude-login/socket", protocol: "neural-claude-login.v1" });
+    expect(ticket.text).not.toContain("must-not-leave-runtime");
+    await request(member.app).post("/api/account/model-providers/anthropic/connection/terminal-ticket").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").send({ attemptId: "11111111-1111-4111-8111-111111111111", data: "test-code" }).expect(400);
+    await request(member.app).post("/api/account/model-providers/anthropic/connection/terminal").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").send({}).expect(404);
     expect(member.database.audit).not.toHaveBeenCalled();
     await request(member.app).post("/api/account/model-providers/anthropic/connection/api-key").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").send({ key: "test-only-key" }).expect(403);
   });

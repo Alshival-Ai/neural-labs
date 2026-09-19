@@ -84,18 +84,25 @@ test("Claude native login fits narrow Settings and sends input only to its attem
         const request = route.request(), url = new URL(request.url());
         if (url.pathname.includes("/anthropic/connection")) {
           if (url.pathname.endsWith("/connect")) { phase = "awaiting_user"; return route.fulfill({ json: { ...status(), attemptId: "11111111-1111-4111-8111-111111111111" } }); }
-          if (url.pathname.endsWith("/terminal")) {
+          if (url.pathname.endsWith("/terminal-ticket")) {
             const body = request.postDataJSON();
             assert.equal(body.attemptId, "11111111-1111-4111-8111-111111111111");
             assert.equal(request.headers()["x-csrf-token"], "model-test-csrf");
-            data += body.data || "";
-            return route.fulfill({ json: { output: body.cursor ? "" : "Paste code here if prompted:\r\n", cursor: 30, verificationUrl: "https://claude.ai/oauth/authorize?code=true&state=test-only" } });
+            assert.equal(body.data, undefined);
+            return route.fulfill({ json: { ticket: "example-ticket", path: "/workspace/api/claude-login/socket", protocol: "neural-claude-login.v1" } });
           }
           if (url.pathname.endsWith("/cancel")) phase = "disconnected";
           return route.fulfill({ json: status() });
         }
         if (url.pathname.startsWith("/api/account/openai")) return route.fulfill({ json: { provider: "openai", authMethod: "chatgpt", state: "disconnected", authenticated: false, modelReady: false, paused: true, agentId: "nl-test" } });
         return route.fulfill({ json: {} });
+      });
+      await page.routeWebSocket("**/workspace/api/claude-login/socket", socket => {
+        socket.send(JSON.stringify({ type: "ready", data: "Paste code here if prompted:\r\n", verificationUrl: "https://claude.ai/oauth/authorize?code=true&state=test-only" }));
+        socket.onMessage(raw => {
+          const message = JSON.parse(String(raw));
+          if (message.type === "input") data += message.data;
+        });
       });
       await page.goto(`${process.env.DESKTOP_TEST_ORIGIN || "http://127.0.0.1:4196"}/workspace/tests/providers.html`);
       await page.getByRole("button", { name: "Configure Claude" }).click();
@@ -105,6 +112,16 @@ test("Claude native login fits narrow Settings and sends input only to its attem
       await input.pressSequentially("test-code"); await input.press("Enter");
       await page.waitForTimeout(1000);
       assert.ok(data.includes("test-code\r"));
+      await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+      await page.evaluate(() => navigator.clipboard.writeText("clipboard-test-code"));
+      await page.getByRole("button", { name: "Paste into terminal" }).click();
+      await page.getByRole("button", { name: "Enter", exact: true }).click();
+      await page.getByLabel("Sign-in code", { exact: true }).fill("form-test-code#state");
+      await page.getByRole("button", { name: "Send code", exact: true }).click();
+      await page.waitForTimeout(100);
+      assert.ok(data.includes("clipboard-test-code\r"));
+      assert.ok(data.includes("form-test-code#state\r"));
+      assert.equal(await page.getByLabel("Sign-in code", { exact: true }).inputValue(), "");
       const card = await page.locator(".claude-provider-card").boundingBox();
       assert.ok(card && card.x >= 0 && card.x + card.width <= width, "Claude card must fit rather than be clipped by the app window");
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);

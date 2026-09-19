@@ -24,7 +24,11 @@ still valid.
 Open **Settings → Model Provider → Claude**, then **Connect Claude**. Settings
 starts a native Claude sign-in prompt inside this instance. Open the Anthropic
 URL it displays in your browser. If Anthropic gives you a login code, paste it
-into the native prompt. Keep Settings open until the connection finishes.
+into the native prompt with **Paste into terminal**, then press **Enter**.
+You can also paste into **Sign-in code** and choose **Send code**, including
+when browser clipboard access is blocked. Keep Settings open until the
+connection finishes. If the terminal disconnects, choose **Reconnect sign-in
+terminal**; previously submitted codes are not sent again automatically.
 
 This flow needs no additional public DNS, OAuth callback registration, or inbound
 port. The CLI and browser need outbound access to Anthropic. Claude keeps the
