@@ -15,7 +15,7 @@ export class ClaudeAccounts {
   }
   async owner({ userId, workload = "background" }) {
     if (userId) return (await this.manager.ensureProvisioned(userId)).agentId;
-    if (workload === "team") return this.team.ensureProvisioned();
+    if (workload === "team") { await this.team.ensureProvisioned(); return this.team.agentId; }
     if (workload !== "background") throw new Error("Invalid Claude workload");
     return "main";
   }

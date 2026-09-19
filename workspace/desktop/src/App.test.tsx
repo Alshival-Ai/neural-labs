@@ -162,7 +162,8 @@ describe("desktop admin navigation", () => {
     render(<App />);
     await waitForDesktop();
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    expect(await screen.findByText("offline")).toBeInTheDocument();
+    // Settings is lazy-loaded; allow its first transform under parallel suite load.
+    expect(await screen.findByText("offline", {}, { timeout: 5_000 })).toBeInTheDocument();
     document.dispatchEvent(new Event("visibilitychange"));
     expect(await screen.findByText("ready")).toBeInTheDocument();
   });

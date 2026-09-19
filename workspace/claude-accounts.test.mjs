@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, rm, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { ClaudeAccounts } from "./claude-accounts.mjs";
+import { TeamOpenAI } from "./team-openai.mjs";
 import { buildClaudeBackend, claudeEnvironment, prepareClaudeExecution, CLAUDE_VERSION } from "./claude-runtime.mjs";
 
 async function fixture(t) {
@@ -12,7 +13,7 @@ async function fixture(t) {
   const children = [], authenticated = new Set(), calls = [];
   const manager = { stateRoot: root, ensureProvisioned: async userId => { const agentId = `nl-${userId}`; await mkdir(path.join(root, "agents", agentId, "agent"), { recursive: true }); return { agentId }; },
     openclawJson: async () => ({ entries: Object.fromEntries(["nl-alice", "nl-bob", "main", "nl-teamneura"].map(id => [id, { models: { "anthropic/test": { agentRuntime: { id: "neural-labs-claude" } } } }])) }), execute: async (...args) => calls.push(args) };
-  const accounts = new ClaudeAccounts({ manager, team: { ensureProvisioned: async () => "nl-teamneura" },
+  const accounts = new ClaudeAccounts({ manager, team: { agentId: "nl-teamneura", ensureProvisioned: async () => {} },
     execute: async (cmd, args, options) => {
       calls.push([cmd, args, options]);
       if (args[0] === "--version") return { stdout: `${CLAUDE_VERSION} (Claude Code)` };
@@ -27,6 +28,20 @@ async function fixture(t) {
   const finish = async (child, code = 0) => { authenticated.add(child.options.env.CLAUDE_CONFIG_DIR); child.exit({ exitCode: code }); await new Promise(resolve => setImmediate(resolve)); await accounts.tails.get(path.basename(path.dirname(path.dirname(child.options.cwd)))); await new Promise(resolve => setTimeout(resolve, 20)); };
   return { root, accounts, children, authenticated, calls, finish };
 }
+test("Claude resolves the provisioned Team Neura owner through the real team manager", async t => {
+  const f = await fixture(t);
+  const provisioned = [];
+  const team = new TeamOpenAI({
+    account: () => ({ agentId: "nl-teamneura" }),
+    ensureProvisioned: async owner => { provisioned.push(owner); return { agentId: "nl-teamneura" }; },
+  });
+  f.accounts.team = team;
+  const status = await f.accounts.snapshot({ workload: "team" });
+  assert.equal(status.agentId, "nl-teamneura");
+  assert.equal(status.state, "disconnected");
+  assert.deepEqual(provisioned, ["team-neura"]);
+  assert.equal((await f.accounts.snapshot({ workload: "background" })).agentId, "main");
+});
 test("native login has isolated homes, browser fallback, owner-bound terminal input and no secrets in status", async t => {
   const f = await fixture(t);
   const a = await f.accounts.action({ userId: "alice" }, "connect", {}, "actor-a");
