@@ -1,4 +1,23 @@
-# Neural Labs
+<p align="center">
+  <a href="https://alshival.ai">
+    <img src="https://alshival.ai/static/img/logos/brain1_transparent.png" width="450" alt="Alshival.Ai logo">
+  </a>
+</p>
+
+<h1 align="center">Neural Labs by Alshival.Ai</h1>
+
+<p align="center">
+  <strong>AI · Data · Cloud</strong><br>
+  Practical systems. Open engineering. Shared context.
+</p>
+
+<p align="center">
+  <a href="https://alshival.ai">Website</a> •
+  <a href="https://github.com/enterprises/alshival-ai">Enterprise</a> •
+  <a href="https://github.com/orgs/Alshival-Ai/repositories">Repositories</a> •
+  <a href="https://neural-labs.ai">Neural Labs</a> •
+  <a href="mailto:support@alshival.ai">Contact</a>
+</p>
 
 Neural Labs is an open-source, self-hosted AI workspace for teams. It brings
 Neura, project files, a terminal, VS Code, reusable skills, and scheduled
