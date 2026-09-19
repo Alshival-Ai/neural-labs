@@ -7,6 +7,7 @@ import { once } from "node:events";
 import { WebSocket } from "ws";
 
 import { createWorkspaceHttpServer } from "./http-server.mjs";
+import { ClaudeAccounts } from "./claude-accounts.mjs";
 
 const mcpStatusFixture = (ready = true) => ({
   ready,
@@ -1528,8 +1529,35 @@ test("Claude internal routes require the control token and keep actor, owner, an
   }, modelAccounts: { snapshot: async userId => ({ agentId: `nl-${userId}` }) } });
   try {
     assert.equal((await fetch(`${app.origin}/internal/model-providers/anthropic`)).status, 401);
-    const response = await fetch(`${app.origin}/internal/model-providers/anthropic?userId=alice`, { method: "POST", headers: { Authorization: "Bearer workspace-control-token-at-least-thirty-two-characters", "Content-Type": "application/json" }, body: JSON.stringify({ action: "connect", actorId: "actor-a", input: {} }) });
+    const response = await fetch(`${app.origin}/internal/model-providers/anthropic?userId=alice`, { method: "POST", headers: { Authorization: "Bearer workspace-control-token-at-least-thirty-two-characters", "Content-Type": "application/json" }, body: JSON.stringify({ action: "refresh", actorId: "actor-a", input: {} }) });
     assert.equal(response.status, 200);
-    assert.deepEqual(calls, [[{ userId: "alice", workload: "background" }, "connect", {}, "actor-a"]]);
+    assert.deepEqual(calls, [[{ userId: "alice", workload: "background" }, "refresh", {}, "actor-a"]]);
   } finally { await app.close(); }
+});
+
+test("Claude connect returns a private Terminal app session through the existing HTTP API", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "claude-http-"));
+  const child = { onData() {}, onExit(fn) { this.exit = fn; }, kill() { this.exit({ exitCode: 1 }); }, write() {}, resize() {} };
+  const accounts = new ClaudeAccounts({ manager: { stateRoot: root, ensureProvisioned: async id => ({ agentId: `nl-${id}` }) }, spawnPty: () => child });
+  const app = await fixture(true, { claudeAccounts: accounts, modelAccounts: {}, terminalActorResolver: async id => ({ id, label: id, role: "user" }) });
+  try {
+    const response = await fetch(`${app.origin}/internal/model-providers/anthropic?userId=alice`, { method: "POST", headers: { Authorization: "Bearer workspace-control-token-at-least-thirty-two-characters", "Content-Type": "application/json" }, body: JSON.stringify({ action: "connect", actorId: "alice", input: {} }) });
+    assert.equal(response.status, 200);
+    const { terminalId } = await response.json();
+    assert.match(terminalId, /^[a-f0-9-]{36}$/);
+    const url = `${app.origin}/workspace/api/terminals/${terminalId}`;
+    assert.equal((await fetch(url)).status, 401);
+    assert.equal((await fetch(url, { headers: { "X-Forwarded-User": "bob" } })).status, 404);
+    const own = await fetch(url, { headers: { "X-Forwarded-User": "alice" } });
+    assert.equal(own.status, 200);
+    const { session } = await own.json();
+    assert.equal(session.title, "Claude sign-in");
+    assert.equal(session.shell, "claude");
+    assert.equal(session.agentMode, "status-only");
+    assert.equal(session.canControlAgent, false);
+  } finally {
+    await accounts.stop("nl-alice", "alice", true);
+    await app.close();
+    await rm(root, { recursive: true, force: true });
+  }
 });

@@ -30,7 +30,8 @@ import type { WorkspacePreviewFile } from "./filesApi";
 import { NeuraGateway } from "./openclaw";
 import { AutomationsGateway } from "./automationsGateway";
 import { openPopoutSurface, type PopoutSurface } from "./popoutWindow";
-import { createTerminal, type TerminalDescriptor } from "./terminalApi";
+import { TerminalLaunchContext } from "./TerminalLaunchContext";
+import { createTerminal, getTerminal, type TerminalDescriptor } from "./terminalApi";
 import type { VsCodeOpenRequest } from "./VsCodeApp";
 
 const FilesApp = lazy(() => import("./FilesApp").then((module) => ({ default: module.FilesApp })));
@@ -592,6 +593,16 @@ export function App() {
     return () => { events.close(); window.removeEventListener("focus", focus); document.removeEventListener("pointerdown", focus); };
   }, [session?.user?.id, terminalDesktopId, notify]);
 
+  const openProviderTerminal = useCallback(async (terminalId: string) => {
+    const terminal = await getTerminal(terminalId);
+    const current = windowsRef.current;
+    const existing = current.filter(item => item.app === "terminal" && item.visibility !== "popped-out").sort((a, b) => b.order - a.order)[0];
+    if (!existing && current.length >= 24) throw new Error("Close a window, then choose Open sign-in in Terminal.");
+    const targetWindowId = existing?.id ?? freshWindowId("terminal");
+    setWindows(items => existing ? raiseWindow(items, targetWindowId) : appendWindow(items, { id: targetWindowId, app: "terminal", visibility: "open" }));
+    setTerminalOpenRequest({ id: crypto.randomUUID(), targetWindowId, session: terminal });
+  }, []);
+
   const reportTerminalFocus = useCallback((terminal: TerminalDescriptor) => {
     void recordTerminalFocus(terminalDesktopId, terminal.id).catch(() => {});
   }, [terminalDesktopId]);
@@ -708,7 +719,7 @@ export function App() {
                 {desktopWindow.app === "files" && <FilesApp notify={notify} active={activeWindowId === desktopWindow.id || desktopWindow.visibility === "popped-out"} initialPath={desktopWindow.filesPath} onOpenWindow={openFilesWindow} onEditImage={openImageEditor} onOpenInVsCode={openInVsCode} onPreviewFile={openPreviewFile} storageNamespace={persistenceUserId} storageArea={`files.${desktopWindow.id}`} />}
                 {desktopWindow.app === "preview" && desktopWindow.preview && <PreviewApp file={desktopWindow.preview} onEditImage={openImageEditor} />}
                 {desktopWindow.app === "image-editor" && <ImageEditorApp file={desktopWindow.preview} onDirtyChange={(dirty) => { if (dirty) dirtyEditors.current.add(desktopWindow.id); else dirtyEditors.current.delete(desktopWindow.id); }} />}
-                {desktopWindow.app === "settings" && session?.user && session.csrfToken && <SettingsApp workspaceStatus={runtime} administrator={session.user.role === "admin"} csrfToken={session.csrfToken} currentUserId={session.user.id} user={session.user} providers={session.providers ?? []} initialNotice={initialSettingsLaunch.notice} initialSection={initialSettingsLaunch.open ? initialSettingsLaunch.section : undefined} sectionRequest={settingsLaunchRequest?.targetWindowId === desktopWindow.id ? settingsLaunchRequest : undefined} fontScale={fontScale} onFontScaleChange={setFontScale} onLogout={() => void logout()} storageNamespace={persistenceUserId} storageArea={`settings.${desktopWindow.id}`} />}
+                {desktopWindow.app === "settings" && session?.user && session.csrfToken && <TerminalLaunchContext.Provider value={openProviderTerminal}><SettingsApp workspaceStatus={runtime} administrator={session.user.role === "admin"} csrfToken={session.csrfToken} currentUserId={session.user.id} user={session.user} providers={session.providers ?? []} initialNotice={initialSettingsLaunch.notice} initialSection={initialSettingsLaunch.open ? initialSettingsLaunch.section : undefined} sectionRequest={settingsLaunchRequest?.targetWindowId === desktopWindow.id ? settingsLaunchRequest : undefined} fontScale={fontScale} onFontScaleChange={setFontScale} onLogout={() => void logout()} storageNamespace={persistenceUserId} storageArea={`settings.${desktopWindow.id}`} /></TerminalLaunchContext.Provider>}
                 {desktopWindow.app === "terminal" && <TerminalApp active={activeWindowId === desktopWindow.id} onFocusSession={reportTerminalFocus} workspaceName="Workspace" notify={notify} storageNamespace={persistenceUserId} storageArea={`terminal.${desktopWindow.id}`} fontScale={fontScale} onFontScaleChange={setFontScale} openRequest={terminalOpenRequest?.targetWindowId === desktopWindow.id ? terminalOpenRequest : undefined} />}
                 {desktopWindow.app === "vscode" && <VsCodeApp notify={notify} openRequest={vsCodeOpenRequest?.targetWindowId === desktopWindow.id ? vsCodeOpenRequest : undefined} />}
                 {(desktopWindow.app === "skills" || desktopWindow.app === "automations") && session?.user && <SkillsLiveApp reader={gateway} administrator={session.user.role === "admin" ? automationsGateway : undefined} canManage={session.user.role === "admin"} currentUser={{ id: session.user.id, displayName: session.user.displayName, role: session.user.role }} initialSection={skillsLaunchRequest?.targetWindowId === desktopWindow.id ? skillsLaunchRequest.section : "mine"} sectionRequestId={skillsLaunchRequest?.targetWindowId === desktopWindow.id ? skillsLaunchRequest.id : undefined} notify={notify} onComposeInNeura={composeInNeura} workspaceName="Workspace" />}

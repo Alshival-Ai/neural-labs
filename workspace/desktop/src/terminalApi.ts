@@ -37,6 +37,7 @@ export type TerminalDescriptor = {
   agentMode?: "shared" | "status-only";
   agentActive?: boolean;
   canControlAgent?: boolean;
+  providerSignIn?: { provider: "anthropic"; verificationUrl: string | null };
   owner: { label: string };
   owned: boolean;
   canTerminate: boolean;
@@ -87,6 +88,11 @@ async function terminalRequest<T>(path: string, init: RequestInit = {}): Promise
 export async function listTerminals(): Promise<TerminalDescriptor[]> {
   const response = await terminalRequest<TerminalListResponse>("/workspace/api/terminals");
   return response.sessions;
+}
+
+export async function getTerminal(terminalId: string): Promise<TerminalDescriptor> {
+  const response = await terminalRequest<TerminalCreateResponse>(`/workspace/api/terminals/${encodeURIComponent(terminalId)}`);
+  return response.session;
 }
 
 export async function createTerminal(input: { scope: TerminalScope; title?: string; channelId?: string; cols?: number; rows?: number }): Promise<TerminalDescriptor> {

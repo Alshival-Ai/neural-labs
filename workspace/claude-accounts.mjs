@@ -94,6 +94,7 @@ export class ClaudeAccounts {
           child.onExit(({ exitCode }) => {
             clearTimeout(login.timer);
             login.exited = true;
+            login.exitCode = exitCode;
             // Resolve before the queued completion to avoid deadlock with cancel.
             resolve();
             void this.queue(id, async () => {

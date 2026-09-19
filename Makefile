@@ -29,7 +29,7 @@ validate:
 	node --check workspace/skills-manager.mjs
 	node --check workspace/file-events.mjs
 	node --check workspace/claude-accounts.mjs
-	node --check workspace/claude-login-socket.mjs
+	node --check workspace/claude-login-terminal.mjs
 	node --check workspace/claude-runtime.mjs
 	node --check workspace/model-accounts.mjs
 	node --check workspace/claude-native-key.mjs

@@ -124,9 +124,12 @@ export class WorkspaceTerminalManager {
       channelId,
       channelName: teamChannel?.name ?? null,
       process: null,
+      processFactory: input.processFactory,
+      providerSignIn: input.providerSignIn,
+      access: input.access,
       cwd,
       command,
-      agentMode: input.agentMode === "status-only" ? "status-only" : "shared",
+      agentMode: input.providerSignIn || input.agentMode === "status-only" ? "status-only" : "shared",
       agentActiveUntil: 0,
       actor,
       deferred: input.deferred === true,
@@ -161,7 +164,7 @@ export class WorkspaceTerminalManager {
       throw new TerminalError(409, "launch_expired", "The terminal launch expired before connecting");
     }
     try {
-      session.process = this.spawnPty(this.shell, session.command === undefined ? shellArguments(this.shell) : ["-lc", session.command], {
+      session.process = session.processFactory ? session.processFactory() : this.spawnPty(this.shell, session.command === undefined ? shellArguments(this.shell) : ["-lc", session.command], {
         name: "xterm-256color", cols: session.cols, rows: session.rows, cwd: session.cwd,
         env: terminalEnvironment(this.shell, this.workspaceRoot, { actor: session.actor, scope: session.scope, terminalId: session.id }),
       });
@@ -177,6 +180,7 @@ export class WorkspaceTerminalManager {
       session.exitCode = Number.isInteger(exitCode) ? exitCode : null;
       session.exitSignal = Number.isInteger(signal) ? signal : null;
       session.lastActivityAt = this.now();
+      if (session.providerSignIn) { session.backlog = []; session.backlogBytes = 0; }
       this.broadcast(session, { type: "exit", exitCode: session.exitCode, signal: session.exitSignal });
       this.events.emit(session.id);
     });
@@ -186,6 +190,7 @@ export class WorkspaceTerminalManager {
   async setAgentMode(actor, id, mode) {
     const session = await this.get(actor, id);
     if (!session) throw new TerminalError(404, "terminal_not_found", "Terminal session not found");
+    if (session.providerSignIn) throw new TerminalError(403, "terminal_private", "Provider sign-in is private and unavailable to Neura");
     if (session.ownerId !== actor.id && !(session.scope === "team" && actor.role === "admin")) {
       throw new TerminalError(403, "terminal_forbidden", "Only the creator or an administrator can change Neura participation");
     }
@@ -451,9 +456,10 @@ export class WorkspaceTerminalManager {
       scope: session.scope,
       shell: path.basename(session.process?.process || this.shell),
       cwd: session.cwd,
+      ...(session.providerSignIn ? { providerSignIn: { provider: "anthropic", verificationUrl: session.status === "running" ? session.providerSignIn() : null } } : {}),
       agentMode: session.agentMode,
       agentActive: session.agentActiveUntil > this.now(),
-      canControlAgent: session.ownerId === actor.id || (session.scope === "team" && actor.role === "admin"),
+      canControlAgent: !session.providerSignIn && (session.ownerId === actor.id || (session.scope === "team" && actor.role === "admin")),
       status: session.status,
       createdAt: session.createdAt,
       lastActivityAt: session.lastActivityAt,
@@ -491,6 +497,7 @@ export class WorkspaceTerminalManager {
   }
 
   async canAccess(actor, session) {
+    if (session.access && !await session.access(actor)) return false;
     if (session.scope === "personal") return session.ownerId === actor.id;
     if (!session.channelId) return true;
     const channel = await this.authorizeTeamChannel(actor, session.channelId);
@@ -511,7 +518,7 @@ export class WorkspaceTerminalManager {
 
   async revalidateConnections() {
     for (const session of this.sessions.values()) {
-      if (!session.channelId || session.connections.size === 0) continue;
+      if ((!session.channelId && !session.access) || session.connections.size === 0) continue;
       const actors = new Map([...session.connections.values()].map((connection) => [connection.actor.id, connection.actor]));
       const allowed = new Map();
       await Promise.all([...actors].map(async ([actorId, actor]) => {
@@ -519,7 +526,7 @@ export class WorkspaceTerminalManager {
       }));
       for (const connection of session.connections.values()) {
         if (allowed.get(connection.actor.id) !== false) continue;
-        connection.socket.close(1008, "Team Chat access revoked");
+        connection.socket.close(1008, "Terminal access revoked");
       }
     }
   }
@@ -535,11 +542,12 @@ export class WorkspaceTerminalManager {
       connection.socket.close(1000, "Terminal ended");
     }
     session.connections.clear();
+    session.backlog = []; session.backlogBytes = 0;
     if (session.status === "running") session.process?.kill();
   }
 
   recordOutput(session, data) {
-    if (!data) return;
+    if (!data || !this.sessions.has(session.id)) return;
     session.sequence += 1;
     session.lastActivityAt = this.now();
     const chunk = { sequence: session.sequence, data, bytes: Buffer.byteLength(data, "utf8"), agentVisible: session.agentMode === "shared" };
@@ -558,6 +566,13 @@ export class WorkspaceTerminalManager {
       session.backlogBytes -= removed.bytes;
     }
     this.broadcast(session, { type: "output", sequence: chunk.sequence, data });
+    if (session.providerSignIn) {
+      const verificationUrl = session.providerSignIn();
+      if (verificationUrl !== session.verificationUrl) {
+        session.verificationUrl = verificationUrl;
+        this.broadcast(session, { type: "provider-sign-in", provider: "anthropic", verificationUrl });
+      }
+    }
     this.events.emit(session.id);
   }
 

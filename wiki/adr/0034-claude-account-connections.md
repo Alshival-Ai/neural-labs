@@ -12,22 +12,26 @@ explicitly choose API-key billing instead of a subscription for each workload.
 This supersedes the Claude placeholder decision in ADR 0023.
 
 Use the unmodified Claude Code 2.1.226 CLI. Settings starts only `claude auth
-login` in a dedicated PTY. Users open Anthropic's URL and return any one-time
-code to the native prompt. This works with the native remote-terminal fallback;
-instances need no new public DNS, callback URL, or exposed port. Login input and
-output remain in bounded process memory, bound to the initiating actor and
-attempt. Terminal output, keystrokes, pasted codes and resize events use a
-bidirectional WebSocket under the existing authenticated workspace ingress,
-matching the Terminal app's ticket pattern. There is no HTTP polling or SSE
-terminal transport. A same-origin, CSRF-protected control-plane request issues
-a single-use, 60-second ticket for the authenticated actor and exact native
-attempt. The ticket travels in a WebSocket subprotocol, never in a URL.
-The upgrade checks the current active member and workspace administrator role;
-heartbeats recheck access and retire sockets after cancellation or account
-changes. Buffered output and tickets remain bounded in memory. Neither native
-input/output nor tickets enter terminal history or audit content. Reconnection
-replays output only; a previously entered code is never replayed. Settings also
-provides clipboard and standard code-field entry through that same socket.
+login` in an isolated native credential home, then opens that exact PTY as a
+private session in the existing Terminal app. Terminal's existing
+`/workspace/api/terminals/socket` WebSocket handles output, input, resize,
+clipboard paste and reconnect. There is no separate Settings terminal or HTTP
+or SSE terminal I/O. The Terminal app displays Anthropic's allowlisted native
+sign-in URL; the user pastes the returned code into the native prompt.
+
+The control plane returns a terminal ID after a same-origin, CSRF-protected
+connect action. Terminal's authenticated APIs issue single-use, 60-second
+WebSocket tickets bound to the initiating actor and session. Only that actor
+can access the sign-in session, including workspace-owned logins. Active
+membership and workspace administrator role are checked on access and during
+socket heartbeats. The process always remains in the provider owner's native
+home; no generic shell or command string is used to launch it. Neura cannot
+list, read, write, or enable participation in these sessions. Output remains
+bounded in memory and is cleared on completion or closure; no shell history or
+audit receives the sign-in code. Closing the session cancels the native login.
+Reopening an unfinished connection focuses the same Terminal session; reconnect
+replays output only, never input. Instances need no additional DNS, callback URL
+or exposed port.
 
 Claude owns subscription storage and refresh inside a persistent, per-agent
 configuration directory. Reconnect advances a generation to prevent native

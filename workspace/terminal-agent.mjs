@@ -33,7 +33,7 @@ export class TerminalAgentBridge {
       .sort((a, b) => b.interactions.get(actor.id) - a.interactions.get(actor.id));
     for (const candidate of candidates) {
       const session = await this.manager.get(actor, candidate.id);
-      if (!session) continue;
+      if (!session || session.providerSignIn) continue;
       const descriptor = this.manager.snapshot(actor, session);
       grant.recentTerminals.push({
         terminalId: session.id, title: descriptor.title, scope: descriptor.scope,
@@ -55,7 +55,7 @@ export class TerminalAgentBridge {
     const recentTerminals = [];
     for (const captured of grant.recentTerminals) {
       const session = await this.manager.get(grant.actor, captured.terminalId);
-      if (!session) continue;
+      if (!session || session.providerSignIn) continue;
       // Never refresh a queued snapshot with later output, and never deliver
       // captured output after sharing is paused while it is queued.
       recentTerminals.push(session.agentMode === "status-only"
@@ -65,7 +65,7 @@ export class TerminalAgentBridge {
     // pause state one final time without yielding before returning the snapshot.
     const visible = recentTerminals.flatMap((captured) => {
       const session = this.manager.sessions.get(captured.terminalId);
-      if (!session) return [];
+      if (!session || session.providerSignIn) return [];
       return [session.agentMode === "status-only" ? { ...captured, agentMode: "status-only", output: "", statusOnly: true } : captured];
     });
     return { contextToken, recentTerminals: visible, expiresAt: grant.expiresAt };
@@ -83,14 +83,14 @@ export class TerminalAgentBridge {
 
   async session(grant, id) {
     const session = await this.manager.get(grant.actor, id);
-    if (!session || (grant.channelId && session.channelId !== grant.channelId)) fail(404, "terminal_not_found", "Terminal is unavailable in this conversation");
+    if (!session || session.providerSignIn || (grant.channelId && session.channelId !== grant.channelId)) fail(404, "terminal_not_found", "Terminal is unavailable in this conversation");
     return session;
   }
 
   async call(tool, input) {
     const grant = await this.authorize(input.contextToken);
     if (tool === "list_terminals") {
-      const sessions = (await this.manager.list(grant.actor)).filter((s) => !grant.channelId || s.teamChannel?.id === grant.channelId);
+      const sessions = (await this.manager.list(grant.actor)).filter((s) => !s.providerSignIn && (!grant.channelId || s.teamChannel?.id === grant.channelId));
       return { sessions, recentTerminalIds: grant.recentTerminals.map((s) => s.terminalId).filter((id) => sessions.some((s) => s.id === id)) };
     }
     if (tool === "open_terminal") return this.open(grant, input);

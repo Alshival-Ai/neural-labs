@@ -287,7 +287,7 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
     setSessions((current) => current.filter((candidate) => candidate.id !== session.id));
     setActiveId((current) => current === session.id ? replacement?.id : current);
     setSecondaryId((current) => current === session.id ? undefined : current);
-    if (session.scope === "personal" && !replacement) void recoverPersonalTerminal();
+    if (session.scope === "personal" && !session.providerSignIn && !replacement) void recoverPersonalTerminal();
   }, [recoverPersonalTerminal]);
 
   useEffect(() => {
@@ -323,7 +323,7 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
       try {
         const available = (await listTerminals()).filter((session) => !endedIds.current.has(session.id));
         if (!stopped) {
-          const lostRunningPersonal = sessionsRef.current.some((session) => session.scope === "personal" && session.status === "running" && !endingIds.current.has(session.id) && !endedIds.current.has(session.id))
+          const lostRunningPersonal = sessionsRef.current.some((session) => session.scope === "personal" && !session.providerSignIn && session.status === "running" && !endingIds.current.has(session.id) && !endedIds.current.has(session.id))
             && !available.some((session) => session.scope === "personal" && session.status === "running");
           setSessions(available);
           if (lostRunningPersonal) void recoverPersonalTerminal();
@@ -628,10 +628,11 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
 
       <div className="terminal-banners">
       {!showLaunchpad && focusedSession && <div className="terminal-neura-participation" role="status">
-        {focusedSession.agentActive && <strong>Neura is participating · </strong>}<span>{focusedSession.agentMode === "status-only" ? "Neura: status only" : "Neura can read and type"}</span>
+        {focusedSession.agentActive && <strong>Neura is participating · </strong>}<span>{focusedSession.providerSignIn ? "Private Claude sign-in · Neura has no access" : focusedSession.agentMode === "status-only" ? "Neura: status only" : "Neura can read and type"}</span>
         {focusedSession.canControlAgent && <button type="button" onClick={() => void setTerminalParticipation(focusedSession.id, focusedSession.agentMode === "status-only" ? "shared" : "status-only").then(mergeSession).catch((error) => report(error.message))}>{focusedSession.agentMode === "status-only" ? "Enable Neura" : "Pause Neura"}</button>}
       </div>}
 
+        {!showLaunchpad && focusedSession?.providerSignIn && <div className="terminal-notice" role="status"><span>Open Anthropic, sign in, then paste the returned code here and press Enter. Return to Settings to check the connection. </span>{focusedSession.providerSignIn.verificationUrl && <a href={focusedSession.providerSignIn.verificationUrl} target="_blank" rel="noreferrer">Open Anthropic sign-in</a>}</div>}
         {viewport.mobile && !showLaunchpad && secondarySession && <div className="terminal-mobile-panes" role="tablist" aria-label="Terminal panes"><button type="button" role="tab" aria-selected={activePane === "primary"} onClick={() => setActivePane("primary")}>{activeSession?.title}</button><button type="button" role="tab" aria-selected={activePane === "secondary"} onClick={() => setActivePane("secondary")}>{secondarySession.title}</button></div>}
         {!showLaunchpad && searchOpen && <div className="terminal-search"><Search /><label className="terminal-sr-only" htmlFor="terminal-search-input">Search terminal output</label><input id="terminal-search-input" autoFocus value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Find in active terminal" /><span>Live buffer search</span><button type="button" aria-label="Close terminal search" onClick={() => { setSearchOpen(false); setSearchQuery(""); }}><X /></button></div>}
         {error && <div className="terminal-notice is-error" role="alert"><X /><span>{error}</span><button type="button" aria-label="Dismiss terminal error" onClick={() => setError(undefined)}><X /></button></div>}
@@ -837,7 +838,7 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, voiceMode, o
     try {
       if (!navigator.clipboard?.readText) throw new Error("Unavailable");
       const text = await navigator.clipboard.readText();
-      if (text) terminalRef.current?.paste(text);
+      if (text) { terminalRef.current?.paste(text); terminalRef.current?.focus(); }
       setClipboardError("");
     } catch {
       setClipboardError("Clipboard access was denied. Tap Keyboard, then use your keyboard's Paste action.");
@@ -983,6 +984,10 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, voiceMode, o
               resizeToHost();
               if (activeRef.current && !mobileRef.current && !document.activeElement?.closest(".terminal-reaction-dialog")) terminal.focus();
             });
+          } else if (message.type === "provider-sign-in" && descriptorRef.current.providerSignIn) {
+            const next = { ...descriptorRef.current, providerSignIn: { provider: "anthropic" as const, verificationUrl: typeof message.verificationUrl === "string" ? message.verificationUrl : null } };
+            descriptorRef.current = next;
+            onDescriptorChange(next);
           } else if (message.type === "agent-participation") {
             const next = { ...descriptorRef.current, agentMode: message.mode as "shared" | "status-only", agentActive: message.active === true };
             descriptorRef.current = next;
@@ -1065,6 +1070,10 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, voiceMode, o
           } else if (message.type === "reaction-error") {
             setReactionError(String(message.message ?? "Reaction could not be sent"));
           } else if (message.type === "exit") {
+            if (descriptorRef.current.providerSignIn) {
+              terminal.reset();
+              terminal.write("Claude sign-in ended. Return to Model Provider settings to check the connection.\r\n");
+            }
             terminalEnded.current = true;
             setConnectionStatus("exited");
             const exitCode = Number.isInteger(message.exitCode) ? Number(message.exitCode) : null;

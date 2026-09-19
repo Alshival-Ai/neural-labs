@@ -1,5 +1,5 @@
 import { PersonalAutomationRuns, AutomationRunError } from "./personal-automation-runs.mjs";
-import { attachClaudeLoginWebSocket } from "./claude-login-socket.mjs";
+import { openClaudeLoginTerminal } from "./claude-login-terminal.mjs";
 import { TerminalAgentBridge, terminalContextInstructions } from "./terminal-agent.mjs";
 import { readFile } from "node:fs/promises";
 import { randomBytes, timingSafeEqual } from "node:crypto";
@@ -526,9 +526,11 @@ export function createWorkspaceHttpServer({
           if (!["GET", "POST"].includes(method)) throw new Error("Invalid method");
           const body = method === "POST" ? await readJsonBody(request, 16384) : null;
           const owner = { userId, workload };
-          const result = body?.action === "terminal-ticket" ? await claudeSockets.issueTicket(owner, body.input, body.actorId)
-            : body ? await claudeAccounts.action(owner, body.action, body.input, body.actorId) : await claudeAccounts.snapshot(owner);
-          if (body && body.action !== "terminal-ticket") modelCatalog?.invalidate(userId);
+          const result = body ? await claudeAccounts.action(owner, body.action, body.input, body.actorId) : await claudeAccounts.snapshot(owner);
+          if (body?.action === "connect") {
+            result.terminalId = await openClaudeLoginTerminal({ accounts: claudeAccounts, terminals, owner, attemptId: result.attemptId, actorId: body.actorId, resolveActor: terminalActorResolver });
+          }
+          if (body) modelCatalog?.invalidate(userId);
           sendJson(response, 200, result, method);
         }
       } catch { sendJson(response, 409, { error: { message: "Claude operation could not complete. Refresh the connection and try again." } }, method); }
@@ -956,6 +958,12 @@ export function createWorkspaceHttpServer({
           return;
         }
         const terminalMatch = pathname.match(/^\/workspace\/api\/terminals\/([^/]+)$/);
+        if (terminalMatch && method === "GET") {
+          const session = await terminals.get(actor, decodeURIComponent(terminalMatch[1]));
+          if (!session) throw new TerminalError(404, "terminal_not_found", "Terminal session not found");
+          sendJson(response, 200, { session: terminals.snapshot(actor, session) }, method);
+          return;
+        }
         if (terminalMatch && method === "DELETE") {
           const closed = await terminals.close(actor, decodeURIComponent(terminalMatch[1]));
           if (!closed) throw new TerminalError(404, "terminal_not_found", "Terminal session not found");
@@ -1351,7 +1359,6 @@ export function createWorkspaceHttpServer({
     send(response, 404, "Not found\n", "text/plain; charset=utf-8", method);
   });
   const terminalSockets = attachTerminalWebSocket(server, { manager: terminals, publicOrigin, heartbeatMs: terminalHeartbeatMs });
-  const claudeSockets = attachClaudeLoginWebSocket(server, { accounts: claudeAccounts, publicOrigin, resolveActor: terminalActorResolver, heartbeatMs: terminalHeartbeatMs });
   const vsCodeSockets = attachVsCodeWebSocketBridge(server, { codeServerOrigin, publicOrigin });
   const builderSockets = attachBuilderWebSocket(server, { manager: builder, publicOrigin });
   const closeServer = server.close.bind(server);
@@ -1362,7 +1369,6 @@ export function createWorkspaceHttpServer({
       fileEvents.close();
       explorer.close();
       terminalSockets.close();
-      claudeSockets.close();
       vsCodeSockets.close();
       builderSockets.close();
       void builder.close();

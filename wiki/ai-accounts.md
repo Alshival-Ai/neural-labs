@@ -21,14 +21,13 @@ still valid.
 
 ## Connect Claude
 
-Open **Settings → Model Provider → Claude**, then **Connect Claude**. Settings
-starts a native Claude sign-in prompt inside this instance. Open the Anthropic
-URL it displays in your browser. If Anthropic gives you a login code, paste it
-into the native prompt with **Paste into terminal**, then press **Enter**.
-You can also paste into **Sign-in code** and choose **Send code**, including
-when browser clipboard access is blocked. Keep Settings open until the
-connection finishes. If the terminal disconnects, choose **Reconnect sign-in
-terminal**; previously submitted codes are not sent again automatically.
+Open **Settings → Model Provider → Claude**, then **Connect Claude**. This opens
+a private Claude sign-in session in the Terminal app. Choose **Open Anthropic
+sign-in**, complete the browser steps, then use Terminal's paste button (or
+Ctrl/Cmd+Shift+V) to paste the returned code and press Enter. Return to Settings
+to check the connection. **Open sign-in in Terminal** reopens the same unfinished
+session. Closing that terminal or choosing **Cancel sign-in** stops the attempt.
+Neura cannot access this sign-in session.
 
 This flow needs no additional public DNS, OAuth callback registration, or inbound
 port. The CLI and browser need outbound access to Anthropic. Claude keeps the
