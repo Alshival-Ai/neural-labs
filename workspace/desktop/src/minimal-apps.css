@@ -203,3 +203,15 @@
 .skills-app .skill-detail-header__actions .skill-invoke { box-shadow: none; }
 .skills-app .automations-app::before { content: none; }
 .neura-app .neura-sidebar button.new-chat-button { color: #fff; }
+
+/* Admin update settings use the existing Settings cards and controls. */
+.updates-toggle { display: flex; align-items: center; gap: .6rem; margin: 1rem 0; }
+.updates-days { display: flex; flex-wrap: wrap; gap: .75rem; padding: .75rem; border: 1px solid var(--border, #ddd); border-radius: .6rem; }
+.updates-days label { display: flex; align-items: center; gap: .35rem; }
+.updates-window, .updates-actions { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 1rem; }
+.updates-window label { display: grid; gap: .35rem; }
+.updates-window input { padding: .5rem; border-radius: .4rem; border: 1px solid #ccc; color: inherit; background: transparent; }
+.updates-history { list-style: none; margin: 0; padding: 0; }
+.updates-history li { padding: .8rem 0; border-bottom: 1px solid #ddd; }
+.updates-history p { margin: .25rem 0; }
+.workspace-update-notice { position: fixed; top: .5rem; left: 50%; transform: translateX(-50%); z-index: 100000; max-width: min(90vw, 42rem); padding: .8rem 1.2rem; border-radius: .7rem; background: #fff7dc; color: #352600; box-shadow: 0 3px 20px #0002; }

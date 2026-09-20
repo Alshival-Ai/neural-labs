@@ -56,6 +56,8 @@ export class CollaborationSocketHub {
   constructor(
     private readonly store: CollaborationStore,
     private readonly onAgentRun: (run: TeamAgentInvocation) => void,
+    private readonly maintenance: () => Promise<boolean> = async () => false,
+    private readonly activity: (delta: number) => void = () => {},
   ) {
     this.webSockets.on("connection", (connection) => this.connected(connection as TeamSocket));
     this.heartbeat = setInterval(() => {
@@ -132,8 +134,10 @@ export class CollaborationSocketHub {
       send(socket, { type: "error", code: "invalid_event", message: "That collaboration event is invalid." });
       return;
     }
+    this.activity(1);
     try {
       const event = parsed.data;
+      if (event.type !== "subscribe" && await this.maintenance()) { send(socket, { type: "error", code: "workspace_maintenance", message: "Workspace maintenance is in progress." }); return; }
       if (event.type === "subscribe") {
         const [messages, agentRun] = await Promise.all([
           this.store.listMessages(socket.actor, event.channelId, undefined, TEAM_CHAT_LIMITS.messagesPerPage),
@@ -172,7 +176,7 @@ export class CollaborationSocketHub {
       } else {
         send(socket, { type: "error", code: "internal_error", message: "The collaboration request failed." });
       }
-    }
+    } finally { this.activity(-1); }
   }
 
   private broadcastTyping(source: TeamSocket, channelId: string, active: boolean): void {

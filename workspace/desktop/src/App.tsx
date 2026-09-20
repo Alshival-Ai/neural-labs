@@ -1,3 +1,4 @@
+import { UpdateNotice } from "./UpdateNotice";
 import { recordTerminalFocus, terminalAgentRequest } from "./terminalAgentApi";
 import {
   Bot,
@@ -681,6 +682,7 @@ export function App() {
       onPointerDownCapture={(event) => { if (!(event.target as HTMLElement).closest(".dock, .dock-touch-reveal, .dock-context-menu")) setTouchDockOpen(false); }}
       style={desktopTypographyStyle(fontScale)}
     >
+      {session?.authenticated && <UpdateNotice />}
       <picture className="desktop-wallpaper" aria-hidden="true">
         <source media="(max-width: 760px)" srcSet="/workspace/assets/wallpaper-mobile.png" />
         <source media="(max-width: 1180px)" srcSet="/workspace/assets/wallpaper-tablet.png" />

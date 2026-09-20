@@ -1,6 +1,12 @@
 .PHONY: validate test build compose-config security
 
 validate:
+	python3 tests/updater_test.py
+	python3 -m py_compile deploy/updater/updater.py deploy/updater/install.py deploy/updater/release.py tests/updater_rehearsal.py
+	node --check workspace/update-maintenance.mjs
+	node --check workspace/update-probe.mjs
+	node --check workspace/update-app-server-probe.mjs
+	node --check bin/control-plane-fingerprint.mjs
 	bash tests/public_boundary_test.sh
 	python3 bin/export-wiki.py --check
 	python3 tests/wiki_export_test.py
@@ -40,6 +46,8 @@ validate:
 	node --check workspace/model-policies.mjs
 	node --check workspace/native-config-batch.mjs
 	node --check workspace/openclaw-runtime.mjs
+	node --check workspace/codex-updates.mjs
+	bash -n workspace/shell/codex
 	node --check workspace/gateway-isolation.mjs
 	node --check workspace/team-openai.mjs
 	node --check workspace/personal-openai.mjs
@@ -56,6 +64,7 @@ validate:
 	bash -n bin/openclaw-smoke-test
 	bash -n bin/openclaw-compare-image
 	bash -n bin/openclaw-upgrade-smoke
+	node --check tests/openclaw-update-maintenance-smoke.mjs
 	node --check tests/openclaw-migration-smoke.mjs
 	node --check tests/openclaw-role-smoke.mjs
 	node --check tests/openclaw-sms-smoke.mjs

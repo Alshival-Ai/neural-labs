@@ -406,7 +406,7 @@ export function createBuilderManager({ root, publishSkill }) {
 
   function schedulePersist(room) {
     clearTimeout(room.persistTimer);
-    room.persistTimer = setTimeout(() => void persist(room), 350);
+    room.persistTimer = setTimeout(() => { room.persistTimer = undefined; void persist(room); }, 350);
     room.persistTimer.unref?.();
   }
 
@@ -684,13 +684,14 @@ export function createBuilderManager({ root, publishSkill }) {
     rooms.clear();
   }
 
-  return { list, create, duplicate, get, collaborators, discard, saveAsset, removeAsset, validate, publish, finalizeAutomation, testSnapshot, connect, close };
+  return { pendingWrites: () => [...rooms.values()].filter(room => room.persisting || room.persistTimer || room.persistAgain).length, list, create, duplicate, get, collaborators, discard, saveAsset, removeAsset, validate, publish, finalizeAutomation, testSnapshot, connect, close };
 }
 
-export function attachBuilderWebSocket(server, { manager, publicOrigin }) {
+export function attachBuilderWebSocket(server, { manager, publicOrigin, gated = () => false }) {
   const sockets = new Set();
   const socketServer = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 });
   const onUpgrade = (request, socket, head) => {
+    if (gated() || socket.destroyed) { socket.destroy(); return; }
     let url;
     try { url = new URL(request.url ?? "/", "http://workspace.local"); } catch { return; }
     if (url.pathname !== BUILDER_SOCKET_PATH) return;
@@ -703,6 +704,7 @@ export function attachBuilderWebSocket(server, { manager, publicOrigin }) {
     }
     const draftId = url.searchParams.get("draftId") ?? "";
     void manager.get(actor, draftId).then(() => {
+      if (gated() || socket.destroyed) { socket.destroy(); return; }
       socketServer.handleUpgrade(request, socket, head, (webSocket) => {
         sockets.add(webSocket);
         webSocket.once("close", () => sockets.delete(webSocket));
@@ -715,6 +717,7 @@ export function attachBuilderWebSocket(server, { manager, publicOrigin }) {
   };
   server.on("upgrade", onUpgrade);
   return {
+    activeCount: () => sockets.size,
     close() {
       server.off("upgrade", onUpgrade);
       for (const socket of sockets) socket.close(1001, "Workspace stopping");

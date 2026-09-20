@@ -22,6 +22,7 @@ export interface ControlPlaneConfig {
   };
   masterKey: Buffer;
   sms?: SmsConfig;
+  updates?: { workerToken: string; codexAutomatic: boolean };
   mcpConfigToken: string;
   turn?: {
     urls: string[];
@@ -288,6 +289,7 @@ export async function loadConfig(env: NodeJS.ProcessEnv = process.env): Promise<
       password,
       ssl: ssl === "true",
     },
+    updates: { workerToken: env.NEURAL_LABS_UPDATER_TOKEN?.trim() ?? "", codexAutomatic: parseBoolean(env.NEURAL_LABS_CODEX_AUTO_UPDATE, false, "NEURAL_LABS_CODEX_AUTO_UPDATE") },
     masterKey,
     ...(sms ? { sms } : {}),
     mcpConfigToken,

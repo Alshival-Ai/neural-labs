@@ -86,12 +86,15 @@ export function createExplorerManager({
   stateRoot = path.join(path.dirname(root), ".local/state/neural-labs/files"),
   now = Date.now,
   changed = () => {},
+  paused = () => false,
 }) {
   const jobs = new Map();
   let tail = Promise.resolve();
   let stopped = false;
+  let activeOperations = 0;
   const serial = (fn) => {
-    const next = tail.catch(() => {}).then(fn);
+    activeOperations++;
+    const next = tail.catch(() => {}).then(fn).finally(() => { activeOperations--; });
     tail = next;
     return next;
   };
@@ -836,13 +839,14 @@ export function createExplorerManager({
   ready.catch((e) => console.error("Files recovery failed", e.message));
   const timer = setInterval(
     () =>
-      serial(maintain).catch((e) =>
+      !paused() && serial(maintain).catch((e) =>
         console.error("Files cleanup failed", e.message),
       ),
     3_600_000,
   );
   timer.unref();
   return {
+    activeOperations: () => activeOperations,
     metadata,
     saveMetadata,
     opened,

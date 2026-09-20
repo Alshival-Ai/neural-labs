@@ -60,7 +60,24 @@ require_docker() {
 }
 
 compose() {
-  docker compose --env-file "${compose_environment}" -f "${compose_file}" "$@"
+  local updater_state
+  if [[ -f /etc/neural-labs-updater-active ]]; then
+    updater_state="$(cat /etc/neural-labs-updater-active)"
+    case "${updater_state}" in
+      /var/lib/neural-labs/updater|/var/snap/docker/common/neural-labs-updater) ;;
+      *) die "Invalid host updater state directory; inspect the protected configuration" ;;
+    esac
+    # A separate host worker owns the active image/volume descriptor. Refuse
+    # legacy mutations rather than accidentally reopening original volumes.
+    case "${1:-}" in
+      ps|logs|config|exec) ;;
+      *) die "Host updater is installed. Stop its worker and follow wiki/workspace-updates.md for operator maintenance." ;;
+    esac
+    [[ -r "${updater_state}/active-compose.yaml" ]] || die "Use sudo for managed deployment inspection"
+    docker compose --project-name neural-labs -f "${updater_state}/base-compose.json" -f "${updater_state}/active-compose.yaml" "$@"
+  else
+    docker compose --env-file "${compose_environment}" -f "${compose_file}" "$@"
+  fi
 }
 
 env_value_from() {

@@ -1,3 +1,4 @@
+import { UpdateService } from "./updates.js";
 import { createServer } from "node:http";
 
 import { loadConfig } from "./config.js";
@@ -42,9 +43,16 @@ if (process.argv[2] === "setup-reset") {
   await database.close();
   process.exitCode = reset ? 0 : 1;
 } else {
+  const updates = new UpdateService(database.pool, config.updates?.codexAutomatic ?? false);
+  await updates.initialize();
+  const maintenance = async () => (await updates.maintenance()).maintenance;
   const collaboration = new CollaborationStore(database.pool);
   const modelPolicies = new ModelProviderPolicies(database.pool, config.workspace);
-  const reconcileModels = () => void modelPolicies.reconcile().catch(() => console.warn("Model defaults reconciliation is unavailable"));
+  const reconcileModels = () => {
+    updates.activeRequests++;
+    void maintenance().then(paused => paused ? undefined : modelPolicies.reconcile())
+      .catch(() => console.warn("Model defaults reconciliation is unavailable")).finally(() => { updates.activeRequests--; });
+  };
   const modelPolicyTimer = setInterval(reconcileModels, 3_600_000);
   modelPolicyTimer.unref();
   // The workspace may still be booting when the control plane becomes ready.
@@ -56,9 +64,10 @@ if (process.argv[2] === "setup-reset") {
   });
   reconcileModels();
   let agentProcessor: TeamAgentProcessor | undefined;
-  const socketHub = new CollaborationSocketHub(collaboration, (run) => agentProcessor?.enqueue(run));
+  const socketHub = new CollaborationSocketHub(collaboration, (run) => agentProcessor?.enqueue(run), maintenance, delta => { updates.activeRequests += delta; });
   const application = createApplication({
     database,
+    updates,
     config,
     collaboration,
     modelPolicies,
@@ -70,7 +79,7 @@ if (process.argv[2] === "setup-reset") {
     config,
     (event) => socketHub.publish(event),
   );
-  const notificationTimer = setInterval(() => { void application.notifications.tick().catch(() => console.warn("Notification reconciliation is unavailable")); }, 15_000);
+  const notificationTimer = setInterval(() => { void maintenance().then(paused => paused ? undefined : application.notifications.tick()).catch(() => console.warn("Notification reconciliation is unavailable")); }, 15_000);
   notificationTimer.unref();
   const server = createServer(application.app);
   socketHub.attach(server);

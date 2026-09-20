@@ -161,7 +161,8 @@ export class Notifications {
       const pending=(await this.pool.query(`SELECT d.*,e.job_id,e.run_id,e.outcome,e.title,e.message,e.links FROM notification_deliveries d
         JOIN notification_events e ON e.id=d.event_id WHERE d.status='pending' AND d.next_attempt_at<=now() ORDER BY d.next_attempt_at LIMIT 30`)).rows;
       for(const row of pending) {
-        const claimed=await this.pool.query("UPDATE notification_deliveries SET status='sending',attempts=attempts+1,updated_at=now() WHERE event_id=$1 AND user_id=$2 AND channel=$3 AND status='pending' RETURNING attempts",[row.event_id,row.user_id,row.channel]);
+        if(this.config.updates?.workerToken && (await this.pool.query("SELECT gate FROM update_runtime WHERE singleton")).rows[0]?.gate !== false) return;
+        const claimed=await this.pool.query("WITH admission AS (SELECT gate FROM update_runtime WHERE singleton FOR SHARE) UPDATE notification_deliveries SET status='sending',attempts=attempts+1,updated_at=now() WHERE event_id=$1 AND user_id=$2 AND channel=$3 AND status='pending' AND NOT EXISTS (SELECT 1 FROM admission WHERE gate) RETURNING attempts",[row.event_id,row.user_id,row.channel]);
         if(!claimed.rows.length) continue;
         let status="delivered",code:string|null=null;
         try {

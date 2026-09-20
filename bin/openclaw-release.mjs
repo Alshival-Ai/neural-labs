@@ -11,6 +11,7 @@ const readJson = async (file) => JSON.parse(await readFile(file, "utf8"));
 export function validateRelease(release) {
   if (!releaseVersion.test(release.version) || !/^[a-f0-9]{40}$/u.test(release.sourceRevision) ||
       !/^\d+\.\d+\.\d+$/u.test(release.codexVersion) ||
+      (release.appServerVersion !== undefined && !/^\d+\.\d+\.\d+$/u.test(release.appServerVersion)) ||
       !release.image?.startsWith(`ghcr.io/openclaw/openclaw:${release.version}@sha256:`) ||
       !/@sha256:[a-f0-9]{64}$/u.test(release.image) ||
       !Array.isArray(release.packages) || !["@openclaw/gateway-client", "@openclaw/gateway-protocol", "@openclaw/sms"].every((name) => release.packages.includes(name)) ||
@@ -40,6 +41,7 @@ export function pinRules(release) {
     [".env.example", /^NEURAL_LABS_CODEX_VERSION=.*$/gm, `NEURAL_LABS_CODEX_VERSION=${release.codexVersion}`],
     ["workspace/Containerfile", /^ARG OPENCLAW_IMAGE=.*$/gm, `ARG OPENCLAW_IMAGE=${release.image}`],
     ["workspace/Containerfile", /^ARG CODEX_VERSION=.*$/gm, `ARG CODEX_VERSION=${release.codexVersion}`],
+    ...(release.appServerVersion ? [["workspace/Containerfile", /^ARG CODEX_APP_SERVER_VERSION=.*$/gm, `ARG CODEX_APP_SERVER_VERSION=${release.appServerVersion}`]] : []),
     ["workspace/Containerfile", /NEURAL_LABS_OPENCLAW_VERSION=[^\s\\]+/g, `NEURAL_LABS_OPENCLAW_VERSION=${release.version}`],
     ["deploy/compose/compose.yaml", /\$\{NEURAL_LABS_OPENCLAW_IMAGE:-[^}]+\}/g, '${NEURAL_LABS_OPENCLAW_IMAGE:-' + release.image + '}'],
     ["deploy/compose/compose.yaml", /\$\{NEURAL_LABS_OPENCLAW_VERSION:-[^}]+\}/g, '${NEURAL_LABS_OPENCLAW_VERSION:-' + release.version + '}'],

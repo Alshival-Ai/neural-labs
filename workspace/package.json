@@ -11,9 +11,9 @@
   },
   "dependencies": {
     "@emoji-mart/data": "1.2.1",
-    "@openclaw/gateway-client": "2026.9.2",
-    "@openclaw/gateway-protocol": "2026.9.2",
-    "@openclaw/sms": "2026.9.2",
+    "@openclaw/gateway-client": "2026.9.5",
+    "@openclaw/gateway-protocol": "2026.9.5",
+    "@openclaw/sms": "2026.9.5",
     "node-pty": "1.1.0",
     "ws": "8.21.3",
     "y-protocols": "1.0.7",

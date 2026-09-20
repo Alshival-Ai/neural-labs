@@ -1,0 +1,19 @@
+[Unit]
+Description=Neural Labs workspace maintenance ingress
+After=network.target
+
+[Service]
+Type=simple
+User=root
+UMask=0077
+ExecStart=/usr/bin/python3 /opt/neural-labs-updater/updater.py proxy
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/neural-labs/updater
+
+[Install]
+WantedBy=multi-user.target

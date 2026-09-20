@@ -137,6 +137,7 @@ describe("Settings app", () => {
     expect(screen.getByText("Personal", { selector: ".settings-toolbar__scope" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Overview/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Users/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Updates/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Plugins/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /^Plugins/ }));
     expect(await screen.findByRole("button", { name: "View details for Neural Labs Tools" })).toBeInTheDocument();

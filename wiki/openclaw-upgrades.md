@@ -4,7 +4,7 @@ Neural Labs upgrades OpenClaw as a tested workspace image. Do not run
 `openclaw update`, replace npm packages, or edit compiled bundles inside a running
 workspace: those changes bypass the reviewed image, browser clients and SMS plugin and disappear when the container is recreated.
 
-The current assessment is [OpenClaw 2026.9.2](upgrades/openclaw-2026.9.2.md).
+The current assessment is [OpenClaw 2026.9.5](upgrades/openclaw-2026.9.5.md).
 Discovery and preparation do not deploy a release.
 The [upstream boundary verification](upgrades/upstream-boundary-2026-09-06.md)
 records the unmodified 2026.8.2 application tree in the refactored image.
@@ -204,6 +204,28 @@ there is no automatic state downgrade or automatic restore on health failure.
 Upstream references: [Updating OpenClaw](https://docs.openclaw.ai/install/updating),
 [Docker deployment](https://docs.openclaw.ai/install/docker).
 
+## Automatic terminal Codex updates
+
+Use **Settings → Updates** to enable daily stable-release checks. On first
+initialization, the control plane imports `NEURAL_LABS_CODEX_AUTO_UPDATE` from
+the deployment environment; later changes use the saved administrator policy.
+New terminal CLI launches use a successfully installed and version-verified
+update without restarting existing sessions or the workspace. The pinned image
+CLI remains the fallback. Disabling automatic updates keeps the installed
+version and stops future checks; it does not roll the CLI back.
+
+Updates install under `/home/node/.local/share/neural-labs/codex-terminal`, use
+the official npm registry with lifecycle scripts disabled, and activate through
+an atomic symlink. Failed checks/downloads keep the existing selection and retry
+the next day. Prior installations are retained. Workspace Settings reports the
+selected CLI version; `NEURAL_LABS_CODEX_VERSION` identifies the image fallback.
+
+This option affects the Neural Labs Terminal app's `codex` command. Explicit
+`/usr/local/bin/codex` calls continue using the pinned image CLI. OpenClaw's
+managed app-server and the custom app-server command override remain separate
+and must track the compatible OpenClaw plugin version. See
+[ADR 0035](adr/0035-terminal-codex-automatic-updates.md).
+
 ## SMS reply recovery on 2026.9.2
 
 A valid personal OAuth login can still fail with **Explicit auth order for openai
@@ -232,3 +254,5 @@ repair, as well as model-status readiness. For SMS, verify the native channel's
 inbound reply and delivery receipt with an explicitly authorized test. Gateway
 operator-client identity failures are separate from model authentication; do not
 relax user/role policies to work around them.
+
+Administrator policy, reviewed release publication and host maintenance are documented in [Workspace updates](workspace-updates.md).

@@ -395,4 +395,36 @@ export const migrations: Migration[] = [
       CREATE INDEX notification_pending ON notification_deliveries(next_attempt_at) WHERE status='pending';
     `,
   },
+  {
+    version: 12,
+    sql: `
+      CREATE TABLE update_policy (
+        singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),
+        revision bigint NOT NULL DEFAULT 1,
+        policy jsonb NOT NULL
+      );
+      CREATE TABLE update_jobs (
+        id uuid PRIMARY KEY,
+        kind text NOT NULL CHECK(kind IN ('check','install','automatic')),
+        phase text NOT NULL,
+        message text NOT NULL DEFAULT '',
+        release_id text,
+        actor_id uuid REFERENCES users(id),
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE TABLE update_runtime (
+        singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),
+        gate boolean NOT NULL DEFAULT false,
+        active_job uuid REFERENCES update_jobs(id),
+        available jsonb,
+        installed jsonb,
+        codex jsonb,
+        heartbeat timestamptz,
+        checked_at timestamptz,
+        error text
+      );
+      INSERT INTO update_runtime(singleton) VALUES(true);
+    `,
+  },
 ];

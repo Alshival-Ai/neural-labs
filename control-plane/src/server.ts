@@ -1,3 +1,5 @@
+import { UpdateService } from "./updates.js";
+import { registerUpdateRoutes } from "./updateRoutes.js";
 import { Notifications } from "./notifications.js";
 import { registerNotificationRoutes } from "./notificationRoutes.js";
 import { ProviderPluginService, providerIdSchema, providerSettingsSchema, providerRuntimeReportSchema, providerCheckSchema } from "./providerPlugins.js";
@@ -297,6 +299,7 @@ export interface ControlPlaneApplication {
   sessions: SessionService;
   collaboration: CollaborationStore;
   notifications: Notifications;
+  updates: UpdateService;
 }
 
 export type CollaborationEvent =
@@ -313,6 +316,7 @@ export function createApplication(input: {
   webauthn?: WebAuthnOperations;
   phone?: PhoneService;
   modelPolicies?: ModelProviderPolicies;
+  updates?: UpdateService;
   onCollaborationEvent?: (event: CollaborationEvent) => void;
   onAgentRun?: (run: TeamAgentRun & { capability: string }) => void;
 }): ControlPlaneApplication {
@@ -331,6 +335,7 @@ export function createApplication(input: {
   );
   const webauthn = input.webauthn ?? new WebAuthnService();
   const modelPolicies = input.modelPolicies ?? new ModelProviderPolicies(database.pool, config.workspace, workspaceFetch);
+  const updates = input.updates ?? new UpdateService(database.pool, config.updates?.codexAutomatic ?? false);
   const notifications = new Notifications(database.pool, authConfiguration, twilio, config, workspaceFetch);
   const app = express();
   const publish = (event: CollaborationEvent) => input.onCollaborationEvent?.(event);
@@ -339,6 +344,24 @@ export function createApplication(input: {
   // Trust only loopback/private proxy hops so X-Forwarded-Proto reflects TLS.
   app.set("trust proxy", "loopback, linklocal, uniquelocal");
   app.use(express.urlencoded({ extended: false, limit: "64kb" }));
+  // Admit and count work before the asynchronous gate lookup so a cutover
+  // cannot miss a request already waiting on PostgreSQL. Settings/auth remain
+  // available while the workspace is stopped.
+  if (config.updates?.workerToken) app.use(async (request, response, next) => {
+    const workspaceAuth = request.path.startsWith("/internal/workspace/");
+    const mutating = !["GET", "HEAD", "OPTIONS"].includes(request.method)
+      && (request.path.startsWith("/api/") || request.path.startsWith("/internal/"))
+      && !request.path.startsWith("/api/admin/updates") && !request.path.startsWith("/internal/updates/") && !request.path.startsWith("/api/auth/");
+    if (!workspaceAuth && !mutating) { next(); return; }
+    updates.activeRequests++;
+    let finished = false;
+    const done = () => { if (!finished) { finished = true; updates.activeRequests--; } };
+    response.once("finish", done); response.once("close", done);
+    try {
+      if ((await updates.maintenance()).maintenance) { response.status(503).json({ error: { code: "workspace_maintenance", message: "Workspace maintenance is in progress." } }); return; }
+      next();
+    } catch { response.status(503).json({ error: { code: "updates_unavailable", message: "Workspace availability cannot be verified." } }); }
+  });
   const ordinaryJson = express.json({ limit: "512kb" });
   const teamImportJson = express.json({ limit: "24mb" });
   app.use((request, response, next) => {
@@ -879,6 +902,8 @@ export function createApplication(input: {
     if (error instanceof PhoneError) jsonError(response, error.status, error.code, error.message);
     else jsonError(response, 503, "phone_unavailable", "Phone settings are temporarily unavailable. Try again later.");
   };
+  registerUpdateRoutes(app, updates, { admin: requireAdminJson, active: requireActiveJson, csrf: requireCsrfJson, sameOrigin,
+    workerToken: config.updates?.workerToken, workspaceToken: config.workspace.controlToken });
   registerNotificationRoutes(app, notifications, { sameOrigin, active: requireActiveJson, admin: requireAdminJson, csrf: requireCsrfJson, token: config.workspace.controlToken });
   app.get("/api/account/phone", async (request, response) => {
     response.set("Cache-Control", "no-store");
@@ -2446,5 +2471,5 @@ export function createApplication(input: {
     }
   });
 
-  return { app, sessions, collaboration, notifications };
+  return { app, sessions, collaboration, notifications, updates };
 }

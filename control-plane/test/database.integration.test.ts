@@ -47,7 +47,11 @@ integration("PostgreSQL account state", () => {
       const store = new CollaborationStore(upgradePool);
       const channel = await store.createChannel(owner, { name: "Attachment upgrade", audience: "everyone", memberIds: [] });
       const attachment = { path: "uploads/photo.png", name: "photo.png", type: "image/png", size: 12 };
-      const old = await store.postMessage(owner, { channelId: channel.channel.id, body: "photo.png", attachments: [attachment], clientRequestId: randomUUID(), invokeAgent: false });
+      // Seed the historical schema directly. Current message admission also
+      // requires the update gate introduced by the later migrations.
+      const old = { message: { id: randomUUID() } };
+      await upgradePool.query("INSERT INTO team_messages(id,channel_id,author_kind,author_user_id,body,attachments,client_request_id) VALUES($1,$2,'user',$3,'photo.png',$4,$5)",
+        [old.message.id, channel.channel.id, owner.id, JSON.stringify([attachment]), randomUUID()]);
       await upgrade.migrate();
       await upgrade.migrate();
       expect((await upgradePool.query("SELECT body FROM team_messages WHERE id = $1", [old.message.id])).rows[0].body).toBe("photo.png");

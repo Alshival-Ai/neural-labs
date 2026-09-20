@@ -1,3 +1,4 @@
+import { UpdatesPanel } from "./UpdatesPanel";
 import { ClaudeProviderConnection } from "./ClaudeProviderConnection";
 import "./minimal-apps.css";
 import { PluginCardsPanel } from "./PluginCardsPanel";
@@ -60,7 +61,7 @@ import { PersonalProviderConnection } from "./PersonalProviderConnection";
 import { VoiceSettingsPanel } from "./VoiceSettingsPanel";
 import { TwilioPluginCard } from "./TwilioPluginCard";
 
-export type SettingsSection = "personalization" | "security" | "model-provider" | "plugins" | "overview" | "users" | "authentication" | "workspace" | "audit" | "about";
+export type SettingsSection = "personalization" | "security" | "model-provider" | "plugins" | "overview" | "users" | "authentication" | "workspace" | "updates" | "audit" | "about";
 
 export type SettingsAppProps = {
   administrator?: boolean;
@@ -100,6 +101,7 @@ const ADMIN_NAVIGATION: { id: SettingsSection; label: string; description: strin
   { id: "users", label: "Users", description: "People and access", icon: Users, accent: "pink" },
   { id: "authentication", label: "Authentication", description: "Login providers", icon: KeyRound, accent: "amber" },
   { id: "workspace", label: "Workspace", description: "OpenClaw and Codex", icon: Bot, accent: "coral" },
+  { id: "updates", label: "Updates", description: "Automatic updates and recovery", icon: RefreshCw, accent: "cyan" },
   { id: "audit", label: "Audit log", description: "Security activity", icon: Activity, accent: "mint" },
   { id: "about", label: "About", description: "Versions and credits", icon: Info, accent: "amber" },
 ];
@@ -279,6 +281,7 @@ export function SettingsApp({ administrator = true, workspaceStatus, csrfToken, 
           {administrator && section === "users" && <UsersPanel users={users} currentUserId={currentUserId} csrfToken={csrfToken} onUsers={setUsers} onNotice={setNotice} onMutated={refreshAfterMutation} />}
           {administrator && section === "authentication" && <AuthenticationPanel settings={authentication} csrfToken={csrfToken} onSettings={setAuthentication} onNotice={setNotice} onMutated={refreshAfterMutation} />}
           {administrator && section === "workspace" && <WorkspacePanel workspace={workspace} provider={provider} csrfToken={csrfToken} onProvider={setProvider} onNotice={setNotice} onRefresh={() => void refreshWorkspace()} />}
+          {administrator && section === "updates" && <UpdatesPanel csrfToken={csrfToken} />}
           {administrator && section === "audit" && <AuditPanel events={audit} />}
           {administrator && section === "about" && <AboutPanel overview={overview} />}
         </div>

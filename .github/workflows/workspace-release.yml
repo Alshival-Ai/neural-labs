@@ -1,0 +1,98 @@
+name: Reviewed workspace release
+on:
+  push:
+    tags: ['workspace-v*']
+permissions:
+  contents: read
+concurrency:
+  group: reviewed-workspace-release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    environment: workspace-releases
+    permissions:
+      contents: write
+      actions: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Require configured maintainer approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/Alshival-Ai/neural-labs/environments/workspace-releases > /tmp/release-environment.json
+          python3 - <<'PY'
+          import json
+          config = json.load(open('/tmp/release-environment.json'))
+          assert any(rule['type'] == 'required_reviewers' and rule.get('reviewers') for rule in config['protection_rules']), 'Configure required reviewers before publishing releases'
+          PY
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '26'
+      - name: Install validation dependencies
+        run: |
+          for package in console control-plane mcp workspace workspace/desktop; do npm --prefix "$package" ci; done
+      - name: Validate repository
+        run: make validate
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .
+          file: workspace/Containerfile
+          platforms: linux/amd64
+          load: true
+          tags: ghcr.io/alshival-ai/neural-labs-workspace:${{ github.ref_name }}
+      - name: Rehearse migrations and restore for every supported origin
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          candidate="$(docker image inspect --format '{{.Id}}' "ghcr.io/alshival-ai/neural-labs-workspace:${RELEASE_TAG}")"
+          python3 -c 'import json; print("\n".join(json.load(open("workspace/update-release-policy.json"))["baselineImages"].values()))' > /tmp/baselines.txt
+          while IFS= read -r baseline; do
+            docker pull "$baseline"
+            bin/openclaw-upgrade-smoke "$baseline" "$candidate"
+          done < /tmp/baselines.txt
+          upstream="$(node -p 'require("./workspace/openclaw-release.json").image')"
+          docker pull "$upstream"
+          bin/openclaw-compare-image "$upstream" "$candidate"
+          python3 tests/updater_rehearsal.py --image "$candidate"
+          docker run --rm --network none --read-only --user node --tmpfs /tmp:rw,nosuid,nodev,size=128m \
+            --entrypoint node "$candidate" --input-type=module -e 'import {verifyAppServer} from "/usr/local/lib/neural-labs/update-app-server-probe.mjs"; import {openclawRelease} from "/usr/local/lib/neural-labs/openclaw-runtime.mjs"; await verifyAppServer(openclawRelease.appServerVersion);'
+
+          docker run --rm --network none --read-only --user node --tmpfs /tmp:rw,nosuid,nodev,size=512m \
+            --mount "type=bind,src=${PWD}/tests/openclaw-update-maintenance-smoke.mjs,dst=/probe.mjs,readonly" \
+            --entrypoint node "$candidate" /probe.mjs
+      - name: Publish immutable candidate and manifest
+        id: publish
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          image="ghcr.io/alshival-ai/neural-labs-workspace:${RELEASE_TAG}"
+          docker push "$image"
+          immutable="$(docker image inspect --format '{{index .RepoDigests 0}}' "$image")"
+          python3 deploy/updater/release.py --tag "$RELEASE_TAG" --image "$immutable" > workspace-release.json
+          echo "digest=${immutable##*@}" >> "$GITHUB_OUTPUT"
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
+        with:
+          subject-name: ghcr.io/alshival-ai/neural-labs-workspace
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
+        with:
+          subject-path: workspace-release.json
+      - name: Publish reviewed release feed entry
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release create "$RELEASE_TAG" workspace-release.json --repo Alshival-Ai/neural-labs --verify-tag --generate-notes

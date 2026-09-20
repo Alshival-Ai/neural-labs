@@ -55,6 +55,7 @@ export function proxyVsCodeHttp(request, response, config) {
 export function attachVsCodeWebSocketBridge(server, config) {
   const sockets = new Set();
   const onUpgrade = (request, socket, head) => {
+    if (config.gated?.() || socket.destroyed) { socket.destroy(); return; }
     if (!isVsCodePath(request.url, config.publicOrigin)) return;
     if (!workspaceActor(request.headers)) {
       rejectUpgrade(socket, 404, "Not Found");
@@ -98,6 +99,7 @@ export function attachVsCodeWebSocketBridge(server, config) {
 
   server.on("upgrade", onUpgrade);
   return {
+    activeCount: () => sockets.size,
     close() {
       server.off("upgrade", onUpgrade);
       for (const socket of sockets) socket.destroy();

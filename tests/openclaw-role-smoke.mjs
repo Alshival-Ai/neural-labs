@@ -21,7 +21,7 @@ await writeFile(process.env.OPENCLAW_CONFIG_PATH,JSON.stringify(cfg));
 const admin=async(method,params={})=>{const {stdout}=await execute('openclaw',['gateway','call',method,'--params',JSON.stringify(params),'--url','ws://127.0.0.1:18789','--password','synthetic-role-admin','--json'],{timeout:30000,maxBuffer:2**22});return JSON.parse(stdout.slice(stdout.indexOf('{')));};
 let logs='';const gateway=spawn('openclaw',['gateway','run','--port','18789'],{stdio:['ignore','pipe','pipe']});gateway.stdout.on('data',b=>logs+=b);gateway.stderr.on('data',b=>logs+=b);
 const clients=[];
-async function connect(user,{device=true}={}){
+async function connect(user,{device=true,retries=120}={}){
  const ws=new WebSocket('ws://127.0.0.1:18789',{headers:{origin:'https://probe.example.com','x-forwarded-for':'203.0.113.9','x-forwarded-proto':'https',...(user?{'x-forwarded-user':user}:{})}});clients.push(ws);
  const pending=new Map();let resolveChallenge;const challenge=new Promise(r=>resolveChallenge=r);
  ws.on('message',bytes=>{const event=JSON.parse(bytes);if(event.event==='connect.challenge')resolveChallenge(event.payload);if(event.type==='res'){pending.get(event.id)?.(event);pending.delete(event.id);}});
@@ -31,12 +31,14 @@ async function connect(user,{device=true}={}){
  let identity;
  if(device){const pair=generateKeyPairSync('ed25519'),raw=pair.publicKey.export({format:'der',type:'spki'}).subarray(-32),id=createHash('sha256').update(raw).digest('hex'),signedAt=Date.now();identity={id,publicKey:raw.toString('base64url'),signature:sign(null,Buffer.from(buildDeviceAuthPayloadV3({deviceId:id,clientId:client.id,clientMode:client.mode,role:'operator',scopes,signedAtMs:signedAt,token:null,nonce:c.nonce,platform:client.platform})),pair.privateKey).toString('base64url'),signedAt,nonce:c.nonce};}
  const hello=await request('connect',{minProtocol:PROTOCOL_VERSION,maxProtocol:PROTOCOL_VERSION,client,role:'operator',scopes,...(identity?{device:identity}:{})});
+ // Newer Gateways expose liveness before startup sidecars admit connections.
+ if(!hello.ok&&hello.error?.code==='UNAVAILABLE'&&hello.error.retryable&&retries>0){ws.terminate();await new Promise(r=>setTimeout(r,500));return connect(user,{device,retries:retries-1});}
  return {ws,hello,request};
 }
 try{
  let ready=false;for(let i=0;i<120;i++){try{if((await fetch('http://127.0.0.1:18789/healthz')).ok){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,500));}assert.ok(ready,logs.slice(-3000));
  const anonymous=await connect();assert.equal(anonymous.hello.ok,false);anonymous.ws.close();
- const proxyOnly=await connect('alice',{device:false});assert.equal(proxyOnly.hello.ok,true);assert.equal((await proxyOnly.request('sessions.create',{agentId:'nl-alice',key:'agent:nl-alice:neura:unlinked'})).ok,false);proxyOnly.ws.close();
+ const proxyOnly=await connect('alice',{device:false});assert.equal(proxyOnly.hello.ok,true,JSON.stringify(proxyOnly.hello));assert.equal((await proxyOnly.request('sessions.create',{agentId:'nl-alice',key:'agent:nl-alice:neura:unlinked'})).ok,false);proxyOnly.ws.close();
  for(const user of ['alice','bob']){const c=await connect(user);assert.equal(c.hello.ok,true,JSON.stringify(c.hello));c.ws.close();const profiles=await admin('users.list');const profile=profiles.profiles.find(p=>p.emails.includes(user));assert.ok(profile);await admin('users.setRole',{profileId:profile.id,role:user});}
  const alice=await connect('alice'),bob=await connect('bob');assert.equal(alice.hello.ok,true);assert.equal(bob.hello.ok,true);
  for(const [user,c] of [['alice',alice],['bob',bob]]){const r=await c.request('sessions.create',{agentId:'nl-'+user,key:`agent:nl-${user}:neura:role-probe`,visibility:'draft'});assert.equal(r.ok,true,JSON.stringify(r));}

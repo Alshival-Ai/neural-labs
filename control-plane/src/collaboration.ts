@@ -669,6 +669,10 @@ export class CollaborationStore {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      // Hold admission through the transaction, including after a disconnected
+      // HTTP client. Cutover cannot overtake a queued agent-run insertion.
+      const admission = await client.query("SELECT gate FROM update_runtime WHERE singleton FOR SHARE");
+      if (admission.rows[0]?.gate) throw new CollaborationError(503, "workspace_maintenance", "Workspace maintenance is in progress.");
       const channel = await this.requireAccess(client, input.channelId, actor.id);
       const body = input.body.trim();
       const safeAttachments = assertAttachments(input.attachments);

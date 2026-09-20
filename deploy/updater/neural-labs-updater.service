@@ -1,0 +1,23 @@
+[Unit]
+Description=Neural Labs reviewed workspace updater
+After=network-online.target docker.service neural-labs-update-proxy.service
+Wants=network-online.target neural-labs-update-proxy.service
+
+[Service]
+Type=simple
+User=root
+UMask=0077
+ExecStart=/usr/bin/python3 /opt/neural-labs-updater/updater.py worker
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=45
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+ReadWritePaths=/var/lib/neural-labs/updater
+Environment=GH_CONFIG_DIR=/etc/neural-labs/gh
+Environment=DOCKER_CONFIG=/var/lib/neural-labs/updater/docker
+
+[Install]
+WantedBy=multi-user.target

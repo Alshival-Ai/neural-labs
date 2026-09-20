@@ -617,7 +617,7 @@ export class WorkspaceTerminalManager {
   }
 }
 
-export function attachTerminalWebSocket(server, { manager, publicOrigin, heartbeatMs = HEARTBEAT_MS }) {
+export function attachTerminalWebSocket(server, { manager, publicOrigin, heartbeatMs = HEARTBEAT_MS, gated = () => false }) {
   const socketServer = new WebSocketServer({
     noServer: true,
     perMessageDeflate: false,
@@ -629,6 +629,7 @@ export function attachTerminalWebSocket(server, { manager, publicOrigin, heartbe
   const alive = new WeakMap();
 
   const onUpgrade = (request, socket, head) => {
+    if (gated() || socket.destroyed) { socket.destroy(); return; }
     void (async () => {
       const url = safeUrl(request.url, publicOrigin);
       if (url?.pathname !== TERMINAL_SOCKET_PATH) return;
@@ -644,6 +645,7 @@ export function attachTerminalWebSocket(server, { manager, publicOrigin, heartbe
         return;
       }
       const consumed = await manager.consumeTicket(actor.id, ticketProtocol.slice("ticket.".length));
+      if (gated() || socket.destroyed) { socket.destroy(); return; }
       if (!consumed) {
         rejectUpgrade(socket, 403, "Forbidden");
         return;
@@ -744,14 +746,14 @@ function terminalEnvironment(shell, workspaceRoot, { actor, scope, terminalId })
     USER: process.env.USER || "node",
     LOGNAME: process.env.LOGNAME || process.env.USER || "node",
     SHELL: shell,
-    PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin",
+    PATH: `/usr/local/share/neural-labs/bin:${process.env.PATH || "/usr/local/bin:/usr/bin:/bin"}`,
     TERM: "xterm-256color",
     COLORTERM: "truecolor",
     LANG: process.env.LANG || "C.UTF-8",
     HISTFILE: path.join(os.homedir(), ".local", "state", "neural-labs", "terminal-history", historyScope),
     OPENCLAW_WORKSPACE_DIR: workspaceRoot,
   };
-  for (const name of ["CODEX_HOME", "OPENCLAW_HOME", "OPENCLAW_STATE_DIR", "OPENCLAW_CONFIG_PATH", "NEURAL_LABS_OPENCLAW_VERSION", "NEURAL_LABS_CODEX_VERSION"]) {
+  for (const name of ["CODEX_HOME", "OPENCLAW_HOME", "OPENCLAW_STATE_DIR", "OPENCLAW_CONFIG_PATH", "NEURAL_LABS_OPENCLAW_VERSION", "NEURAL_LABS_CODEX_VERSION", "NEURAL_LABS_CODEX_AUTO_UPDATE"]) {
     if (process.env[name]) env[name] = process.env[name];
   }
   for (const [name, value] of Object.entries(process.env)) {

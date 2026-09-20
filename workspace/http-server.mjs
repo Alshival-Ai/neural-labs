@@ -1,3 +1,4 @@
+import { trackResponseWork } from "./update-maintenance.mjs";
 import { PersonalAutomationRuns, AutomationRunError } from "./personal-automation-runs.mjs";
 import { openClaudeLoginTerminal } from "./claude-login-terminal.mjs";
 import { TerminalAgentBridge, terminalContextInstructions } from "./terminal-agent.mjs";
@@ -451,6 +452,7 @@ export function createWorkspaceHttpServer({
   ],
   builderDraftsRoot = path.join(path.dirname(workspaceRoot), ".local", "state", "neural-labs", "builder-drafts"),
   filesStateRoot = path.join(path.dirname(workspaceRoot), ".local", "state", "neural-labs", "files"),
+  updateMaintenance,
   terminalManager,
   gifProvider,
   apiProviderRuntime,
@@ -471,7 +473,7 @@ export function createWorkspaceHttpServer({
     publishSkill: (actor, skillPackage, targetKey) => skills.savePackage(actor, skillPackage, targetKey),
   });
   const fileEvents = createWorkspaceFileEvents({ root: workspaceRoot });
-  const explorer = createExplorerManager({ files, root: workspaceRoot, stateRoot: filesStateRoot, changed: (event) => fileEvents.publish(event) });
+  const explorer = createExplorerManager({ files, root: workspaceRoot, stateRoot: filesStateRoot, paused: () => updateMaintenance?.gated, changed: (event) => fileEvents.publish(event) });
   const terminals = terminalManager ?? new WorkspaceTerminalManager({ workspaceRoot, turnCredentialProvider, teamChannelAuthorizer, gifProvider });
   if (apiProviderRuntime) terminals.gifProvider = apiProviderRuntime.gifProvider(() => terminals.gifSelections.clear());
   const terminalAgent = new TerminalAgentBridge({ manager: terminals, resolveActor: terminalActorResolver ?? (async () => null) });
@@ -487,10 +489,27 @@ export function createWorkspaceHttpServer({
       modelCatalog?.invalidate(userId);
     }
   };
-  const server = createServer(async (request, response) => {
+  let activeWrites = 0;
+  const handleRequest = async (request, response) => {
     const method = request.method ?? "GET";
     const url = new URL(request.url ?? "/", "http://workspace.local");
     const pathname = url.pathname;
+    if (pathname.startsWith("/internal/updates/")) {
+      if (!validControlToken(request, workspaceControlToken)) { sendJson(response, 401, { error: "Unauthorized" }, method); return; }
+      try {
+        if (!updateMaintenance) throw new Error("Update maintenance unavailable");
+        let result;
+        if (pathname.endsWith("/activity") && method === "GET") result = await updateMaintenance.activity();
+        else if (pathname.endsWith("/pause") && method === "POST") result = await updateMaintenance.pause();
+        else if (pathname.endsWith("/resume") && method === "POST") result = await updateMaintenance.resume();
+        else { sendJson(response, 404, { error: "Not found" }, method); return; }
+        sendJson(response, 200, result, method);
+      } catch { sendJson(response, 503, { error: "Workspace maintenance state cannot be verified" }, method); }
+      return;
+    }
+    if (updateMaintenance?.gated && !["/healthz", "/status", "/readyz"].includes(pathname)) {
+      sendJson(response, 503, { error: { message: "Workspace maintenance is in progress" } }, method); return;
+    }
     if (pathname === "/workspace/api/automations/snapshot" || pathname === "/workspace/api/automations/run") {
       const userId = request.headers["x-forwarded-user"];
       if (typeof userId !== "string" || !userId.trim()) { sendJson(response, 401, { error: { message: "Sign in to run automations" } }, method); return; }
@@ -1288,7 +1307,7 @@ export function createWorkspaceHttpServer({
         mcpReady: mcpIsReady,
         mcp,
         openclawVersion,
-        codexVersion,
+        codexVersion: typeof codexVersion === "function" ? codexVersion() : codexVersion,
         providerAuthenticated: providerReady,
         credentialSource: credentialSource(),
         codexAuthenticated: providerReady,
@@ -1357,10 +1376,26 @@ export function createWorkspaceHttpServer({
     }
 
     send(response, 404, "Not found\n", "text/plain; charset=utf-8", method);
+  };
+  const server = createServer((request, response) => {
+    const work = () => handleRequest(request, response);
+    const tracked = !["GET", "HEAD", "OPTIONS"].includes(request.method ?? "GET") && !request.url?.startsWith("/internal/updates/");
+    const completed = tracked ? trackResponseWork(response, work, delta => { activeWrites += delta; }) : work();
+    void completed.catch(() => {
+      if (!response.headersSent) sendJson(response, 500, { error: { message: "Workspace request failed" } }, request.method ?? "GET");
+      else response.destroy();
+    });
   });
-  const terminalSockets = attachTerminalWebSocket(server, { manager: terminals, publicOrigin, heartbeatMs: terminalHeartbeatMs });
-  const vsCodeSockets = attachVsCodeWebSocketBridge(server, { codeServerOrigin, publicOrigin });
-  const builderSockets = attachBuilderWebSocket(server, { manager: builder, publicOrigin });
+  // Host ingress closes existing public sockets during the gate. Reject new
+  // upgrades here as well, including direct requests on the private bridge.
+  server.prependListener("upgrade", (_request, socket) => { if (updateMaintenance?.gated) socket.destroy(); });
+  const terminalSockets = attachTerminalWebSocket(server, { manager: terminals, publicOrigin, heartbeatMs: terminalHeartbeatMs, gated: () => updateMaintenance?.gated });
+  const vsCodeSockets = attachVsCodeWebSocketBridge(server, { codeServerOrigin, publicOrigin, gated: () => updateMaintenance?.gated });
+  const builderSockets = attachBuilderWebSocket(server, { manager: builder, publicOrigin, gated: () => updateMaintenance?.gated });
+  if (updateMaintenance) updateMaintenance.localActivity = () => ({
+    terminals: terminals.sessions.size, writes: activeWrites + builder.pendingWrites(), editors: vsCodeSockets.activeCount() + builderSockets.activeCount(),
+    fileJobs: explorer.activeOperations(),
+  });
   const closeServer = server.close.bind(server);
   let closed = false;
   server.close = (callback) => {

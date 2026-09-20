@@ -31,6 +31,7 @@
 - [Provider tools](workspace-provider-mcp.md)
 - [Backup and restore](backup-restore.md)
 - [Runtime upgrades](openclaw-upgrades.md)
+- [Admin update settings and host worker](workspace-updates.md)
 
 ## Project reference
 

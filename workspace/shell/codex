@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+codex_entry="$(/usr/local/bin/node /usr/local/lib/neural-labs/codex-updates.mjs)"
+exec /usr/local/bin/node "${codex_entry}" "$@"

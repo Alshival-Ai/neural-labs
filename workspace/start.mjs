@@ -1,3 +1,4 @@
+import { UpdateMaintenance, prepareProbation } from "./update-maintenance.mjs";
 import { ClaudeAccounts } from "./claude-accounts.mjs";
 import { ModelAccounts } from "./model-accounts.mjs";
 import { backgroundProviderStatus } from "/usr/local/lib/neural-labs/background-provider-status.mjs";
@@ -15,6 +16,7 @@ import { createWorkspaceHttpServer } from "/usr/local/lib/neural-labs/http-serve
 import { browserConfigurationOperations } from "/usr/local/lib/neural-labs/browser-config.mjs";
 import { createProviderAuthController } from "/usr/local/lib/neural-labs/provider-auth.mjs";
 import { verifyCodexRuntime } from "/usr/local/lib/neural-labs/codex-runtime.mjs";
+import { startTerminalCodexUpdates } from "/usr/local/lib/neural-labs/codex-updates.mjs";
 import { openclawRelease, verifyOpenClawRuntime, isOfficialSmsInstallation } from "/usr/local/lib/neural-labs/openclaw-runtime.mjs";
 import { gatewayIsolationOperations } from "/usr/local/lib/neural-labs/gateway-isolation.mjs";
 import { createGatewayAdminRequest, PersonalOpenAIManager } from "/usr/local/lib/neural-labs/personal-openai.mjs";
@@ -25,6 +27,11 @@ import { ModelPolicies } from "/usr/local/lib/neural-labs/model-policies.mjs";
 import { TeamOpenAI } from "/usr/local/lib/neural-labs/team-openai.mjs";
 import { agentEnvironment, retireWorkspaceApiKey } from "/usr/local/lib/neural-labs/provider-environment.mjs";
 
+const updateProbation = process.env.NEURAL_LABS_UPDATE_PROBATION === "true";
+const updateStateRoot = "/home/node/.local/state/neural-labs/updates";
+let updateMaintenance;
+const updatePaused = () => updateProbation || updateMaintenance?.gated;
+let backgroundOperations = 0;
 const openclawRuntime = await verifyOpenClawRuntime();
 const gatewayPort = parsePort(process.env.OPENCLAW_GATEWAY_PORT, 18789);
 const statusPort = parsePort(process.env.NEURAL_LABS_WORKSPACE_STATUS_PORT, 18790);
@@ -221,6 +228,7 @@ function configureGateway(twilioConfig) {
   const operations = [
     ...gatewayIsolationOperations(),
     { path: "gateway.mode", value: "local" },
+    { path: "update.auto.enabled", value: false },
     { path: "gateway.bind", value: "lan" },
     { path: "gateway.port", value: gatewayPort },
     { path: "gateway.publicOrigin", value: publicOrigin },
@@ -250,6 +258,7 @@ function configureGateway(twilioConfig) {
     },
     { path: "gateway.controlUi.enabled", value: false },
     { path: "plugins.entries.codex.enabled", value: true },
+    { path: "plugins.entries.codex.config.appServer.command", value: "/usr/local/lib/neural-labs/codex-app-server/node_modules/.bin/codex" },
     { path: "plugins.load.paths", value: [...new Set([...(Array.isArray(pluginPaths) ? pluginPaths : []), "/usr/local/lib/neural-labs/claude-plugin"])] },
     { path: "plugins.entries.neural-labs-claude.enabled", value: true },
     ...twilioOperations(twilioConfig),
@@ -421,12 +430,13 @@ await installTerminalGuidance(workspaceRoot);
 ensureOfficialSmsPlugin();
 let twilioRuntimeConfig = await fetchTwilioConfig();
 configureGateway(twilioRuntimeConfig);
+await prepareProbation({ probation: updateProbation, run: runOpenClaw, root: updateStateRoot });
 // Fail before starting the text Gateway if a legacy audio-key fallback cannot
 // be retired. The voice service retains its server-only API environment.
 retireWorkspaceApiKey();
-await refreshProviderStatus();
+if (!updateProbation) await refreshProviderStatus();
 const providerStatusTimer = setInterval(() => {
-  void refreshProviderStatus();
+  if (!updatePaused()) { backgroundOperations++; void refreshProviderStatus().finally(() => backgroundOperations--); }
 }, providerStatusRefreshMs);
 providerStatusTimer.unref();
 
@@ -448,6 +458,7 @@ const gateway = spawn(
         ? { NEURAL_LABS_TWILIO_AUTH_TOKEN: twilioRuntimeConfig.authToken }
         : {}),
       OPENCLAW_GATEWAY_PASSWORD: internalGatewayPassword,
+      ...(updateProbation ? { OPENCLAW_SKIP_CRON: "1", OPENCLAW_SKIP_CHANNELS: "1", OPENCLAW_SKIP_PROVIDERS: "1", OPENCLAW_SKIP_GMAIL_WATCHER: "1" } : {}),
     },
   },
 );
@@ -464,6 +475,25 @@ const teamOpenAI = new TeamOpenAI(personalOpenAI);
 const claudeAccounts = new ClaudeAccounts({ manager: personalOpenAI, team: teamOpenAI });
 const modelAccounts = new ModelAccounts({ openai: personalOpenAI, claude: claudeAccounts, team: teamOpenAI });
 await verifyCodexRuntime(process.env.NEURAL_LABS_CODEX_VERSION);
+const terminalCodex = startTerminalCodexUpdates({ baseVersion: openclawRelease.codexVersion,
+  enabled: process.env.NEURAL_LABS_CODEX_AUTO_UPDATE === "true", probation: updateProbation,
+  policy: async () => {
+    const response = await fetch("http://control-plane:4174/internal/updates/workspace", {
+      headers: { Authorization: `Bearer ${workspaceControlToken}` }, signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) throw new Error("Update policy unavailable");
+    return response.json();
+  },
+  report: async (status) => {
+    const response = await fetch("http://control-plane:4174/internal/updates/codex", {
+      method: "POST", headers: { Authorization: `Bearer ${workspaceControlToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify(status), signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) throw new Error("Update status unavailable");
+  },
+});
+updateMaintenance = new UpdateMaintenance({ request: gatewayAdminRequest, root: updateStateRoot,
+  probation: updateProbation, configPath: process.env.OPENCLAW_CONFIG_PATH, backgroundBusy: () => backgroundOperations > 0 || terminalCodex.busy() });
 const modelCatalog = new ModelCatalog({ gatewayRequest: gatewayAdminRequest, personalOpenAI, teamOpenAI, claudeAccounts, runtime: { name: "OpenClaw", version: openclawRuntime.version } });
 modelAccounts.catalog = modelCatalog;
 const modelPolicies = new ModelPolicies({ personalOpenAI, catalog: modelCatalog, teamOpenAI, claudeAccounts });
@@ -491,6 +521,7 @@ const apiProviderRuntime = new ProviderRuntime(loadProviderConfig(process.env), 
 await apiProviderRuntime.start();
 const workspaceServer = createWorkspaceHttpServer({
   desktopRoot,
+  updateMaintenance,
   workspaceRoot,
   publicOrigin,
   gatewayReady,
@@ -512,7 +543,7 @@ const workspaceServer = createWorkspaceHttpServer({
   voiceService,
   workspaceControlToken,
   openclawVersion: openclawRuntime.version,
-  codexVersion: process.env.NEURAL_LABS_CODEX_VERSION ?? "unknown",
+  codexVersion: terminalCodex.version,
   maxUploadBytes,
   personalSkillsRoot,
   builderDraftsRoot,
@@ -560,7 +591,11 @@ workspaceServer.listen(statusPort, "0.0.0.0", () => {
   console.log(`Neural Labs desktop and status listening on 0.0.0.0:${statusPort}`);
 });
 
+let personalReconcileBusy = false;
 async function reconcilePersonalAccess() {
+  if (updatePaused() || personalReconcileBusy) return;
+  personalReconcileBusy = true;
+  backgroundOperations++;
   try {
     for (const user of Array.isArray(twilioRuntimeConfig?.users) ? twilioRuntimeConfig.users : []) {
       await personalOpenAI.ensureProvisioned(user.userId);
@@ -570,13 +605,15 @@ async function reconcilePersonalAccess() {
     await personalOpenAI.purgeLegacyNeuraSessions();
   } catch (error) {
     console.warn("Personal Neura access reconciliation is waiting for the Gateway", error instanceof Error ? error.message : error);
-  }
+  } finally { personalReconcileBusy = false; backgroundOperations--; }
 }
 setTimeout(() => void reconcilePersonalAccess(), 2_000).unref();
 const personalAccessTimer = setInterval(() => void reconcilePersonalAccess(), 30_000);
 personalAccessTimer.unref();
 
 const twilioConfigTimer = setInterval(() => {
+  if (updatePaused()) return;
+  backgroundOperations++;
   void (async () => {
     const next = await fetchTwilioConfig();
     const currentFingerprint = JSON.stringify({ revision: twilioRuntimeConfig?.revision, users: twilioRuntimeConfig?.users?.map((user) => [user.userId, user.phoneNumber]) });
@@ -591,7 +628,7 @@ const twilioConfigTimer = setInterval(() => {
       gateway.kill("SIGTERM");
     }
     else console.warn("OpenClaw rejected an updated Twilio channel configuration");
-  })();
+  })().catch(() => console.warn("Twilio reconciliation unavailable")).finally(() => backgroundOperations--);
 }, 30_000);
 twilioConfigTimer.unref();
 
@@ -599,6 +636,7 @@ let stopping = false;
 function stop(signal) {
   if (stopping) return;
   stopping = true;
+  terminalCodex.close();
   clearInterval(providerStatusTimer);
   clearInterval(personalAccessTimer);
   clearInterval(twilioConfigTimer);

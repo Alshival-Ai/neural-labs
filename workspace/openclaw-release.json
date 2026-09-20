@@ -1,12 +1,13 @@
 {
-  "version": "2026.9.2",
-  "image": "ghcr.io/openclaw/openclaw:2026.9.2@sha256:a8604855b76cd613cbaa45d6db093dc017b09a2faea5dc9cee023fb7ac262250",
-  "sourceRevision": "3928bad9badfcb6c7d140530435e806fb8092190",
-  "codexVersion": "0.152.0",
+  "version": "2026.9.5",
+  "image": "ghcr.io/openclaw/openclaw:2026.9.5@sha256:ea298b62be8955d3ef750e2004a610dd90c3a30e5f9886e5d654d78a0c573218",
+  "sourceRevision": "ec9c1a13db8938e5a3eaa51fca2e981cde2395a9",
+  "codexVersion": "0.155.1",
   "packages": [
     "@openclaw/gateway-client",
     "@openclaw/gateway-protocol",
     "@openclaw/sms"
   ],
-  "patches": []
+  "patches": [],
+  "appServerVersion": "0.154.0"
 }
