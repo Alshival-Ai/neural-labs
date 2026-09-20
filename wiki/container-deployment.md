@@ -21,9 +21,23 @@ sequence. This page provides the detailed host and ingress steps.
   The workspace defaults to limits of 10 CPUs and 16 GiB; these are configurable
   ceilings, not a measured minimum for a small personal installation.
 
+Set `NEURAL_LABS_WORKSPACE_CPUS` no higher than the Docker host's available CPUs
+before the first build. Docker rejects a CPU limit above the host's capacity.
+Leave memory for the operating system, PostgreSQL, the control plane, and builds;
+do not allocate all host RAM to the workspace. Use `nproc`, `free -h`, and
+`df -h /` to inspect a new host. See [Raspberry Pi deployment](raspberry-pi-deployment.md)
+for the ARM64 rehearsal, host preparation, and cleanup procedure.
+
 The CLI uses Docker during `init` and Node.js during `up` and updates. Check
 `docker compose version`, `docker info`, and `node --version` before starting.
 Installing these prerequisites and obtaining a certificate are operator steps.
+
+If Docker requires root, use `sudo bin/neural-labs init`,
+`sudo bin/neural-labs up`, and the same prefix for subsequent Docker commands.
+Use `sudoedit .env` when root created the private configuration. If Node is
+installed through an operator's version manager, preserve its executable path
+with `sudo env "PATH=$PATH" bin/neural-labs up`. Do not run the entire Git
+checkout as root or make the Docker socket world-writable.
 
 No service mounts the Docker socket or a host home directory.
 
@@ -132,6 +146,11 @@ that it points to the intended file. On hosts that use `conf.d` instead, install
 the site in the directory included by that host's `http` configuration. Keep
 only one active copy of these named upstreams and server blocks. Reload only
 after `nginx -t` succeeds. The CLI does not perform any of these host changes.
+Verify an actual HTTPS request after reload and inspect the Nginx error log if
+the expected listener is absent. A successful reload command only confirms
+that the signal was sent. When changing a wildcard listener to loopback for a
+private rehearsal, a full Nginx restart may be needed to release the old socket;
+plan that interruption if Nginx serves other sites.
 
 The routing is:
 

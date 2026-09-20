@@ -5,6 +5,7 @@
 ## Set up
 
 - [Deploy your instance](container-deployment.md)
+- [Raspberry Pi deployment](raspberry-pi-deployment.md)
 - [Connect AI accounts](ai-accounts.md)
 - [Enable Microsoft sign-in](entra-app-setup.md)
 - [Troubleshoot setup](troubleshooting.md)

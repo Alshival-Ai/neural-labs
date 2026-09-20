@@ -21,6 +21,10 @@ other services and image builds. Adjust the limits in `.env` for your host;
 these defaults are not a tested minimum hardware requirement. Allow disk space
 for images, persistent files, and backups.
 
+The CPU limit must not exceed the host's available CPUs. For a Raspberry Pi,
+read [Raspberry Pi deployment](raspberry-pi-deployment.md) before starting; it
+covers 64-bit host preparation, smaller resource limits, and test cleanup.
+
 Choose the final hostname now: sign-in callbacks and passkeys depend on it.
 Only approve people you trust with the workspace's files and credentials. See
 [Sharing and privacy](sharing-and-privacy.md) before inviting teammates.

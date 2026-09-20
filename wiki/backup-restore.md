@@ -46,6 +46,15 @@ password with the restored `.env`, starts the cluster, and runs the deployment
 doctor. If restoration fails, inspect the reported safety backup before taking
 further action.
 
+The current CLI calls doctor immediately after starting the containers; on a
+Pi, the restored workspace can still be initializing at that point. A nonzero
+exit caused by those health probes does not establish that the data restore
+failed. Inspect the restoration output, wait for healthy containers with
+`bin/neural-labs status`, then rerun doctor and verify login and restored files.
+Do not repeat a destructive restore just to retry a readiness check. Doctor
+also reports missing optional provider keys as a failure; see
+[Troubleshooting](troubleshooting.md#doctor-reports-a-provider-failure).
+
 For manual disaster recovery:
 
 1. Restore the root `.env` with mode `0600` before starting the control plane.

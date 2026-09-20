@@ -15,10 +15,36 @@ A fresh build can take time; wait for health checks before testing login.
 | Cannot access Docker | Confirm Docker is running and use your operator privilege method; never give the workspace the host Docker socket |
 | Configuration rejected | Set a real hostname and administrator email; the HTTPS origin must equal `https://` plus the hostname, with no trailing slash |
 | `.env` permission error | Restore mode `0600` with `chmod 0600 .env` |
+| `EACCES` reading workspace startup code, or TURN entrypoint `Permission denied` | Check whether a restrictive clone umask made public source files mode `0600`; use a checkout created with `umask 022` and rebuild, while retaining private `.env` permissions |
 | Port already allocated | Check other listeners; if changing `.env` ports, update the corresponding Nginx upstreams |
 | Docker subnet overlap | Choose an unused private `/29` and set `NEURAL_LABS_WORKSPACE_PROXY_IP` to its first usable address |
 | TURN cannot bind | Replace the example relay address with an IPv4 address actually assigned to the host |
+| `Official SMS plugin installation failed` on a fresh workspace | Check the npm-cache ownership issue below; startup installs the official plugin even when SMS is disabled |
 | Build or process killed | Inspect host disk and memory availability, and the workspace resource limits |
+| `Range of CPUs is from 0.01 to ...` | Reduce `NEURAL_LABS_WORKSPACE_CPUS` to the Docker host's available CPU count; the default of 10 exceeds a four-core Pi's capacity |
+
+### Root-owned npm cache on first boot
+
+The Raspberry Pi rehearsal found that the image's final root-run Claude install
+could write into `/home/node/.npm` after the home ownership had been prepared.
+The non-root startup process then failed to install the official SMS plugin.
+The Containerfile now gives that build step its own temporary cache.
+
+Rebuild from the corrected source. If an earlier image already initialized your
+workspace volume, rebuilding alone preserves the old cache ownership. Stop the
+workspace and repair only that cache through the instance's Compose definition:
+
+```bash
+sudo docker compose --env-file .env -f deploy/compose/compose.yaml stop workspace
+sudo docker compose --env-file .env -f deploy/compose/compose.yaml \
+  run --rm --no-deps --user 0:0 --entrypoint sh workspace \
+  -c 'test ! -d /home/node/.npm || chown -R node:node /home/node/.npm'
+sudo bin/neural-labs up
+```
+
+Do not delete persistent volumes to repair this on an existing installation.
+Other plugin-install failures can be caused by registry access; inspect the
+actual installation error before assuming an ownership problem.
 
 ## Doctor reports a provider failure
 
