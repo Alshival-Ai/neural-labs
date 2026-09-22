@@ -29,6 +29,18 @@ describe("Skills app", () => {
     expect(screen.getByRole("button", { name: /^GitHub/ })).toBeInTheDocument();
   });
 
+  it("does not duplicate visible navigation labels in hover tooltips", () => {
+    render(<SkillsApp />);
+
+    const teamNavigation = screen.getByRole("button", { name: "Team Skills" });
+    fireEvent.mouseEnter(teamNavigation);
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+
+    fireEvent.click(teamNavigation);
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "Release notes" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Release notes");
+  });
+
   it("saves a personal skill immediately without a proposal step", async () => {
     const onSave = vi.fn();
     render(<SkillsApp onSave={onSave} currentUserName="Maya" />);

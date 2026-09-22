@@ -133,6 +133,15 @@ describe("OpenClaw automation request mapping", () => {
     expect(snapshot.jobs[0].delivery.target).toBeUndefined();
     expect(snapshot.jobs[0].runs[0].error).toBeUndefined();
   });
+
+  it("hides upstream Skill Workshop maintenance jobs identified by declaration key", () => {
+    const snapshot = mapAutomationsSnapshot({ enabled: true }, { jobs: [
+      { id: "review", declarationKey: "skill-collection-review:main", displayName: "Skill collection review (main)", enabled: false, schedule: { kind: "every", everyMs: 604_800_000 }, payload: { kind: "agentTurn", message: "Review skills" } },
+      { id: "brief", name: "Morning brief", enabled: true, schedule: { kind: "cron", expr: "0 7 * * *" }, payload: { kind: "agentTurn", message: "Summarize" } },
+    ] }, { entries: [] });
+
+    expect(snapshot.jobs.map((job) => job.id)).toEqual(["brief"]);
+  });
 });
 
 describe('saved automation copies',()=>{
@@ -141,5 +150,6 @@ describe('saved automation copies',()=>{
   const original={id:'source',name:'Example',enabled:true,state:{runningAtMs:10},configRevision:'old',deleteAfterRun:true,schedule:{kind:'cron',expr:'0 9 * * *',tz:'America/Chicago',staggerMs:9000},payload:{kind:'agentTurn',message:'Run',lightContext:false,fallbacks:['model'],toolsAllow:[]},delivery:{mode:'none'},failureAlert:{after:3,cooldownMs:5000}};
   const copy=automationCopyParams(original,['Example copy']);expect(copy.name).toBe('Example copy 2');expect(copy.enabled).toBe(false);expect(copy.id).toBeUndefined();expect(copy.state).toBeUndefined();expect(copy.configRevision).toBeUndefined();expect(copy.payload).toEqual(original.payload);expect(copy.schedule).toEqual(original.schedule);expect(copy.failureAlert).toEqual(original.failureAlert);expect(copy.deleteAfterRun).toBe(true);
   expect(()=>automationCopyParams({payload:{kind:'heartbeat'}},[])).toThrow('System');
+  expect(()=>automationCopyParams({declarationKey:'skill-collection-review:main',payload:{kind:'agentTurn'}},[])).toThrow('System');
  });
 });

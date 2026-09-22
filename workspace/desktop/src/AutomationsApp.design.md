@@ -11,6 +11,9 @@ The design was checked against the installed `@openclaw/gateway-protocol` `2026.
 
 - Schedule kinds: `at`, `every`, `cron`, `on-exit`, and `stream`, including timezone, exact timing, pacing, and condition-trigger affordances.
 - Payload kinds: `systemEvent`, `agentTurn`, `command`, and `script`; read-only system-owned jobs can also display `heartbeat` and `skillCollectionReview` payloads.
+- Upstream per-agent Skill Workshop collection-review monitors are product
+  maintenance, not user automations, and are excluded from the job library by
+  their reserved `skill-collection-review:` declaration key.
 - Execution: main, isolated, current, and custom session targets; agent, model, thinking, tool-policy, wake-mode, and timeout fields.
 - Delivery: announce, webhook, and none, with separate execution and delivery states.
 - Operations: compact job list, full job details, enable/disable, update, force run, run-if-due, run-if-enabled, durable run history, error details, failure streaks, and auto-disabled state.

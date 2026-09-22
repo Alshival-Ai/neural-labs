@@ -10,6 +10,12 @@ automations that run them. It has five sections:
 - **OpenClaw** shows bundled, plugin, managed, and node-hosted skills and
   provides ClawHub discovery.
 
+Neural Labs explicitly disables OpenClaw's autonomous Skill Workshop mode.
+Personal and Team skill publication remains user-driven through the Neural Labs
+builder, and upstream weekly per-agent collection-review monitors are not shown
+as user automations. Manual Workshop proposals remain available for advanced
+governance when deliberately invoked.
+
 The Automations dock icon is retained as a shortcut. It focuses the existing
 Skills window and selects Automations; it does not open a separate app.
 

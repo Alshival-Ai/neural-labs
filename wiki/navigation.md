@@ -4,6 +4,7 @@
 
 ## Set up
 
+- [Deploy with your agent](agent-onboarding.md)
 - [Deploy your instance](container-deployment.md)
 - [Raspberry Pi deployment](raspberry-pi-deployment.md)
 - [Connect AI accounts](ai-accounts.md)

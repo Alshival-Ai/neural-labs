@@ -3,11 +3,14 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f6f4ef">
     <meta name="robots" content="noindex,nofollow">
     <title>Authentication setup · Neural Labs</title>
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="icon" href="/assets/brand/neural-labs-favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/styles.css">
+    <script src="/assets/ui/theme.js?v=20260920-2"></script>
+    <link rel="stylesheet" href="/styles.css?v=20260920-2">
+    <link rel="stylesheet" href="/assets/ui/theme.css?v=20260920-2">
   </head>
   <body>
     <div class="setup-pending-shell">
@@ -15,7 +18,20 @@
         <a class="brand" href="/" aria-label="Neural Labs landing page">
           <span class="spectrum-text">Neural Labs</span>
         </a>
+      <div class="header-actions">
+        <div class="theme-control" data-theme-control role="radiogroup" aria-label="Color theme" hidden>
+          <button type="button" data-theme-choice="light" role="radio" aria-checked="false" aria-label="Light" tabindex="-1" title="Light mode">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg>
+          </button>
+          <button type="button" data-theme-choice="dark" role="radio" aria-checked="false" aria-label="Dark" tabindex="-1" title="Dark mode">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20.5 13A8.5 8.5 0 0 1 11 3.5 8.5 8.5 0 1 0 20.5 13Z"/></svg>
+          </button>
+          <button type="button" data-theme-choice="system" role="radio" aria-checked="true" aria-label="System" tabindex="0" title="System — follow device appearance">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/></svg>
+          </button>
+        </div>
         <a href="/">Back to home</a>
+      </div>
       </header>
       <main class="setup-pending">
         <section class="setup-pending-card">

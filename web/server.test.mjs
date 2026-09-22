@@ -91,5 +91,29 @@ test("shows an intentional setup response until Nginx owns the login route", asy
     const response = await fetch(`${origin}/login`);
     assert.equal(response.status, 503);
     assert.match(await response.text(), /Authentication setup is in progress/);
+    assert.equal((await fetch(`${origin}/signup`)).status, 503);
   });
+});
+
+test("the actual starter serves its shell assets and keeps implementation files private", async () => {
+  const server = createStaticServer();
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const html = await (await fetch(origin)).text();
+    const assets = [...html.matchAll(/(?:src|href)="(\/[^"?#]+\.(?:js|css))(?:\?[^"#]*)?"/g)].map(match => match[1]);
+    assert.ok(assets.length >= 6);
+    for (const asset of assets) {
+      const response = await fetch(`${origin}${asset}`);
+      assert.equal(response.status, 200, asset);
+      assert.equal(response.headers.get("cache-control"), "no-cache", asset);
+    }
+    for (const file of ["/navigation.test.cjs", "/theme.test.cjs", "/README.md"]) {
+      assert.equal((await fetch(`${origin}${file}`)).status, 404, file);
+    }
+  } finally {
+    server.close();
+    await once(server, "close");
+  }
 });

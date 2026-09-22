@@ -18,6 +18,7 @@ import type { ClawHubResult, SkillProposal, SkillProposalAction, SkillProposalDr
 
 const CLIENT_VERSION = "0.3.2";
 const INSTANCE_KEY = "neural-labs.automations.instance.v1";
+const SKILL_COLLECTION_REVIEW_DECLARATION_PREFIX = "skill-collection-review:";
 // This client intentionally has no browser device identity or reusable token.
 // Nginx authenticates an active Neural Labs administrator, overwrites the
 // trusted-proxy identity, and caps this connection to these exact scopes.
@@ -45,6 +46,19 @@ function numberValue(value: unknown): number | undefined {
 
 function booleanValue(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
+}
+
+function isSkillCollectionReviewJob(job: RecordValue): boolean {
+  const payload = isRecord(job.payload) ? job.payload : {};
+  return payload.kind === "skillCollectionReview"
+    || stringValue(job.declarationKey)?.startsWith(SKILL_COLLECTION_REVIEW_DECLARATION_PREFIX) === true;
+}
+
+function isSystemAutomationJob(job: RecordValue): boolean {
+  const payload = isRecord(job.payload) ? job.payload : {};
+  const declarationKey = stringValue(job.declarationKey) ?? "";
+  return payload.kind === "heartbeat" || isSkillCollectionReviewJob(job)
+    || declarationKey.startsWith("heartbeat:") || declarationKey.startsWith("heartbeat-task:");
 }
 
 function instanceId(): string {
@@ -222,8 +236,8 @@ export class AutomationsGateway {
   async remove(job: AutomationJob) {
     const current=(await this.canonicalJobs()).find(row=>row.id===job.id);
     if(!current)throw new Error("This automation was already removed. Refresh the list.");
-    const payload=isRecord(current.payload)?current.payload:{};const state=isRecord(current.state)?current.state:{};
-    if(["heartbeat","skillCollectionReview"].includes(String(payload.kind)))throw new Error("System automations cannot be deleted.");
+    const state=isRecord(current.state)?current.state:{};
+    if(isSystemAutomationJob(current))throw new Error("System automations cannot be deleted.");
     if(state.runningAtMs||["running","starting"].includes(String(state.streamStatus)))throw new Error("Wait for the active run to finish before deleting this automation.");
     return this.client.request("cron.remove", { id: job.id });
   }
@@ -307,7 +321,8 @@ export function mapAutomationsSnapshot(status: unknown, listed: unknown, history
   }
   const mapped: AutomationsSnapshot = {
     schedulerOnline: !isRecord(status) || status.enabled !== false,
-    jobs: jobs.flatMap((job, index) => isRecord(job) ? [mapJob(job, runsByJob.get(stringValue(job.id) ?? "") ?? [], index)] : []),
+    jobs: jobs.flatMap((job, index) => isRecord(job) && !isSkillCollectionReviewJob(job)
+      ? [mapJob(job, runsByJob.get(stringValue(job.id) ?? "") ?? [], index)] : []),
   };
   if (!operationalOnly) return mapped;
   return { ...mapped, jobs: mapped.jobs.map((job) => ({
@@ -354,7 +369,7 @@ function mapJob(job: RecordValue, runs: AutomationRun[], index: number): Automat
     accent: accentFor(id),
     enabled: booleanValue(job.enabled) ?? false,
     running: Boolean(runningAt) || streamStatus === "running" || streamStatus === "starting",
-    systemOwned: payloadKind === "heartbeat" || payloadKind === "skillCollectionReview",
+    systemOwned: isSystemAutomationJob(job),
     deleteAfterRun: booleanValue(job.deleteAfterRun),
     autoDisabled: autoDisabled ? {
       reason: autoDisabled.reason === "schedule-errors" ? "schedule-errors" : "consecutive-failures",
@@ -590,8 +605,7 @@ function pacingLabel(value?: RecordValue): string | undefined {
 }
 
 export function automationCopyParams(original: RecordValue, names: string[]): RecordValue {
- const payload=isRecord(original.payload)?original.payload:{};
- if(["heartbeat","skillCollectionReview"].includes(String(payload.kind)))throw new Error("System automations cannot be duplicated.");
+ if(isSystemAutomationJob(original))throw new Error("System automations cannot be duplicated.");
  const allowed=["description","owner","agentId","sessionKey","deleteAfterRun","schedule","sessionTarget","wakeMode","payload","delivery","failureAlert","pacing","trigger"];
  const copy:RecordValue={};for(const key of allowed)if(original[key]!==undefined)copy[key]=structuredClone(original[key]);
  const base=String(original.displayName??original.name??"Automation").slice(0,150);let name=`${base} copy`,n=2;while(names.includes(name))name=`${base} copy ${n++}`;

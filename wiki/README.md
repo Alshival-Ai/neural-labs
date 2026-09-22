@@ -8,6 +8,11 @@ This quick setup takes you from a fresh checkout to your first Neura chat. If
 someone already hosts your workspace, skip deployment and follow
 [Your first workspace session](shared-workspace.md).
 
+Prefer to have your agent handle installation? Start with
+[Deploy with your agent](agent-onboarding.md). The repository's
+[AGENTS.md](../AGENTS.md) tells it how to inspect your target, deploy the whole
+instance, and guide you through account setup and verification.
+
 ## 1. Prepare your host
 
 Use a Linux host with Docker Engine and the Compose plugin, Git, Bash, OpenSSL,

@@ -2,6 +2,86 @@
 
 These instructions apply to the Neural Labs repository.
 
+## Product and onboarding
+
+Neural Labs is the complete self-hosted product in this repository. The public
+project site leads visitors to GitHub; someone cloning it should be able to ask
+their agent to deploy their own instance. That instance includes its own landing
+page, signup/login, administration, and authenticated workspace on its chosen
+HTTPS origin. Do not copy the maintainers' hostname, accounts, or deployment state.
+
+The `landing` container serves `web/`; the separate `workspace` container runs
+the desktop and developer runtime. The `control-plane` container serves accounts,
+authorization, and the compiled `console/`. PostgreSQL stores control-plane data;
+the supplied stack also includes TURN. Deploying only the landing container is
+a site preview, not a complete Neural Labs installation. Landing customization
+must preserve the routes into that instance's authentication and workspace.
+
+## Agent-led deployment
+
+When asked to install or deploy Neural Labs, carry the work through onboarding
+and verification. Use [Agent-led onboarding](wiki/agent-onboarding.md) as the
+workflow, [Quick setup](wiki/README.md) for the owner's journey, and
+[Container deployment](wiki/container-deployment.md) for the actual commands.
+Keep these guides synchronized when behavior changes.
+
+1. **Establish the destination.** Reuse information already supplied. Resolve
+   only missing choices: target host or hosting account, public/private access
+   and final HTTPS hostname, initial administrator email, and persistent install
+   versus disposable rehearsal. An existing SSH alias can identify the target.
+   Inspect that target; never assume the agent's own machine is the destination.
+2. **Discover before changing it.** Inspect OS, native CPU architecture, Docker
+   access/context, CPU/RAM/disk, ports, subnets, ingress, and existing deployments.
+   Confirm the Docker daemon belongs to the intended destination. Record
+   the source revision and a baseline for changes and recovery. Preserve existing
+   data, services, and private configuration. Identify a fresh installation versus
+   an existing instance that needs the upgrade or recovery runbook. A deployment request authorizes
+   routine setup on the identified target within the user's stated scope; do not
+   ask for approval again at every step. Resolve new spending, destructive
+   replacement, or access beyond that scope before proceeding.
+3. **Select a supported path.** Start with native Linux Docker Compose and host
+   Nginx. Check the actual image manifests and native executables for the target
+   architecture, not just the host's Docker support. ARM64 manual deployment has
+   a [Pi rehearsal](wiki/raspberry-pi-deployment.md); the managed updater and release
+   publication currently target amd64. Do not install that updater on ARM64,
+   silently force amd64 emulation, or claim untested platforms are supported.
+   For another environment, assess the equivalent Linux host or a deployment
+   adapter against the same auth, storage, and networking requirements first.
+4. **Prepare and configure.** Install the documented host prerequisites using
+   the target's package manager and authorized privilege method. Keep public
+   source files readable (`umask 022` for a new clone). Run `bin/neural-labs init`
+   with Docker access; protect `.env` as `0600` and preserve generated secrets.
+   Set the user's origin, admin email, real TURN addresses, and resource limits
+   appropriate to that host. Keep optional integrations optional. Use protected
+   local configuration or the product's connection UI for credentials, not chat
+   transcripts or public examples.
+5. **Deploy the whole instance.** Run `bin/neural-labs up`, inspect status/logs,
+   and wait for readiness. Configure DNS, certificates, and authenticated ingress
+   following the guide. Keep application listeners on loopback and PostgreSQL
+   private. The CLI does not install Nginx or configure DNS/TLS. On an existing
+   managed installation, follow the updater runbook instead of bypassing its
+   protected Compose descriptor.
+6. **Complete the owner's onboarding.** Give the owner their exact signup or
+   sign-in URL for the enabled authentication method and configured administrator
+   email. Let them choose their password when using local login and finish
+   interactive provider consent. Guide them to their personal AI connection and
+   a first Neura request; background accounts are separate. Continue independent
+   checks while waiting for owner-only steps, and report those steps as pending
+   until completed. Do not require optional voice, SMS, Maps, KLIPY, or Pexels
+   credentials for a basic text workspace.
+7. **Verify outcomes and hand over.** Check HTTPS, all services, signed-out
+   rejection, administrator access, Files/Terminal, and a real AI reply when the
+   owner's account is connected. Account for documented doctor/readiness caveats
+   without ignoring unrelated failures. Establish backup and recovery, then
+   provide the instance URL, deployed revision/images, private configuration and
+   backup locations (never values), lifecycle commands, supported update method,
+   and explicit passed/pending checks. Container health alone is not completed
+   onboarding or release approval.
+8. **Honor the requested lifecycle.** Leave a persistent installation running.
+   Remove a rehearsal only when cleanup was requested; remove only its resources
+   and compare against the baseline. Never use volume deletion as a repair for
+   an installation with user data.
+
 ## Safety
 
 - Never commit tenant credentials, provider keys, SSH keys, certificates, VPN files, or generated tenant state.

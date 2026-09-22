@@ -58,7 +58,7 @@ validate:
 	node --check workspace/terminal-guidance.mjs
 	node --check mcp/dist/local.js
 	npm --prefix workspace/desktop run validate
-	node --test web/server.test.mjs
+	node --test web/*.test.mjs web/*.test.cjs
 	npm --prefix workspace test
 	bash -n bin/neural-labs
 	bash -n bin/openclaw-smoke-test
@@ -78,7 +78,7 @@ test:
 	npm --prefix control-plane test
 	npm --prefix mcp test
 	npm --prefix workspace/desktop test
-	node --test web/server.test.mjs
+	node --test web/*.test.mjs web/*.test.cjs
 	npm --prefix workspace test
 
 build:

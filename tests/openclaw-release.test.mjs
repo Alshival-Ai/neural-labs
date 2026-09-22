@@ -77,3 +77,8 @@ test("rejects runtime overlays, source patches and managed Codex overrides", asy
   await writeFile(path.join(dir, "workspace/patches/unlisted.patch"), "a forgotten overlay");
   await assert.rejects(checkPins(dir), /source patch files are prohibited/);
 });
+
+test("workspace startup disables autonomous Skill Workshop maintenance", async () => {
+  const source = await readFile(path.join(root, "workspace/start.mjs"), "utf8");
+  assert.match(source, /path:\s*"skills\.workshop\.autonomous\.mode",\s*value:\s*"off"/u);
+});

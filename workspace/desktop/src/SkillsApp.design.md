@@ -18,8 +18,9 @@ for details. Width preferences are stored separately per user on this device.
 Shrinking the window temporarily clamps the width without replacing the saved
 preference. Storage failure does not prevent resizing.
 
-List titles and navigation labels have full-title tooltips on hover and keyboard
-focus. Tooltips escape scrolling-pane clipping, can be hovered, and dismiss on
+Clipped list and card titles have full-title tooltips on hover and keyboard
+focus. Navigation labels remain plain because their complete names are already
+visible. Tooltips escape scrolling-pane clipping, can be hovered, and dismiss on
 Escape. Narrow windows use a horizontally scrollable destination bar and
 list-to-detail navigation; resizing disappears at the existing compact
 breakpoints (650px for skills, 720px for automations).

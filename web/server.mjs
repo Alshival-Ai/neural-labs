@@ -105,7 +105,7 @@ export function createStaticServer({ root = moduleDirectory, logger = console } 
         return;
       }
 
-      const loginFallback = pathname === "/login";
+      const loginFallback = ["/login", "/signup"].includes(pathname);
       const requestedPath = loginFallback
         ? "/login-pending.html"
         : pathname === "/favicon.ico"

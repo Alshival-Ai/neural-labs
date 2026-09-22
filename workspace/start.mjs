@@ -229,6 +229,10 @@ function configureGateway(twilioConfig) {
     ...gatewayIsolationOperations(),
     { path: "gateway.mode", value: "local" },
     { path: "update.auto.enabled", value: false },
+    // Neural Labs owns personal and Team skill publication. Do not let the
+    // upstream Workshop create weekly per-agent maintenance jobs or rewrite
+    // agent-owned skill collections in the background.
+    { path: "skills.workshop.autonomous.mode", value: "off" },
     { path: "gateway.bind", value: "lan" },
     { path: "gateway.port", value: gatewayPort },
     { path: "gateway.publicOrigin", value: publicOrigin },

@@ -22,28 +22,54 @@
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="icon" href="/assets/brand/neural-labs-favicon.svg" type="image/svg+xml">
     <link rel="preload" href="/assets/fonts/public-sans-variable.ttf" as="font" type="font/ttf" crossorigin>
-    <link rel="stylesheet" href="/styles.css?v=20260919-terminal-caption">
+    <script src="/assets/ui/theme.js?v=20260920-2"></script>
+    <link rel="stylesheet" href="/styles.css?v=20260920-2">
+    <link rel="stylesheet" href="/assets/ui/theme.css?v=20260920-2">
+    <link rel="stylesheet" href="/assets/ui/navigation.css?v=20260920-compact1">
+    <script src="/assets/ui/navigation.js?v=20260920" defer></script>
     <script src="/app.js?v=91ea48c4" defer></script>
   </head>
-  <body>
+  <body class="public-navigation">
     <a class="skip-link" href="#main">Skip to content</a>
 
+  <aside class="public-sidebar" id="site-sidebar" aria-label="Site navigation" tabindex="-1">
+  <div class="sidebar-controls">
+    <button class="sidebar-toggle" type="button" aria-controls="primary-navigation" aria-expanded="false" aria-label="Expand menu" title="Expand menu" hidden><svg class="nav-icon nav-expansion-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>
+    <button class="sidebar-pin" type="button" aria-label="Pin menu open" aria-pressed="false" title="Pin menu open" hidden><svg class="nav-icon nav-pin-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 17v5M9 3h6M9 3v6l-3 3v3h12v-3l-3-3V3"/></svg></button>
+  </div>
+  <nav id="primary-navigation" aria-label="Primary navigation">
+      <a class="sidebar-link" href="#top" aria-label="Home" title="Home" aria-current="page"><span class="nav-selection-cube" aria-hidden="true"><span class="cube-face cube-face--front"></span><span class="cube-face cube-face--back"></span><span class="cube-face cube-face--right"></span><span class="cube-face cube-face--left"></span><span class="cube-face cube-face--top"></span><span class="cube-face cube-face--bottom"></span></span><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z"/></svg><span class="sidebar-label">Home</span></a>
+      <a class="sidebar-link" href="#workspace" aria-label="Workspace" title="Workspace"><span class="nav-selection-cube" aria-hidden="true"><span class="cube-face cube-face--front"></span><span class="cube-face cube-face--back"></span><span class="cube-face cube-face--right"></span><span class="cube-face cube-face--left"></span><span class="cube-face cube-face--top"></span><span class="cube-face cube-face--bottom"></span></span><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span class="sidebar-label">Workspace</span></a>
+      <a class="sidebar-link" href="#openclaw" aria-label="OpenClaw" title="OpenClaw"><span class="nav-selection-cube" aria-hidden="true"><span class="cube-face cube-face--front"></span><span class="cube-face cube-face--back"></span><span class="cube-face cube-face--right"></span><span class="cube-face cube-face--left"></span><span class="cube-face cube-face--top"></span><span class="cube-face cube-face--bottom"></span></span><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5v6l3 3-2 7 6 3 6-3-2-7 3-3V3h-3v5l-4 3-4-3Z"/></svg><span class="sidebar-label">OpenClaw</span></a>
+      <a class="sidebar-link" href="#principles" aria-label="Principles" title="Principles"><span class="nav-selection-cube" aria-hidden="true"><span class="cube-face cube-face--front"></span><span class="cube-face cube-face--back"></span><span class="cube-face cube-face--right"></span><span class="cube-face cube-face--left"></span><span class="cube-face cube-face--top"></span><span class="cube-face cube-face--bottom"></span></span><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 8 4v5c0 5-8 9-8 9s-8-4-8-9V7Z"/><path d="m8 12 3 3 5-6"/></svg><span class="sidebar-label">Principles</span></a>
+      <a class="sidebar-link" href="https://github.com/Alshival-Ai/neural-labs" aria-label="GitHub" title="GitHub"><span class="nav-selection-cube" aria-hidden="true"><span class="cube-face cube-face--front"></span><span class="cube-face cube-face--back"></span><span class="cube-face cube-face--right"></span><span class="cube-face cube-face--left"></span><span class="cube-face cube-face--top"></span><span class="cube-face cube-face--bottom"></span></span><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 5-7 7 7 7m8-14 7 7-7 7m-3-16-2 20"/></svg><span class="sidebar-label">GitHub</span></a>
+  </nav>
+  <a class="sidebar-link sidebar-account" href="/login" data-site-signin aria-label="Log in" title="Log in"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></svg><span class="sidebar-label" data-account-label>Log in</span></a>
+</aside>
+<button class="sidebar-backdrop" type="button" aria-label="Close menu" tabindex="-1" hidden></button>
+    <div class="public-page" id="public-page">
     <header class="site-header">
       <a class="brand" href="#top" aria-label="Neural Labs home">
         <span class="spectrum-text">Neural Labs</span>
       </a>
 
-      <nav aria-label="Primary navigation">
-        <a href="#workspace">Workspace</a>
-        <a href="#openclaw">OpenClaw</a>
-        <a href="#principles">Principles</a>
-      </nav>
-
-      <a class="header-entry" href="/login">
-        <span class="entry-spark" aria-hidden="true"></span>
-        Open workspace
-        <span aria-hidden="true">↗</span>
-      </a>
+      <div class="header-actions">
+        <div class="theme-control" data-theme-control role="radiogroup" aria-label="Color theme" hidden>
+          <button type="button" data-theme-choice="light" role="radio" aria-checked="false" aria-label="Light" tabindex="-1" title="Light mode">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg>
+          </button>
+          <button type="button" data-theme-choice="dark" role="radio" aria-checked="false" aria-label="Dark" tabindex="-1" title="Dark mode">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20.5 13A8.5 8.5 0 0 1 11 3.5 8.5 8.5 0 1 0 20.5 13Z"/></svg>
+          </button>
+          <button type="button" data-theme-choice="system" role="radio" aria-checked="true" aria-label="System" tabindex="0" title="System — follow device appearance">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/></svg>
+          </button>
+        </div>
+        <a class="header-entry" href="/signup" data-site-entry>
+          <span class="entry-spark" aria-hidden="true"></span>
+          <span data-account-label>Sign up</span><span aria-hidden="true">↗</span>
+        </a>
+      </div>
     </header>
 
     <main id="main">
@@ -266,5 +292,6 @@
       <p>One private working surface.</p>
       <div><a href="https://alshival.ai/" target="_blank" rel="noreferrer">Alshival.Ai ↗</a><a href="https://github.com/Alshival-Ai/neural-labs" target="_blank" rel="noreferrer">GitHub ↗</a><a href="#top">Top ↑</a></div>
     </footer>
+    </div>
   </body>
 </html>
