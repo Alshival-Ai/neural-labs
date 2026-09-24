@@ -220,8 +220,8 @@ workspace media route accepts only that ticketed outgoing-media path and relays
 it to the container's loopback Gateway; it must not be expanded into a generic
 Gateway proxy.
 
-Open `/workspace` and connect your own ChatGPT account under **Settings → Model
-Provider → OpenAI**. Send a private Neura request to verify model access. If you
+Open `/workspace` and connect your own ChatGPT account or personal OpenAI API key
+under **Settings → Model Provider → OpenAI**. Send a private Neura request to verify model access. If you
 want scheduled AI work, also connect the Background ChatGPT account under
 **Settings → Workspace**. These connections are independent; see
 [AI accounts and models](ai-accounts.md).

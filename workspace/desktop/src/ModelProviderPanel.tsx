@@ -12,7 +12,6 @@ export function ModelProviderPanel({ csrfToken }: { csrfToken: string }) {
   const [claude, setClaude] = useState<ClaudeConnection>();
   useEffect(() => { void settingsRequest<ClaudeConnection>("/api/account/model-providers/anthropic/connection").then(setClaude).catch(() => {}); }, []);
   const [detail, setDetail] = useState<"openai" | "claude">();
-  const [startSignIn, setStartSignIn] = useState(false);
   const [connection, setConnection] = useState<PersonalOpenAIAuth>();
   const [error, setError] = useState<string>();
   const [disconnectError, setDisconnectError] = useState<string>();
@@ -89,9 +88,9 @@ export function ModelProviderPanel({ csrfToken }: { csrfToken: string }) {
   </div>;
   return <div className="settings-panel user-settings-app model-provider-page">
     {detail ? <>
-      <button type="button" className="settings-button provider-back" disabled={refreshing} onClick={() => { setStartSignIn(false); setDetail(undefined); }}><ArrowLeft aria-hidden="true" />Back to providers</button>
-      <div className="settings-section-header"><div><h1 ref={focusTarget} tabIndex={-1}>{detail === "openai" ? "OpenAI" : "Claude"}</h1><p>{detail === "openai" ? "Manage your personal ChatGPT connection." : "Anthropic’s AI assistant."}</p></div></div>
-      {detail === "openai" ? <><PersonalProviderConnection csrfToken={csrfToken} startOnMount={startSignIn} refreshedStatus={refreshedStatus} onStatusChange={setConnection} />{refreshControls}{connected && <p className="provider-refresh-hint">Rechecks your connection and available models. It does not start a new ChatGPT sign-in or change saved defaults.</p>}</> : <ClaudeProviderConnection csrfToken={csrfToken} onStatusChange={handleClaudeStatus} />}
+      <button type="button" className="settings-button provider-back" disabled={refreshing} onClick={() => setDetail(undefined)}><ArrowLeft aria-hidden="true" />Back to providers</button>
+      <div className="settings-section-header"><div><h1 ref={focusTarget} tabIndex={-1}>{detail === "openai" ? "OpenAI" : "Claude"}</h1><p>{detail === "openai" ? "Choose ChatGPT sign-in or a personal OpenAI API key." : "Anthropic’s AI assistant."}</p></div></div>
+      {detail === "openai" ? <><PersonalProviderConnection csrfToken={csrfToken} refreshedStatus={refreshedStatus} onStatusChange={setConnection} />{refreshControls}{connected && <p className="provider-refresh-hint">Rechecks your connection and available models. It does not change your sign-in method or saved defaults.</p>}</> : <ClaudeProviderConnection csrfToken={csrfToken} onStatusChange={handleClaudeStatus} />}
     </> : <>
       <div className="settings-section-header"><div><span><Bot />Personal agent</span><h1 ref={confirm ? undefined : focusTarget} tabIndex={-1}>Model Provider</h1><p>Connect your accounts and choose how your private Neura works.</p></div></div>
       {notice && <p role="status">{notice}</p>}
@@ -103,7 +102,7 @@ export function ModelProviderPanel({ csrfToken }: { csrfToken: string }) {
           <article className="settings-card provider-card">
             <button type="button" className="provider-card-main" aria-label="Configure OpenAI" disabled={busy || confirm || refreshing} onClick={() => setDetail("openai")}>
               <span className="provider-card-icon"><Bot aria-hidden="true" /></span><ArrowUpRight className="provider-card-arrow" aria-hidden="true" />
-              <strong>OpenAI</strong><span className="provider-card-description">Connect with ChatGPT</span><span className={`provider-card-status${connected ? " is-connected" : ""}`}>{error && !connection ? "Status unavailable" : status}</span>
+              <strong>OpenAI</strong><span className="provider-card-description">ChatGPT account or API key</span><span className={`provider-card-status${connected ? " is-connected" : ""}`}>{error && !connection ? "Status unavailable" : status}</span>
             </button>
             {confirm ? <div className="provider-disconnect-confirm">
               <h3 ref={focusTarget} tabIndex={-1}>Disconnect OpenAI?</h3>
@@ -111,7 +110,7 @@ export function ModelProviderPanel({ csrfToken }: { csrfToken: string }) {
               {disconnectError && <p role="alert">{disconnectError}</p>}
               <button type="button" className="settings-button is-primary" disabled={busy} onClick={() => void disconnect()}>{busy ? "Disconnecting…" : "Confirm disconnect"}</button>
               <button type="button" className="settings-button" disabled={busy} onClick={() => { setConfirm(false); setDisconnectError(undefined); }}>Keep connected</button>
-            </div> : <button type="button" className={`settings-button${connected ? "" : " is-primary"}`} disabled={busy || refreshing || !connection || Boolean(error)} onClick={() => { setNotice(undefined); if (connected) setConfirm(true); else { setStartSignIn(!pending); setDetail("openai"); } }}>{connected ? "Disconnect" : pending ? "Continue setup" : "Set up OpenAI"}</button>}
+            </div> : <button type="button" className={`settings-button${connected ? "" : " is-primary"}`} disabled={busy || refreshing || !connection || Boolean(error)} onClick={() => { setNotice(undefined); if (connected) setConfirm(true); else setDetail("openai"); }}>{connected ? "Disconnect" : pending ? "Continue setup" : "Set up OpenAI"}</button>}
             {refreshControls}
           </article>
           <article className="settings-card provider-card">

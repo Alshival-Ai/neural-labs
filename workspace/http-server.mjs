@@ -612,7 +612,7 @@ export function createWorkspaceHttpServer({
     const providerStartRoute = pathname === "/internal/provider-auth/openai/start";
     const providerProbeRoute = pathname === "/internal/provider-auth/openai/probe";
     const providerCancelRoute = pathname === "/internal/provider-auth/openai/cancel";
-    const personalProviderMatch = pathname.match(/^\/internal\/provider-auth\/openai\/users\/([^/]+)(?:\/(start|cancel|pause|resume|disconnect))?$/u);
+    const personalProviderMatch = pathname.match(/^\/internal\/provider-auth\/openai\/users\/([^/]+)(?:\/(start|cancel|pause|resume|disconnect|api-key))?$/u);
     const teamAgentRoute = pathname === "/internal/neura/team-run";
     if (pathname === "/internal/model-providers/voice" || pathname === "/internal/model-providers/voice/refresh") {
       if (!voiceService?.snapshot || !workspaceControlToken || !validControlToken(request, workspaceControlToken)) {
@@ -736,6 +736,7 @@ export function createWorkspaceHttpServer({
       try {
         const result = !action ? await personalOpenAI.snapshot(userId)
           : action === "start" ? await personalOpenAI.start(userId)
+          : action === "api-key" ? await personalOpenAI.saveApiKey(userId, (await readJsonBody(request, 8192)).key)
           : action === "cancel" ? await personalOpenAI.cancel(userId)
           : action === "pause" ? await personalOpenAI.pause(userId)
           : action === "disconnect" ? await personalOpenAI.disconnect(userId)

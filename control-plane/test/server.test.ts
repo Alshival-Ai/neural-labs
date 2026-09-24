@@ -185,10 +185,10 @@ function application(user?: UserRecord, microsoftLinked = false, collaboration?:
     const payload = url.includes("/internal/provider-auth/openai")
       ? {
           provider: "openai",
-          authMethod: "chatgpt",
-          state: url.endsWith("/start") ? "starting" : "disconnected",
-          authenticated: false,
-          modelReady: false,
+          authMethod: url.endsWith("/api-key") ? "api-key" : "chatgpt",
+          state: url.endsWith("/start") ? "starting" : url.endsWith("/api-key") ? "connected" : "disconnected",
+          authenticated: url.endsWith("/api-key"),
+          modelReady: url.endsWith("/api-key"),
           verificationUrl: null,
           userCode: null,
           expiresAt: null,
@@ -337,6 +337,28 @@ describe("control-plane JSON and role routing", () => {
     expect(String(personalCalls[0]?.[0])).toContain(`/users/${regular.id}`);
     expect(String(personalCalls[1]?.[0])).toContain(`/users/${regular.id}/start`);
     expect(new Headers(personalCalls[1]?.[1]?.headers).get("Authorization")).toBe(`Bearer ${config.workspace.controlToken}`);
+  });
+
+  it("accepts a personal OpenAI API key only with CSRF and sends it to the matching workspace user", async () => {
+    const instance = application(regular);
+    const route = "/api/account/openai/api-key";
+    const key = "sk-test-personal";
+    await request(instance.app).post(route).set("Cookie", cookies).send({ key }).expect(403);
+    await request(instance.app).post(route).set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").set("Origin", "https://evil.example").send({ key }).expect(403);
+    await request(instance.app).post(route).set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").send({ key: "" }).expect(400);
+    const result = await request(instance.app).post(`${route}?userId=${admin.id}`).set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").send({ key, userId: admin.id }).expect(400);
+    expect(result.body.error.code).toBe("invalid_api_key");
+    const saved = await request(instance.app).post(`${route}?userId=${admin.id}`).set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").send({ key }).expect(200);
+    expect(saved.body).toMatchObject({ authMethod: "api-key", authenticated: true });
+    expect(saved.text).not.toContain(key);
+    const forwarded = instance.workspaceFetch.mock.calls.find(([input]) => String(input).endsWith("/api-key"));
+    expect(forwarded).toBeDefined();
+    const [url, options] = forwarded!;
+    expect(String(url)).toContain(`/users/${regular.id}/api-key`);
+    expect(JSON.parse(String(options?.body))).toEqual({ key });
+    expect(new Headers(options?.headers).get("Authorization")).toBe(`Bearer ${config.workspace.controlToken}`);
+    expect(instance.database.audit).toHaveBeenCalledWith(regular.id, "account.openai.api_key_saved", regular.id, { provider: "openai", authMethod: "api-key" });
+    expect(JSON.stringify(vi.mocked(instance.database.audit).mock.calls)).not.toContain(key);
   });
 
   it("scopes model discovery to the owner and protects expensive refreshes", async () => {

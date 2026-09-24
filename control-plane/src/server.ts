@@ -193,6 +193,7 @@ const workspaceProviderAuthSchema = z.object({
   message: z.string().max(500).nullable(),
 });
 const personalOpenAIAuthSchema = workspaceProviderAuthSchema.extend({
+  authMethod: z.enum(["chatgpt", "api-key"]),
   agentId: z.string().regex(/^nl-[a-z0-9]+$/),
   paused: z.boolean(),
 });
@@ -614,7 +615,7 @@ export function createApplication(input: {
     return workspaceProviderAuthSchema.parse(await runtimeResponse.json());
   };
 
-  const personalOpenAIData = async (userId: string, action?: "start" | "cancel" | "pause" | "resume" | "disconnect") => {
+  const personalOpenAIData = async (userId: string, action?: "start" | "cancel" | "pause" | "resume" | "disconnect" | "api-key", key?: string) => {
     const url = new URL(config.workspace.personalAuthUrl);
     url.pathname = `${url.pathname.replace(/\/$/u, "")}/${encodeURIComponent(userId)}${action ? `/${action}` : ""}`;
     const runtimeResponse = await workspaceFetch(url, {
@@ -622,8 +623,10 @@ export function createApplication(input: {
       headers: {
         Accept: "application/json",
         Authorization: `Bearer ${config.workspace.controlToken}`,
+        ...(action === "api-key" ? { "Content-Type": "application/json" } : {}),
       },
-      signal: AbortSignal.timeout(action === "start" ? 15_000 : 8_000),
+      ...(action === "api-key" ? { body: JSON.stringify({ key }) } : {}),
+      signal: AbortSignal.timeout(action === "api-key" ? 45_000 : action === "start" ? 15_000 : 8_000),
     });
     const payload = await runtimeResponse.json().catch(() => undefined) as { error?: { message?: string } } | undefined;
     if (!runtimeResponse.ok) {
@@ -1233,6 +1236,22 @@ export function createApplication(input: {
       }
     });
   }
+
+  app.post("/api/account/openai/api-key", sameOrigin, async (request, response) => {
+    const actor = await requireActiveJson(request, response);
+    if (!actor || !requireCsrfJson(request, response, actor)) return;
+    const parsed = z.object({ key: z.string().trim().min(1).max(4096) }).strict().safeParse(request.body);
+    if (!parsed.success) { jsonError(response, 400, "invalid_api_key", "Enter a nonempty OpenAI API key of at most 4096 characters."); return; }
+    if (!await database.consumeRateLimit(`openai-key:${actor.user.id}`, 10, 60)) { jsonError(response, 429, "rate_limited", "Wait a moment before changing your key again."); return; }
+    try {
+      const result = await personalOpenAIData(actor.user.id, "api-key", parsed.data.key);
+      await database.audit(actor.user.id, "account.openai.api_key_saved", actor.user.id, { provider: "openai", authMethod: "api-key" });
+      response.setHeader("Cache-Control", "no-store");
+      response.json(result);
+    } catch {
+      jsonError(response, 409, "personal_openai_unavailable", "OpenAI API key could not be saved. Check the workspace connection and try again.");
+    }
+  });
 
   app.get("/api/team/directory", async (request, response) => {
     const actor = await requireActiveJson(request, response);

@@ -29,10 +29,11 @@ it("shows provider cards without defaults before connection, and opens provider 
   expect(screen.queryByRole("heading", { name: "Agent defaults" })).toBeNull();
   expect(fetch.mock.calls.some(([url]) => String(url).includes("model-providers/catalog"))).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "Set up OpenAI" }));
-  expect(await screen.findByRole("heading", { name: "Your ChatGPT account" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Your OpenAI connection" })).toBeTruthy();
   expect(document.activeElement?.textContent).toBe("OpenAI");
-  expect(fetch.mock.calls.filter(([url]) => String(url) === "/api/account/openai/connect")).toHaveLength(1);
+  expect(fetch.mock.calls.filter(([url]) => String(url) === "/api/account/openai/connect")).toHaveLength(0);
   expect(await screen.findByRole("button", { name: "Connect ChatGPT" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Use an API key" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Refresh connection" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Back to providers" }));
   fireEvent.click(screen.getByRole("button", { name: "Configure Claude" }));

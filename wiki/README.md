@@ -75,7 +75,8 @@ NEURAL_LABS_MCP_ENABLED=false
 
 Microsoft sign-in, Google Maps, KLIPY, Pexels, SMS, and Neura voice are optional.
 You can leave their credentials blank and connect them later. Neura text chat
-uses a ChatGPT account connected after login; `OPENAI_API_KEY` is for audio.
+uses a personal ChatGPT account or OpenAI API key connected in Settings after login;
+the deployment's `OPENAI_API_KEY` is for audio.
 Keep `.env` out of Git and save a protected backup of it.
 
 ## 3. Build and start
@@ -122,14 +123,14 @@ startup problems.
    set in `NEURAL_LABS_INITIAL_ADMIN_EMAIL`. That account becomes the initial
    administrator. Other addresses wait for approval.
 2. Open `/workspace`, then **Settings → Model Provider → OpenAI**.
-3. Connect your ChatGPT account. Open the displayed sign-in URL, enter the
-   one-time code, and keep Settings open until the connection is confirmed.
+3. Choose **Connect ChatGPT** and finish the one-time-code sign-in, or choose
+   **Use an API key** and save your personal OpenAI Platform key.
 4. Open **Neura** from the dock, start a private conversation, and send a simple
    request, such as “Help me plan my first project.” A reply confirms that your
    personal agent can use its account.
 5. Open **Files** or **VS Code** when you are ready to work with project files.
 
-Your Neural Labs login and ChatGPT connection are separate. Connecting an
+Your Neural Labs login and personal OpenAI connection are separate. Connecting an
 administrator's background account does not connect their personal Neura.
 For scheduled AI work, also connect **Settings → Workspace → Background ChatGPT
 connection**. See [AI accounts and models](ai-accounts.md) for personal,

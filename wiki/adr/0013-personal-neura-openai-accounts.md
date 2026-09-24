@@ -109,10 +109,23 @@ interactive history does not remain under the system account.
 
 - Falling back to the workspace account when personal auth is missing would hide
   billing/identity mistakes and violate the ownership requirement.
-- Sending API keys through the browser or control plane would create additional
-  secret stores and bypass the supported ChatGPT device-code flow.
+- At the time of this decision, sending personal API keys through the browser or
+  control plane was deferred in favor of ChatGPT device-code login.
 - Proxying and rewriting every Gateway frame would duplicate OpenClaw protocol
   authorization logic. Named roles provide the required agent allowlist while
   preserving the direct WebSocket data path.
 - Moving automations onto a human account would make unattended work depend on
   that person's employment, permissions, and token lifetime.
+
+## Amendment: personal API-key choice (2026-09-24)
+
+Users can now explicitly choose a personal OpenAI Platform API key in Settings.
+The active method is recorded in the user's workspace agent directory. ChatGPT
+OAuth and API-key credentials use separate native OpenClaw profiles; the auth
+order contains only the selected profile. Switching methods clears the active
+order before selecting the other method, so an incomplete sign-in cannot consume
+the previous method. Disconnect removes both profiles. Personal keys pass through
+the authenticated, CSRF-protected control-plane route and the Bearer-protected
+workspace control channel, then enter the native credential helper on stdin.
+The key is not placed in command arguments, audit metadata, or browser responses.
+The browser shows that API usage is billed separately from ChatGPT subscriptions.

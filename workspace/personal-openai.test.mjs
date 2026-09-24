@@ -16,6 +16,7 @@ function fixture({ fail = false, wrongOwner = false } = {}) {
   } });
   const account = manager.account("alice");
   account.provisioned = true; account.authenticated = true; account.modelReady = true;
+  manager.writeSelectedMethod = async (selected, method) => { selected.authMethod = method; };
   manager.assignRole = async (userId, role) => calls.push(["role", userId, role]);
   return { manager, account, calls };
 }
@@ -62,4 +63,78 @@ test("disconnect waits for login shutdown and serializes account actions", async
   assert.equal(resumed, false);
   finish(); await disconnect; await resume;
   assert.equal(resumed, true);
+});
+
+test("personal OpenAI API key is stored in its own profile and selected without exposing it to CLI arguments", async () => {
+  const { manager, account, calls } = fixture();
+  let method = "chatgpt";
+  account.controller.cancelAndWait = async () => calls.push(["cancel-login"]);
+  manager.writeProviderPause = async (_userId, paused) => calls.push(["pause", paused]);
+  manager.writeSelectedMethod = async (_account, next) => { method = next; account.authMethod = next; calls.push(["method", next]); };
+  manager.readSelectedMethod = async () => method;
+  manager.saveKey = async ({ agentDir, profileId, key }) => {
+    assert.equal(agentDir, "/unused/agents/nl-alice/agent");
+    assert.equal(profileId, "openai:nl-alice-api");
+    assert.equal(key, "sk-test-personal");
+    calls.push(["native-key-write"]);
+  };
+  manager.refresh = async () => { account.authenticated = true; account.modelReady = true; };
+  const result = await manager.saveApiKey("alice", "sk-test-personal");
+  assert.equal(result.authMethod, "api-key");
+  assert.equal(result.authenticated, true);
+  assert.equal(result.modelReady, true);
+  assert.deepEqual(calls.slice(0, 5), [
+    ["cancel-login"], ["pause", true], ["native-key-write"], ["method", "api-key"], ["pause", false],
+  ]);
+  assert.equal(JSON.stringify(calls).includes("sk-test-personal"), false);
+});
+
+test("selected key profile cannot fall back to an existing ChatGPT credential", async () => {
+  const { manager, account } = fixture();
+  manager.ensureProvisioned = async () => account;
+  manager.readSelectedMethod = async () => "api-key";
+  let profiles = [{ id: account.profileId, provider: "openai", type: "oauth" }];
+  manager.openclawJson = async (args) => {
+    if (args.includes("list")) return { authStatePath: "/state/agents/nl-alice/agent/openclaw-agent.sqlite", profiles };
+    if (args.includes("get")) return { authStatePath: "/state/agents/nl-alice/agent/openclaw-agent.sqlite", order: [account.keyProfileId] };
+    return { auth: { missingProvidersInUse: [], modelRouteIssues: [] } };
+  };
+  manager.gatewayRequest = async () => ({ providers: [{ provider: "openai", status: "ok", profiles: [{ profileId: account.keyProfileId, type: "api_key", status: "ok" }] }] });
+  await manager.refreshOnce(account);
+  assert.equal(account.authenticated, false);
+  profiles = [...profiles, { id: account.keyProfileId, provider: "openai", type: "api_key" }];
+  await manager.refreshOnce(account);
+  assert.equal(account.authMethod, "api-key");
+  assert.equal(account.authenticated, true);
+  assert.equal(account.modelReady, true);
+});
+
+test("switching from a key to ChatGPT clears the key order before device sign-in", async () => {
+  const { manager, account, calls } = fixture();
+  account.authMethod = "api-key";
+  manager.readSelectedMethod = async () => account.authMethod;
+  manager.writeProviderPause = async (_userId, paused) => calls.push(["pause", paused]);
+  manager.writeSelectedMethod = async (selected, method) => { calls.push(["method", method]); selected.authMethod = method; };
+  manager.refresh = async () => { account.authenticated = false; account.modelReady = false; };
+  account.controller.start = () => ({ provider: "openai", state: "starting", authenticated: false, modelReady: false });
+  const result = await manager.start("alice");
+  assert.equal(result.state, "starting");
+  assert.equal(result.authMethod, "chatgpt");
+  assert.deepEqual(calls, [["pause", true], ["method", "chatgpt"], ["pause", false], ["role", "alice", "unlinked"]]);
+});
+
+test("disconnect removes both saved billing methods from the owned store", async () => {
+  const profiles = new Set(["openai:nl-alice", "openai:nl-alice-api"]);
+  const calls = [];
+  const manager = new PersonalOpenAIManager({ workspaceRoot: "/unused", stateRoot: "/unused", gatewayRequest: async () => ({}), execute: async (command, args) => {
+    if (args.includes("logout")) { profiles.delete(args[3]); calls.push(args[3]); return { stdout: "" }; }
+    return { stdout: JSON.stringify({ authStatePath: "/state/agents/nl-alice/agent/openclaw-agent.sqlite", profiles: [...profiles].map(id => ({ id, provider: "openai", type: id.endsWith("-api") ? "api_key" : "oauth" })) }) };
+  } });
+  const account = manager.account("alice"); account.provisioned = true; account.authenticated = true;
+  manager.assignRole = async () => {};
+  manager.writeSelectedMethod = async (selected, method) => { selected.authMethod = method; };
+  const result = await manager.disconnect("alice");
+  assert.equal(result.state, "disconnected");
+  assert.deepEqual(calls, ["openai:nl-alice", "openai:nl-alice-api"]);
+  assert.equal(profiles.size, 0);
 });

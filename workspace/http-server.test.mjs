@@ -539,6 +539,7 @@ test("protects personal OpenAI account control and routes only the selected user
   const personalOpenAI = {
     snapshot: async (userId) => { calls.push(["snapshot", userId]); return { provider: "openai", state: "disconnected", agentId: "nl-user", paused: true }; },
     start: async (userId) => { calls.push(["start", userId]); return { provider: "openai", state: "starting", agentId: "nl-user", paused: false }; },
+    saveApiKey: async (userId, key) => { calls.push(["api-key", userId, key]); return { provider: "openai", authMethod: "api-key", state: "connected", agentId: "nl-user", authenticated: true, modelReady: true, paused: false }; },
     cancel: async () => ({}), pause: async () => ({}), resume: async () => ({}),
     disconnect: async (userId) => { calls.push(["disconnect", userId]); return { state: "disconnected" }; },
   };
@@ -549,11 +550,13 @@ test("protects personal OpenAI account control and routes only the selected user
     const headers = { Authorization: "Bearer workspace-control-token-at-least-thirty-two-characters" };
     assert.equal((await fetch(`${app.origin}${path}`, { headers })).status, 200);
     assert.equal((await fetch(`${app.origin}${path}/start`, { method: "POST", headers })).status, 202);
+    assert.equal((await fetch(`${app.origin}${path}/api-key`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ key: "sk-test-personal" }) })).status, 200);
     assert.equal((await fetch(`${app.origin}${path}/disconnect`, { method: "POST" })).status, 401);
     assert.equal((await fetch(`${app.origin}${path}/disconnect`, { method: "POST", headers })).status, 200);
     assert.deepEqual(calls, [
       ["snapshot", "11111111-1111-4111-8111-111111111111"],
       ["start", "11111111-1111-4111-8111-111111111111"],
+      ["api-key", "11111111-1111-4111-8111-111111111111", "sk-test-personal"],
       ["disconnect", "11111111-1111-4111-8111-111111111111"],
     ]);
   } finally {
