@@ -39,7 +39,7 @@ test("personal Connect button sends a request and displays the device code", { s
         }
         await page.getByRole("button", { name: setup ? "Set up OpenAI" : "Configure OpenAI" }).click();
         assert.equal(await page.getByRole("button", { name: "Refresh connection", exact: true }).count(), 0);
-        if (!setup) await page.getByRole("button", { name: "Connect ChatGPT", exact: true }).click({ timeout: 8000 });
+        await page.getByRole("button", { name: "Connect ChatGPT", exact: true }).click({ timeout: 8000 });
         await page.getByText("TEST-CODE", { exact: true }).waitFor({ timeout: 8000 });
         const link = page.getByRole("link", { name: "Open OpenAI sign-in" });
         await link.scrollIntoViewIfNeeded();

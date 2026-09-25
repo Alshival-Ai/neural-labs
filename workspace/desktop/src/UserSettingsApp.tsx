@@ -49,7 +49,7 @@ type AccountPasskey = {
 
 export type PersonalOpenAIAuth = {
   provider: "openai";
-  authMethod: "chatgpt";
+  authMethod: "chatgpt" | "api-key";
   state: "disconnected" | "starting" | "awaiting_user" | "connected" | "error";
   authenticated: boolean;
   modelReady: boolean;

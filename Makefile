@@ -39,6 +39,7 @@ validate:
 	node --check workspace/claude-runtime.mjs
 	node --check workspace/model-accounts.mjs
 	node --check workspace/claude-native-key.mjs
+	node --check workspace/openai-native-key.mjs
 	node --check workspace/native-provider-order.mjs
 	node --check workspace/provider-auth.mjs
 	node --check workspace/provider-environment.mjs

@@ -91,7 +91,7 @@ See [Deploy with your agent](wiki/agent-onboarding.md) for a copyable prompt and
 current platform support.
 
 The [deployment guide](wiki/container-deployment.md) walks through host prerequisites, configuration,
-HTTPS, administrator signup, connecting your ChatGPT account, and a first Neura
+HTTPS, administrator signup, connecting ChatGPT or a personal OpenAI API key, and a first Neura
 request. Deployment uses Docker Compose behind host Nginx.
 
 From a checkout on a prepared host:

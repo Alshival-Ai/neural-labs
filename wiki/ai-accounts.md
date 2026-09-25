@@ -7,10 +7,22 @@ only user and the administrator.
 ## Connect your personal account
 
 1. Open **Settings → Model Provider**, then the **OpenAI** card.
-2. Choose the connection action and wait for a verification URL and one-time code.
-3. Open that URL, sign in to the ChatGPT account you intend to use, and enter
-   the code. Keep Settings open until it confirms the connection.
+2. Choose **Connect ChatGPT** or **Use an API key**.
+3. For ChatGPT, wait for the verification URL and one-time code, then open the
+   URL and finish sign-in. Keep Settings open until it confirms the connection.
+   For a key, enter an OpenAI Platform API key and choose **Save and use API key**.
 4. Check the model status, then send a request in a private Neura conversation.
+
+API usage is billed separately from ChatGPT subscriptions. Saving a personal key
+selects key authentication for that person's Neura; choosing ChatGPT selects
+their ChatGPT credential instead. Neural Labs keeps the two credentials in
+separate native profiles and never falls back to the unselected method. A
+previously connected method stays stored but inactive. Choosing ChatGPT can
+reuse an existing valid sign-in; to select key billing again, enter the key in
+Settings because saved keys are never shown there. **Disconnect** removes both
+personal OpenAI credentials.
+Saving confirms that the key reached the personal credential store; send a Neura
+message to verify that OpenAI accepts it and the account has usable quota.
 
 If the provider asks you to enable device-code login, follow its account
 security instructions and retry with a new code. **Refresh connection** checks
@@ -52,8 +64,8 @@ a new conversation after the account is replaced.
 | Neura realtime voice and voice-memo transcription | The server's `OPENAI_API_KEY`, configured separately for audio |
 | `codex` run directly in a terminal | The terminal CLI's separate login cache |
 
-A missing, paused, or unusable account does not silently fall back to another
-person's account or the shared audio API key. Scheduled and manual automation
+A missing, paused, or unusable connection does not silently fall back to another
+person's account, the other personal billing method, or the shared audio API key. Scheduled and manual automation
 runs can overlap; the [Automations guide](automations.md) explains run behavior.
 
 ## Connect background and Team accounts
@@ -96,8 +108,10 @@ the fixed OpenAI and Claude bindings.
 
 ## Credential storage and recovery
 
-OpenClaw keeps ChatGPT credentials in the persistent workspace volumes. The
-browser receives connection status and the temporary login code, not OAuth
+OpenClaw keeps personal ChatGPT and OpenAI API-key credentials in separate native
+profiles in the persistent workspace volumes. A key travels through the protected
+Settings route and workspace control channel and is never returned to the browser.
+The browser receives connection status and the temporary ChatGPT login code, not OAuth
 tokens. Workspace Claude API keys stay in native credential profiles; subscription
 logins stay in the owning Claude configuration directory. All approved developers share the workspace operating-system trust
 boundary; see [Sharing and privacy](sharing-and-privacy.md).

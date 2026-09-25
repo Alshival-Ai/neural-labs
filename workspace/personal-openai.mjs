@@ -1,6 +1,8 @@
 import { spawn, execFile } from "node:child_process";
-import { access, mkdir, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { GatewayClient } from "@openclaw/gateway-client";
@@ -29,6 +31,10 @@ export function personalRoleId(userId) {
 
 export function personalProfileId(userId) {
   return `openai:${personalAgentId(userId)}`;
+}
+
+export function personalKeyProfileId(userId) {
+  return `${personalProfileId(userId)}-api`;
 }
 
 export function createGatewayAdminRequest({ url, password, timeoutMs = 15_000 }) {
@@ -74,6 +80,19 @@ function personalLoginProcess(agentId, profileId) {
   });
 }
 
+function saveNativeKey(value) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [fileURLToPath(new URL("./openai-native-key.mjs", import.meta.url))], {
+      stdio: ["pipe", "ignore", "ignore"], env: agentEnvironment(process.env),
+    });
+    const timer = setTimeout(() => child.kill("SIGKILL"), 30_000);
+    child.once("error", () => { clearTimeout(timer); reject(new Error("OpenAI API key could not be saved")); });
+    child.once("exit", (code) => { clearTimeout(timer); code === 0 ? resolve() : reject(new Error("OpenAI API key could not be saved")); });
+    child.stdin.on("error", () => {});
+    child.stdin.end(JSON.stringify(value));
+  });
+}
+
 function ownsPersonalAuthStore(payload, agentId) {
   const authStatePath = String(payload?.authStatePath ?? "").replaceAll("\\", "/");
   return authStatePath.endsWith(`/agents/${agentId}/agent/openclaw-agent.sqlite`);
@@ -83,9 +102,9 @@ function authenticationState(payload, account) {
   return ownsPersonalAuthStore(payload, account.agentId) &&
     Array.isArray(payload?.profiles) && payload.profiles.some(
       (profile) =>
-        profile?.id === account.profileId &&
+        profile?.id === (account.authMethod === "api-key" ? account.keyProfileId : account.profileId) &&
         profile?.provider === "openai" &&
-        profile?.type === "oauth",
+        profile?.type === (account.authMethod === "api-key" ? "api_key" : "oauth"),
     );
 }
 
@@ -93,7 +112,7 @@ function personalOrderState(payload, account) {
   return ownsPersonalAuthStore(payload, account.agentId) &&
     Array.isArray(payload?.order) &&
     payload.order.length === 1 &&
-    payload.order[0] === account.profileId;
+    payload.order[0] === (account.authMethod === "api-key" ? account.keyProfileId : account.profileId);
 }
 
 function modelState(payload) {
@@ -112,8 +131,8 @@ function gatewayModelState(payload, account) {
   return usableStatuses.has(provider?.status) &&
     Array.isArray(provider?.profiles) && provider.profiles.some(
       (profile) =>
-        profile?.profileId === account.profileId &&
-        profile?.type === "oauth" &&
+        profile?.profileId === (account.authMethod === "api-key" ? account.keyProfileId : account.profileId) &&
+        profile?.type === (account.authMethod === "api-key" ? "api_key" : "oauth") &&
         usableStatuses.has(profile?.status),
     );
 }
@@ -125,6 +144,7 @@ export class PersonalOpenAIManager {
     gatewayRequest,
     execute = execFileAsync,
     spawnLogin = personalLoginProcess,
+    saveKey = saveNativeKey,
   }) {
     if (!workspaceRoot || !stateRoot || typeof gatewayRequest !== "function") {
       throw new Error("Personal OpenAI manager paths and Gateway client are required");
@@ -134,6 +154,7 @@ export class PersonalOpenAIManager {
     this.gatewayRequest = gatewayRequest;
     this.execute = (command, args, options) => execute(command, args, { ...options, env: agentEnvironment(process.env) });
     this.spawnLogin = spawnLogin;
+    this.saveKey = saveKey;
     this.accounts = new Map();
     this.mutationTail = Promise.resolve();
   }
@@ -162,6 +183,8 @@ export class PersonalOpenAIManager {
       agentId: id,
       roleId: personalRoleId(userId),
       profileId: personalProfileId(userId),
+      keyProfileId: personalKeyProfileId(userId),
+      authMethod: "chatgpt",
       authenticated: false,
       modelReady: false,
       provisioned: false,
@@ -242,6 +265,7 @@ export class PersonalOpenAIManager {
 
   async refreshOnce(account) {
     await this.ensureProvisioned(account.userId);
+    account.authMethod = await this.readSelectedMethod(account);
     const authentication = await this.openclawJson([
       "models", "auth", "list", "--agent", account.agentId, "--provider", "openai", "--json",
     ]).catch(() => undefined);
@@ -264,7 +288,7 @@ export class PersonalOpenAIManager {
           "models", "auth", "order", "set",
           "--agent", account.agentId,
           "--provider", "openai",
-          account.profileId,
+          account.authMethod === "api-key" ? account.keyProfileId : account.profileId,
         ], { encoding: "utf8", timeout: 120_000, maxBuffer: 1024 * 1024 });
       });
     }
@@ -324,7 +348,30 @@ export class PersonalOpenAIManager {
     const snapshot = account.controller.snapshot();
     const profile = await this.findProfile(userId).catch(() => undefined);
     account.paused = (await this.readProviderPause?.(userId)) ?? (profile?.role !== account.roleId);
-    return { ...snapshot, agentId: account.agentId, paused: account.paused };
+    return { ...snapshot, authMethod: account.authMethod, agentId: account.agentId, paused: account.paused };
+  }
+
+  methodPath(account) {
+    return path.join(this.stateRoot, "agents", account.agentId, "agent", "neural-labs-openai-method.json");
+  }
+
+  async readSelectedMethod(account) {
+    try {
+      const state = JSON.parse(await readFile(this.methodPath(account), "utf8"));
+      if (state.method === "chatgpt" || state.method === "api-key") return state.method;
+      throw new Error();
+    } catch (error) {
+      if (error?.code === "ENOENT") return "chatgpt";
+      throw new Error("OpenAI connection method is unreadable");
+    }
+  }
+
+  async writeSelectedMethod(account, method) {
+    const target = this.methodPath(account);
+    const temp = `${target}.${randomUUID()}.tmp`;
+    await writeFile(temp, JSON.stringify({ method }), { mode: 0o600 });
+    await rename(temp, target);
+    account.authMethod = method;
   }
 
   accountAction(userId, action) {
@@ -335,6 +382,7 @@ export class PersonalOpenAIManager {
   }
 
   start(userId) { return this.accountAction(userId, () => this.startOnce(userId)); }
+  saveApiKey(userId, key) { return this.accountAction(userId, () => this.saveApiKeyOnce(userId, key)); }
   resume(userId) { return this.accountAction(userId, () => this.resumeOnce(userId)); }
   pause(userId) { return this.accountAction(userId, () => this.pauseOnce(userId)); }
   disconnect(userId) { return this.accountAction(userId, () => this.disconnectOnce(userId)); }
@@ -342,18 +390,44 @@ export class PersonalOpenAIManager {
   async startOnce(userId) {
     const account = await this.ensureProvisioned(userId);
     if (account.disconnecting) throw new Error("Disconnect is in progress. Try again shortly.");
+    // Choosing ChatGPT explicitly retires the API key from the active auth order.
+    if (await this.readSelectedMethod(account) === "api-key") await this.writeProviderPause?.(userId, true);
+    await this.writeSelectedMethod(account, "chatgpt");
     await this.writeProviderPause?.(userId, false);
     await this.refresh(account);
     if (account.disconnecting) throw new Error("Disconnect is in progress. Try again shortly.");
     account.accessRevoked = false;
-    if (account.authenticated) await this.assignRole(userId, account.roleId);
+    await this.assignRole(userId, account.authenticated || await this.otherProviderReady?.(userId) ? account.roleId : "unlinked");
     account.paused = false;
-    return { ...account.controller.start(), agentId: account.agentId, paused: false };
+    return { ...account.controller.start(), authMethod: "chatgpt", agentId: account.agentId, paused: false };
+  }
+
+  async saveApiKeyOnce(userId, key) {
+    if (typeof key !== "string" || !key.trim() || key.length > 4096) {
+      throw new Error("Enter a nonempty OpenAI API key of at most 4096 characters");
+    }
+    const account = await this.ensureProvisioned(userId);
+    if (account.disconnecting) throw new Error("Disconnect is in progress. Try again shortly.");
+    await account.controller.cancelAndWait();
+    await this.writeProviderPause?.(userId, true);
+    await this.saveKey({
+      agentDir: path.join(this.stateRoot, "agents", account.agentId, "agent"),
+      profileId: account.keyProfileId,
+      key: key.trim(),
+    });
+    await this.writeSelectedMethod(account, "api-key");
+    await this.writeProviderPause?.(userId, false);
+    await this.refresh(account);
+    if (!account.authenticated) throw new Error("OpenAI API key could not be verified in your personal credential store");
+    await this.assignRole(userId, account.roleId);
+    account.accessRevoked = false;
+    account.paused = false;
+    return { ...account.controller.snapshot(), authMethod: "api-key", agentId: account.agentId, paused: false };
   }
 
   async cancel(userId) {
     const account = this.account(userId);
-    return { ...account.controller.cancel(), agentId: account.agentId, paused: account.paused };
+    return { ...account.controller.cancel(), authMethod: account.authMethod, agentId: account.agentId, paused: account.paused };
   }
 
   async pauseOnce(userId) {
@@ -363,7 +437,7 @@ export class PersonalOpenAIManager {
     await this.writeProviderPause?.(userId, true);
     await this.assignRole(userId, await this.otherProviderReady?.(userId) ? account.roleId : "unlinked");
     account.paused = true;
-    return { ...account.controller.snapshot(), agentId: account.agentId, paused: true };
+    return { ...account.controller.snapshot(), authMethod: account.authMethod, agentId: account.agentId, paused: true };
   }
 
   async resumeOnce(userId) {
@@ -376,7 +450,7 @@ export class PersonalOpenAIManager {
     await this.assignRole(userId, account.roleId);
     account.accessRevoked = false;
     account.paused = false;
-    return { ...account.controller.snapshot(), agentId: account.agentId, paused: false };
+    return { ...account.controller.snapshot(), authMethod: account.authMethod, agentId: account.agentId, paused: false };
   }
 
   async disconnectOnce(userId) {
@@ -395,20 +469,24 @@ export class PersonalOpenAIManager {
           "models", "auth", "list", "--agent", account.agentId, "--provider", "openai", "--json",
         ]);
         if (!ownsPersonalAuthStore(before, account.agentId)) throw new Error("Unexpected credential owner");
-        if (authenticationState(before, account)) await this.execute("openclaw", [
-          "models", "auth", "logout", account.profileId, "--agent", account.agentId, "--yes",
-        ], { encoding: "utf8", timeout: 120_000, maxBuffer: 1024 * 1024 });
+        for (const profileId of [account.profileId, account.keyProfileId]) {
+          if (before.profiles?.some((profile) => profile?.id === profileId)) await this.execute("openclaw", [
+            "models", "auth", "logout", profileId, "--agent", account.agentId, "--yes",
+          ], { encoding: "utf8", timeout: 120_000, maxBuffer: 1024 * 1024 });
+        }
       });
       const authentication = await this.openclawJson([
         "models", "auth", "list", "--agent", account.agentId, "--provider", "openai", "--json",
       ]);
-      if (!ownsPersonalAuthStore(authentication, account.agentId) || authenticationState(authentication, account)) {
+      if (!ownsPersonalAuthStore(authentication, account.agentId) ||
+          authentication.profiles?.some((profile) => [account.profileId, account.keyProfileId].includes(profile?.id))) {
         throw new Error("The personal connection could not be verified as disconnected.");
       }
+      await this.writeSelectedMethod(account, "chatgpt");
       account.authenticated = false;
       account.modelReady = false;
       account.controller.cancel();
-      return { ...account.controller.snapshot(), agentId: account.agentId, paused: true };
+      return { ...account.controller.snapshot(), authMethod: "chatgpt", agentId: account.agentId, paused: true };
     } catch {
       throw new Error("Disconnect could not be completed. Try again before reconnecting.");
     } finally {
