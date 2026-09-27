@@ -427,4 +427,14 @@ export const migrations: Migration[] = [
       INSERT INTO update_runtime(singleton) VALUES(true);
     `,
   },
+  {
+    version: 13,
+    sql: `CREATE TABLE deployment_identity (singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton), binding jsonb NOT NULL);
+      ALTER TABLE sessions ADD COLUMN portal_grant text;
+      CREATE TABLE managed_identities (
+        user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        issuer text NOT NULL, workspace uuid NOT NULL, subject text NOT NULL,
+        UNIQUE(issuer, workspace, subject)
+      );`,
+  },
 ];

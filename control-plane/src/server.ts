@@ -35,6 +35,7 @@ import type { Database, SaveSetupInput } from "./database.js";
 import { MicrosoftOidcClient } from "./entra.js";
 import { WebAuthnService, type WebAuthnOperations } from "./passkeys.js";
 import { SessionService } from "./sessions.js";
+import { managedMembersReady, registerManagedRoutes } from "./managed.js";
 import { PhoneError, PhoneService, PhoneStore } from "./phone.js";
 import { TwilioPluginService, twilioNotificationSchema, twilioSettingsSchema } from "./twilioPlugin.js";
 import type {
@@ -445,6 +446,8 @@ export function createApplication(input: {
     return true;
   };
 
+  registerManagedRoutes(app, config, database, sessions);
+
   const sendConsole = (response: Response): void => {
     response.sendFile(consoleIndex);
   };
@@ -647,6 +650,7 @@ export function createApplication(input: {
 
   app.get("/readyz", async (_request, response) => {
     try {
+      if (config.managed && !managedMembersReady()) throw new Error("Membership reconciliation is pending");
       await database.ping();
       response.status(200).json({ status: "ready" });
     } catch {
@@ -869,6 +873,7 @@ export function createApplication(input: {
     }
     response.json({
       authenticated: true,
+      ...(config.managed ? { managed: { portalUrl: `${config.managed.portalOrigin}/workspaces/${config.managed.workspace}/neural-labs/` } } : {}),
       user: publicUser(actor.user),
       providers: publicProviders(actor.identities),
       csrfToken,

@@ -240,3 +240,9 @@ Database migrations are forward-only and run when the control plane starts.
 The CLI never installs Nginx, invokes `sudo`, deletes volumes, regenerates an
 existing secret, or removes old backups. Raw Compose commands remain available
 for troubleshooting, but normal operators should use the lifecycle CLI.
+
+## Alshival portal mode
+
+The standalone deployment above retains its existing identity and update workflow.
+Portal-owned stacks use the [managed adapter](alshival-managed.md) with a fresh
+identity database and platform execution leases.

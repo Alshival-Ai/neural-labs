@@ -2,6 +2,8 @@ import type { Request, Response } from "express";
 
 import type { ControlPlaneConfig } from "./config.js";
 import { hashToken, randomToken } from "./crypto.js";
+import { CredentialCipher } from "./crypto.js";
+import { managedUserId, portalCall, syncManagedUser } from "./managed.js";
 import type { Database } from "./database.js";
 import type { SessionActor } from "./types.js";
 
@@ -47,7 +49,8 @@ export class SessionService {
     };
   }
 
-  async create(response: Response, userId: string): Promise<void> {
+  async create(response: Response, userId: string, managed?: { token: string; expiresAt: Date }): Promise<void> {
+    if (this.config.managed && !managed) throw new Error("Portal authorization is required");
     const token = randomToken();
     const csrf = randomToken();
     const now = Date.now();
@@ -56,8 +59,10 @@ export class SessionService {
       csrfHash: hashToken(csrf),
       userId,
       idleExpiresAt: new Date(now + IDLE_MILLISECONDS),
-      absoluteExpiresAt: new Date(now + ABSOLUTE_MILLISECONDS),
+      absoluteExpiresAt: new Date(Math.min(now + ABSOLUTE_MILLISECONDS, managed?.expiresAt.getTime() ?? Infinity)),
     });
+    if (managed) await this.database.pool.query("UPDATE sessions SET portal_grant = $2 WHERE token_hash = $1",
+      [hashToken(token), new CredentialCipher(this.config.masterKey).encrypt({ token: managed.token })]);
     response.cookie(this.sessionCookieName, token, this.cookieOptions(true));
     response.cookie(this.csrfCookieName, csrf, this.cookieOptions(false));
   }
@@ -67,6 +72,19 @@ export class SessionService {
     if (!token) return undefined;
     const actor = await this.database.getSessionActor(hashToken(token));
     if (!actor) return undefined;
+    if (this.config.managed) {
+      try {
+        const result = await this.database.pool.query("SELECT portal_grant FROM sessions WHERE token_hash=$1", [hashToken(token)]);
+        const grant = new CredentialCipher(this.config.masterKey).decrypt<{ token: string }>(result.rows[0]?.portal_grant);
+        const identity = (await portalCall(this.config, "authorize", grant.token))!;
+        if (managedUserId(this.config.managed, identity.subject) !== actor.user.id) return undefined;
+        await syncManagedUser(this.database, this.config.managed, identity);
+        actor.user.role = identity.role;
+        actor.user.status = "active";
+        actor.user.email = identity.email;
+        actor.user.displayName = identity.display_name;
+      } catch { return undefined; }
+    }
     await this.database.touchSession(
       actor.session.tokenHash,
       new Date(Date.now() + IDLE_MILLISECONDS),
@@ -93,6 +111,13 @@ export class SessionService {
 
   async destroy(request: Request, response: Response): Promise<void> {
     const token = parseCookies(request.headers.cookie).get(this.sessionCookieName);
+    if (token && this.config.managed) {
+      try {
+        const result = await this.database.pool.query("SELECT portal_grant FROM sessions WHERE token_hash=$1", [hashToken(token)]);
+        const grant = new CredentialCipher(this.config.masterKey).decrypt<{ token: string }>(result.rows[0]?.portal_grant);
+        await portalCall(this.config, "revoke", grant.token);
+      } catch { /* Local logout still closes access during a portal outage. */ }
+    }
     if (token) await this.database.deleteSession(hashToken(token));
     response.clearCookie(this.sessionCookieName, this.cookieOptions(true));
     response.clearCookie(this.csrfCookieName, this.cookieOptions(false));

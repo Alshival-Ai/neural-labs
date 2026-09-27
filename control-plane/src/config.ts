@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 import { z } from "zod";
+import { managedConfig, type ManagedConfig } from "./managed.js";
 
 import type { EntraCredential, EffectiveEntraConfig } from "./types.js";
 import { normalizeCertificateCredential } from "./crypto.js";
@@ -9,6 +10,7 @@ import { normalizePhone, type SmsConfig } from "./phone.js";
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 
 export interface ControlPlaneConfig {
+  managed?: ManagedConfig;
   host: string;
   port: number;
   publicOrigin?: URL;
@@ -158,6 +160,7 @@ async function loadEnvironmentEntra(env: NodeJS.ProcessEnv): Promise<EffectiveEn
 }
 
 export async function loadConfig(env: NodeJS.ProcessEnv = process.env): Promise<ControlPlaneConfig> {
+  const managed = managedConfig(env);
   const masterKeyValue =
     (await readOptionalFile(env, "CONTROL_PLANE_MASTER_KEY_FILE")) ??
     env.CONTROL_PLANE_MASTER_KEY?.trim();
@@ -257,6 +260,9 @@ export async function loadConfig(env: NodeJS.ProcessEnv = process.env): Promise<
     ),
   };
   const autoSetup = parseBoolean(env.CONTROL_PLANE_AUTO_SETUP, false, "CONTROL_PLANE_AUTO_SETUP");
+  if (managed && (!publicOrigin || publicOrigin.protocol !== "https:")) {
+    throw new Error("Managed instances require an HTTPS CONTROL_PLANE_PUBLIC_ORIGIN");
+  }
   const initialAdminValue = env.CONTROL_PLANE_INITIAL_ADMIN_EMAIL?.trim().toLowerCase();
   const initialAdmin = initialAdminValue
     ? z.string().email().max(320).safeParse(initialAdminValue)
@@ -264,7 +270,7 @@ export async function loadConfig(env: NodeJS.ProcessEnv = process.env): Promise<
   if (initialAdmin && !initialAdmin.success) {
     throw new Error("CONTROL_PLANE_INITIAL_ADMIN_EMAIL must be a valid email address");
   }
-  if (autoSetup) {
+  if (autoSetup && !managed) {
     if (!publicOrigin) throw new Error("CONTROL_PLANE_AUTO_SETUP requires CONTROL_PLANE_PUBLIC_ORIGIN");
     if (!initialAdmin?.success) {
       throw new Error("CONTROL_PLANE_AUTO_SETUP requires CONTROL_PLANE_INITIAL_ADMIN_EMAIL");
@@ -278,6 +284,7 @@ export async function loadConfig(env: NodeJS.ProcessEnv = process.env): Promise<
   }
 
   return {
+    ...(managed ? { managed } : {}),
     host: env.CONTROL_PLANE_HOST?.trim() || "127.0.0.1",
     port: parsePort(env.CONTROL_PLANE_PORT, 4174, "CONTROL_PLANE_PORT"),
     ...(publicOrigin ? { publicOrigin } : {}),

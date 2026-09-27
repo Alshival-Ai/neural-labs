@@ -122,6 +122,8 @@ COPY workspace/native-config-batch.mjs /usr/local/lib/neural-labs/native-config-
 COPY workspace/team-openai.mjs /usr/local/lib/neural-labs/team-openai.mjs
 COPY workspace/provider-environment.mjs /usr/local/lib/neural-labs/provider-environment.mjs
 COPY workspace/team-agent.mjs /usr/local/lib/neural-labs/team-agent.mjs
+COPY workspace/managed-members.mjs /usr/local/lib/neural-labs/managed-members.mjs
+COPY workspace/alshival-plugin /usr/local/lib/neural-labs/alshival-plugin
 COPY workspace/voice.mjs /usr/local/lib/neural-labs/voice.mjs
 COPY workspace/terminal-guidance.md workspace/terminal-guidance.mjs /usr/local/lib/neural-labs/
 COPY workspace/terminal-agent.mjs /usr/local/lib/neural-labs/terminal-agent.mjs

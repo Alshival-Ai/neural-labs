@@ -1,3 +1,4 @@
+import { bindAuthenticationMode, reconcileManagedMembers } from "./managed.js";
 import { UpdateService } from "./updates.js";
 import { createServer } from "node:http";
 
@@ -13,8 +14,14 @@ import { ModelProviderPolicies } from "./modelProviders.js";
 const config = await loadConfig();
 const database = new Database(createPool(config));
 await database.migrate();
+await bindAuthenticationMode(database, config);
 
-if (config.autoSetup) {
+if (config.managed) {
+  // Managed mode never runs standalone administrator bootstrap.
+  await database.pool.query(`UPDATE instance_config SET setup_complete=true, public_origin=$1,
+    local_auth_enabled=false, microsoft_auth_enabled=false, microsoft_mcp_enabled=false WHERE singleton_id=1`,
+  [config.publicOrigin!.origin]);
+} else if (config.autoSetup) {
   const stored = await database.getInstanceConfig();
   if (!stored.setupComplete) {
     await database.saveSetup({
@@ -79,6 +86,17 @@ if (process.argv[2] === "setup-reset") {
     config,
     (event) => socketHub.publish(event),
   );
+  let reconcilingMembers = false;
+  const reconcileMembers = async () => {
+    if (reconcilingMembers || !config.managed) return;
+    reconcilingMembers = true;
+    try { await reconcileManagedMembers(database, config); }
+    catch { console.warn("Managed membership reconciliation is pending"); }
+    finally { reconcilingMembers = false; }
+  };
+  const memberTimer = setInterval(() => { void reconcileMembers(); }, 15000);
+  memberTimer.unref();
+  void reconcileMembers();
   const notificationTimer = setInterval(() => { void maintenance().then(paused => paused ? undefined : application.notifications.tick()).catch(() => console.warn("Notification reconciliation is unavailable")); }, 15_000);
   notificationTimer.unref();
   const server = createServer(application.app);
@@ -93,6 +111,7 @@ if (process.argv[2] === "setup-reset") {
     stopping = true;
     clearInterval(modelPolicyTimer);
     clearInterval(notificationTimer);
+    clearInterval(memberTimer);
     modelPolicyStartupTimers.forEach(clearTimeout);
     console.log(`Received ${signal}; shutting down control plane`);
     // Upgrade connections are not counted as ordinary HTTP requests, so close

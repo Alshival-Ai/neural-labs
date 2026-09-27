@@ -6,6 +6,7 @@
 
 - [Deploy with your agent](agent-onboarding.md)
 - [Deploy your instance](container-deployment.md)
+- [Alshival-managed installations](alshival-managed.md)
 - [Raspberry Pi deployment](raspberry-pi-deployment.md)
 - [Connect AI accounts](ai-accounts.md)
 - [Enable Microsoft sign-in](entra-app-setup.md)

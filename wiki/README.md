@@ -158,3 +158,5 @@ to plan retention and test recovery.
 - [Manage your instance](manage-instance.md): approve teammates, connect integrations, update, and recover.
 - [Browse all guides](navigation.md): documentation organized by task.
 - [Release history](release-history.md): changes and dated release records.
+
+For hosting integrated with the Alshival portal, see [Alshival-managed installations](alshival-managed.md).

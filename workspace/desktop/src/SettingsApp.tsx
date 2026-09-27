@@ -64,6 +64,7 @@ import { TwilioPluginCard } from "./TwilioPluginCard";
 export type SettingsSection = "personalization" | "security" | "model-provider" | "plugins" | "overview" | "users" | "authentication" | "workspace" | "updates" | "audit" | "about";
 
 export type SettingsAppProps = {
+  managed?: { portalUrl: string } | undefined;
   administrator?: boolean;
   workspaceStatus?: string;
   csrfToken: string;
@@ -130,10 +131,10 @@ function initials(value: string): string {
   return (parts.length > 1 ? `${parts[0][0]}${parts[parts.length - 1][0]}` : value.slice(0, 2)).toUpperCase();
 }
 
-export function SettingsApp({ administrator = true, workspaceStatus, csrfToken, currentUserId, user, providers = [], initialNotice, initialSection, sectionRequest, fontScale = 100, onFontScaleChange = () => undefined, onLogout = () => undefined, storageNamespace, storageArea = "settings" }: SettingsAppProps) {
-  const navigation = administrator ? [PERSONALIZATION_NAVIGATION, SECURITY_NAVIGATION, MODEL_PROVIDER_NAVIGATION, PLUGINS_NAVIGATION, ...ADMIN_NAVIGATION] : [PERSONALIZATION_NAVIGATION, SECURITY_NAVIGATION, MODEL_PROVIDER_NAVIGATION, PLUGINS_NAVIGATION];
+export function SettingsApp({ managed, administrator = true, workspaceStatus, csrfToken, currentUserId, user, providers = [], initialNotice, initialSection, sectionRequest, fontScale = 100, onFontScaleChange = () => undefined, onLogout = () => undefined, storageNamespace, storageArea = "settings" }: SettingsAppProps) {
+  const navigation = (administrator ? [PERSONALIZATION_NAVIGATION, SECURITY_NAVIGATION, MODEL_PROVIDER_NAVIGATION, PLUGINS_NAVIGATION, ...ADMIN_NAVIGATION] : [PERSONALIZATION_NAVIGATION, SECURITY_NAVIGATION, MODEL_PROVIDER_NAVIGATION, PLUGINS_NAVIGATION]).filter(item => !managed || !["users", "authentication", "updates", "overview"].includes(item.id));
   const allowedSections = new Set(navigation.map((item) => item.id));
-  const fallbackSection: SettingsSection = administrator ? "overview" : "personalization";
+  const fallbackSection: SettingsSection = administrator && !managed ? "overview" : "personalization";
   const [initialUiState] = useState(() => initialSection && allowedSections.has(initialSection)
     ? { section: initialSection }
     : settingsDeviceState(storageNamespace, storageArea, fallbackSection, allowedSections));
@@ -251,7 +252,7 @@ export function SettingsApp({ administrator = true, workspaceStatus, csrfToken, 
               <i><Icon /></i><span><strong>{label}</strong><small>{description}</small></span><ChevronRight />
             </button>
           ))}
-          {administrator && <><span>Control plane</span>{ADMIN_NAVIGATION.map(({ id, label, description, icon: Icon, accent }) => (
+          {administrator && <><span>Control plane</span>{ADMIN_NAVIGATION.filter(item => allowedSections.has(item.id)).map(({ id, label, description, icon: Icon, accent }) => (
             <button type="button" className={`is-${accent}${section === id ? " is-active" : ""}`} aria-current={section === id ? "page" : undefined} key={id} onClick={() => chooseSection(id)}>
               <i><Icon /></i><span><strong>{label}</strong><small>{description}</small></span><ChevronRight />
             </button>
@@ -274,7 +275,8 @@ export function SettingsApp({ administrator = true, workspaceStatus, csrfToken, 
 
         <div className="settings-scroll">
           {section === "personalization" && user && <PersonalizationPanel onOpenSecurity={() => chooseSection("security")} user={user} providers={providers} csrfToken={csrfToken} initialNotice={initialNotice} fontScale={fontScale} onFontScaleChange={onFontScaleChange} onLogout={onLogout} />}
-          {section === "security" && user && <SecurityPanel onOpenSecurity={() => chooseSection("security")} user={user} providers={providers} csrfToken={csrfToken} initialNotice={initialNotice} fontScale={fontScale} onFontScaleChange={onFontScaleChange} onLogout={onLogout} />}
+          {section === "security" && managed && <div className="settings-notice is-info"><p>Sign-in, membership, and roles are managed in Alshival.</p><a href={managed.portalUrl} target="_blank" rel="noopener noreferrer">Open Alshival workspace</a></div>}
+          {section === "security" && !managed && user && <SecurityPanel onOpenSecurity={() => chooseSection("security")} user={user} providers={providers} csrfToken={csrfToken} initialNotice={initialNotice} fontScale={fontScale} onFontScaleChange={onFontScaleChange} onLogout={onLogout} />}
           {section === "model-provider" && <ModelProviderPanel csrfToken={csrfToken} />}
           {section === "plugins" && <PluginCardsPanel administrator={administrator} csrfToken={csrfToken} renderSystem={(plugin) => <SystemPluginDetails plugin={plugin} />} />}
           {administrator && section === "overview" && <OverviewPanel overview={overview} error={overviewError} onNavigate={chooseSection} onRefresh={() => void refreshOverview()} />}

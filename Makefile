@@ -1,6 +1,7 @@
 .PHONY: validate test build compose-config security
 
 validate:
+	python3 tests/managed_deployment_test.py
 	python3 tests/updater_test.py
 	python3 -m py_compile deploy/updater/updater.py deploy/updater/install.py deploy/updater/release.py tests/updater_rehearsal.py
 	node --check workspace/update-maintenance.mjs

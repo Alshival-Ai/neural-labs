@@ -130,3 +130,9 @@ information. For an explicitly disposable test, remove only resources introduced
 by that test and verify cleanup against the original host inventory. A successful
 installation is evidence for that target; release approval still requires the
 release acceptance checks.
+
+## Portal-managed hosting
+
+For Alshival portal enrollment, use [Alshival-managed installations](alshival-managed.md).
+The portal supplies identity and owns deployment; do not bootstrap local accounts
+or run the standalone updater for that mode.

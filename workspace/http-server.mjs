@@ -1,3 +1,4 @@
+import { revokeManagedMember } from "./managed-members.mjs";
 import { trackResponseWork } from "./update-maintenance.mjs";
 import { PersonalAutomationRuns, AutomationRunError } from "./personal-automation-runs.mjs";
 import { openClaudeLoginTerminal } from "./claude-login-terminal.mjs";
@@ -530,6 +531,17 @@ export function createWorkspaceHttpServer({
         sendJson(response, error instanceof AutomationRunError ? error.status : 503,
           { error: { message: error instanceof AutomationRunError ? error.message : "Automation scheduler unavailable" } }, method);
       }
+      return;
+    }
+    if (pathname === "/internal/alshival/revoke-member") {
+      if (process.env.NEURAL_LABS_AUTH_MODE !== "alshival" || method !== "POST" || !workspaceControlToken || !validControlToken(request, workspaceControlToken)) {
+        sendJson(response, 403, { error: { message: "Managed control authorization required" } }, method); return;
+      }
+      try {
+        const body = await readJsonBody(request, 4096);
+        const result = await revokeManagedMember({ userId: body.userId, request: gatewayAdminRequest, accounts: modelAccounts, terminals });
+        sendJson(response, 200, result, method);
+      } catch { sendJson(response, 503, { error: { message: "Member revocation is pending" } }, method); }
       return;
     }
     if (pathname === "/internal/model-providers/access" || pathname === "/internal/model-providers/anthropic") {

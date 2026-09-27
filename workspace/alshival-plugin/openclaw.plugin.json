@@ -1,0 +1,1 @@
+{"id":"neural-labs-alshival","name":"Alshival workspace tools","configSchema":{"type":"object","additionalProperties":false,"properties":{}},"contracts":{"tools":["alshival_list_tools","alshival_call_tool"]}}
