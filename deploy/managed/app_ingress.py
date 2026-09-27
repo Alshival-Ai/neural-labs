@@ -34,10 +34,10 @@ def update(descriptor_path, *, apply=False, etc=Path("/etc/nginx")):
     start = desired.index("    location ^~ /__alshival_app/ {")
     end = desired.index("    location = /healthz {", start)
     original = desired[:start] + desired[end:]
-    if previous not in {original, desired}:
+    if previous.rstrip("\n") not in {original.rstrip("\n"), desired.rstrip("\n")}:
         raise ValueError("Ingress differs from the reviewed managed template")
-    if not apply or previous == desired:
-        return "Already current" if previous == desired else "Reviewed app ingress upgrade is ready"
+    if not apply or previous.rstrip("\n") == desired.rstrip("\n"):
+        return "Already current" if previous.rstrip("\n") == desired.rstrip("\n") else "Reviewed app ingress upgrade is ready"
     source.write_text(desired)
     target.write_text(desired)
     try:

@@ -62,7 +62,7 @@ class ManagedDeploymentTests(unittest.TestCase):
         desired = render.ingress(cfg["hostname"], cfg["runtime"], cfg["port"])
         start = desired.index("    location ^~ /__alshival_app/ {")
         end = desired.index("    location = /healthz {", start)
-        previous = desired[:start] + desired[end:]
+        previous = desired[:start] + desired[end:] + "\n"
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             descriptor = root / "instance" / "descriptor.json"
