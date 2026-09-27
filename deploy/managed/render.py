@@ -80,6 +80,7 @@ def build(registration, destination):
             "healthcheck": {"test": ["CMD", "curl", "--fail", "--silent", "--max-time", "6", "http://127.0.0.1:18790/healthz"],
                             "interval": "15s", "timeout": "8s", "retries": 12, "start_period": "120s"},
             "environment": {"NEURAL_LABS_AUTH_MODE": "alshival", "NEURAL_LABS_PUBLIC_ORIGIN": public, "NEURAL_LABS_WORKSPACE_PROXY_IP": str(network.network_address + 1),
+                "NEURAL_LABS_APP_DOMAIN": hostname,
                 "NEURAL_LABS_WORKSPACE_CONTROL_TOKEN": cfg["control_token"], "OPENCLAW_GATEWAY_PORT": "18789",
                 "NEURAL_LABS_OPENCLAW_VERSION": release["version"], "NEURAL_LABS_CODEX_VERSION": release["codexVersion"],
                 "NEURAL_LABS_WORKSPACE_STATUS_PORT": "18790", "NEURAL_LABS_PROJECTS_ROOT": "/home/node/workspace/projects",
@@ -122,6 +123,18 @@ def ingress(hostname, runtime, port):
         proxy_pass http://127.0.0.1:{port + 1};
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-Proto https;
+    }}
+    location ^~ /__alshival_app/ {{
+        allow 127.0.0.1; deny all;
+        proxy_pass http://nl_{runtime.replace('-', '')}_workspace_desktop;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $nl_{runtime.replace('-', '')[:12]}_upgrade;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_read_timeout 3600s;
     }}
 '''
     text = text.replace("    location = /healthz {", location + "    location = /healthz {")

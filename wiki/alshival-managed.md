@@ -37,3 +37,23 @@ Acceptance includes replay, expired login, removed member, downgraded role, lost
 coverage, unavailable portal, stopped host lease, and retained Documents API access.
 Optional provider consent remains an owner action; a healthy desktop does not prove
 that a connected AI provider can complete a request.
+
+## Public app namespace
+
+An Alshival operator may provision `*.WORKSPACE.alshival.cloud` after the managed
+instance is registered. Its separate certificate and app gateway must be verified
+before a workspace manager can enable public web access in Services. The host's
+private Nginx ingress includes a loopback-only `__alshival_app` route to this
+instance's workspace container. Keep that reviewed route and the accepted workspace
+image together during upgrades.
+
+An app name maps to a loopback process through
+`/workspace/.neural-labs/public-apps.json`, for example
+`{"apps":{"website1":{"port":30000}}}`. Only ports 30000–30999 are admitted.
+Managed terminals receive `NEURAL_LABS_APP_DOMAIN` from the operator registration;
+the future deploy skill should form `https://APP.$NEURAL_LABS_APP_DOMAIN` from that
+value rather than embed a customer hostname or derive one from an editable name.
+The file does not launch or supervise the process; the future deploy skill must do
+that and verify the public URL. Public web access grants anonymous visitors the
+app's own content. Do not put portal credentials in an app or rely on portal
+membership checks for its requests. See [ADR 0038](adr/0038-managed-public-app-ingress.md).

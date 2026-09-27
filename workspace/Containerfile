@@ -96,6 +96,7 @@ COPY workspace/sudoers-neural-labs /etc/sudoers.d/neural-labs-workspace
 COPY workspace/start.mjs /usr/local/lib/neural-labs/start.mjs
 COPY workspace/browser-config.mjs /usr/local/lib/neural-labs/browser-config.mjs
 COPY workspace/http-server.mjs /usr/local/lib/neural-labs/http-server.mjs
+COPY workspace/public-apps.mjs /usr/local/lib/neural-labs/public-apps.mjs
 COPY workspace/builder-manager.mjs /usr/local/lib/neural-labs/builder-manager.mjs
 COPY workspace/vscode-proxy.mjs /usr/local/lib/neural-labs/vscode-proxy.mjs
 COPY workspace/file-manager.mjs /usr/local/lib/neural-labs/file-manager.mjs

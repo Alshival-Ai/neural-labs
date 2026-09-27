@@ -6,6 +6,7 @@ import { TerminalAgentBridge, terminalContextInstructions } from "./terminal-age
 import { readFile } from "node:fs/promises";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
+import { attachPublicAppWebSocket, proxyPublicApp } from "./public-apps.mjs";
 import path from "node:path";
 import { Readable } from "node:stream";
 
@@ -495,6 +496,10 @@ export function createWorkspaceHttpServer({
     const method = request.method ?? "GET";
     const url = new URL(request.url ?? "/", "http://workspace.local");
     const pathname = url.pathname;
+    if (pathname.startsWith("/__alshival_app/")) {
+      await proxyPublicApp(request, response, { workspaceRoot, publicOrigin, gated: () => updateMaintenance?.gated });
+      return;
+    }
     if (pathname.startsWith("/internal/updates/")) {
       if (!validControlToken(request, workspaceControlToken)) { sendJson(response, 401, { error: "Unauthorized" }, method); return; }
       try {
@@ -1402,6 +1407,7 @@ export function createWorkspaceHttpServer({
   // Host ingress closes existing public sockets during the gate. Reject new
   // upgrades here as well, including direct requests on the private bridge.
   server.prependListener("upgrade", (_request, socket) => { if (updateMaintenance?.gated) socket.destroy(); });
+  attachPublicAppWebSocket(server, { workspaceRoot, publicOrigin, gated: () => updateMaintenance?.gated });
   const terminalSockets = attachTerminalWebSocket(server, { manager: terminals, publicOrigin, heartbeatMs: terminalHeartbeatMs, gated: () => updateMaintenance?.gated });
   const vsCodeSockets = attachVsCodeWebSocketBridge(server, { codeServerOrigin, publicOrigin, gated: () => updateMaintenance?.gated });
   const builderSockets = attachBuilderWebSocket(server, { manager: builder, publicOrigin, gated: () => updateMaintenance?.gated });

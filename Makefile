@@ -2,6 +2,7 @@
 
 validate:
 	python3 tests/managed_deployment_test.py
+	python3 -m py_compile deploy/managed/app_ingress.py
 	python3 tests/updater_test.py
 	python3 -m py_compile deploy/updater/updater.py deploy/updater/install.py deploy/updater/release.py tests/updater_rehearsal.py
 	node --check workspace/update-maintenance.mjs
@@ -28,6 +29,7 @@ validate:
 	python3 workspace/bundled-skills/prospect-video-site/scripts/test_visual_quality.py
 	node --check workspace/bundled-skills/prospect-video-site/scripts/qa-site.mjs
 	node --check workspace/http-server.mjs
+	node --check workspace/public-apps.mjs
 	node --check workspace/builder-manager.mjs
 	node --check workspace/vscode-proxy.mjs
 	node --check workspace/file-manager.mjs

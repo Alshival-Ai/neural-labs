@@ -1,11 +1,16 @@
 import importlib.util
 from pathlib import Path
+import tempfile
 import unittest
+from unittest.mock import patch
+import sys
 
 source = Path(__file__).resolve().parents[1] / "deploy/managed/render.py"
 spec = importlib.util.spec_from_file_location("managed_render", source)
 render = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(render)
+sys.path.insert(0, str(source.parent))
+from app_ingress import update  # noqa: E402
 
 
 class ManagedDeploymentTests(unittest.TestCase):
@@ -24,6 +29,7 @@ class ManagedDeploymentTests(unittest.TestCase):
         self.assertNotIn(cfg["portal_secret"], str(workspace))
         self.assertNotIn(cfg["database_password"], str(workspace))
         self.assertNotIn(cfg["master_key"], str(workspace))
+        self.assertEqual(workspace["environment"]["NEURAL_LABS_APP_DOMAIN"], cfg["hostname"])
         for service in compose["services"].values():
             self.assertEqual(service["restart"], "no")
             self.assertNotIn("privileged", service)
@@ -38,6 +44,8 @@ class ManagedDeploymentTests(unittest.TestCase):
         self.assertNotIn("listen 80", ingress)
         self.assertIn("X-Forwarded-Proto https", ingress)
         self.assertIn("auth_request /_workspace_auth", ingress)
+        self.assertIn("location ^~ /__alshival_app/", ingress)
+        self.assertIn("allow 127.0.0.1; deny all;", ingress)
         for header in ("user", "email", "role", "redirect"):
             self.assertIn("$upstream_http_x_neural_labs_" + header, ingress)
 
@@ -48,6 +56,33 @@ class ManagedDeploymentTests(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(ValueError): render.build(cfg, Path("/etc/neura/fixture"))
         cfg = self.fixture(); cfg["images"]["workspace"] = "fixture/workspace:latest"
         with self.assertRaises(ValueError): render.build(cfg, Path("/etc/neura/fixture"))
+
+    def test_existing_private_ingress_updates_only_reviewed_template(self):
+        cfg = self.fixture()
+        desired = render.ingress(cfg["hostname"], cfg["runtime"], cfg["port"])
+        start = desired.index("    location ^~ /__alshival_app/ {")
+        end = desired.index("    location = /healthz {", start)
+        previous = desired[:start] + desired[end:]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            descriptor = root / "instance" / "descriptor.json"
+            descriptor.parent.mkdir()
+            descriptor.write_text(__import__("json").dumps(cfg))
+            source_conf = descriptor.parent / "ingress.conf"
+            source_conf.write_text(previous)
+            target = root / "conf.d" / ("neura-labs-" + cfg["runtime"] + ".conf")
+            target.parent.mkdir()
+            target.write_text(previous)
+            with patch("app_ingress.os.geteuid", return_value=0), patch("app_ingress.owned_file"), \
+                 patch("app_ingress.subprocess.run") as commands:
+                self.assertIn("ready", update(descriptor, etc=root))
+                self.assertEqual(target.read_text(), previous)
+                self.assertIn("installed", update(descriptor, apply=True, etc=root))
+                self.assertEqual(target.read_text(), desired)
+                self.assertEqual(source_conf.read_text(), desired)
+                self.assertEqual(commands.call_count, 2)
+                target.write_text(previous + "# unreviewed\n")
+                with self.assertRaises(ValueError): update(descriptor, apply=True, etc=root)
 
 
 if __name__ == "__main__": unittest.main()
