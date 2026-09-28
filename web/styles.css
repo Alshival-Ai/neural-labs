@@ -319,6 +319,13 @@ a {
   margin-top: 2.35rem;
 }
 
+.hero-hosting-note {
+  margin: 1.25rem 0 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
 .button {
   display: inline-flex;
   align-items: center;
