@@ -173,7 +173,7 @@ export function accountView(input: {
           ${input.microsoftAvailable && !providerNames.has("microsoft") ? `<a class="button button-secondary" href="/auth/microsoft?intent=link">Link Microsoft identity</a>` : ""}
           ${!providerNames.has("local") ? `<form class="stack" method="post" action="/api/account/identities/local"><input type="hidden" name="_csrf" value="${escapeHtml(input.csrf)}"><div class="field"><label for="local_password">Add a local password</label><input id="local_password" name="password" type="password" minlength="12" maxlength="128" autocomplete="new-password" required></div><button class="button button-secondary" type="submit">Link local login</button></form>` : ""}
         </section>
-        <section class="card span-5 stack"><h2>Workspace</h2><p>Open the shared Neural Labs desktop to work with Neura, files, and administrator settings.</p><a class="button button-primary" href="/workspace">Open workspace</a>
+        <section class="card span-5 stack"><h2>Workspace</h2><p>Open the shared Neural Labs desktop to work with Alshival, files, and administrator settings.</p><a class="button button-primary" href="/workspace">Open workspace</a>
           <form method="post" action="/api/auth/logout"><input type="hidden" name="_csrf" value="${escapeHtml(input.csrf)}"><button class="button button-secondary" type="submit">Log out</button></form>
         </section>
       </div>

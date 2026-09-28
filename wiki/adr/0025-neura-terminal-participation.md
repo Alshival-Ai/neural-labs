@@ -1,4 +1,4 @@
-# ADR 0025: Neura participation in interactive terminals
+# ADR 0025: Alshival participation in interactive terminals
 
 > Design history: for current instructions, see [Terminal desktop app](../terminal.md).
 > See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
@@ -9,7 +9,7 @@
 ## Context
 
 The agent's background command executor cannot open a Neural Labs desktop window
-or transfer a running process to the Terminal app. Users also need Neura to inspect
+or transfer a running process to the Terminal app. Users also need Alshival to inspect
 sessions they opened themselves, including output generated before opening chat.
 The provider MCP is shared, while terminal visibility is user/channel scoped.
 
@@ -48,7 +48,7 @@ Only human-authenticated endpoints can change that setting.
 
 ## Consequences
 
-Neura can inspect previous output on demand and participate in the same PTY as the
+Alshival can inspect previous output on demand and participate in the same PTY as the
 user. The UI indicates available/active participation and shows agent input
 activity without separately recording input text. A question is read-only intent;
 agent instructions require an action request before typing. There is no automatic

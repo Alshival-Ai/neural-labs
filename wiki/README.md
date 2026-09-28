@@ -1,10 +1,10 @@
 # Set up your Neural Labs
 
-Neural Labs gives you a self-hosted desktop with Neura, files, terminals, VS Code,
+Neural Labs gives you a self-hosted desktop with Alshival, files, terminals, VS Code,
 skills, and automations. You can use it on your own or invite trusted teammates
 into the same workspace.
 
-This quick setup takes you from a fresh checkout to your first Neura chat. If
+This quick setup takes you from a fresh checkout to your first Alshival chat. If
 someone already hosts your workspace, skip deployment and follow
 [Your first workspace session](shared-workspace.md).
 
@@ -73,8 +73,8 @@ NEURAL_LABS_MICROSOFT_AUTH_ENABLED=false
 NEURAL_LABS_MCP_ENABLED=false
 ```
 
-Microsoft sign-in, Google Maps, KLIPY, Pexels, SMS, and Neura voice are optional.
-You can leave their credentials blank and connect them later. Neura text chat
+Microsoft sign-in, Google Maps, KLIPY, Pexels, SMS, and Alshival voice are optional.
+You can leave their credentials blank and connect them later. Alshival text chat
 uses a personal ChatGPT account or OpenAI API key connected in Settings after login;
 the deployment's `OPENAI_API_KEY` is for audio.
 Keep `.env` out of Git and save a protected backup of it.
@@ -117,7 +117,7 @@ Both should succeed. Opening `/workspace` in a signed-out browser should send
 you to login. See [Troubleshooting](troubleshooting.md) for TLS, proxy, and
 startup problems.
 
-## 5. Create your account and connect Neura
+## 5. Create your account and connect Alshival
 
 1. Open `https://YOUR-HOSTNAME/signup` and register using the **exact email** you
    set in `NEURAL_LABS_INITIAL_ADMIN_EMAIL`. That account becomes the initial
@@ -125,13 +125,13 @@ startup problems.
 2. Open `/workspace`, then **Settings → Model Provider → OpenAI**.
 3. Choose **Connect ChatGPT** and finish the one-time-code sign-in, or choose
    **Use an API key** and save your personal OpenAI Platform key.
-4. Open **Neura** from the dock, start a private conversation, and send a simple
+4. Open **Alshival** from the dock, start a private conversation, and send a simple
    request, such as “Help me plan my first project.” A reply confirms that your
    personal agent can use its account.
 5. Open **Files** or **VS Code** when you are ready to work with project files.
 
 Your Neural Labs login and personal OpenAI connection are separate. Connecting an
-administrator's background account does not connect their personal Neura.
+administrator's background account does not connect their personal Alshival.
 For scheduled AI work, also connect **Settings → Workspace → Background ChatGPT
 connection**. See [AI accounts and models](ai-accounts.md) for personal,
 background, Team Chat, and audio settings.
@@ -154,7 +154,7 @@ to plan retention and test recovery.
 
 ## Where to go next
 
-- [Use your workspace](shared-workspace.md): Neura, files, terminals, skills, and collaboration.
+- [Use your workspace](shared-workspace.md): Alshival, files, terminals, skills, and collaboration.
 - [Manage your instance](manage-instance.md): approve teammates, connect integrations, update, and recover.
 - [Browse all guides](navigation.md): documentation organized by task.
 - [Release history](release-history.md): changes and dated release records.

@@ -92,7 +92,7 @@ export function ModelProviderPanel({ csrfToken }: { csrfToken: string }) {
       <div className="settings-section-header"><div><h1 ref={focusTarget} tabIndex={-1}>{detail === "openai" ? "OpenAI" : "Claude"}</h1><p>{detail === "openai" ? "Choose ChatGPT sign-in or a personal OpenAI API key." : "Anthropic’s AI assistant."}</p></div></div>
       {detail === "openai" ? <><PersonalProviderConnection csrfToken={csrfToken} refreshedStatus={refreshedStatus} onStatusChange={setConnection} />{refreshControls}{connected && <p className="provider-refresh-hint">Rechecks your connection and available models. It does not change your sign-in method or saved defaults.</p>}</> : <ClaudeProviderConnection csrfToken={csrfToken} onStatusChange={handleClaudeStatus} />}
     </> : <>
-      <div className="settings-section-header"><div><span><Bot />Personal agent</span><h1 ref={confirm ? undefined : focusTarget} tabIndex={-1}>Model Provider</h1><p>Connect your accounts and choose how your private Neura works.</p></div></div>
+      <div className="settings-section-header"><div><span><Bot />Personal agent</span><h1 ref={confirm ? undefined : focusTarget} tabIndex={-1}>Model Provider</h1><p>Connect your accounts and choose how your private Alshival works.</p></div></div>
       {notice && <p role="status">{notice}</p>}
       {error && <div role="alert"><p>{error}</p>{!confirm && <button type="button" className="settings-button" onClick={() => setReload((value) => value + 1)}>Retry connection status</button>}</div>}
       {(connected || claude?.authenticated) && <ModelDefaultsPanel csrfToken={csrfToken} compact updatedCatalog={providerCatalog} onCatalog={setProviderCatalog} />}

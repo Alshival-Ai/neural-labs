@@ -20,7 +20,7 @@
 </p>
 
 Neural Labs is an open-source, self-hosted AI workspace for teams. It brings
-Neura, project files, a terminal, VS Code, reusable skills, and scheduled
+Alshival, project files, a terminal, VS Code, reusable skills, and scheduled
 automations into one browser desktop, backed by a persistent shared workspace.
 
 Built on OpenClaw, Neural Labs gives trusted teammates a place to build with AI,
@@ -31,35 +31,42 @@ invite your team.
 **[Set up your instance](https://github.com/Alshival-Ai/neural-labs/wiki)** ·
 [Browse the guides](wiki/README.md) · [Changelog](CHANGELOG.md)
 
-![Neural Labs desktop with Neura chat, Terminal, VS Code, and Skills & Automations open together](web/assets/media/neural-labs-desktop.webp)
+![Neural Labs desktop with Alshival chat, Terminal, VS Code, and Skills & Automations open together](web/assets/media/neural-labs-desktop.webp)
 
 *One desktop for conversations, code, shared tools, and repeatable work.*
+
+## Choose how to host it
+
+Self-host the complete open-source workspace on your own infrastructure, or get
+[managed Neural Labs hosting with Alshival.Ai Pro](https://alshival.ai/plans/?plan=pro).
+For organization-specific hosting and support, [talk to us about Enterprise](https://alshival.ai/support/).
+Self-hosted installations work independently; an Alshival.Ai account is not required.
 
 ## Why a team would use Neural Labs
 
 - **Work from the same project files.** Files, VS Code, terminals, and AI tools
   use the same workspace. A teammate can pick up the files another person or
-  Neura has been working on.
+  Alshival has been working on.
 - **Build and troubleshoot together.** Join a team terminal to see the same
   command output and type into the same shell. Add voice when a conversation
   would help with a debugging session, pairing task, or release.
 - **Share the team's know-how.** Package research methods, coding conventions,
   or delivery checklists as reusable skills. Collaborate on drafts, test them
-  with Neura, and publish them for the team.
+  with Alshival, and publish them for the team.
 - **Make recurring work easier to run.** Turn a tested workflow into an
   automation with a schedule and run history. Jobs can keep running while your
   browser is closed, as long as the workspace stays online.
 - **Manage a workspace you host.** Approve members, configure integrations,
   and manage updates and backups on infrastructure your team controls.
 
-For example, a team can plan a feature with Neura, edit it in VS Code, pair on
+For example, a team can plan a feature with Alshival, edit it in VS Code, pair on
 tests in a shared terminal, and save the repeatable review steps as a team skill.
 
 ## What's in the workspace
 
 | App | What your team can do |
 |---|---|
-| [Neura](wiki/neura.md) | Work with an AI assistant in personal conversations and bring Neura into team chats. |
+| [Alshival](wiki/neura.md) | Work with an AI assistant in personal conversations and bring Alshival into team chats. |
 | [Files](wiki/files.md) | Browse, upload, preview, and organize shared project files. |
 | [VS Code](wiki/vscode.md) | Edit projects in the browser using the workspace's files and developer tools. |
 | [Terminal](wiki/terminal.md) | Start personal shells or join team sessions with shared input, voice, and reactions. |
@@ -91,7 +98,7 @@ See [Deploy with your agent](wiki/agent-onboarding.md) for a copyable prompt and
 current platform support.
 
 The [deployment guide](wiki/container-deployment.md) walks through host prerequisites, configuration,
-HTTPS, administrator signup, connecting ChatGPT or a personal OpenAI API key, and a first Neura
+HTTPS, administrator signup, connecting ChatGPT or a personal OpenAI API key, and a first Alshival
 request. Deployment uses Docker Compose behind host Nginx.
 
 From a checkout on a prepared host:

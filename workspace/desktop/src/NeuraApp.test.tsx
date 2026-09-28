@@ -137,20 +137,20 @@ afterAll(() => {
 
 afterEach(cleanup);
 
-describe("Neura realtime conversation", () => {
+describe("Alshival realtime conversation", () => {
   it("subscribes a restored mobile conversation after the initial roster arrives", async () => {
     const gateway = new FakeGateway();
     writeDeviceState("restored-mobile-voice", "neura", { selectedKey: session.key });
     render(<AppViewportProvider width={390}><NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} storageNamespace="restored-mobile-voice" /></AppViewportProvider>);
-    const input = await screen.findByPlaceholderText("Message Neura…");
+    const input = await screen.findByPlaceholderText("Message Alshival…");
     expect(input).toBeEnabled();
     expect(gateway.calls).toContain(`messages.subscribe:${session.key}`);
-    expect(screen.getByRole("button", { name: "Start private Neura voice chat" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Start private Alshival voice chat" })).toBeEnabled();
     fireEvent.change(input, { target: { value: "Hello" } });
-    expect(screen.queryByRole("button", { name: "Start private Neura voice chat" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start private Alshival voice chat" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
     fireEvent.change(input, { target: { value: "  " } });
-    expect(screen.getByRole("button", { name: "Start private Neura voice chat" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Start private Alshival voice chat" })).toBeEnabled();
   });
   it("opens one searchable mobile history drawer despite a saved open desktop sidebar", async () => {
     const gateway = new FakeGateway();
@@ -159,10 +159,10 @@ describe("Neura realtime conversation", () => {
     const app = render(<AppViewportProvider width={390}><NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} storageNamespace="mobile-neura" /></AppViewportProvider>);
     const toggle = screen.getByRole("button", { name: "Open conversation history" });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByRole("navigation", { name: "Neura conversation history" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Alshival conversation history" })).not.toBeInTheDocument();
     toggle.focus(); fireEvent.click(toggle);
     const drawer = screen.getByRole("dialog", { name: "Conversation history" });
-    expect(screen.getAllByRole("navigation", { name: "Neura conversation history" })).toHaveLength(1);
+    expect(screen.getAllByRole("navigation", { name: "Alshival conversation history" })).toHaveLength(1);
     await within(drawer).findByRole("button", { name: /Earlier planning chat/ });
     fireEvent.change(within(drawer).getByRole("searchbox"), { target: { value: "earlier" } });
     expect(within(drawer).queryByRole("button", { name: /Realtime test/ })).not.toBeInTheDocument();
@@ -176,12 +176,12 @@ describe("Neura realtime conversation", () => {
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     expect(toggle).toHaveFocus();
     app.rerender(<AppViewportProvider width={1100}><NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} storageNamespace="mobile-neura" /></AppViewportProvider>);
-    expect(screen.getByRole("navigation", { name: "Neura conversation history" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Alshival conversation history" })).toBeInTheDocument();
   });
   it("uses Shift+Enter for a new line and Enter to send without breaking IME composition", async () => {
     const gateway = new FakeGateway();
     render(<AppViewportProvider width={390}><NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} /></AppViewportProvider>);
-    const input = await screen.findByPlaceholderText("Message Neura…");
+    const input = await screen.findByPlaceholderText("Message Alshival…");
     fireEvent.change(input, { target: { value: "A multi-line draft" } });
     fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
     fireEvent.keyDown(input, { key: "Enter", isComposing: true });
@@ -204,13 +204,13 @@ describe("Neura realtime conversation", () => {
 
     const view = render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} active storageNamespace="stale-chat-user" storageArea="neura.test" />);
 
-    expect(await screen.findByText("Work with Neura")).toBeInTheDocument();
+    expect(await screen.findByText("Work with Alshival")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start a conversation" })).toBeInTheDocument();
     expect(gateway.calls).not.toContain(`history:${session.key}`);
 
     view.rerender(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} active={false} storageNamespace="stale-chat-user" storageArea="neura.test" />);
     view.rerender(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} active storageNamespace="stale-chat-user" storageArea="neura.test" />);
-    expect(screen.getByText("Work with Neura")).toBeInTheDocument();
+    expect(screen.getByText("Work with Alshival")).toBeInTheDocument();
   });
 
   it("keeps recent and active conversations selected", () => {
@@ -222,7 +222,7 @@ describe("Neura realtime conversation", () => {
 
   it("directs personal provider failures to Personalization without blaming an administrator", () => {
     expect(modelProviderErrorMessage("401 Unauthorized: Missing bearer or basic authentication in header"))
-      .toBe("Neura couldn't activate your selected model connection. Open Personalization and try Resume; reconnect if the problem continues.");
+      .toBe("Alshival couldn't activate your selected model connection. Open Personalization and try Resume; reconnect if the problem continues.");
     expect(modelProviderErrorMessage("401 Unauthorized: invalid token"))
       .toBe("Your model provider sign-in was rejected or expired. Reconnect it in Personalization, then try again.");
     expect(modelProviderErrorMessage("The model timed out"))
@@ -240,12 +240,12 @@ describe("Neura realtime conversation", () => {
     expect(teamMessagePresentation({ authorKind: "system" }, currentUser.id)).toBe("system");
   });
 
-  it("recognizes @Neura and Team Chat skill commands as agent invocations", () => {
-    expect(invokesTeamAgent("@Neura help the team")).toBe(true);
+  it("recognizes @Alshival and Team Chat skill commands as agent invocations", () => {
+    expect(invokesTeamAgent("@Alshival help the team")).toBe(true);
     expect(invokesTeamAgent("Could you help, @neura?")).toBe(true);
     expect(invokesTeamAgent("Please use $local-business-website-builder for this")).toBe(true);
-    expect(invokesTeamAgent("$neura summarize the voice memo")).toBe(false);
-    expect(invokesTeamAgent("$nerua summarize the voice memo")).toBe(false);
+    expect(invokesTeamAgent("$neura summarize the voice memo")).toBe(true);
+    expect(invokesTeamAgent("$nerua summarize the voice memo")).toBe(true);
     expect(invokesTeamAgent("Use $neura-helper if it is installed")).toBe(true);
     expect(invokesTeamAgent("The total is $100")).toBe(false);
     expect(invokesTeamAgent("email@example.org$skill")).toBe(false);
@@ -266,7 +266,7 @@ describe("Neura realtime conversation", () => {
       caret: 21,
     });
     expect(matchingTeamMentionSuggestions(members, teamMentionTriggerAt("@", 1)).map((suggestion) => suggestion.handle))
-      .toEqual(["Neura", "maya", "salvador"]);
+      .toEqual(["Alshival", "maya", "salvador"]);
   });
 
   it("shares the Enter send shortcut between private and Team Chat composers", () => {
@@ -289,21 +289,21 @@ describe("Neura realtime conversation", () => {
     gateway.createGate = new Promise<void>((resolve) => { releaseCreate = resolve; });
     gateway.historyGates.set(gateway.createdSession.key, new Promise<void>((resolve) => { releaseHistory = resolve; }));
     const view = render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
-    await waitFor(() => expect(screen.getByPlaceholderText("Message Neura…")).toBeEnabled());
+    await waitFor(() => expect(screen.getByPlaceholderText("Message Alshival…")).toBeEnabled());
 
     fireEvent.click(screen.getByRole("button", { name: "New chat" }));
-    const loader = await screen.findByRole("status", { name: "Preparing Neura conversation" });
+    const loader = await screen.findByRole("status", { name: "Preparing Alshival conversation" });
     expect(loader).toHaveTextContent("Starting a new chat");
     expect(view.container.querySelector(".neura-ready-orb")).toBeInTheDocument();
-    expect(screen.queryByPlaceholderText("Message Neura…")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("Message Alshival…")).not.toBeInTheDocument();
 
     await act(async () => releaseCreate());
-    await waitFor(() => expect(screen.getByRole("status", { name: "Preparing Neura conversation" })).toHaveTextContent("Getting Neura ready"));
-    expect(screen.getByRole("status", { name: "Preparing Neura conversation" })).toHaveTextContent("Opening live connection");
+    await waitFor(() => expect(screen.getByRole("status", { name: "Preparing Alshival conversation" })).toHaveTextContent("Getting Alshival ready"));
+    expect(screen.getByRole("status", { name: "Preparing Alshival conversation" })).toHaveTextContent("Opening live connection");
 
     await act(async () => releaseHistory());
-    await waitFor(() => expect(screen.getByPlaceholderText("Message Neura…")).toBeEnabled());
-    expect(screen.queryByRole("status", { name: "Preparing Neura conversation" })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByPlaceholderText("Message Alshival…")).toBeEnabled());
+    expect(screen.queryByRole("status", { name: "Preparing Alshival conversation" })).not.toBeInTheDocument();
     expect(screen.getByText("What should we work on?")).toBeInTheDocument();
   });
 
@@ -378,7 +378,7 @@ describe("Neura realtime conversation", () => {
       `messages.subscribe:${session.key}`,
       `history:${session.key}`,
     ]));
-    expect(await screen.findByPlaceholderText("Message Neura…")).toBeEnabled();
+    expect(await screen.findByPlaceholderText("Message Alshival…")).toBeEnabled();
 
     act(() => gateway.emit({ event: "chat", payload: {
       sessionKey: session.key,
@@ -405,15 +405,15 @@ describe("Neura realtime conversation", () => {
     const listCallsBeforeRosterEvent = gateway.calls.filter((call) => call === "sessions.list").length;
     act(() => gateway.emit({ event: "sessions.changed", payload: {} }));
     await waitFor(() => expect(gateway.calls.filter((call) => call === "sessions.list")).toHaveLength(listCallsBeforeRosterEvent + 1));
-    expect(screen.getByPlaceholderText("Message Neura…")).toBeEnabled();
-    expect(screen.queryByText("Work with Neura")).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Message Alshival…")).toBeEnabled();
+    expect(screen.queryByText("Work with Alshival")).not.toBeInTheDocument();
   });
 
   it("shows WebSocket work steps in a compact expandable transcript timeline", async () => {
     const gateway = new FakeGateway();
     gateway.sessionActive = true;
     const view = render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
-    await waitFor(() => expect(screen.getByPlaceholderText("Steer Neura now, or queue what comes next…")).toBeEnabled());
+    await waitFor(() => expect(screen.getByPlaceholderText("Steer Alshival now, or queue what comes next…")).toBeEnabled());
 
     act(() => gateway.emit({ event: "chat", payload: {
       sessionKey: session.key, runId: "activity-run", state: "status", phase: "working",
@@ -448,10 +448,10 @@ describe("Neura realtime conversation", () => {
     expect(view.container.querySelectorAll("article.message-assistant")).toHaveLength(0);
     expect(timeline).toHaveTextContent("TOKEN=[redacted] npm test");
     expect(timeline).not.toHaveTextContent("private-value");
-    expect(timeline).not.toHaveTextContent("Neura is working through the request");
+    expect(timeline).not.toHaveTextContent("Alshival is working through the request");
     expect(timeline).not.toHaveTextContent("workingDone");
 
-    fireEvent.click(within(timeline).getByText("Neura is working"));
+    fireEvent.click(within(timeline).getByText("Alshival is working"));
     expect(timeline.open).toBe(true);
 
     act(() => gateway.emit({ event: "chat", payload: {
@@ -467,7 +467,7 @@ describe("Neura realtime conversation", () => {
   it("keeps commentary updates inside Work details and leaves only the final answer in chat", async () => {
     const gateway = new FakeGateway();
     const view = render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
-    await waitFor(() => expect(screen.getByPlaceholderText("Message Neura…")).toBeEnabled());
+    await waitFor(() => expect(screen.getByPlaceholderText("Message Alshival…")).toBeEnabled());
 
     act(() => gateway.emit({ event: "session.message", payload: {
       sessionKey: session.key,
@@ -500,7 +500,7 @@ describe("Neura realtime conversation", () => {
     const gateway = new FakeGateway();
     gateway.sessionActive = true;
     const view = render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
-    await waitFor(() => expect(screen.getByPlaceholderText("Steer Neura now, or queue what comes next…")).toBeEnabled());
+    await waitFor(() => expect(screen.getByPlaceholderText("Steer Alshival now, or queue what comes next…")).toBeEnabled());
 
     act(() => gateway.emit({ event: "session.message", payload: {
       sessionKey: session.key,
@@ -534,7 +534,7 @@ describe("Neura realtime conversation", () => {
     const gateway = new FakeGateway();
     gateway.sessionActive = true;
     const view = render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
-    await waitFor(() => expect(screen.getByPlaceholderText("Steer Neura now, or queue what comes next…")).toBeEnabled());
+    await waitFor(() => expect(screen.getByPlaceholderText("Steer Alshival now, or queue what comes next…")).toBeEnabled());
 
     act(() => gateway.emit({ event: "session.message", payload: {
       sessionKey: session.key,
@@ -581,7 +581,7 @@ describe("Neura realtime conversation", () => {
     const answer = screen.getByText("The source now streams the final answer.");
     const article = answer.closest("article") as HTMLElement;
     expect(article).toHaveClass("message-assistant");
-    expect(within(article).queryByLabelText("Neura is responding")).not.toBeInTheDocument();
+    expect(within(article).queryByLabelText("Alshival is responding")).not.toBeInTheDocument();
     const workDetails = article.querySelector(".neura-activity-timeline") as HTMLDetailsElement;
     expect(workDetails).toHaveTextContent("I’ll inspect the source.");
     expect(workDetails.open).toBe(false);
@@ -591,7 +591,7 @@ describe("Neura realtime conversation", () => {
   it.each(["aborted", "error"])("keeps partial progress collapsed when a run is %s", async (state) => {
     const gateway = new FakeGateway();
     const view = render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
-    await waitFor(() => expect(screen.getByPlaceholderText("Message Neura…")).toBeEnabled());
+    await waitFor(() => expect(screen.getByPlaceholderText("Message Alshival…")).toBeEnabled());
     act(() => gateway.emit({ event: "chat", payload: {
       sessionKey: session.key, runId: "interrupted-run", state: "delta", deltaText: "I’m checking the setup.",
     } }));
@@ -608,7 +608,7 @@ describe("Neura realtime conversation", () => {
   it("follows new messages at the bottom but preserves a reader's scroll position", async () => {
     const gateway = new FakeGateway();
     const view = render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
-    await waitFor(() => expect(screen.getByPlaceholderText("Message Neura…")).toBeEnabled());
+    await waitFor(() => expect(screen.getByPlaceholderText("Message Alshival…")).toBeEnabled());
     const transcript = view.container.querySelector(".message-scroll") as HTMLDivElement;
     Object.defineProperty(transcript, "scrollHeight", { configurable: true, value: 1_000 });
     Object.defineProperty(transcript, "clientHeight", { configurable: true, value: 300 });
@@ -635,7 +635,7 @@ describe("Neura realtime conversation", () => {
   it("keeps transcript content and scroll position through a WebSocket reconnect", async () => {
     const gateway = new FakeGateway();
     const view = render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
-    await waitFor(() => expect(screen.getByPlaceholderText("Message Neura…")).toBeEnabled());
+    await waitFor(() => expect(screen.getByPlaceholderText("Message Alshival…")).toBeEnabled());
     act(() => gateway.emit({ event: "session.message", payload: {
       sessionKey: session.key,
       sessionId: session.sessionId,
@@ -661,7 +661,7 @@ describe("Neura realtime conversation", () => {
     const gateway = new FakeGateway();
     render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
 
-    const composer = await screen.findByPlaceholderText("Message Neura…");
+    const composer = await screen.findByPlaceholderText("Message Alshival…");
     await waitFor(() => expect(composer).toBeEnabled());
     fireEvent.change(composer, { target: { value: "$local", selectionStart: 6 } });
 
@@ -674,12 +674,12 @@ describe("Neura realtime conversation", () => {
     expect(screen.queryByRole("listbox", { name: "Available skills" })).not.toBeInTheDocument();
   });
 
-  it("opens Neura's website links in the desktop Preview app", async () => {
+  it("opens Alshival's website links in the desktop Preview app", async () => {
     const gateway = new FakeGateway();
     const onPreviewFile = vi.fn();
     render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} onPreviewFile={onPreviewFile} />);
 
-    await waitFor(() => expect(screen.getByPlaceholderText("Message Neura…")).toBeEnabled());
+    await waitFor(() => expect(screen.getByPlaceholderText("Message Alshival…")).toBeEnabled());
     act(() => gateway.emit({ event: "session.message", payload: {
       sessionKey: session.key,
       sessionId: session.sessionId,
@@ -716,7 +716,7 @@ describe("Neura realtime conversation", () => {
   it.each(["chat", "session.message", "buffered"])("embeds generated video from a %s reply", async (transport) => {
     const gateway = new FakeGateway();
     const view = render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
-    await waitFor(() => expect(screen.getByPlaceholderText("Message Neura…")).toBeEnabled());
+    await waitFor(() => expect(screen.getByPlaceholderText("Message Alshival…")).toBeEnabled());
     const text = "Generated and verified: 2.042 seconds.\n\nMEDIA:/home/node/workspace/projects/cat-video/cat-windowsill.mp4";
     const message = { role: "assistant", content: [{ type: "text", text }] };
     if (transport === "buffered") act(() => gateway.emit({ event: "chat", payload: {
@@ -743,7 +743,7 @@ describe("Neura realtime conversation", () => {
   it("shows an attachment-only final reply without requiring a durable message event", async () => {
     const gateway = new FakeGateway();
     render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
-    await waitFor(() => expect(screen.getByPlaceholderText("Message Neura…")).toBeEnabled());
+    await waitFor(() => expect(screen.getByPlaceholderText("Message Alshival…")).toBeEnabled());
     act(() => gateway.emit({ event: "chat", payload: {
       sessionKey: session.key, runId: "video-run", state: "final",
       message: { role: "assistant", content: [{ type: "video", path: "/home/node/workspace/clip.mp4", mimeType: "video/mp4" }] },
@@ -756,7 +756,7 @@ describe("Neura realtime conversation", () => {
     gateway.sessionActive = true;
     render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
 
-    const composer = await screen.findByPlaceholderText("Steer Neura now, or queue what comes next…");
+    const composer = await screen.findByPlaceholderText("Steer Alshival now, or queue what comes next…");
     await waitFor(() => expect(composer).toBeEnabled());
     act(() => gateway.emit({ event: "chat", payload: {
       sessionKey: session.key,
@@ -780,7 +780,7 @@ describe("Neura realtime conversation", () => {
     await waitFor(() => expect(gateway.sends).toEqual([
       { message: "Focus on the queue behavior", queueMode: "steer" },
     ]));
-    expect(screen.getByRole("button", { name: "Start private Neura voice chat" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start private Alshival voice chat" })).toBeInTheDocument();
   });
 
   it("shows FIFO follow-ups and keeps them queued through the admission acknowledgement", async () => {
@@ -788,7 +788,7 @@ describe("Neura realtime conversation", () => {
     gateway.sessionActive = true;
     render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
 
-    const composer = await screen.findByPlaceholderText("Steer Neura now, or queue what comes next…");
+    const composer = await screen.findByPlaceholderText("Steer Alshival now, or queue what comes next…");
     await waitFor(() => expect(composer).toBeEnabled());
     act(() => gateway.emit({ event: "chat", payload: {
       sessionKey: session.key,
@@ -819,7 +819,7 @@ describe("Neura realtime conversation", () => {
       state: "final",
     } }));
     expect(screen.getByRole("region", { name: "Queued messages" })).toHaveTextContent("Run the tests next");
-    expect(screen.getByRole("button", { name: "Start private Neura voice chat" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start private Alshival voice chat" })).toBeInTheDocument();
 
     act(() => gateway.emit({ event: "chat", payload: {
       sessionKey: session.key,
@@ -842,16 +842,16 @@ describe("Neura realtime conversation", () => {
     expect(screen.getByText("Then rebuild the workspace")).toBeInTheDocument();
   });
 
-  it("recognizes a run that was already active when Neura opens", async () => {
+  it("recognizes a run that was already active when Alshival opens", async () => {
     const gateway = new FakeGateway();
     gateway.sessionActive = true;
     render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
 
-    const composer = await screen.findByPlaceholderText("Steer Neura now, or queue what comes next…");
+    const composer = await screen.findByPlaceholderText("Steer Alshival now, or queue what comes next…");
     await waitFor(() => expect(composer).toBeEnabled());
-    expect(screen.getByText("Neura is working")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Stop Neura" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Start private Neura voice chat" })).toBeInTheDocument();
+    expect(screen.getByText("Alshival is working")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop Alshival" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start private Alshival voice chat" })).toBeInTheDocument();
   });
 
   it("removes an admitted follow-up from the Gateway queue", async () => {
@@ -859,7 +859,7 @@ describe("Neura realtime conversation", () => {
     gateway.sessionActive = true;
     render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
 
-    const composer = await screen.findByPlaceholderText("Steer Neura now, or queue what comes next…");
+    const composer = await screen.findByPlaceholderText("Steer Alshival now, or queue what comes next…");
     await waitFor(() => expect(composer).toBeEnabled());
     fireEvent.change(composer, { target: { value: "Skip this if plans change" } });
     fireEvent.click(screen.getByRole("button", { name: "Queue after this run" }));
@@ -874,7 +874,7 @@ describe("Neura realtime conversation", () => {
     const gateway = new FakeGateway();
     gateway.sessionActive = true;
     render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
-    const input = await screen.findByPlaceholderText("Steer Neura now, or queue what comes next…");
+    const input = await screen.findByPlaceholderText("Steer Alshival now, or queue what comes next…");
     await waitFor(() => expect(input).toBeEnabled());
     fireEvent.change(input, { target: { value: "Next task" } });
     fireEvent.keyDown(input, { key: "Tab", shiftKey: true });
@@ -888,7 +888,7 @@ describe("Neura realtime conversation", () => {
   it("drafts plans through ordinary messages and locks selection during a run", async () => {
     const gateway = new FakeGateway();
     render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
-    const input = await screen.findByPlaceholderText("Message Neura…");
+    const input = await screen.findByPlaceholderText("Message Alshival…");
     const mode = await screen.findByRole("combobox", { name: "Conversation mode" });
     await waitFor(() => expect(mode).toBeEnabled());
     fireEvent.keyDown(input, { key: "P", ctrlKey: true, shiftKey: true });
@@ -914,7 +914,7 @@ describe("Neura realtime conversation", () => {
   it("implements a durable plan once while preserving the unsent draft", async () => {
     const gateway = new FakeGateway();
     render(<NeuraApp gateway={gateway as unknown as NeuraGateway} notify={vi.fn()} />);
-    const input = await screen.findByPlaceholderText("Message Neura…");
+    const input = await screen.findByPlaceholderText("Message Alshival…");
     await waitFor(() => expect(input).toBeEnabled());
     act(() => {
       gateway.emit({ event: "session.message", payload: {
@@ -947,7 +947,7 @@ describe("Neura realtime conversation", () => {
     act(() => gateway.emit({ event: "chat", payload: { sessionKey: session.key, runId: "fast-run", state: "final" } }));
     await act(async () => acknowledge({ runId: "fast-run" }));
     await waitFor(() => expect(screen.getByRole("combobox", { name: "Conversation mode" })).toBeEnabled());
-    expect(screen.queryByRole("button", { name: "Stop Neura" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stop Alshival" })).not.toBeInTheDocument();
   });
 
   it("keeps drafting selection local without a session protocol extension", async () => {
@@ -973,7 +973,7 @@ it("automatically requests recent terminal context without a selector", async ()
   await waitFor(() => expect(gateway.calls).toContain(`history:${session.key}`));
   expect(screen.queryByRole("combobox", { name: "Terminal context" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Remove terminal context" })).not.toBeInTheDocument();
-  const composer = screen.getByPlaceholderText("Message Neura…");
+  const composer = screen.getByPlaceholderText("Message Alshival…");
   await waitFor(() => expect(composer).toBeEnabled());
   fireEvent.change(composer, { target: { value: "Why did this fail?" } });
   fireEvent.click(screen.getByRole("button", { name: "Send message" }));

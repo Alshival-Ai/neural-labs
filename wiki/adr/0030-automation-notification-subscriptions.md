@@ -20,12 +20,12 @@ and per-recipient/channel rows suppress duplicate callbacks. External provider
 acceptance is distinct from delivery; interrupted/ambiguous sends are retained
 as unknown and are not blindly repeated.
 
-Neura updates are account-scoped database records rendered alongside a dedicated
+Alshival updates are account-scoped database records rendered alongside a dedicated
 private conversation. The user creates that conversation through their normal
 Gateway identity. A protected bridge verifies the session belongs to their
 personal agent and is private before storing its association. Receiving an
 update does not execute an agent turn. Only a user's reply includes the visible
-updates as reference context for Neura.
+updates as reference context for Alshival.
 
 Email uses the existing control-plane Entra credential to acquire an application
 Graph token and send as the administrator-configured mailbox ID. Credentials,

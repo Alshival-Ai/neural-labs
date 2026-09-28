@@ -13,7 +13,7 @@ export const notificationSchema = z.object({
   userId: z.string().uuid().optional(), handle: z.string().regex(/^@?[a-z0-9][a-z0-9._-]{1,31}$/).optional(),
   automationId: z.string().min(1).max(200).optional(), runId: z.string().min(1).max(200).optional(),
   outcome: z.enum(["success", "failure"]).default("success"),
-  title: z.string().trim().min(1).max(200).default("Neura update"),
+  title: z.string().trim().min(1).max(200).default("Alshival update"),
   message: z.string().trim().min(1).max(1600),
   idempotencyKey: z.string().min(1).max(200).optional(),
   links: z.array(z.object({ label: z.string().max(120), url: z.string().url().startsWith("https://").max(2048) })).max(5).default([]),
@@ -126,7 +126,7 @@ export class Notifications {
   }
   async setInboxSession(userId: string, sessionKey: string) {
     const checked=await this.workspace("session",{userId,sessionKey});
-    if(!checked.owned) throw new NotificationError(403,"invalid_session","Select your own private Neura conversation");
+    if(!checked.owned) throw new NotificationError(403,"invalid_session","Select your own private Alshival conversation");
     const preferences=await this.settings(userId);
     await this.pool.query("INSERT INTO notification_preferences(user_id,session_key,defaults) VALUES($1,$2,$3) ON CONFLICT(user_id) DO UPDATE SET session_key=excluded.session_key",[userId,sessionKey,preferences.defaults]);
     return {sessionKey};

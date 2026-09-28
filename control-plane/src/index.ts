@@ -83,6 +83,7 @@ if (process.argv[2] === "setup-reset") {
     modelPolicies,
     onCollaborationEvent: (event) => { void socketHub.publish(event); },
     onAgentRun: (run) => agentProcessor?.enqueue(run),
+    onAgentCancel: id => agentProcessor?.cancel(id),
   });
   agentProcessor = new TeamAgentProcessor(
     collaboration,

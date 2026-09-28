@@ -31,7 +31,7 @@ export class TeamOpenAI {
   cancel() { return { ...this.controller.cancel(), agentId: this.agentId, paused: false }; }
   async prepareRun() {
     const status = await this.snapshot();
-    if (!status.authenticated || !status.modelReady) throw new Error("An administrator must connect the Team Neura ChatGPT account in Workspace settings");
+    if (!status.authenticated || !status.modelReady) throw new Error("An administrator must connect the Team Alshival ChatGPT account in Workspace settings");
     return this.agentId;
   }
 }

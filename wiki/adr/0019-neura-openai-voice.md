@@ -1,4 +1,4 @@
-# ADR 0019: Scope Neura voice by private and team chat boundaries
+# ADR 0019: Scope Alshival voice by private and team chat boundaries
 
 > Design history: for current instructions, see [AI accounts and models](../ai-accounts.md).
 > See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
@@ -8,9 +8,9 @@
 
 ## Context
 
-Neura needs voice input in two different privacy scopes. A private chat calls
+Alshival needs voice input in two different privacy scopes. A private chat calls
 for a low-latency, two-way assistant conversation, while a Team Chat needs a
-durable voice memo that teammates can replay and that Neura can understand.
+durable voice memo that teammates can replay and that Alshival can understand.
 Giving a browser a standard provider API key, treating a memo as a live team
 call, or keeping a transcript outside channel history would violate those
 boundaries.
@@ -19,7 +19,7 @@ boundaries.
 
 Private voice uses WebRTC between the authenticated browser and OpenAI
 Realtime. The workspace server accepts a same-origin SDP offer, adds a bounded
-server-owned Neura session configuration, exchanges it at the fixed OpenAI
+server-owned Alshival session configuration, exchanges it at the fixed OpenAI
 endpoint with `OPENAI_API_KEY`, and returns only the SDP answer. It does not
 relay live audio or return the key. Sessions are capped at five minutes.
 
@@ -29,8 +29,8 @@ workspace server sends it to the fixed OpenAI transcription endpoint. After a
 successful transcription, the browser uploads the original memo to the shared
 `team-uploads/` folder and posts both the attachment and visible transcript to
 the originating channel as context, with `invokeAgent: false`. Mention or skill
-tokens inside a transcript cannot automatically summon Neura. A separate user
-message containing `@Neura` or a skill command creates a run
+tokens inside a transcript cannot automatically summon Alshival. A separate user
+message containing `@Alshival` or a skill command creates a run
 with recent channel transcripts in its bounded context. Existing channel membership
 and agent-run authorization remain authoritative; the optional invocation flag can
 only suppress normal trigger detection, not bypass it or grant access.
@@ -53,7 +53,7 @@ deployment environment.
   crosses the Neural Labs server.
 - Team memo audio is disclosed to OpenAI for transcription and stored in the
   shared workspace, whose file tree is intentionally not a per-channel ACL.
-- Team transcripts are durable channel history and ordinary bounded Neura
+- Team transcripts are durable channel history and ordinary bounded Alshival
   context for later explicit invocations, not automatic agent commands.
 - Voice fails closed until an operator configures `OPENAI_API_KEY`; personal
   ChatGPT OAuth remains isolated and is not repurposed for Realtime or

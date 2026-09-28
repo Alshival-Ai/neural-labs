@@ -10,7 +10,7 @@ export async function openClaudeLoginTerminal({ accounts, terminals, owner, atte
   if (!login.terminalLaunch) {
     login.terminalLaunch = terminals.create(actor, {
       scope: "personal",
-      title: owner.userId ? "Claude sign-in" : `Claude sign-in · ${owner.workload === "team" ? "Team Neura" : "Background AI"}`,
+      title: owner.userId ? "Claude sign-in" : `Claude sign-in · ${owner.workload === "team" ? "Team Alshival" : "Background AI"}`,
       providerSignIn: () => nativeLoginUrl(login.output),
       access: async viewer => {
         if (viewer.id !== actor.id) return false;

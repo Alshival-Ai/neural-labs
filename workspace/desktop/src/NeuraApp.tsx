@@ -65,6 +65,7 @@ import type {
 } from "./types";
 
 type Props = {
+  initialChannelId?: string | undefined;
   gateway: NeuraGateway;
   notify: (message: string) => void;
   active?: boolean;
@@ -151,7 +152,7 @@ export function matchingTeamMentionSuggestions(members: TeamDirectoryUser[], tri
   if (!trigger) return [];
   const query = trigger.query.toLowerCase();
   const suggestions: TeamMentionSuggestion[] = [
-    { key: "neura", handle: "Neura", displayName: "Neura", description: "AI teammate", kind: "neura" },
+    { key: "neura", handle: "Alshival", displayName: "Alshival", description: "AI teammate", kind: "neura" },
     ...members
       .filter((member) => member.handle.toLowerCase() !== "neura")
       .map((member) => ({ key: member.id, handle: member.handle, displayName: member.displayName, description: member.role === "admin" ? "Administrator" : "Teammate", kind: "user" as const })),
@@ -336,7 +337,7 @@ function approvalFromEvent(event: GatewayEvent): NeuraApproval | null {
       recordString(presentation, "commandText") ??
       recordString(presentation, "description") ??
       recordString(presentation, "detail") ??
-      "Neura needs your approval to continue.",
+      "Alshival needs your approval to continue.",
     decisions,
   };
 }
@@ -396,7 +397,7 @@ export function teamAgentPhaseFromStatus(status: unknown): TeamAgentPhase | unde
 }
 
 export function invokesTeamAgent(body: string): boolean {
-  return /(?:^|[\s([{:;,])@neura\b/i.test(body)
+  return /(?:^|[\s([{:;,])[@$](?:alshival|neura|nerua)(?![\w-])/i.test(body)
     || /(?:^|[\s([{:;,])\$(?!(?:neura|nerua)(?=$|[^A-Za-z0-9_-]))[A-Za-z][A-Za-z0-9_-]*\b/i.test(body);
 }
 
@@ -406,7 +407,7 @@ export function submitsChatComposerShortcut(event: Pick<KeyboardEvent<HTMLTextAr
 
 export function modelProviderErrorMessage(rawError: string): string {
   if (/missing bearer|missing basic authentication/i.test(rawError)) {
-    return "Neura couldn't activate your selected model connection. Open Personalization and try Resume; reconnect if the problem continues.";
+    return "Alshival couldn't activate your selected model connection. Open Personalization and try Resume; reconnect if the problem continues.";
   }
   if (/401|authentication|unauthorized|invalid.{0,20}(token|credential)|expired.{0,20}(token|credential)/i.test(rawError)) {
     return "Your model provider sign-in was rejected or expired. Reconnect it in Personalization, then try again.";
@@ -414,7 +415,7 @@ export function modelProviderErrorMessage(rawError: string): string {
   return rawError;
 }
 
-export function NeuraApp({ gateway, notify, active = true, storageNamespace, storageArea = "neura", composeRequest, csrfToken = "", currentUser = unavailableTeamUser, onPreviewFile, onOpenTeamTerminal }: Props) {
+export function NeuraApp({ initialChannelId, gateway, notify, active = true, storageNamespace, storageArea = "neura", composeRequest, csrfToken = "", currentUser = unavailableTeamUser, onPreviewFile, onOpenTeamTerminal }: Props) {
   const appViewport = useAppViewport();
   const appRoot = useRef<HTMLDivElement>(null);
   const historyId = useId();
@@ -426,6 +427,9 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [selectedKey, setSelectedKey] = useState<string | undefined>(initialUiState.selectedKey);
   const [selectedChannelId, setSelectedChannelId] = useState<string | undefined>(initialUiState.selectedChannelId);
+  useEffect(() => {
+    if (initialChannelId) { setSelectedChannelId(initialChannelId); setSelectedKey(undefined); }
+  }, [initialChannelId]);
   const [freshStartForActivityAt, setFreshStartForActivityAt] = useState<number | undefined>(initialUiState.freshStartForActivityAt);
   const [teamChannels, setTeamChannels] = useState<TeamChannel[]>([]);
   const [teamDirectory, setTeamDirectory] = useState<TeamDirectoryUser[]>([]);
@@ -433,6 +437,8 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
   const [teamMembers, setTeamMembers] = useState<TeamDirectoryUser[]>([]);
   const [teamConnection, setTeamConnection] = useState<ConnectionState>("connecting");
   const [teamAgentPhase, setTeamAgentPhase] = useState<TeamAgentPhase>();
+  const [olderMessagesAvailable, setOlderMessagesAvailable] = useState(true);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
   const [teamAgentError, setTeamAgentError] = useState<string>();
   const [teamTyping, setTeamTyping] = useState<TeamDirectoryUser[]>([]);
   const [teamDraft, setTeamDraft] = useState("");
@@ -699,7 +705,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
           ? current
           : next.find((session) => !session.archived)?.key);
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Could not load Neura conversations");
+      notify(error instanceof Error ? error.message : "Could not load Alshival conversations");
     }
   };
 
@@ -769,7 +775,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
             if (Array.isArray(value.channels)) setTeamChannels(value.channels as TeamChannel[]);
             if (Array.isArray(value.users)) setTeamDirectory(value.users as TeamDirectoryUser[]);
           } else if (value.type === "snapshot" && value.channelId === selectedChannelRef.current && Array.isArray(value.messages)) {
-            setTeamMessages(value.messages as TeamMessage[]);
+            setTeamMessages(current => [...new Map([...current, ...value.messages as TeamMessage[]].map(item => [item.id, item])).values()].sort((a, b) => a.sequence - b.sequence));
             const run = value.agentRun as { status?: string } | undefined;
             setTeamAgentPhase(teamAgentPhaseFromStatus(run?.status));
           } else if (value.type === "message.created" && value.channelId === selectedChannelRef.current && value.message) {
@@ -783,7 +789,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
             const run = value.run as { status?: string; error?: string } | undefined;
             setTeamAgentPhase(teamAgentPhaseFromStatus(run?.status));
             if (run?.status === "queued" || run?.status === "running" || run?.status === "completed") setTeamAgentError(undefined);
-            if (run?.status === "failed") setTeamAgentError(run.error ?? "Neura could not complete that Team Chat turn.");
+            if (run?.status === "failed") setTeamAgentError(run.error ?? "Alshival could not complete that Team Chat turn.");
           } else if (value.type === "typing" && value.channelId === selectedChannelRef.current && value.user) {
             const user = value.user as TeamDirectoryUser;
             setTeamTyping((current) => value.active === true
@@ -824,6 +830,8 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
 
   useEffect(() => {
     setTeamTyping([]);
+    setTeamMessages([]);
+    setOlderMessagesAvailable(true);
     setTeamAgentPhase(undefined);
     if (!selectedChannelId) {
       setTeamMessages([]);
@@ -940,7 +948,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
         setMessages((current) => mergeHistoryWithLive(history, current));
         setSessionReady(true);
       } catch (error) {
-        if (active) notify(error instanceof Error ? error.message : "Could not connect this conversation to Neura");
+        if (active) notify(error instanceof Error ? error.message : "Could not connect this conversation to Alshival");
       }
     })();
     setApprovals((current) => current.filter((approval) => !approval.sessionKey || approval.sessionKey === selectedKey));
@@ -1149,7 +1157,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
         });
         resolveAttachmentUrls(sessionKey, [{ id: `run:${eventRunId}`, role: "assistant", ...finalContent }]);
         if (state === "error") {
-          const rawError = recordString(payload, "errorMessage") ?? "Neura could not finish that request";
+          const rawError = recordString(payload, "errorMessage") ?? "Alshival could not finish that request";
           const displayError = modelProviderErrorMessage(rawError);
           setMessages((current) => current.some((message) => message.id === `error:${eventRunId}`)
             ? current
@@ -1606,7 +1614,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
     } catch (error) {
       setMessages((current) => current.filter((item) => item.id !== localId));
       restoreComposer(message, outgoing);
-      notify(error instanceof Error ? error.message : "Neura could not send that message");
+      notify(error instanceof Error ? error.message : "Alshival could not send that message");
       void refreshSessions();
     } finally {
       composerSubmittingRef.current = false;
@@ -1649,7 +1657,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
     } catch (error) {
       updateQueuedPrompts((current) => current.filter((prompt) => prompt.id !== queuedId));
       restoreComposer(message, outgoing);
-      notify(error instanceof Error ? error.message : "Neura could not queue that message");
+      notify(error instanceof Error ? error.message : "Alshival could not queue that message");
       void refreshSessions();
     } finally {
       composerSubmittingRef.current = false;
@@ -1807,12 +1815,12 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
         <button type="button" className={!showArchived ? "active" : ""} onClick={() => setShowArchived(false)}>Recent</button>
         <button type="button" className={showArchived ? "active" : ""} onClick={() => setShowArchived(true)}>Archived</button>
       </div>
-      <nav className="history-list" aria-label="Neura conversation history">
+      <nav className="history-list" aria-label="Alshival conversation history">
         <button type="button" className="neura-notification-launch" disabled={inboxOpening || connection !== "connected"} onClick={()=>void openAutomationInbox()}>Automations <span>{notificationEntries.filter(entry=>entry.unread).length || ""}</span></button>
         <section className={`history-section private-chat-section${privateChatsExpanded ? " is-expanded" : ""}`} aria-labelledby="private-chat-heading">
           <h2 id="private-chat-heading"><button type="button" className="private-chat-toggle" aria-expanded={privateChatsExpanded} aria-controls={privateHistoryId} onClick={() => { if (historyQuery.trim()) setHistoryQuery(""); setPrivateChatsCollapsed(privateChatsExpanded); }}><ChevronDown /><LockKeyhole />Your chats</button></h2>
           <div id={privateHistoryId} className="private-chat-rows" hidden={!privateChatsExpanded}>
-          {privateSessions.length === 0 && <p className="history-empty">{historyQuery ? "No matching private chats" : showArchived ? "No archived private chats" : "Start a private conversation with Neura."}</p>}
+          {privateSessions.length === 0 && <p className="history-empty">{historyQuery ? "No matching private chats" : showArchived ? "No archived private chats" : "Start a private conversation with Alshival."}</p>}
           {currentPrivateSession && <><p className="current-chat-label">Current chat</p>{privateChatRow(currentPrivateSession)}</>}
           {displayedPrivateSessions.map((session) => session.key === currentPrivateSession?.key ? null : privateChatRow(session))}
           {privateSessions.length > privateChatLimit && <button type="button" className="history-load-more" onClick={() => setPrivateChatLimit((count) => count + 5)}>Load more chats</button>}
@@ -1845,7 +1853,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
             {appViewport.mobile ? <Menu /> : <PanelLeftOpen />}
           </button>
           <div>
-            <strong>{creatingSession ? "New conversation" : selectedChannel ? `# ${selectedChannel.name}` : selected?.title ?? "Neura"}</strong>
+            <strong>{creatingSession ? "New conversation" : selectedChannel ? `# ${selectedChannel.name}` : selected?.title ?? "Alshival"}</strong>
             <span className={`connection connection-${selectedChannel ? teamConnection : connection}`}>
               {creatingSession
                 ? "Creating a private session"
@@ -1866,27 +1874,37 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
         <div ref={messageScroll} className="message-scroll" aria-live="polite" onScroll={handleTranscriptScroll}>
           <div ref={messageContent} className="message-content">
           {creatingSession ? <NeuraSessionLoader stage="creating" /> : <>
-          {!selectedChannel && connection === "error" && <div className="connection-error"><strong>Neura is unavailable</strong><p>{connectionError ?? "The Gateway connection could not be established."} If this is your first visit, connect your selected model account in Settings → Model Provider.</p></div>}
+          {selectedChannel && olderMessagesAvailable && teamMessages.length >= 500 && <button type="button" disabled={loadingOlderMessages} onClick={() => {
+            const channel = selectedChannel.id;
+            setLoadingOlderMessages(true);
+            void teamChatApi.messages(channel, teamMessages[0]!.sequence).then(result => {
+              if (selectedChannelRef.current !== channel) return;
+              setOlderMessagesAvailable(result.messages.length === 500);
+              setTeamMessages(current => [...new Map([...result.messages, ...current].map(item => [item.id, item])).values()].sort((a, b) => a.sequence - b.sequence));
+            }).catch((error: unknown) => notify(error instanceof Error ? error.message : "Could not load older messages"))
+              .finally(() => setLoadingOlderMessages(false));
+          }}>{loadingOlderMessages ? "Loading…" : "Load older messages"}</button>}
+          {!selectedChannel && connection === "error" && <div className="connection-error"><strong>Alshival is unavailable</strong><p>{connectionError ?? "The Gateway connection could not be established."} If this is your first visit, connect your selected model account in Settings → Model Provider.</p></div>}
           {selectedChannel && teamConnection === "error" && <div className="connection-error"><strong>Team Chat is reconnecting</strong><p>Messages remain safely stored. Live updates will resume automatically.</p></div>}
-          {selectedChannel && teamAgentError && <div className="connection-error"><strong>Neura could not join this turn</strong><p>{teamAgentError}</p></div>}
+          {selectedChannel && teamAgentError && <div className="connection-error"><strong>Alshival could not join this turn</strong><p>{teamAgentError}</p></div>}
           {!selected && !selectedChannel && connection === "connected" && (
             <div className="neura-welcome">
-              <div className="neura-orb">N</div>
-              <h1>Work with Neura</h1>
-              <p>Neura is your OpenClaw agent. New conversations are private to your account.</p>
+              <div className="neura-orb">A</div>
+              <h1>Work with Alshival</h1>
+              <p>Alshival is your OpenClaw agent. New conversations are private to your account.</p>
               <button type="button" onClick={() => void createConversation()}><MessageSquarePlus />Start a conversation</button>
             </div>
           )}
           {selected && !selectedChannel && messages.length === 0 && !sessionReady && <NeuraSessionLoader stage="connecting" />}
           {selected && !selectedChannel && messages.length === 0 && sessionReady && (
-            <div className="neura-welcome compact"><div className="neura-orb">N</div><h1>What should we work on?</h1><p>{selected.visibility === "draft" ? "Only you can see and write in this conversation." : "This conversation is shared with your team."}</p></div>
+            <div className="neura-welcome compact"><div className="neura-orb">A</div><h1>What should we work on?</h1><p>{selected.visibility === "draft" ? "Only you can see and write in this conversation." : "This conversation is shared with your team."}</p></div>
           )}
           {inboxVisible && <NotificationMessages entries={notificationEntries} />}
           {!selectedChannel && displayedMessages.map((message) => (
             <article className={`message message-${message.role}${message.proposedPlan ? " message-plan" : ""}`} key={message.id}>
-              {message.role === "assistant" && <div className="message-avatar">N</div>}
+              {message.role === "assistant" && <div className="message-avatar">A</div>}
               <div className="message-body">
-                <span className="message-author">{message.proposedPlan ? "Neura · Proposed plan" : message.role === "assistant" ? "Neura" : message.role === "user" ? "You" : "System"}</span>
+                <span className="message-author">{message.proposedPlan ? "Alshival · Proposed plan" : message.role === "assistant" ? "Alshival" : message.role === "user" ? "You" : "System"}</span>
                 {message.attachments && message.attachments.length > 0 && <MessageAttachments attachments={message.attachments} notify={notify} storageNamespace={storageNamespace} refreshAttachment={selected ? async (attachment) => {
                   const resolved = await gateway.resolveMessageAttachments(selected.key, [{ ...message, attachments: [attachment as NeuraAttachment] }]);
                   return resolved[0]?.attachments?.[0] ?? attachment;
@@ -1903,20 +1921,20 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
                 }}>{message.text}</ReactMarkdown>
                 {message.activities && message.activities.length > 0 && <NeuraActivityTimeline activities={message.activities} />}
                 {message.proposedPlan && message.id === latestPlan?.id && <button type="button" className="implement-plan-button" disabled={modeLocked} onClick={() => void implementPlan(message)}>Implement plan</button>}
-                {message.pending && <span className="typing-cursor" aria-label="Neura is responding" />}
+                {message.pending && <span className="typing-cursor" aria-label="Alshival is responding" />}
               </div>
             </article>
           ))}
           {selectedChannel && teamMessages.length === 0 && (
-            <div className="neura-welcome compact"><div className="neura-orb"><Hash /></div><h1>#{selectedChannel.name}</h1><p>{selectedChannel.audience === "everyone" ? "Everyone with Neural Labs access can join this conversation." : "This is a private channel for invited teammates."} Type <strong>@Neura</strong> when you want the agent to join in.</p></div>
+            <div className="neura-welcome compact"><div className="neura-orb"><Hash /></div><h1>#{selectedChannel.name}</h1><p>{selectedChannel.audience === "everyone" ? "Everyone with Neural Labs access can join this conversation." : "This is a private channel for invited teammates."} Type <strong>@Alshival</strong> when you want the agent to join in.</p></div>
           )}
           {selectedChannel && teamMessages.map((message) => {
             const neura = message.authorKind === "neura" || message.authorKind === "imported_neura";
             const system = message.authorKind === "system";
             const presentation = teamMessagePresentation(message, currentUser.id);
-            const author = neura ? "Neura" : system ? "System" : message.author?.displayName ?? "Former teammate";
+            const author = neura ? "Alshival" : system ? "System" : message.author?.displayName ?? "Former teammate";
             return <article className={`message team-message message-${presentation}`} key={message.id}>
-              {neura && <div className="message-avatar">N</div>}
+              {neura && <div className="message-avatar">A</div>}
               <div className="message-body">
                 <span className="message-author">{author}{message.author && <small>@{message.author.handle}</small>}</span>
                 {message.attachments.length > 0 && <MessageAttachments attachments={message.attachments} className="message-attachments team-message-attachments" notify={notify} storageNamespace={storageNamespace} />}
@@ -1933,13 +1951,17 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
               </div>
             </article>;
           })}
-          {selectedChannel && teamAgentPhase && <article className="message team-agent-loader message-assistant" role="status" aria-label={teamAgentPhase === "starting" ? "Neura is starting" : "Neura is working"}>
-            <div className="message-avatar">N</div>
+          {selectedChannel && teamAgentPhase && <article className="message team-agent-loader message-assistant" role="status" aria-label={teamAgentPhase === "starting" ? "Alshival is starting" : "Alshival is working"}>
+            <div className="message-avatar">A</div>
             <div className="message-body">
-              <span className="message-author">Neura</span>
+              <span className="message-author">Alshival</span>
+              <button type="button" onClick={() => {
+                void teamChatApi.cancel(csrfToken, selectedChannel.id).catch((error: unknown) =>
+                  notify(error instanceof Error ? error.message : "Could not cancel this run"));
+              }}>Cancel run</button>
               <div className="team-agent-loader-status">
                 <span className="activity-spinner" aria-hidden="true" />
-                <span><strong>{teamAgentPhase === "starting" ? "Starting Neura…" : "Neura is working…"}</strong><small>{teamAgentPhase === "starting" ? "Preparing your personal agent for this team channel." : "Work continues even if you leave this channel or the app reconnects."}</small></span>
+                <span><strong>{teamAgentPhase === "starting" ? "Starting Alshival…" : "Alshival is working…"}</strong><small>{teamAgentPhase === "starting" ? "Preparing your personal agent for this team channel." : "Work continues even if you leave this channel or the app reconnects."}</small></span>
               </div>
             </div>
           </article>}
@@ -2039,7 +2061,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
               <p role="status">{teamVoice.state === "sending" ? "Preparing and sending your memo…" : teamVoice.error || "Your recording is kept in this tab until you send, download, or discard it."}</p>
               <div><button type="button" disabled={teamVoice.state !== "idle" || selectedChannelId !== teamVoice.pending.channel.id || teamConnection !== "connected"} onClick={() => teamVoice.retry()}>Retry transcription &amp; send</button><button type="button" disabled={teamVoice.state !== "idle" || selectedChannelId !== teamVoice.pending.channel.id || teamConnection !== "connected"} onClick={() => teamVoice.retry(false)}>Send audio only</button><a href={teamVoice.pending.url} download={`voice-memo.${voiceMemoExtension(teamVoice.pending.audio.type)}`}>Download</a><button type="button" onClick={teamVoice.discard}>Discard memo</button></div>
             </section>}
-            <p className="composer-hint">Enter to send · Shift+Enter for a new line · hold wave to record · @ tags teammates · @Neura summons Neura · $ lists skills</p>
+            <p className="composer-hint">Enter to send · Shift+Enter for a new line · hold wave to record · @ tags teammates · @Alshival summons Alshival · $ lists skills</p>
           </footer>
         )}
 
@@ -2048,7 +2070,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
             {privateVoice.state !== "idle" && <div className="neura-voice-status" role="status">
               {privateVoice.transmitting ? <Mic /> : <MicOff />}<span>{privateVoice.state === "connecting" ? "Connecting voice…" : privateVoice.muted ? "Voice call · microphone muted" : voiceMode === "hold" && !privateVoice.holding ? "Voice call · hold mic to speak" : "Voice call · microphone on"}</span>
               <button type="button" aria-label={privateVoice.muted ? "Unmute microphone" : "Mute microphone"} aria-pressed={privateVoice.muted} onClick={privateVoice.toggleMute}>{privateVoice.muted ? <MicOff /> : <Mic />}</button>
-              <button type="button" onClick={privateVoice.stop} aria-label={privateVoice.state === "connecting" ? "Cancel private Neura voice chat" : "End private Neura voice chat"}><PhoneOff /></button>
+              <button type="button" onClick={privateVoice.stop} aria-label={privateVoice.state === "connecting" ? "Cancel private Alshival voice chat" : "End private Alshival voice chat"}><PhoneOff /></button>
             </div>}
             {approvals.filter((approval) => !approval.sessionKey || approval.sessionKey === selected.key).map((approval) => (
               <div className="approval-card" key={approval.id}>
@@ -2063,7 +2085,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
             {sessionReady && connection === "connected" && <NeuraQuestions key={selected.key} gateway={gateway} sessionKey={selected.key} notify={notify} />}
             {agentBusy && <div className="active-run-banner" role="status">
               <span className="activity-spinner" />
-              <strong>{composeMode === "plan" ? "Neura is planning" : "Neura is working"}</strong>
+              <strong>{composeMode === "plan" ? "Alshival is planning" : "Alshival is working"}</strong>
               <span>Enter steers now. Ctrl/Cmd+Enter queues the next task.</span>
             </div>}
             {sessionQueue.length > 0 && <section className="prompt-queue" aria-label="Queued messages">
@@ -2077,7 +2099,7 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
                     <span className="queue-position" aria-hidden="true">{index + 1}</span>
                     <span className="queue-copy">
                       <strong>{prompt.text || prompt.attachments.map((attachment) => attachment.name).join(", ")}</strong>
-                      <small>{prompt.status === "sending" ? "Adding to queue…" : prompt.attachments.length > 0 ? `${prompt.attachments.length} attachment${prompt.attachments.length === 1 ? "" : "s"}` : "Waiting for Neura"}</small>
+                      <small>{prompt.status === "sending" ? "Adding to queue…" : prompt.attachments.length > 0 ? `${prompt.attachments.length} attachment${prompt.attachments.length === 1 ? "" : "s"}` : "Waiting for Alshival"}</small>
                     </span>
                     <button type="button" disabled={!prompt.runId} onClick={() => void removeQueuedPrompt(prompt)} aria-label={`Remove queued message ${index + 1}`}><X /></button>
                   </li>
@@ -2128,15 +2150,15 @@ export function NeuraApp({ gateway, notify, active = true, storageNamespace, sto
                   onBlur={() => window.setTimeout(() => setSkillTrigger(null), 100)}
                   onKeyDown={handleComposerKey}
                   rows={1}
-                  placeholder={!sessionReady ? "Connecting conversation…" : agentBusy ? "Steer Neura now, or queue what comes next…" : "Message Neura…"}
+                  placeholder={!sessionReady ? "Connecting conversation…" : agentBusy ? "Steer Alshival now, or queue what comes next…" : "Message Alshival…"}
                   aria-autocomplete="list"
                   aria-controls={skillTrigger ? "neura-skill-suggestions" : undefined}
                   aria-expanded={Boolean(skillTrigger)}
                   aria-activedescendant={skillTrigger && matchingSkills.length > 0 ? `neura-skill-option-${skillMenuIndex % matchingSkills.length}` : undefined}
                 />
-                {agentBusy && <button type="button" className="stop-button" onClick={() => void gateway.abort(selected.key, runId)} aria-label="Stop Neura"><Square /></button>}
+                {agentBusy && <button type="button" className="stop-button" onClick={() => void gateway.abort(selected.key, runId)} aria-label="Stop Alshival"><Square /></button>}
                 {!draft.trim() && attachments.length === 0 ? <VoiceControl mode={voiceMode} onModeChange={setVoiceMode}
-                  label={privateVoice.state === "connecting" ? "Cancel private Neura voice chat" : voiceMode === "hold" ? "Hold to speak with Neura" : privateVoice.state === "live" ? "End private Neura voice chat" : "Start private Neura voice chat"}
+                  label={privateVoice.state === "connecting" ? "Cancel private Alshival voice chat" : voiceMode === "hold" ? "Hold to speak with Alshival" : privateVoice.state === "live" ? "End private Alshival voice chat" : "Start private Alshival voice chat"}
                   active={privateVoice.state === "live"} busy={privateVoice.state === "connecting"} disabled={!sessionReady && privateVoice.state === "idle"}
                   onTap={privateVoice.tap} onHoldStart={privateVoice.press} onHoldEnd={() => privateVoice.release()}
                 /> : <div className="split-send">
@@ -2250,9 +2272,9 @@ function personInitials(label: string): string {
 }
 
 function NeuraSessionLoader({ stage }: { stage: "creating" | "connecting" }) {
-  return <div className="neura-welcome compact neura-session-loader" role="status" aria-label="Preparing Neura conversation">
-    <div className="neura-ready-orb" aria-hidden="true"><span>N</span><i /><i /><i /></div>
-    <h1>{stage === "creating" ? "Starting a new chat" : "Getting Neura ready"}</h1>
+  return <div className="neura-welcome compact neura-session-loader" role="status" aria-label="Preparing Alshival conversation">
+    <div className="neura-ready-orb" aria-hidden="true"><span>A</span><i /><i /><i /></div>
+    <h1>{stage === "creating" ? "Starting a new chat" : "Getting Alshival ready"}</h1>
     <p>{stage === "creating" ? "Creating your private conversation." : "Opening the live OpenClaw session and loading recent context."}</p>
     <div className="neura-ready-progress" aria-hidden="true">
       <span><Check />{stage === "creating" ? "Private session" : "Session created"}</span>
@@ -2267,7 +2289,7 @@ function NeuraActivityTimeline({ activities, live = false }: { activities: Neura
   return <details className="neura-activity-timeline" data-state={failed ? "error" : live ? "running" : "done"}>
     <summary>
       <span className="neura-activity-beacon" aria-hidden="true">{live ? <span className="activity-spinner" /> : failed ? <X /> : <Check />}</span>
-      <span className="neura-activity-summary"><strong>{live ? "Neura is working" : "Work details"}</strong><small>{latest?.title ?? "Agent activity"}</small></span>
+      <span className="neura-activity-summary"><strong>{live ? "Alshival is working" : "Work details"}</strong><small>{latest?.title ?? "Agent activity"}</small></span>
       <span className="neura-activity-count">{activities.length} {activities.length === 1 ? "step" : "steps"}</span>
       <ChevronDown className="neura-activity-chevron" aria-hidden="true" />
     </summary>

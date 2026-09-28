@@ -1,4 +1,4 @@
-# Neura roadmap tracker
+# Alshival roadmap tracker
 
 Source: [September 6 roadmap and meeting notes](roadmap.md). Created September 6, 2026.
 
@@ -100,7 +100,7 @@ The meeting’s “Clippy” reference is the existing KLIPY integration. Featur
 - [x] Dragging a window to the left or right edge previews the corresponding half-screen layout; releasing applies it.
 - [x] Dragging to the top previews maximization; releasing applies it.
 - [x] Users can cancel the preview or restore and reposition a snapped window without losing its usable size.
-- [x] Snap targets use the unobstructed top edge; verify Neura, Terminal, and other desktop windows.
+- [x] Snap targets use the unobstructed top edge; verify Alshival, Terminal, and other desktop windows.
 
 Starting points: [App.tsx](workspace/desktop/src/App.tsx), [desktop state guide](wiki/desktop-state.md).
 
@@ -174,7 +174,7 @@ These decisions do not block creation of the tracker or work on independent task
 
 ## Confirmed terminal decisions and verification
 
-- Team Terminals only, including terminals opened from Neura. Separate emoji and GIF controls in a 44px right rail.
+- Team Terminals only, including terminals opened from Alshival. Separate emoji and GIF controls in a 44px right rail.
 - Full locally bundled emoji catalog with search, categories, skin tones, and the existing eight quick reactions.
 - KLIPY featured results and paginated search, explicitly `contentfilter=off`; “Search KLIPY” and “Powered by KLIPY” attribution.
 - Emoji displays for 1.8 seconds and GIFs for five seconds, with sender labels and at most three overlays. No saved history or terminal input/output writes.

@@ -474,4 +474,8 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    version: 15,
+    sql: `ALTER TABLE team_channels ADD COLUMN import_source text UNIQUE;`,
+  },
 ];

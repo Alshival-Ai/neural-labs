@@ -52,7 +52,7 @@ describe("Skills app", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save skill" }));
 
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ name: "Support escalation", scope: "personal" }), undefined);
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("ready in your Neura skill picker"));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("ready in your Alshival skill picker"));
   });
 
   it("shares a personal skill directly with the team", async () => {

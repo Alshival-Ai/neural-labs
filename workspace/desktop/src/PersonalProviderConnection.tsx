@@ -25,7 +25,7 @@ export function PersonalProviderConnection({ csrfToken, team = false, refreshedS
         const next = await settingsRequest<PersonalOpenAIAuth>(endpoint);
         if (!cancelled) setOpenAI(next);
       } catch (error) {
-        if (!cancelled) setNotice({ tone: "error", message: error instanceof SettingsApiError ? error.message : "Your Neura account status could not be loaded." });
+        if (!cancelled) setNotice({ tone: "error", message: error instanceof SettingsApiError ? error.message : "Your Alshival account status could not be loaded." });
       } finally {
         if (!cancelled) setOpenAILoading(false);
       }
@@ -49,15 +49,15 @@ export function PersonalProviderConnection({ csrfToken, team = false, refreshedS
       setNotice({
         tone: "success",
         message: action === "pause"
-          ? "Personal Neura access is paused. Your ChatGPT sign-in is retained."
+          ? "Personal Alshival access is paused. Your ChatGPT sign-in is retained."
           : action === "resume"
-            ? "Personal Neura access is active again."
+            ? "Personal Alshival access is active again."
             : action === "cancel"
               ? "OpenAI sign-in was cancelled."
               : "OpenAI sign-in started. Use the private code when it appears.",
       });
     } catch (error) {
-      setNotice({ tone: "error", message: error instanceof SettingsApiError ? error.message : "Your Neura account could not be updated." });
+      setNotice({ tone: "error", message: error instanceof SettingsApiError ? error.message : "Your Alshival account could not be updated." });
     } finally {
       setOpenAIAction(undefined);
     }
@@ -76,7 +76,7 @@ export function PersonalProviderConnection({ csrfToken, team = false, refreshedS
       setOpenAI(next);
       setApiKey("");
       setKeyForm(false);
-      setNotice({ tone: "success", message: "OpenAI API key saved. Send a Neura message to verify access and billing." });
+      setNotice({ tone: "success", message: "OpenAI API key saved. Send a Alshival message to verify access and billing." });
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof SettingsApiError ? error.message : "OpenAI API key could not be saved." });
     } finally {
@@ -100,7 +100,7 @@ export function PersonalProviderConnection({ csrfToken, team = false, refreshedS
     {notice && <p role={notice.tone === "error" ? "alert" : "status"}>{notice.message}</p>}
       <section className="settings-card user-settings-card user-settings-openai-card">
         <div className="user-settings-card__heading">
-          <div><span>{team ? "Workspace-owned connection" : "Neura"}</span><h3>{team ? "Team Neura ChatGPT account" : "Your OpenAI connection"}</h3><p>{team ? "Connect the account authorized for shared Team Neura use. This credential belongs to the dedicated team agent, not the administrator’s personal agent." : "Choose ChatGPT sign-in or your own OpenAI API key for private Neura conversations. Shared workspace configuration is managed separately."}</p></div>
+          <div><span>{team ? "Workspace-owned connection" : "Alshival"}</span><h3>{team ? "Team Alshival ChatGPT account" : "Your OpenAI connection"}</h3><p>{team ? "Connect the account authorized for shared Team Alshival use. This credential belongs to the dedicated team agent, not the administrator’s personal agent." : "Choose ChatGPT sign-in or your own OpenAI API key for private Alshival conversations. Shared workspace configuration is managed separately."}</p></div>
           <Bot />
         </div>
         <div className="user-settings-openai-status">
@@ -113,21 +113,21 @@ export function PersonalProviderConnection({ csrfToken, team = false, refreshedS
               : !openAI
                 ? "Connection status unavailable"
               : openAI?.paused && openAI.authenticated
-                ? "Personal Neura is paused"
+                ? "Personal Alshival is paused"
                 : openAI?.state === "connected"
                   ? openAI.modelReady ? openAI.authMethod === "api-key" ? "OpenAI API key configured" : "ChatGPT connected" : "Finishing model setup…"
                   : openAI?.state === "awaiting_user"
                     ? "Finish signing in with OpenAI"
                     : openAI?.state === "starting"
                       ? "Preparing a secure sign-in code…"
-                  : "Connect OpenAI to use Neura"}</strong>
+                  : "Connect OpenAI to use Alshival"}</strong>
             <p>{openAI?.paused && openAI.authenticated
               ? "Your credential is retained and can be resumed without signing in again."
               : openAI?.state === "connected"
-                ? team ? "Save Team Neura defaults below to activate this connection for new team requests." : openAI.authMethod === "api-key" ? "Only your personal Neura agent uses this API key. API usage is billed separately from ChatGPT subscriptions." : "Only your personal Neura agent uses this sign-in. System automations continue using the workspace account."
+                ? team ? "Save Team Alshival defaults below to activate this connection for new team requests." : openAI.authMethod === "api-key" ? "Only your personal Alshival agent uses this API key. API usage is billed separately from ChatGPT subscriptions." : "Only your personal Alshival agent uses this sign-in. System automations continue using the workspace account."
                 : openAI?.state === "awaiting_user"
                   ? "Use the sign-in link and one-time code below to authorize your account."
-                  : team ? "Team sign-in has its own native credential store. No personal tokens are copied." : "Connect ChatGPT or add an API key to power private Neura chats and automation Run now actions."}</p>
+                  : team ? "Team sign-in has its own native credential store. No personal tokens are copied." : "Connect ChatGPT or add an API key to power private Alshival chats and automation Run now actions."}</p>
             {openAI?.state === "error" && openAI.message && <small className="user-settings-openai-error" role="alert">{openAI.message}</small>}
           </div>
           <div className="user-settings-openai-actions">
@@ -144,7 +144,7 @@ export function PersonalProviderConnection({ csrfToken, team = false, refreshedS
           </div>
         </div>
         {!team && keyForm && <form className="user-settings-api-key-form" onSubmit={(event) => void saveApiKey(event)}>
-          <p>Use an OpenAI Platform API key. API usage is billed separately from ChatGPT subscriptions. Saving selects key authentication for your personal Neura.</p>
+          <p>Use an OpenAI Platform API key. API usage is billed separately from ChatGPT subscriptions. Saving selects key authentication for your personal Alshival.</p>
           <label>OpenAI API key<input type="password" autoComplete="new-password" value={apiKey} maxLength={4096} onChange={(event) => setApiKey(event.target.value)} required placeholder="Enter an API key" /></label>
           <button type="submit" disabled={Boolean(openAIAction) || !apiKey.trim()}>{openAIAction === "api-key" ? "Saving…" : "Save and use API key"}</button>
         </form>}

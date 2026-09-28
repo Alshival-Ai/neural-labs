@@ -613,12 +613,12 @@ export function createBuilderManager({ root, publishSkill }) {
   async function testSnapshot(actor, id, input = {}) {
     const room = await openRoom(validDraftId(id));
     assertCanAccess(room.manifest, actor);
-    if (room.manifest.kind !== "skill") throw new BuilderError(400, "invalid_draft_kind", "Only skill drafts can be tested in Neura");
+    if (room.manifest.kind !== "skill") throw new BuilderError(400, "invalid_draft_kind", "Only skill drafts can be tested in Alshival");
     const issues = validateSkill(room);
     const revision = createHash("sha256").update(Y.encodeStateAsUpdate(room.doc)).digest("hex");
     const packageText = collectSkillPackage(room).map((file) => `## ${file.path}\n\n${file.content}`).join("\n\n").slice(0, 256 * 1024);
     const prompt = text(input.prompt, 16_000);
-    if (!prompt) throw new BuilderError(400, "invalid_test", "Write a prompt for the Neura test");
+    if (!prompt) throw new BuilderError(400, "invalid_test", "Write a prompt for the Alshival test");
     return {
       id: randomUUID(),
       revision,

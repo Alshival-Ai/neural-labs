@@ -12,7 +12,7 @@ export function NeuraQuestions({ gateway, sessionKey, notify }: { gateway: Neura
         const pending = await gateway.listQuestions(sessionKey);
         if (active && current === revision) setQuestions(pending);
       } catch (error) {
-        if (active && current === revision) notify(error instanceof Error ? error.message : "Could not load Neura’s questions.");
+        if (active && current === revision) notify(error instanceof Error ? error.message : "Could not load Alshival’s questions.");
       }
     };
     void refresh();
@@ -41,10 +41,10 @@ function QuestionCard({ question, gateway, onResolved, notify }: { question: Neu
     if (busy || expired || !cancel && !ready) return;
     setBusy(true);
     try { await gateway.resolveQuestion(question.id, cancel ? null : response); onResolved(); }
-    catch (error) { notify(error instanceof Error ? error.message : "Could not answer Neura’s question."); }
+    catch (error) { notify(error instanceof Error ? error.message : "Could not answer Alshival’s question."); }
     finally { setBusy(false); }
   };
-  return <form className="neura-questions" aria-label="Questions from Neura" onSubmit={(event) => { event.preventDefault(); void resolve(); }}>
+  return <form className="neura-questions" aria-label="Questions from Alshival" onSubmit={(event) => { event.preventDefault(); void resolve(); }}>
     {question.questions.map((item) => <fieldset key={item.questionId} disabled={busy || expired}>
       <legend>{item.question}</legend>
       {item.options.map((option) => <label className="neura-question-option" key={option.label}>

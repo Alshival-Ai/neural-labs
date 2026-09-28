@@ -5,7 +5,7 @@ import { CLAUDE_RUNTIME } from "./claude-runtime.mjs";
 import { randomUUID } from "node:crypto";
 
 // Public account access is independent of the provider that originally
-// provisioned the Neura agent. Credentials stay with their native managers.
+// provisioned the Alshival agent. Credentials stay with their native managers.
 export class ModelAccounts {
   constructor({ openai, claude, team, catalog }) {
     this.openai = openai; this.claude = claude; this.team = team; this.catalog = catalog;
@@ -82,7 +82,7 @@ export class ModelAccounts {
   async prepareTeamRun(model) {
     if (!model?.startsWith("anthropic/")) return this.team.prepareRun();
     const status = await this.claude.snapshot({ workload: "team" });
-    if (!status.modelReady) throw new Error("Connect or resume Team Neura's Claude connection in Workspace settings");
+    if (!status.modelReady) throw new Error("Connect or resume Team Alshival's Claude connection in Workspace settings");
     return status.agentId;
   }
 }

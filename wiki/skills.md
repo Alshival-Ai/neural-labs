@@ -1,6 +1,6 @@
 # Skills and graphical builder
 
-Skills is the canonical desktop app for reusable Neura workflows and the
+Skills is the canonical desktop app for reusable Alshival workflows and the
 automations that run them. It has five sections:
 
 - **My Skills** contains managed skills owned by the signed-in developer.
@@ -66,8 +66,8 @@ administration.
 The owner or an administrator can publish a skill. Only an administrator can
 publish an automation.
 
-**Test in Neura** validates the current draft, takes an immutable snapshot, and
-runs that snapshot in a new private Neura session without installing it. The
+**Test in Alshival** validates the current draft, takes an immutable snapshot, and
+runs that snapshot in a new private Alshival session without installing it. The
 test panel shares compact thinking/tool/command steps and the final result with
 draft collaborators. Only the initiating developer can resolve that test's
 approval prompt or stop it.
@@ -137,8 +137,8 @@ is ignored by Git, as are other instance-specific skills.
 The skill covers live model discovery, Nomic and Qwen embeddings, GPT OSS chat,
 and Wan2.2 text-to-video and image-to-video jobs. Its Python helper handles bearer
 authentication, JSON requests, saved video job IDs, and MP4 downloads.
-For requests in Neura, the skill instructs the agent to attach the downloaded
-MP4 to its final reply through OpenClaw’s native media directive. Neura then
+For requests in Alshival, the skill instructs the agent to attach the downloaded
+MP4 to its final reply through OpenClaw’s native media directive. Alshival then
 shows inline playback and Download / Download to Workspace actions. The skill
 also documents verification and the deployed 16 MiB outgoing video limit.
 

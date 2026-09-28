@@ -31,7 +31,7 @@ its administrators' configuration.
 |---|---|
 | Landing container | Public site and links to this instance's signup/login |
 | Control-plane container | Account UI, authentication, approval, administration, and APIs |
-| Workspace container | Desktop, Neura, files, terminals, editors, and persistent developer runtime |
+| Workspace container | Desktop, Alshival, files, terminals, editors, and persistent developer runtime |
 | PostgreSQL container | Persistent account and control-plane data |
 | TURN container | Relay for Team Terminal voice; currently included even for text-only setup |
 | Host HTTPS ingress | Route requests and enforce authentication before workspace access |
@@ -99,7 +99,7 @@ Once the instance is reachable, you:
 2. Open the workspace and connect your personal AI account through Settings.
    Follow [AI accounts](ai-accounts.md) for the chosen provider and any interactive
    sign-in or consent steps.
-3. Send a first Neura request and check its reply.
+3. Send a first Alshival request and check its reply.
 
 The agent should help complete these steps and resume verification afterward.
 If it cannot access the browser or you are not ready to connect an account, it

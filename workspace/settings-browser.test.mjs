@@ -46,7 +46,7 @@ test("Settings cards, Security, and notification preferences fit desktop and pho
       const toggle = page.getByRole("checkbox", { name: /Agent SMS/ });
       await toggle.click();
       await page.waitForFunction(() => document.querySelector(".phone-settings__notification-toggle input")?.checked === true);
-      await page.getByText("Neura may now send you requested SMS/MMS updates.").waitFor();
+      await page.getByText("Alshival may now send you requested SMS/MMS updates.").waitFor();
       assert.equal(await page.getByRole("button", { name: "Create passkey" }).count(), 0);
       assert.equal(await page.getByRole("textbox", { name: "Phone number", exact: true }).count(), 0);
       await noOverflow(); await shot("notifications");

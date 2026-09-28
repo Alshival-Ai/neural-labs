@@ -102,7 +102,7 @@ async function loadIdentity(): Promise<GatewayBrowserDeviceIdentity | null> {
       },
     };
   } catch (error) {
-    console.warn("Neura could not initialize browser device identity", error);
+    console.warn("Alshival could not initialize browser device identity", error);
     return null;
   }
 }
@@ -149,7 +149,7 @@ function createSocket(handlers: GatewayProtocolSocketHandlers) {
   socket.addEventListener("open", handlers.open);
   socket.addEventListener("message", (event) => handlers.message(String(event.data)));
   socket.addEventListener("close", (event) => handlers.close(event.code, event.reason));
-  socket.addEventListener("error", () => handlers.error(new Error("Neura Gateway connection failed")));
+  socket.addEventListener("error", () => handlers.error(new Error("Alshival Gateway connection failed")));
   return {
     isOpen: () => socket.readyState === WebSocket.OPEN,
     send: (data: string) => socket.send(data),
@@ -159,7 +159,7 @@ function createSocket(handlers: GatewayProtocolSocketHandlers) {
 
 const clientInfo = {
   id: GATEWAY_CLIENT_IDS.WEBCHAT_UI,
-  displayName: "Neura",
+  displayName: "Alshival",
   version: CLIENT_VERSION,
   platform: "web",
   deviceFamily: "browser",
@@ -213,7 +213,7 @@ export class NeuraGateway {
       onHello: () => this.setStatus("connected"),
       onConnectFailure: (error) => ({
         closeCode: 4003,
-        closeReason: "Gateway rejected the Neura connection",
+        closeReason: "Gateway rejected the Alshival connection",
         error,
         reconnectDelayMs: 4_000,
       }),
@@ -255,7 +255,7 @@ export class NeuraGateway {
   }
 
   setAgentId(agentId: string) {
-    if (!/^nl-[a-z0-9]{1,60}$/u.test(agentId)) throw new Error("The Neura agent id is invalid");
+    if (!/^nl-[a-z0-9]{1,60}$/u.test(agentId)) throw new Error("The Alshival agent id is invalid");
     if (this.agentId === agentId) {
       if (this.startRequested) this.startClient();
       return;
@@ -295,7 +295,7 @@ export class NeuraGateway {
   }
 
   private requireAgentId(): string {
-    if (!this.agentId) throw new Error("The personal Neura agent is still starting");
+    if (!this.agentId) throw new Error("The personal Alshival agent is still starting");
     return this.agentId;
   }
 

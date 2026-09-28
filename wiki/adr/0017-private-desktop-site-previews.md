@@ -8,7 +8,7 @@
 
 ## Context
 
-The Files Preview app and Neura-generated site replies previously used a stable
+The Files Preview app and Alshival-generated site replies previously used a stable
 `/workspace/preview/<encoded-folder>/<entry>` URL. Nginx and the workspace
 server required an active Neural Labs identity, but the reusable URL looked like
 a deployed site, could be copied out of the desktop, and disclosed its preview
@@ -22,7 +22,7 @@ mechanism.
 
 ## Decision
 
-Open Neura-generated HTML entry points through the same desktop Preview window
+Open Alshival-generated HTML entry points through the same desktop Preview window
 used by Files. Translate relative HTML paths, legacy folder-encoded preview
 links, and loopback links accompanied by a `Page: folder/index.html` marker into
 desktop actions rather than external navigation.

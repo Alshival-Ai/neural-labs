@@ -8,7 +8,7 @@
 - Supersedes ADR 0023's workspace API credential import decision
 
 The shared workspace OpenAI API key funds realtime voice and recorded voice-memo
-transcription only. Neura text conversations, Team Chat and automations use the
+transcription only. Alshival text conversations, Team Chat and automations use the
 ChatGPT account belonging to their assigned agent. A missing or exhausted account
 must not fall back to the shared API key.
 

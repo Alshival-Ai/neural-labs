@@ -40,9 +40,9 @@ export function ClaudeProviderConnection({ csrfToken, workload, onStatusChange }
     } catch (error) { setError(error instanceof Error ? error.message : "Claude connection could not be updated."); }
     finally { setBusy(false); }
   }
-  const title = workload === "team" ? "Team Neura Claude connection" : workload === "background" ? "Background AI Claude connection" : "Your Claude account";
+  const title = workload === "team" ? "Team Alshival Claude connection" : workload === "background" ? "Background AI Claude connection" : "Your Claude account";
   return <section className="settings-card claude-provider-card">
-    <div className="settings-card__heading"><div><h2>{title}</h2><p>{workload ? "A separate workspace-owned connection for this workload." : "Use your Claude account for private Neura chats and manual automation runs."}</p></div></div>
+    <div className="settings-card__heading"><div><h2>{title}</h2><p>{workload ? "A separate workspace-owned connection for this workload." : "Use your Claude account for private Alshival chats and manual automation runs."}</p></div></div>
     <p role="status">{!status ? "Checking connection…" : status.state === "awaiting_user" ? "Sign-in in progress" : status.authenticated ? `${status.authMethod === "api-key" ? "API key configured" : "Claude connected"}${status.paused ? " · paused" : !status.modelReady ? " · model setup pending" : ""}` : "Not connected"}</p>
     {!attempt && <button className="settings-button is-primary" disabled={busy} onClick={() => void action("connect")}>{status?.state === "awaiting_user" ? "Continue Claude sign-in" : status?.authenticated ? "Reconnect Claude" : "Connect Claude"}</button>}
     {attempt && <div className="claude-login">

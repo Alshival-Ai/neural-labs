@@ -120,7 +120,7 @@ that other accounts remain pending during a disposable test.
 The current doctor treats missing optional Google Maps, KLIPY, or Pexels keys
 as a failure. Check each result; do not invent keys to make it pass. Verify
 signed-out workspace rejection, authenticated Files and Terminal access, and
-connect your own AI account to test a real Neura reply. Never copy another
+connect your own AI account to test a real Alshival reply. Never copy another
 installation's `.env`, account credentials, or persistent volumes onto a test Pi.
 
 Before relying on the instance, exercise [backup and restore](backup-restore.md)

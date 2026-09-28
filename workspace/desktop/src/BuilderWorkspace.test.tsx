@@ -21,15 +21,15 @@ describe("Sectioned builder", () => {
     const file = ensureCollaborativeText(connection.doc.getMap("files"), "SKILL.md");
     const originalHeader = file.toString().split("\n---\n")[0];
     expect(screen.queryByText("Skill package")).not.toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("Instructions for Neura"), { target: { value: "# New instructions\n\nKeep useful links." } });
+    fireEvent.change(screen.getByLabelText("Instructions for Alshival"), { target: { value: "# New instructions\n\nKeep useful links." } });
     expect(file.toString()).toBe(`${originalHeader}\n---\n# New instructions\n\nKeep useful links.`);
     act(() => replaceCollaborativeText(file, `${originalHeader}\n---\n# Collaborator update`));
-    expect(screen.getByLabelText("Instructions for Neura")).toHaveValue("# Collaborator update");
+    expect(screen.getByLabelText("Instructions for Alshival")).toHaveValue("# Collaborator update");
     fireEvent.click(screen.getByRole("button", { name: "source" }));
     expect(screen.getByText("Skill package")).toBeInTheDocument();
     fireEvent.change(screen.getByRole("textbox"), { target: { value: `${originalHeader}\n---\n# Source update` } });
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
-    expect(screen.getByLabelText("Instructions for Neura")).toHaveValue("# Source update");
+    expect(screen.getByLabelText("Instructions for Alshival")).toHaveValue("# Source update");
   });
 
   it("keeps a custom shortcut when other skill settings change", () => {

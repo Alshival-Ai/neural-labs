@@ -12,7 +12,7 @@
 Personalization retains identity, phone, sign-in methods and appearance. The new
 personal **Model Provider** page contains the owner-bound ChatGPT connection and
 agent defaults. Workspace administrators configure Background AI, a dedicated
-Team Neura connection/default, and Voice separately. Runtime health is distinct
+Team Alshival connection/default, and Voice separately. Runtime health is distinct
 from credential presence and model availability; absence of ChatGPT OAuth no
 longer implies that an API-backed workspace is disconnected.
 
@@ -46,7 +46,7 @@ agent defaults become pins. New disconnected accounts remain pending until
 their connection can be used. Claude and arbitrary provider switching are not
 silently enabled by a model appearing in a catalog.
 
-Neura's conversation picker uses the owner's existing scoped Gateway connection
+Alshival's conversation picker uses the owner's existing scoped Gateway connection
 and native `sessions.patch` ownership checks, expected session identity and
 strict user pins. Clearing model/reasoning restores the corresponding agent
 default. Automations use the assigned agent's catalog and credentials; model
@@ -63,7 +63,7 @@ Import failure is logged safely and does not take Files/Terminal offline.
 Imported credentials persist natively after an environment variable is removed;
 operators must revoke/remove the native profile to retire that credential.
 
-Team Neura uses `nl-teamneura` and `openai:nl-teamneura`, with its own native OAuth
+Team Alshival uses `nl-teamneura` and `openai:nl-teamneura`, with its own native OAuth
 refresh owner. It does not copy a member's or background agent's subscription
 tokens. This distinction matters: OpenClaw's isolated `agent exec` deliberately
 excludes shared OAuth from its temporary read-through scope. A dedicated local

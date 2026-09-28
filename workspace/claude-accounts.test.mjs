@@ -28,7 +28,7 @@ async function fixture(t) {
   const finish = async (child, code = 0) => { authenticated.add(child.options.env.CLAUDE_CONFIG_DIR); child.exit({ exitCode: code }); await new Promise(resolve => setImmediate(resolve)); await accounts.tails.get(path.basename(path.dirname(path.dirname(child.options.cwd)))); await new Promise(resolve => setTimeout(resolve, 20)); };
   return { root, accounts, children, authenticated, calls, finish };
 }
-test("Claude resolves the provisioned Team Neura owner through the real team manager", async t => {
+test("Claude resolves the provisioned Team Alshival owner through the real team manager", async t => {
   const f = await fixture(t);
   const provisioned = [];
   const team = new TeamOpenAI({

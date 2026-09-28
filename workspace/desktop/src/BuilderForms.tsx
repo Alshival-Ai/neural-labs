@@ -53,19 +53,19 @@ export function BuilderForms({ draft, skills, value, setValue, setSkillValue, in
     stream: ["Stream command", 'Command arguments as JSON, for example ["node", "scripts/events.mjs"].'],
   };
   return <div className="builder-form">
-    <header><span>{draft.targetKey || draft.publishedKey ? "Edit" : "Create"} {skill ? "skill" : "automation"}</span><h1>{skill ? "Teach Neura how you work." : "Put a workflow on your schedule."}</h1><p>{skill ? "Describe the task, write the instructions, and choose who can use it." : "Choose what runs, when it runs, and where the results go."}</p></header>
+    <header><span>{draft.targetKey || draft.publishedKey ? "Edit" : "Create"} {skill ? "skill" : "automation"}</span><h1>{skill ? "Teach Alshival how you work." : "Put a workflow on your schedule."}</h1><p>{skill ? "Describe the task, write the instructions, and choose who can use it." : "Choose what runs, when it runs, and where the results go."}</p></header>
     <Section title="Basics" description="Give this workflow a recognizable name." icon={Sparkles} accent="cyan">
       {input("name", "Name", undefined, { maxLength: skill ? 80 : undefined, wide: !skill })}
-      {skill && input("slug", "Shortcut", publishedSlug ? "Published shortcuts cannot be renamed." : "Use this with $ in Neura. Lowercase letters, numbers, and hyphens.", { content: publishedSlug || value("slug"), readOnly: Boolean(publishedSlug) })}
+      {skill && input("slug", "Shortcut", publishedSlug ? "Published shortcuts cannot be renamed." : "Use this with $ in Alshival. Lowercase letters, numbers, and hyphens.", { content: publishedSlug || value("slug"), readOnly: Boolean(publishedSlug) })}
       {text("description", "Description", "Explain when this is useful.", { rows: 2, maxLength: skill ? 500 : undefined })}
     </Section>
     {skill ? <>
-      <Section title="Instructions" description="Tell Neura what to do, in your own words." icon={FileText} accent="violet">
-        {text("instructions", "Instructions for Neura", "Include the steps, expected output, and useful examples. Markdown is supported; keep credentials out of instructions.", { rows: 12, content: instructions, onChange: onInstructions })}
+      <Section title="Instructions" description="Tell Alshival what to do, in your own words." icon={FileText} accent="violet">
+        {text("instructions", "Instructions for Alshival", "Include the steps, expected output, and useful examples. Markdown is supported; keep credentials out of instructions.", { rows: 12, content: instructions, onChange: onInstructions })}
       </Section>
       <Section title="Availability" description="Choose who can use this skill and how it starts." icon={Users} accent="mint">
         {select("scope", "Who can use it", [["personal", "Just me · My Skills"], ["team", "Everyone · Team Skills"]], "New skills are personal by default.", Boolean(draft.targetKey && skills.some(item => item.key === draft.targetKey && !item.ownedByCurrentUser)))}
-        {checkbox("Let Neura choose this skill", "Neura can select it automatically when its instructions are relevant.", implicit, onImplicit)}
+        {checkbox("Let Alshival choose this skill", "Alshival can select it automatically when its instructions are relevant.", implicit, onImplicit)}
       </Section>
       <Section title="Appearance" description="Customize how the skill appears in the picker." icon={Palette} accent="pink" collapsible>
         {input("displayName", "Display name")}{input("shortDescription", "Short description", "25–64 characters.", { maxLength: 64 })}

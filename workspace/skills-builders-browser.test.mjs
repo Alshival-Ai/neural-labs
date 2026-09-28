@@ -42,7 +42,7 @@ test("skills and automation builders, resizable lists, tooltips, compact layouts
      await page.getByRole('button',{name:'Back to automations'}).click();
     }
    } else if(mode==='skill') {
-    const instructions=page.getByRole('textbox',{name:'Instructions for Neura'});
+    const instructions=page.getByRole('textbox',{name:'Instructions for Alshival'});
     await instructions.fill('# UI verification\n\nKeep links.');
     await page.getByRole('button',{name:'source',exact:true}).click();
     await page.getByRole('button',{name:'SKILL.md',exact:true}).waitFor({state:'visible'});

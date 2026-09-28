@@ -7,15 +7,15 @@
 - Date: 2026-09-01
 
 The channel and capability decision remains current. ADR 0013 changes only the
-OpenClaw execution owner: an `@Neura` turn now uses the message author's personal
+OpenClaw execution owner: an `@Alshival` turn now uses the message author's personal
 agent instead of the shared `main` agent.
 
 ## Context
 
-Private Neura conversations are creator-only OpenClaw sessions. Neural Labs
+Private Alshival conversations are creator-only OpenClaw sessions. Neural Labs
 also needs Slack-like collaboration in which humans can speak without invoking
 the agent, invite a defined set of teammates or Everyone, mention users, attach
-shared files, and deliberately call Neura with `@Neura`.
+shared files, and deliberately call Alshival with `@Alshival`.
 
 Changing an OpenClaw session from private to shared would not supply the needed
 human channel model, membership administration, pins, unread state, or Entra
@@ -26,18 +26,18 @@ protects private agent transcripts.
 
 Store Team Chat channels, explicit restricted memberships, messages, mentions,
 read cursors, and agent-run state in control-plane PostgreSQL. Treat Everyone
-as a dynamic audience of all active users. Keep private Neura conversations in
+as a dynamic audience of all active users. Keep private Alshival conversations in
 OpenClaw as `draft` sessions and implement sharing as a one-time, labelled copy
 of recent history into a new Team Chat; do not change the private source's
 visibility.
 
 Use an authenticated same-origin WebSocket for live channel messages, typing,
-membership refreshes, and Neura run status. The browser obtains a 60-second,
+membership refreshes, and Alshival run status. The browser obtains a 60-second,
 single-use ticket through its cookie-authenticated, CSRF-protected session. The
 upgrade verifies the exact public origin. Every subscription, post, read cursor,
 and broadcast rechecks active channel access.
 
-Run `@Neura` through the shared workspace but do not grant the long-running
+Run `@Alshival` through the shared workspace but do not grant the long-running
 workspace or browser a deployment-wide Team Chat credential. Each run receives
 a random capability scoped to one channel. Store only its hash, require the run
 to be active, expire it after 20 minutes or on completion, and expose only
@@ -58,7 +58,7 @@ belongs to a restricted channel.
 ## Consequences
 
 - Human Team Chat traffic does not consume an agent turn unless it contains
-  `@Neura` or a `$skill-name` command.
+  `@Alshival` or a `$skill-name` command.
 - Private OpenClaw transcripts remain inaccessible to other developers until
   their creator explicitly copies one into a channel.
 - Imported history is labelled and submitted by the authenticated creator's

@@ -80,7 +80,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("private Neura voice", () => {
+describe("private Alshival voice", () => {
   it("mutes the microphone track and stops all media on hangup", async () => {
     const { result } = renderHook(() =>
       usePrivateNeuraVoice("session", "tap", vi.fn()),

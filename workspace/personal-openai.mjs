@@ -248,7 +248,7 @@ export class PersonalOpenAIManager {
       }
       if (attempt < 19) await delay(250);
     }
-    throw new Error("The personal Neura agent did not become available", { cause: lastError });
+    throw new Error("The personal Alshival agent did not become available", { cause: lastError });
   }
 
   async refresh(account) {
@@ -329,7 +329,7 @@ export class PersonalOpenAIManager {
     for (let attempt = 0; attempt < 8; attempt += 1) {
       try {
         const profile = await this.findProfile(userId);
-        if (!profile?.id) throw new Error("The personal Neura profile is still starting");
+        if (!profile?.id) throw new Error("The personal Alshival profile is still starting");
         if (profile.role !== role) await this.gatewayRequest("users.setRole", { profileId: profile.id, role });
         return;
       } catch (error) {
@@ -337,7 +337,7 @@ export class PersonalOpenAIManager {
         if (attempt < 7) await delay(250);
       }
     }
-    throw new Error("Open Neura once before connecting your OpenAI account", { cause: lastError });
+    throw new Error("Open Alshival once before connecting your OpenAI account", { cause: lastError });
   }
 
   async snapshot(userId) {
@@ -446,7 +446,7 @@ export class PersonalOpenAIManager {
     await this.writeProviderPause?.(userId, false);
     await this.refresh(account);
     if (account.disconnecting) throw new Error("Disconnect is in progress. Try again shortly.");
-    if (!account.authenticated) throw new Error("Connect an OpenAI account before resuming Neura");
+    if (!account.authenticated) throw new Error("Connect an OpenAI account before resuming Alshival");
     await this.assignRole(userId, account.roleId);
     account.accessRevoked = false;
     account.paused = false;

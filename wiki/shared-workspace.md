@@ -3,26 +3,26 @@
 Use this guide when your Neural Labs instance is already running. To host your
 own instance, start with [Quick setup](README.md).
 
-## Sign in and connect Neura
+## Sign in and connect Alshival
 
 1. Open your instance's `/signup` page and create an account, or use `/login`
    for Microsoft sign-in if your administrator enabled it.
 2. Wait for administrator approval. A pending account cannot enter the desktop.
-3. Open `/workspace`. The dock launches Neura, Files, Terminal, VS Code, Skills,
+3. Open `/workspace`. The dock launches Alshival, Files, Terminal, VS Code, Skills,
    and Settings. A new browser profile starts with an empty desktop.
 4. Open **Settings → Model Provider → OpenAI** and connect your own ChatGPT
    account using the displayed sign-in URL and one-time code.
-5. Open **Neura**, create a private conversation, and send your first request.
+5. Open **Alshival**, create a private conversation, and send your first request.
 
 The account connection and usable model must be confirmed before private
-Neura can answer. See [AI accounts and models](ai-accounts.md) for connection
+Alshival can answer. See [AI accounts and models](ai-accounts.md) for connection
 troubleshooting, pause/resume, background work, and dedicated Team accounts.
 
 ## Work on a project
 
 Open **Files**, create a project folder, and upload files or create a new text
 file. Text and code open in **VS Code**. **Terminal** starts shells in the same
-workspace, and Neura can help with those files.
+workspace, and Alshival can help with those files.
 
 Files, VS Code, terminals, and agent tools share `/home/node/workspace`. Changes
 saved there are immediately part of the shared project tree. Files refreshes
@@ -36,8 +36,8 @@ normal deletions for 90 days; it is not a backup.
 ## Reuse skills and run automations
 
 Open **Skills** to browse My Skills and Team Skills or build a reusable workflow.
-Use `$skill-name` in Neura to invoke an enabled skill. Drafts autosave; publishing
-makes a skill available to the live catalog. **Test in Neura** lets you try a
+Use `$skill-name` in Alshival to invoke an enabled skill. Drafts autosave; publishing
+makes a skill available to the live catalog. **Test in Alshival** lets you try a
 snapshot before publication.
 
 The Automations dock shortcut opens the Automations section of Skills. Members
@@ -51,8 +51,8 @@ subscriptions, and run behavior.
 
 ## Collaborate with teammates
 
-Use **Team chats** inside Neura to create a channel for selected teammates or
-Everyone. Mention `@Neura` for an agent request, or select a skill with `$`.
+Use **Team chats** inside Alshival to create a channel for selected teammates or
+Everyone. Mention `@Alshival` for an agent request, or select a skill with `$`.
 An ordinary user mention does not invoke the agent. The administrator's Team
 account configuration determines which account runs Team requests.
 
@@ -76,7 +76,7 @@ verification. Microsoft must be linked before you can enroll a
 
 Window positions and open apps are remembered per user and browser profile.
 They do not roam to another device. Minimize keeps a live app mounted. Closing
-Neura or a Terminal window does not stop its server-side run or shell; use its
+Alshival or a Terminal window does not stop its server-side run or shell; use its
 explicit Stop or terminal end action when you want that work to end.
 See [Desktop layout](desktop-state.md).
 

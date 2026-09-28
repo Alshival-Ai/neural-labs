@@ -21,7 +21,7 @@ boundary established for the desktop.
 
 ## Decision
 
-Use the ordinary authenticated Neura Gateway connection for Skills read
+Use the ordinary authenticated Alshival Gateway connection for Skills read
 methods. Its scope ceiling remains unchanged.
 
 Use the administrator ingress accepted in ADR 0005 for Skills mutations. The

@@ -9,7 +9,7 @@ workspace files or credentials.
 
 | Item | Who can access it through the app? | What to keep in mind |
 |---|---|---|
-| Private Neura chat and personal AI connection | The owning user | Workspace administrators with filesystem/root access remain in the same OS trust domain |
+| Private Alshival chat and personal AI connection | The owning user | Workspace administrators with filesystem/root access remain in the same OS trust domain |
 | Team Chat history | Current channel members | Everyone channels also include newly approved users |
 | Files, projects, and Trash | All approved workspace users | A restricted chat's uploaded attachment can still be in shared Files |
 | Personal Terminal | Its owner | Commands run in the shared container; a personal tab does not create a private filesystem |
@@ -43,11 +43,11 @@ Personal, background, and dedicated Team accounts have separate routing rules.
 The audio API key is not a text-model fallback. See
 [AI accounts and models](ai-accounts.md) before connecting a shared account.
 
-Neura's terminal participation controls determine which output it receives and
+Alshival's terminal participation controls determine which output it receives and
 whether it can type. Review the selected mode before working with sensitive
-terminal content. **Draft plan** in Neura asks for a plan; it does not restrict
+terminal content. **Draft plan** in Alshival asks for a plan; it does not restrict
 tools or enforce an approval boundary. See [Terminal](terminal.md) and
-[Neura](neura.md) for these controls.
+[Alshival](neura.md) for these controls.
 
 ## Host and administrator access
 

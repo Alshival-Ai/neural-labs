@@ -156,14 +156,14 @@ export function PhoneSettings({ csrfToken, view = "phone", onOpenSecurity }: { c
       });
       if (current !== requestId.current) return;
       setStatus(next);
-      setNotice(enabled ? "Neura may now send you requested SMS/MMS updates." : "Agent SMS/MMS updates disabled.");
+      setNotice(enabled ? "Alshival may now send you requested SMS/MMS updates." : "Agent SMS/MMS updates disabled.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not update SMS notifications.");
     } finally { inFlight.current = false; if (current === requestId.current) setBusy(false); window.dispatchEvent(new CustomEvent(PHONE_CHANGED, { detail: id })); }
   }
 
   if (view === "notifications") return <section className="settings-card user-settings-card phone-settings" aria-label="Notification preferences" aria-busy={busy}>
-    <div className="user-settings-card__heading"><div><span>Notifications</span><h3>Agent SMS/MMS updates</h3><p>Allow Neura to send updates you explicitly request, including automation completion messages.</p></div><Phone /></div>
+    <div className="user-settings-card__heading"><div><span>Notifications</span><h3>Agent SMS/MMS updates</h3><p>Allow Alshival to send updates you explicitly request, including automation completion messages.</p></div><Phone /></div>
     {error && <p role="alert">{error}<button type="button" onClick={() => void refresh()}>Retry notification settings</button></p>}
     {notice && <p role="status">{notice}</p>}
     {!status && !error && <p role="status">Loading notification preferences…</p>}

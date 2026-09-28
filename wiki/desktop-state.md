@@ -10,7 +10,7 @@ The desktop restores:
 - open and minimized application windows, including multiple windows per app;
 - window stacking order, position, size, left/right snapping, and maximized state;
 - Files location, navigation mode, and list/grid preference;
-- Neura's selected conversation, sidebar, and archive visibility;
+- Alshival's selected conversation, sidebar, and archive visibility;
 - Settings navigation; and
 - Terminal's active tab, split session, split direction, and locally hidden Team
   Terminal tabs; and
@@ -18,11 +18,11 @@ The desktop restores:
 
 Legacy saved Editor windows are migrated to VS Code windows. These UI-state
 records do not include file bodies or unsaved edits, terminal
-output or input, Neura message bodies or drafts, access tokens, credentials,
+output or input, Alshival message bodies or drafts, access tokens, credentials,
 WebSocket tickets, or provider state. Authentication subsystems retain only
 their separately documented device identity and session material.
 
-Neura's visible follow-up queue is also excluded from device storage because it
+Alshival's visible follow-up queue is also excluded from device storage because it
 contains prompt text. Once a follow-up is accepted, OpenClaw owns its execution;
 the browser keeps only the temporary visual projection used by the open app.
 
@@ -117,7 +117,7 @@ of the browser. Every `DesktopWindow` is the named `app-window` CSS query
 container and provides the same effective width and `mobile`, `tablet`, or
 `desktop` mode to React components through `appViewport.tsx`. App styles use
 container queries for presentation; JavaScript reads the shared viewport only
-when behavior must change, such as opening Neura history as a drawer.
+when behavior must change, such as opening Alshival history as a drawer.
 
 This keeps an app responsive when its window is resized, maximized, popped into
 a separate browser window, or returned to the desktop. Browser media queries are
@@ -127,8 +127,8 @@ its mobile layout without making title-bar controls unusable. Individual apps
 may retain additional intermediate breakpoints for dense tables, sidebars, and
 toolbars, but they all query the shared `app-window` boundary.
 
-Minimized Neura, Terminal, and VS Code windows remain mounted. This preserves
-Neura's live transcript subscription and local scroll state, Terminal's socket
+Minimized Alshival, Terminal, and VS Code windows remain mounted. This preserves
+Alshival's live transcript subscription and local scroll state, Terminal's socket
 and emulator, and VS Code's iframe connection and unsaved browser-side editor
 state. The desktop stores only the surrounding window presentation.
 code-server owns its shared settings, extensions, and editor state below the
@@ -140,6 +140,6 @@ Content-hashed JavaScript and CSS bundles use a one-year immutable browser
 cache. A responsive picture source lets the browser fetch only the wallpaper
 matching the current viewport; wallpapers use a one-day freshness lifetime
 with a seven-day stale-while-revalidate window. Desktop apps are separate
-lazy-loaded bundles, so xterm, Files, Settings, and Neura code is fetched
+lazy-loaded bundles, so xterm, Files, Settings, and Alshival code is fetched
 only when that app is first opened. HTML, authenticated APIs, terminal sockets,
 and live workspace data are never included in that static cache policy.

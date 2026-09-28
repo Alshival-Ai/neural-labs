@@ -235,7 +235,7 @@ test("brokers authenticated same-origin private voice and team transcription req
   }
 });
 
-test("relays only authenticated, ticketed Neura media through the workspace origin", async () => {
+test("relays only authenticated, ticketed Alshival media through the workspace origin", async () => {
   const requests = [];
   const ticket = "v1.c2Vzc2lvbi1ib3VuZC10aWNrZXQ.c2lnbmF0dXJl";
   const route = `/workspace/api/neura/media/outgoing/${encodeURIComponent("agent:nl-user:dashboard:chat")}/7ecda889-9f92-4cef-a162-5e6a56ad6abc/full?mediaTicket=${ticket}`;
@@ -492,12 +492,12 @@ test("serves authorized builder drafts and same-origin collaborative sockets", a
   }
 });
 
-test("protects the internal Team Chat Neura runner with the workspace control token", async () => {
+test("protects the internal Team Chat Alshival runner with the workspace control token", async () => {
   const calls = [];
   const app = await fixture(true, {
     runTeamAgent: async (input) => {
       calls.push(input);
-      return "Neura team response";
+      return "Alshival team response";
     },
   });
   try {
@@ -522,8 +522,10 @@ test("protects the internal Team Chat Neura runner with the workspace control to
       body,
     });
     assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), { reply: "Neura team response" });
-    assert.deepEqual(calls, [{
+    assert.deepEqual(await response.json(), { reply: "Alshival team response" });
+    assert.equal(calls[0].signal instanceof AbortSignal, true);
+    assert.equal(calls[0].signal.aborted, false);
+    assert.deepEqual(calls.map(({ signal, ...input }) => input), [{
       prompt: "Help the release room",
       capability: "channel-capability-at-least-thirty-two-characters",
       userId: "11111111-1111-4111-8111-111111111111",
@@ -1297,7 +1299,7 @@ test("limits a Team Chat terminal to current channel members", async () => {
   }
 });
 
-test("Neura can inspect an existing terminal and launch a masked interactive session through desktop acknowledgment", async () => {
+test("Alshival can inspect an existing terminal and launch a masked interactive session through desktop acknowledgment", async () => {
   const actorId = new Headers(terminalUserOne).get("x-forwarded-user");
   const app = await fixture(true, { terminalActorResolver: async (id) => id === actorId ? { id, label: "User", role: "user" } : null });
   const controlHeaders = { "Content-Type": "application/json", Authorization: "Bearer workspace-control-token-at-least-thirty-two-characters" };
@@ -1354,7 +1356,7 @@ test("Neura can inspect an existing terminal and launch a masked interactive ses
   }
 });
 
-test("imports ticketed Neura attachments through Files with conflict handling and confinement", async () => {
+test("imports ticketed Alshival attachments through Files with conflict handling and confinement", async () => {
   const requests = [];
   const mediaUrl = "/workspace/api/neura/media/outgoing/chat/id/full?mediaTicket=v1.c2Vzc2lvbg.c2lnbmF0dXJl";
   const headers = { "X-Forwarded-User": "attachment-user", Origin: "https://neural-labs.example.com", "Content-Type": "application/json" };

@@ -80,12 +80,12 @@ account has working credentials.
 ## Subscriptions
 
 Open an automation and choose **Subscribe** to select results, failures, and
-Neura, SMS, or email delivery. **Settings → Personalization** controls channel
+Alshival, SMS, or email delivery. **Settings → Personalization** controls channel
 permission and defaults. Each subscription can choose different channels. No
 member is subscribed automatically; unsubscribing or disabling a channel
 suppresses pending delivery.
 
-Neura updates appear through **Automations** in private chat history and persist
+Alshival updates appear through **Automations** in private chat history and persist
 while you are offline. Opening the entry creates a private follow-up
 conversation if needed. Receiving an update does not execute an agent turn;
 replying starts a turn with the visible results as context.
@@ -111,7 +111,7 @@ tracking in the persistent workspace. Back up both using
 Member listing and manual runs use authenticated same-origin HTTP routes.
 Administrator scheduler controls use `/workspace/automations/socket`, which
 Nginx gates with the control plane's active-administrator check. The ordinary
-Neura socket does not grant scheduler administration. Apply changed Nginx
+Alshival socket does not grant scheduler administration. Apply changed Nginx
 routes through the explicit [ingress steps](container-deployment.md#enable-https-ingress).
 
 Design history: [administrator ingress](adr/0005-admin-gated-automations-ingress.md),

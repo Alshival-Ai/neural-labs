@@ -8,7 +8,7 @@
 
 ## Context
 
-Private Neura attachments use the scoped media capabilities described in
+Private Alshival attachments use the scoped media capabilities described in
 [ADR 0018](0018-private-neura-generated-media.md). Users also need to save an
 attachment into Files, where approved workspace users share access. This is an
 explicit transfer from a private conversation into shared storage.

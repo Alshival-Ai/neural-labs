@@ -21,7 +21,7 @@ Each member connects their own AI account through
 
 | Capability | Where to configure it | Guide |
 |---|---|---|
-| Background AI, dedicated Team Neura, audio defaults | Settings → Workspace | [AI accounts](ai-accounts.md) |
+| Background AI, dedicated Team Alshival, audio defaults | Settings → Workspace | [AI accounts](ai-accounts.md) |
 | Microsoft login | Entra app registration, then Settings → Authentication or initial `.env` | [Microsoft sign-in](entra-app-setup.md) |
 | Google Maps, KLIPY, Pexels | Settings → Plugins → provider card | [Provider tools](workspace-provider-mcp.md) |
 | Twilio SMS/MMS | Settings → Plugins → Twilio SMS/MMS | [Settings](desktop-settings.md#plugins-and-sms) |

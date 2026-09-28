@@ -190,7 +190,7 @@ export const PLACEHOLDER_AUTOMATIONS: readonly AutomationJob[] = [
   {
     id: "pr-watcher",
     name: "PR checks watcher",
-    description: "Watch the release pull request and ask Neura to investigate when CI state changes.",
+    description: "Watch the release pull request and ask Alshival to investigate when CI state changes.",
     accent: "violet",
     enabled: false,
     autoDisabled: { reason: "consecutive-failures", consecutiveErrors: 10 },

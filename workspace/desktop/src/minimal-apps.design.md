@@ -1,6 +1,6 @@
 # Shared desktop app UI
 
-Terminal, Settings, Skills/Automations and Neura share `minimal-apps.css`.
+Terminal, Settings, Skills/Automations and Alshival share `minimal-apps.css`.
 This product theme keeps Neural Labs color in navigation marks, selected rows,
 primary actions and a thin spectrum rule. Working surfaces are light and flat;
 errors, account status and execution states retain their semantic meaning.
@@ -9,7 +9,7 @@ Use short task labels and one clear primary action per area. Navigation shows
 labels without repeated descriptions. Terminal starts with personal and team
 sessions rather than a promotional panel. Skills emphasize instructions and
 sharing; requirements and unavailable status remain visible when relevant.
-Automation counts are compact and wrap on narrow windows. Neura keeps the
+Automation counts are compact and wrap on narrow windows. Alshival keeps the
 transcript and composer central, with a light conversation sidebar.
 
 The shared stylesheet is scoped to these apps, including independently mounted

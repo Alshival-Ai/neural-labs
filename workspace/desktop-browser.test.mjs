@@ -18,8 +18,8 @@ test("desktop app bar, full-height snaps, restore, persistence and touch layouts
       assert.equal(await page.locator(".topbar, .shell-reveal-zone--top").count(), 0);
       await page.mouse.move(width / 2, 2);
       assert.equal(await page.locator(".topbar").count(), 0);
-      await page.getByRole("button", { name: "Neura", exact: true }).click();
-      const neura = page.getByRole("region", { name: "Neura application" });
+      await page.getByRole("button", { name: "Alshival", exact: true }).click();
+      const neura = page.getByRole("region", { name: "Alshival application" });
       await neura.waitFor();
       if (width > 760) {
         const layout = async (window, label) => {
@@ -108,9 +108,9 @@ test("app bar provides Settings and sign out after maximizing, without taking wi
     page.setDefaultTimeout(5000);
     await page.goto(`${origin}/workspace/tests/desktop.html`);
     await page.locator('#desktop-canvas[aria-busy="false"]').waitFor({ state: "attached" });
-    await page.getByRole("button", { name: "Neura", exact: true }).click();
-    const region = page.getByRole("region", { name: "Neura application" });
-    await region.getByRole("button", { name: "Maximize Neura", exact: true }).click();
+    await page.getByRole("button", { name: "Alshival", exact: true }).click();
+    const region = page.getByRole("region", { name: "Alshival application" });
+    await region.getByRole("button", { name: "Maximize Alshival", exact: true }).click();
     await page.mouse.move(640, 2);
     assert.equal(await page.locator(".topbar, .shell-reveal-zone--top").count(), 0);
     await page.waitForFunction(() => getComputedStyle(document.querySelector(".dock")).opacity === "0");

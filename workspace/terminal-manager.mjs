@@ -190,11 +190,11 @@ export class WorkspaceTerminalManager {
   async setAgentMode(actor, id, mode) {
     const session = await this.get(actor, id);
     if (!session) throw new TerminalError(404, "terminal_not_found", "Terminal session not found");
-    if (session.providerSignIn) throw new TerminalError(403, "terminal_private", "Provider sign-in is private and unavailable to Neura");
+    if (session.providerSignIn) throw new TerminalError(403, "terminal_private", "Provider sign-in is private and unavailable to Alshival");
     if (session.ownerId !== actor.id && !(session.scope === "team" && actor.role === "admin")) {
-      throw new TerminalError(403, "terminal_forbidden", "Only the creator or an administrator can change Neura participation");
+      throw new TerminalError(403, "terminal_forbidden", "Only the creator or an administrator can change Alshival participation");
     }
-    if (!["shared", "status-only"].includes(mode)) throw new TerminalError(422, "invalid_mode", "Invalid Neura participation mode");
+    if (!["shared", "status-only"].includes(mode)) throw new TerminalError(422, "invalid_mode", "Invalid Alshival participation mode");
     session.agentMode = mode;
     session.agentActiveUntil = 0;
     this.broadcast(session, { type: "agent-participation", mode, active: false });

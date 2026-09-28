@@ -99,10 +99,10 @@ a two-second cooldown, shared across that sender's connections to the terminal.
 
 Pickers support keyboard navigation, Escape to close, and touch controls. Compact
 panes open a picker over the app area; opening it does not resize the shell.
-Short mobile windows hide the secondary status bar and the passive Neura helper
-line to leave space for the shell and reaction rail. Active Neura participation
+Short mobile windows hide the secondary status bar and the passive Alshival helper
+line to leave space for the shell and reaction rail. Active Alshival participation
 and participation controls remain visible. These controls apply to Team Terminals,
-including those opened inside Neura; personal shells have no reaction sidebar.
+including those opened inside Alshival; personal shells have no reaction sidebar.
 Raw input is not duplicated into a social event: terminal echo is the source of
 visible typed text, which preserves normal no-echo behavior for password prompts.
 
@@ -192,48 +192,48 @@ can modify shared files, and passwordless `sudo` grants root only inside the
 workspace container. Personal terminal visibility does not make shared files or
 container credentials private from other mutually trusted developers.
 
-## Working with Neura
+## Working with Alshival
 
-Neura can open Terminal for an interactive session **with you**, run a command,
+Alshival can open Terminal for an interactive session **with you**, run a command,
 read recent output, and type into the same process. Ordinary background commands
 continue to use the agent's command-execution tools.
 
-You can also open Terminal yourself, run a command, switch to Neura, and ask about
+You can also open Terminal yourself, run a command, switch to Alshival, and ask about
 it. Each message automatically includes snapshots of the three terminal sessions
 you most recently created, focused, or typed in. Each snapshot includes metadata
-and up to 4 KiB of eligible recent output, including output from before Neura
-opened. There is no selector to manage. Background logs, reconnects, and Neura's
+and up to 4 KiB of eligible recent output, including output from before Alshival
+opened. There is no selector to manage. Background logs, reconnects, and Alshival's
 own tool activity do not move terminals ahead of the ones you are using.
 
-Snapshots stay fixed for the submitted message, including queued messages. Neura
+Snapshots stay fixed for the submitted message, including queued messages. Alshival
 can fetch more of the existing session buffer when needed and asks which terminal
 only when the request is ambiguous. Agent input always names an explicit terminal
-ID. Removed sessions disappear from future context. Neura does not run continuously
+ID. Removed sessions disappear from future context. Alshival does not run continuously
 in the background.
 
 Personal terminals are available in their owner's private chats. Team Terminals
 are available in their own Team Chat and in current members' private chats. Team
 context is never automatically carried into another channel. Access is checked
-again for each tool operation. Asking a question permits inspection; Neura's
+again for each tool operation. Asking a question permits inspection; Alshival's
 instructions require an action request before typing.
 
-**Neura can read and type** means agent participation is available. The additional
+**Alshival can read and type** means agent participation is available. The additional
 participation indicator appears when a tool is accessing the session. **Pause
-Neura** switches to status-only access and blocks agent input. The owner controls
+Alshival** switches to status-only access and blocks agent input. The owner controls
 personal sessions; a Team Terminal's creator or an administrator controls its
 shared setting. All connected viewers see changes.
 
-Output produced while paused is never available through subsequent Neura reads,
+Output produced while paused is never available through subsequent Alshival reads,
 even after sharing resumes. It remains visible in the human terminal. Already
 shared output cannot be withdrawn from an existing conversation. Output sharing
 includes anything a program echoes; there is no automatic secret detection.
-Credential sessions opened by Neura must start in status-only mode. Enter secrets
+Credential sessions opened by Alshival must start in status-only mode. Enter secrets
 directly into the program's masked prompt. Masking depends on the program, and
 Terminal is not a credential store.
 
 History is bounded to the existing 2 MiB session buffer and is discarded when the
 session is removed or the workspace restarts. Reads report gaps and truncation.
-No persistent terminal recording is added. Neura cannot recover discarded output
+No persistent terminal recording is added. Alshival cannot recover discarded output
 or attach to an unrelated background command.
 
 Interactive launches require a connected desktop. One desktop claims the launch,

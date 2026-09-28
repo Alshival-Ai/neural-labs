@@ -49,7 +49,7 @@ actual installation error before assuming an ownership problem.
 ## Doctor reports a provider failure
 
 `bin/neural-labs doctor` requires Google Maps, KLIPY, and Pexels configuration,
-even when you only want Files, Terminal, and personal Neura. Missing optional
+even when you only want Files, Terminal, and personal Alshival. Missing optional
 keys produce a nonzero result. Inspect the service and loopback check results
 separately rather than treating that result as a complete installation failure.
 
@@ -84,12 +84,12 @@ For Microsoft callback errors, compare the final origin with the registered
 `/auth/microsoft/callback` URI. For passkeys, use the original HTTPS hostname
 and ensure Microsoft is linked; see [Passkeys](passkeys.md).
 
-## Neura will not answer
+## Alshival will not answer
 
 Open **Settings → Model Provider → OpenAI** and check your personal connection,
 pause state, and model readiness. Use **Refresh connection** to recheck, Resume
 if paused, or reconnect if the credential has expired. Connecting Background
-ChatGPT or running `workspace codex-login` does not connect your personal Neura.
+ChatGPT or running `workspace codex-login` does not connect your personal Alshival.
 
 For Team Chat, check whether the administrator has activated a dedicated Team
 account. Before activation, the message author's personal account is required;
@@ -97,14 +97,14 @@ after activation, the dedicated account is required. A manual automation run
 uses the person pressing Run; a scheduled run uses its assigned agent.
 See [AI accounts](ai-accounts.md).
 
-If Neura stays disconnected while Files works, check the authenticated
+If Alshival stays disconnected while Files works, check the authenticated
 `/workspace/neura/socket` proxy route and workspace logs. For administrator
 scheduler controls, also check `/workspace/automations/socket`. Do not expose the
 raw Gateway or bypass the proxy's authentication checks.
 
 ## Voice, SMS, or notifications do not work
 
-- Neura realtime voice and memo transcription require the server audio API key
+- Alshival realtime voice and memo transcription require the server audio API key
   and usable audio model settings. A ChatGPT text connection does not supply it.
 - Team Terminal voice additionally needs browser microphone permission, HTTPS,
   and reachable TURN TCP/UDP and relay ports. Test from a second network after

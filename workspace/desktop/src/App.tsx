@@ -158,7 +158,7 @@ function raiseWindow(windows: DesktopWindowState[], windowId: string): DesktopWi
 }
 
 function desktopWindowTitle(window: DesktopWindowState): string {
-  if (window.app === "neura") return "Neura";
+  if (window.app === "neura") return "Alshival";
   if (window.app === "files") return "Files";
   if (window.app === "preview") return `Preview — ${window.preview?.name ?? "File"}`;
   if (window.app === "image-editor") return `Image Editor — ${window.preview?.name ?? "Untitled"}`;
@@ -203,6 +203,9 @@ export function App() {
   const [settingsLaunchRequest, setSettingsLaunchRequest] = useState<{ id: string; targetWindowId: string; section: "model-provider" }>();
   const [vsCodeOpenRequest, setVsCodeOpenRequest] = useState<VsCodeOpenRequest & { targetWindowId: string }>();
   const [initialSettingsLaunch] = useState(settingsLaunch);
+  const [initialAppLaunch] = useState(() => new URLSearchParams(window.location.search));
+  const appLaunchHandled = useRef(false);
+  const [channelLaunch, setChannelLaunch] = useState<{ windowId: string; channelId: string }>();
   const toastTimer = useRef<number | undefined>(undefined);
   const popoutTargetsRef = useRef(popoutTargets);
   const settingsLaunchHandled = useRef(false);
@@ -301,15 +304,15 @@ export function App() {
       neuraBootstrapPending = true;
       try {
         const account = await fetchJson<PersonalModelBootstrap>("/api/account/model-providers/access");
-        if (account.agentId !== expectedNeuraAgentId) throw new Error("The personal Neura agent does not match this session");
+        if (account.agentId !== expectedNeuraAgentId) throw new Error("The personal Alshival agent does not match this session");
         if (!stopped) {
           gateway.setAgentId(account.agentId);
           gateway.start();
           if ((!account.authenticated || account.paused) && !connectionToastShown) {
             connectionToastShown = true;
             notify(account.authenticated
-              ? "Resume your selected model account to start using Neura."
-              : "Connect your selected model account to start using Neura.", "open-personalization");
+              ? "Resume your selected model account to start using Alshival."
+              : "Connect your selected model account to start using Alshival.", "open-personalization");
           }
         }
       } catch {
@@ -561,10 +564,25 @@ export function App() {
     setWindows((current) => appendWindow(current, { id: freshWindowId("files"), app: "files", visibility: "open", filesPath: path }));
   }, [notify, windows]);
 
+  useEffect(() => {
+    const app = initialAppLaunch.get("app");
+    if (!session?.user || appLaunchHandled.current || !["files", "alshival"].includes(app ?? "")) return;
+    appLaunchHandled.current = true;
+    if (windows.length >= 24) { notify("Close a window to open this shared link."); return; }
+    if (app === "files") openFilesWindow("");
+    else {
+      const id = freshWindowId("neura");
+      const channelId = initialAppLaunch.get("channel");
+      setWindows(current => appendWindow(current, { id, app: "neura", visibility: "open" }));
+      if (channelId && /^[a-f0-9-]{36}$/i.test(channelId)) setChannelLaunch({ windowId: id, channelId });
+    }
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}${window.location.hash}`);
+  }, [initialAppLaunch, openFilesWindow, session?.user, windows, notify]);
+
   const composeInNeura = useCallback((text: string) => {
     const existing = windows.filter((window) => window.app === "neura").sort((left, right) => right.order - left.order)[0];
     if (!existing && windows.length >= 24) {
-      notify("Close a window before opening Neura.");
+      notify("Close a window before opening Alshival.");
       return;
     }
     const targetWindowId = existing?.id ?? freshWindowId("neura");
@@ -582,7 +600,7 @@ export function App() {
     const launch = (event: MessageEvent) => {
       const current = windowsRef.current;
       const existing = current.filter((item) => item.app === "terminal" && item.visibility !== "popped-out").sort((a, b) => b.order - a.order)[0];
-      if (!existing && current.length >= 24) { notify("Close a window so Neura can open Terminal."); return; }
+      if (!existing && current.length >= 24) { notify("Close a window so Alshival can open Terminal."); return; }
       let requestId: string;
       try { requestId = JSON.parse(event.data).requestId; } catch { return; }
       void terminalAgentRequest<{ session: TerminalDescriptor }>("claim", { requestId, desktopId: terminalDesktopId }).then(({ session: terminal }) => {
@@ -720,7 +738,7 @@ export function App() {
               onClose={() => closeWindow(desktopWindow.id)}
             >
               <Suspense fallback={<div className="app-loading">Loading {title.toLowerCase()}…</div>}>
-                {desktopWindow.app === "neura" && session?.user && session.csrfToken && <NeuraApp gateway={gateway} notify={notify} active={activeWindowId === desktopWindow.id} csrfToken={session.csrfToken} currentUser={session.user} storageNamespace={persistenceUserId} storageArea={`neura.${desktopWindow.id}`} composeRequest={neuraComposeRequest?.targetWindowId === desktopWindow.id ? neuraComposeRequest : undefined} onPreviewFile={openPreviewFile} onOpenTeamTerminal={openTeamChatTerminal} />}
+                {desktopWindow.app === "neura" && session?.user && session.csrfToken && <NeuraApp initialChannelId={channelLaunch?.windowId === desktopWindow.id ? channelLaunch.channelId : undefined} gateway={gateway} notify={notify} active={activeWindowId === desktopWindow.id} csrfToken={session.csrfToken} currentUser={session.user} storageNamespace={persistenceUserId} storageArea={`neura.${desktopWindow.id}`} composeRequest={neuraComposeRequest?.targetWindowId === desktopWindow.id ? neuraComposeRequest : undefined} onPreviewFile={openPreviewFile} onOpenTeamTerminal={openTeamChatTerminal} />}
                 {desktopWindow.app === "files" && <FilesApp notify={notify} active={activeWindowId === desktopWindow.id || desktopWindow.visibility === "popped-out"} initialPath={desktopWindow.filesPath} onOpenWindow={openFilesWindow} onEditImage={openImageEditor} onOpenInVsCode={openInVsCode} onPreviewFile={openPreviewFile} storageNamespace={persistenceUserId} storageArea={`files.${desktopWindow.id}`} />}
                 {desktopWindow.app === "preview" && desktopWindow.preview && <PreviewApp file={desktopWindow.preview} onEditImage={openImageEditor} />}
                 {desktopWindow.app === "image-editor" && <ImageEditorApp file={desktopWindow.preview} onDirtyChange={(dirty) => { if (dirty) dirtyEditors.current.add(desktopWindow.id); else dirtyEditors.current.delete(desktopWindow.id); }} />}
@@ -738,7 +756,7 @@ export function App() {
 
       <span className="shell-reveal-zone shell-reveal-zone--bottom" aria-hidden="true" />
       <nav className="dock" aria-label="Applications">
-        <DockButton name="Neura" primary active={windowCount("neura") > 0} count={windowCount("neura")} onClick={() => toggleDockApp("neura")} onContextMenu={(event) => openDockMenu("neura", event)}><Sparkles /></DockButton>
+        <DockButton name="Alshival" primary active={windowCount("neura") > 0} count={windowCount("neura")} onClick={() => toggleDockApp("neura")} onContextMenu={(event) => openDockMenu("neura", event)}><Sparkles /></DockButton>
         <DockButton name="Projects" active={windowCount("projects") > 0} count={windowCount("projects")} onClick={() => toggleDockApp("projects")}><PanelTopOpen /></DockButton>
         <DockButton name="Files" active={windowCount("files") > 0} count={windowCount("files")} onClick={() => toggleDockApp("files")} onContextMenu={(event) => openDockMenu("files", event)}><Folder /></DockButton>
         <DockButton name="Image Editor" active={windowCount("image-editor") > 0} count={windowCount("image-editor")} onClick={() => toggleDockApp("image-editor")} onContextMenu={(event) => openDockMenu("image-editor", event)}><ImageIcon /></DockButton>
@@ -750,7 +768,7 @@ export function App() {
         <DockButton name="Settings" active={windowCount("settings") > 0} count={windowCount("settings")} onClick={() => toggleDockApp("settings")} onContextMenu={(event) => openDockMenu("settings", event)}><Settings /></DockButton>
       </nav>
       {dockMenu && <div className="dock-context-menu" role="menu" aria-label={`${dockMenu.app} actions`} style={{ left: dockMenu.x, top: dockMenu.y }} onClick={(event) => event.stopPropagation()}>
-        <strong>{dockMenu.app === "neura" ? "Neura" : dockMenu.app === "vscode" ? "VS Code" : dockMenu.app[0].toUpperCase() + dockMenu.app.slice(1)}<small>{poppedOutWindowCount(dockMenu.app) > 0 ? `${poppedOutWindowCount(dockMenu.app)} popped out` : `${windowCount(dockMenu.app)} window${windowCount(dockMenu.app) === 1 ? "" : "s"}`}</small></strong>
+        <strong>{dockMenu.app === "neura" ? "Alshival" : dockMenu.app === "vscode" ? "VS Code" : dockMenu.app[0].toUpperCase() + dockMenu.app.slice(1)}<small>{poppedOutWindowCount(dockMenu.app) > 0 ? `${poppedOutWindowCount(dockMenu.app)} popped out` : `${windowCount(dockMenu.app)} window${windowCount(dockMenu.app) === 1 ? "" : "s"}`}</small></strong>
         <button type="button" role="menuitem" onClick={() => newAppWindow(dockMenu.app)}><CopyPlus />New window</button>
         {poppedOutWindowCount(dockMenu.app) > 0 && <button type="button" role="menuitem" onClick={() => restoreAppPopouts(dockMenu.app)}><PanelTopOpen />Bring {poppedOutWindowCount(dockMenu.app) > 1 ? "pop-outs" : "pop-out"} back</button>}
         {windowCount(dockMenu.app) > 0 && <button type="button" role="menuitem" onClick={() => visibleWindowCount(dockMenu.app) > 0 ? minimizeApp(dockMenu.app) : revealApp(dockMenu.app)}>{visibleWindowCount(dockMenu.app) > 0 ? <Minimize2 /> : poppedOutWindowCount(dockMenu.app) > 0 ? <PictureInPicture2 /> : <Minimize2 />}{visibleWindowCount(dockMenu.app) > 0 ? "Minimize" : poppedOutWindowCount(dockMenu.app) > 0 ? "Focus pop-out" : "Restore"}</button>}

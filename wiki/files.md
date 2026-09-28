@@ -55,7 +55,7 @@ The app keeps an authenticated Server-Sent Events connection open at
 `/workspace/api/files/events`. A recursive watcher in the workspace service
 coalesces filesystem changes and broadcasts a small invalidation event to every
 connected browser. This covers changes made by another developer as well as
-files written by Neura, OpenClaw, Codex, or Terminal. Each client
+files written by Alshival, OpenClaw, Codex, or Terminal. Each client
 then re-reads only its current directory over the normal file API. The existing
 list remains visible during that background reconciliation, so live updates do
 not replace the app with a loading screen or disturb a still-valid selection.
@@ -157,7 +157,7 @@ project's base path when its framework emits root-relative asset URLs. The Files
 Preview intentionally serves a selected static project folder instead of
 automatically attaching to an arbitrary process or port.
 
-Neura should finish website work with the relative entry point, such as
+Alshival should finish website work with the relative entry point, such as
 `site/index.html`, or identify it as `Page: folder/index.html`. A matching link
 in personal or Team Chat becomes an **Open in Preview** action that creates the
 same desktop Preview window used by Files. Older loopback and legacy preview

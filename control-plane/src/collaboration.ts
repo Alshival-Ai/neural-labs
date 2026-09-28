@@ -49,6 +49,7 @@ export type TeamMessage = {
   sequence: number;
   channelId: string;
   authorKind: ChannelAuthorKind;
+  clientRequestId?: string;
   author?: TeamDirectoryUser;
   body: string;
   attachments: ChannelAttachment[];
@@ -106,6 +107,7 @@ interface MessageRow extends QueryResultRow {
   sequence: string;
   channel_id: string;
   author_kind: ChannelAuthorKind;
+  client_request_id: string | null;
   author_user_id: string | null;
   body: string;
   attachments: unknown;
@@ -204,6 +206,7 @@ function mapMessage(row: MessageRow): TeamMessage {
     sequence: Number(row.sequence),
     channelId: row.channel_id,
     authorKind: row.author_kind,
+    ...(row.client_request_id ? { clientRequestId: row.client_request_id } : {}),
     ...(row.author_user_id && row.handle && row.display_name && row.role
       ? { author: { id: row.author_user_id, handle: row.handle, displayName: row.display_name, role: row.role } }
       : {}),
@@ -231,7 +234,7 @@ function mapRun(row: RunRow): TeamAgentRun {
 }
 
 export function invokesTeamAgent(body: string, invokeAgent = true): boolean {
-  return invokeAgent && (/(?:^|[\s([{:;,])@neura\b/i.test(body)
+  return invokeAgent && (/(?:^|[\s([{:;,])[@$](?:alshival|neura|nerua)(?![\w-])/i.test(body)
     || /(?:^|[\s([{:;,])\$(?!(?:neura|nerua)(?=$|[^A-Za-z0-9_-]))[A-Za-z][A-Za-z0-9_-]*\b/i.test(body));
 }
 
@@ -411,11 +414,35 @@ export class CollaborationStore {
     audience: ChannelAudience;
     memberIds: string[];
     sourceSessionKey?: string | undefined;
-    importedMessages?: Array<{ role: "user" | "assistant"; body: string; createdAt?: string | undefined }> | undefined;
+    importSource?: string;
+    importedMessages?: Array<{ role: "user" | "assistant"; body: string; createdAt?: string | undefined;
+      authorUserId?: string; attachments?: ChannelAttachment[] }> | undefined;
   }): Promise<{ channel: TeamChannel; messages: TeamMessage[] }> {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      if (input.importSource) {
+        await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [input.importSource]);
+        const existing = await client.query<{ id: string }>("SELECT id FROM team_channels WHERE import_source=$1", [input.importSource]);
+        if (existing.rows[0]) {
+          const channel = (await this.listChannels(actor)).find(item => item.id === existing.rows[0]!.id);
+          if (!channel) throw new CollaborationError(404, "channel_not_found", "Imported channel not found.");
+          await client.query("COMMIT");
+          return { channel, messages: await this.listMessages(actor, channel.id) };
+        }
+        if ((input.importedMessages?.length ?? 0) > TEAM_CHAT_LIMITS.importedMessages)
+          throw new CollaborationError(422, "history_too_large", "History must be imported without truncation.");
+      }
+      if (input.sourceSessionKey) {
+        await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [JSON.stringify([actor.id, input.sourceSessionKey])]);
+        const existing = await client.query<{ id: string }>("SELECT id FROM team_channels WHERE owner_user_id=$1 AND source_session_key=$2", [actor.id, input.sourceSessionKey]);
+        if (existing.rows[0]) {
+          const channel = (await this.listChannels(actor)).find(item => item.id === existing.rows[0]!.id);
+          if (!channel) throw new CollaborationError(404, "channel_not_found", "Team channel not found.");
+          await client.query("COMMIT");
+          return { channel, messages: await this.listMessages(actor, channel.id) };
+        }
+      }
       const memberIds = [...new Set(input.memberIds.filter((id) => id !== actor.id))];
       if (input.audience === "restricted" && memberIds.length === 0) {
         throw new CollaborationError(422, "members_required", "Invite at least one teammate to a restricted channel.");
@@ -429,9 +456,9 @@ export class CollaborationStore {
       }
       const id = randomUUID();
       await client.query(
-        `INSERT INTO team_channels(id, name, audience, owner_user_id, source_session_key)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [id, input.name.trim(), input.audience, actor.id, input.sourceSessionKey ?? null],
+        `INSERT INTO team_channels(id, name, audience, owner_user_id, source_session_key, import_source)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [id, input.name.trim(), input.audience, actor.id, input.sourceSessionKey ?? null, input.importSource ?? null],
       );
       const allMembers = [actor.id, ...memberIds];
       await client.query(
@@ -444,19 +471,19 @@ export class CollaborationStore {
         const system = await this.insertMessage(client, {
           channelId: id,
           authorKind: "system",
-          body: `Imported from a private Neura chat by @${actor.handle}.`,
+          body: input.importSource ? "Imported from the workspace’s shared Alshival history." : `Imported from a private Alshival chat by @${actor.handle}.`,
           attachments: [],
         });
         createdMessages.push(system);
         for (const item of input.importedMessages.slice(-TEAM_CHAT_LIMITS.importedMessages)) {
-          const body = item.body.trim().slice(0, TEAM_CHAT_LIMITS.messageCharacters);
+          const body = input.importSource ? item.body : item.body.trim().slice(0, TEAM_CHAT_LIMITS.messageCharacters);
           if (!body) continue;
           createdMessages.push(await this.insertMessage(client, {
             channelId: id,
             authorKind: item.role === "assistant" ? "imported_neura" : "imported_user",
-            ...(item.role === "user" ? { authorUserId: actor.id } : {}),
+            ...(item.role === "user" ? { authorUserId: input.importSource ? item.authorUserId ?? actor.id : actor.id } : {}),
             body,
-            attachments: [],
+            attachments: input.importSource ? assertAttachments(item.attachments ?? []) : [],
             ...(item.createdAt ? { createdAt: item.createdAt } : {}),
           }));
         }
@@ -609,6 +636,17 @@ export class CollaborationStore {
     return result.rows.reverse().map(mapMessage);
   }
 
+  async latestRun(actor: UserRecord, channelId: string): Promise<TeamAgentRun | undefined> {
+    await this.requireAccess(this.pool, channelId, actor.id);
+    const row = (await this.pool.query<RunRow>(
+      "SELECT * FROM team_agent_runs WHERE channel_id=$1 ORDER BY created_at DESC LIMIT 1", [channelId])).rows[0];
+    if (!row) return undefined;
+    const run = mapRun(row);
+    if (["queued", "running"].includes(run.status) && row.expires_at.getTime() <= Date.now())
+      return { ...run, status: "failed", error: "This run expired before its result could be confirmed." };
+    return run;
+  }
+
   async activeRun(actor: UserRecord, channelId: string): Promise<TeamAgentRun | undefined> {
     await this.requireAccess(this.pool, channelId, actor.id);
     const result = await this.pool.query<RunRow>(
@@ -673,6 +711,7 @@ export class CollaborationStore {
       // HTTP client. Cutover cannot overtake a queued agent-run insertion.
       const admission = await client.query("SELECT gate FROM update_runtime WHERE singleton FOR SHARE");
       if (admission.rows[0]?.gate) throw new CollaborationError(503, "workspace_maintenance", "Workspace maintenance is in progress.");
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [JSON.stringify([actor.id, input.clientRequestId])]);
       const channel = await this.requireAccess(client, input.channelId, actor.id);
       const body = input.body.trim();
       const safeAttachments = assertAttachments(input.attachments);
@@ -683,8 +722,12 @@ export class CollaborationStore {
         [actor.id, input.clientRequestId],
       );
       if (existing.rows[0]) {
+        const previous = existing.rows[0];
+        if (previous.channel_id !== channel.id || previous.body !== normalizedBody
+            || JSON.stringify(attachments(previous.attachments)) !== JSON.stringify(safeAttachments))
+          throw new CollaborationError(409, "request_id_conflict", "This request ID already belongs to a different message.");
         await client.query("COMMIT");
-        return { message: mapMessage(existing.rows[0]) };
+        return { message: mapMessage(previous) };
       }
       const message = await this.insertMessage(client, {
         channelId: channel.id,
@@ -728,6 +771,14 @@ export class CollaborationStore {
     }
   }
 
+  async cancelRun(actor: UserRecord, channelId: string): Promise<TeamAgentRun[]> {
+    await this.requireAccess(this.pool, channelId, actor.id);
+    const result = await this.pool.query<RunRow>(
+      `UPDATE team_agent_runs SET status='failed', error='Canceled by a channel member.', expires_at=now()
+       WHERE channel_id=$1 AND status IN ('queued','running') RETURNING *`, [channelId]);
+    return result.rows.map(mapRun);
+  }
+
   async claimRun(runId: string): Promise<TeamAgentRun | undefined> {
     const result = await this.pool.query<RunRow>(
       `UPDATE team_agent_runs SET status = 'running', started_at = now()
@@ -757,10 +808,10 @@ export class CollaborationStore {
       [hashToken(capability)],
     );
     const run = result.rows[0];
-    if (!run) throw new CollaborationError(403, "agent_capability_invalid", "This Neura channel capability is invalid or expired.");
+    if (!run) throw new CollaborationError(403, "agent_capability_invalid", "This Alshival channel capability is invalid or expired.");
     const normalizedBody = body.trim().slice(0, TEAM_CHAT_LIMITS.messageCharacters);
     const safeAttachments = assertAttachments(messageAttachments);
-    if (!normalizedBody && safeAttachments.length === 0) throw new CollaborationError(422, "message_required", "Neura must write a message or attach a workspace file.");
+    if (!normalizedBody && safeAttachments.length === 0) throw new CollaborationError(422, "message_required", "Alshival must write a message or attach a workspace file.");
     const message = await this.insertMessage(this.pool, {
       channelId: run.channel_id,
       authorKind: "neura",
@@ -778,7 +829,7 @@ export class CollaborationStore {
       "SELECT * FROM team_agent_runs WHERE capability_hash = $1 AND status = 'running' AND expires_at > now()",
       [hashToken(capability)],
     );
-    if (!run.rows[0]) throw new CollaborationError(403, "agent_capability_invalid", "This Neura channel capability is invalid or expired.");
+    if (!run.rows[0]) throw new CollaborationError(403, "agent_capability_invalid", "This Alshival channel capability is invalid or expired.");
     const result = await this.pool.query<MessageRow>(
       `${MESSAGE_SELECT} WHERE m.channel_id = $1 AND ($2::bigint IS NULL OR m.sequence < $2)
        GROUP BY m.sequence, m.id, u.id ORDER BY m.sequence DESC LIMIT $3`,
@@ -798,7 +849,7 @@ export class CollaborationStore {
       [hashToken(capability)],
     );
     const runRow = run.rows[0];
-    if (!runRow) throw new CollaborationError(403, "agent_capability_invalid", "This Neura channel capability is invalid or expired.");
+    if (!runRow) throw new CollaborationError(403, "agent_capability_invalid", "This Alshival channel capability is invalid or expired.");
     const channel = await this.channelRow(this.pool, runRow.channel_id);
     if (!channel) throw new CollaborationError(404, "channel_not_found", "Team channel not found.");
     const memberRows = channel.audience === "everyone"

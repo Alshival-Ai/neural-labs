@@ -1,6 +1,6 @@
-# ADR 0020: Isolated managed browser for Neura QA
+# ADR 0020: Isolated managed browser for Alshival QA
 
-> Design history: for current instructions, see [Neura desktop app](../neura.md).
+> Design history: for current instructions, see [Alshival desktop app](../neura.md).
 > See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
 
 ## Status
@@ -9,7 +9,7 @@ Accepted
 
 ## Context
 
-Neura can build and repair websites in the shared workspace but could not
+Alshival can build and repair websites in the shared workspace but could not
 verify them in a real browser because the workspace image contained neither a
 Chromium executable nor an enabled OpenClaw browser tool. Installing a browser
 interactively would disappear on the next workspace replacement. Attaching to
@@ -38,7 +38,7 @@ profile, or a new browser control listener.
 ## Consequences
 
 - Browser support survives normal image rebuilds and workspace replacement.
-- Private and Team Neura runs can use deterministic tabs, snapshots,
+- Private and Team Alshival runs can use deterministic tabs, snapshots,
   screenshots, interaction actions, browser errors, and request inspection.
 - Browser state belongs to the dedicated OpenClaw profile and does not reuse a
   teammate's host-browser identity or cookies.

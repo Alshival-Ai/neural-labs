@@ -305,7 +305,7 @@ function configureGateway(twilioConfig) {
         agents: ["main"],
         // A role is a ceiling, not a grant. Keeping admin in the ceiling lets
         // the separately admin-gated service identity retain its explicit
-        // identityScope while ordinary Neura connections remain capped below.
+        // identityScope while ordinary Alshival connections remain capped below.
         scopes: ["operator.read", "operator.write", "operator.approvals", "operator.questions", "operator.admin"],
       },
     },
@@ -313,7 +313,7 @@ function configureGateway(twilioConfig) {
   const result = runOpenClaw(["config", "set", "--batch-json", JSON.stringify(operations)]);
   if (result.status !== 0) throw new Error(`OpenClaw configuration failed with exit code ${result.status}`);
 
-  const identityResult = runOpenClaw(["agents", "set-identity", "--agent", "main", "--name", "Neura"]);
+  const identityResult = runOpenClaw(["agents", "set-identity", "--agent", "main", "--name", "Alshival"]);
   if (identityResult.status !== 0) {
     throw new Error(`OpenClaw agent identity configuration failed with exit code ${identityResult.status}`);
   }
@@ -610,7 +610,7 @@ async function reconcilePersonalAccess() {
     await personalOpenAI.assignRole("neural-labs-automations-admin", "maintainer").catch(() => undefined);
     await personalOpenAI.purgeLegacyNeuraSessions();
   } catch (error) {
-    console.warn("Personal Neura access reconciliation is waiting for the Gateway", error instanceof Error ? error.message : error);
+    console.warn("Personal Alshival access reconciliation is waiting for the Gateway", error instanceof Error ? error.message : error);
   } finally { personalReconcileBusy = false; backgroundOperations--; }
 }
 setTimeout(() => void reconcilePersonalAccess(), 2_000).unref();

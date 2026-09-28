@@ -1,3 +1,4 @@
+import { ImportedHistory } from "./ImportedHistory";
 import {
   ArrowLeft,
   ArrowRight,
@@ -1515,6 +1516,7 @@ export function ExplorerApp({
             Hidden
           </label>
           <span className="ex-spacer" />
+          <ImportedHistory />
           <button
             aria-label="List view"
             aria-pressed={view === "list"}

@@ -1,3 +1,6 @@
+import { createHmac } from "node:crypto";
+import { CollaborationStore } from "../src/collaboration.js";
+import { registerManagedChat } from "../src/managedChat.js";
 import { randomUUID } from "node:crypto";
 import express from "express";
 import { Pool } from "pg";
@@ -64,4 +67,79 @@ integration("managed identity database boundary", () => {
     fetcher.mockResolvedValue(new Response(null, { status: 403 }));
     expect((await request(app).get("/probe").set("Cookie", cookie)).status).toBe(401);
   });
+  it("shares one channel and one run across retries, enforces channel access, and honors cancellation", async () => {
+    const actor = { subject: "123", email: "member@example.com", display_name: "Member", role: "admin",
+      workspace: managed.workspace, instance: managed.instance, origin: config.publicOrigin!.origin,
+      generation: 3, expires_at: new Date(Date.now() + 3600000).toISOString() };
+    const transport = vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json(actor));
+    const app = express(); app.use(express.json());
+    const store = new CollaborationStore(database.pool), publish = vi.fn(), enqueue = vi.fn(), cancel = vi.fn();
+    registerManagedChat(app, config, database, store, publish, enqueue, cancel);
+    const call = (operation: string, params: Record<string, unknown> = {}) => {
+      const payload = JSON.stringify({ token: "t".repeat(43), operation, ...params });
+      const stamp = String(Math.floor(Date.now() / 1000));
+      const signature = createHmac("sha256", managed.secret).update(`chat\n${stamp}\n${payload}`).digest("hex");
+      return request(app).post("/api/alshival/chat-bridge").set("X-Neural-Labs-Time", stamp)
+        .set("X-Neural-Labs-Signature", signature).send({ payload });
+    };
+    const requestId = randomUUID();
+    const created = await Promise.all([call("create", { requestId }), call("create", { requestId })]);
+    expect(created.map(result => result.status)).toEqual([200, 200]);
+    expect(created[0]!.body.channel.id).toBe(created[1]!.body.channel.id);
+    const channel = created[0]!.body.channel.id;
+    const message = { channel, requestId: randomUUID(), body: "@Alshival check the shared file" };
+    const sent = await Promise.all([call("send", message), call("send", message)]);
+    expect(sent.map(result => result.status)).toEqual([200, 200]);
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    const original = (await call("history", { channel })).body;
+    expect(original.messages.filter((row: { authorKind: string }) => row.authorKind === "user")).toHaveLength(1);
+    expect((await call("send", { ...message, body: "different" })).status).toBe(409);
+    await call("cancel", { channel });
+    expect(cancel).toHaveBeenCalledWith(enqueue.mock.calls[0]![0].id);
+    expect((await call("history", { channel })).body.run.status).toBe("failed");
+    expect(await store.claimRun(enqueue.mock.calls[0]![0].id)).toBeUndefined();
+    transport.mockResolvedValue(new Response(null, { status: 403 }));
+    const revoked = await call("history", { channel });
+    expect(revoked.status).toBe(503);
+    expect(revoked.body.messages).toBeUndefined();
+  });
+
+  it("imports only bound shared history once, preserves authors and does not activate former members", async () => {
+    const identity = { subject: "123", email: "current@example.com", display_name: "Current", role: "admin",
+      workspace: managed.workspace, instance: managed.instance, origin: config.publicOrigin!.origin,
+      generation: 3, expires_at: new Date(Date.now() + 3600000).toISOString() };
+    const source = randomUUID();
+    const history = { workspace: managed.workspace, instance: managed.instance, generation: 3,
+      id: source, name: "Shared archive", users: [{ subject: "old", email: "former@example.com", display_name: "Former member" }],
+      messages: [{ role: "user", subject: "old", body: "  Original spacing  ", createdAt: "2026-01-01T12:00:00Z",
+        attachments: [{ path: "notes.txt", name: "notes.txt", size: 5 }] },
+        { role: "assistant", body: "Original answer", createdAt: "2026-01-01T12:00:01Z", attachments: [] }] };
+    const transport = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) =>
+      Response.json(String(url).includes("shared-history") ? history : identity));
+    const app = express(); app.use(express.json());
+    const store = new CollaborationStore(database.pool), enqueue = vi.fn();
+    registerManagedChat(app, config, database, store, vi.fn(), enqueue, vi.fn());
+    const call = (sourceConversation = source) => {
+      const payload = JSON.stringify({ token: "t".repeat(43), operation: "import", sourceConversation });
+      const stamp = String(Math.floor(Date.now() / 1000));
+      return request(app).post("/api/alshival/chat-bridge").set("X-Neural-Labs-Time", stamp)
+        .set("X-Neural-Labs-Signature", createHmac("sha256", managed.secret).update(`chat\n${stamp}\n${payload}`).digest("hex")).send({ payload });
+    };
+    const first = await call();
+    expect(first.status).toBe(200);
+    expect(first.body.messages[1]).toMatchObject({ body: "  Original spacing  ", author: { displayName: "Former member" },
+      createdAt: "2026-01-01T12:00:00.000Z", attachments: history.messages[0]!.attachments });
+    identity.subject = "124"; identity.email = "other@example.com";
+    const again = await call();
+    expect(again.status).toBe(200);
+    expect(again.body.channel.id).toBe(first.body.channel.id);
+    expect((await database.pool.query("SELECT status FROM users WHERE id=$1", [managedUserId(managed, "old")])).rows[0].status).toBe("disabled");
+    expect(enqueue).not.toHaveBeenCalled();
+    history.workspace = randomUUID();
+    expect((await call()).status).toBe(503);
+    transport.mockResolvedValue(new Response(null, { status: 403 }));
+    expect((await call(randomUUID())).status).toBe(503);
+    expect((await database.pool.query("SELECT count(*)::int AS n FROM team_channels")).rows[0].n).toBe(1);
+  });
+
 });

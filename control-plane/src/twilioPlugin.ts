@@ -167,7 +167,7 @@ export class TwilioPluginService implements VerificationSmsTransport {
     return {
       id: PLUGIN_ID,
       name: "Twilio SMS/MMS",
-      description: "Let verified workspace members message their private Neura and receive opted-in agent updates.",
+      description: "Let verified workspace members message their private Alshival and receive opted-in agent updates.",
       type: "channel",
       scope: "global",
       ownership: "workspace",

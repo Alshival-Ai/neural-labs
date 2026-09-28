@@ -82,7 +82,7 @@ test("Claude uses the Terminal app socket, its exact native PTY and output-only 
   assert.deepEqual(session.backlog, []);
 });
 
-test("sign-in is inaccessible to other users and Neura, with participation permanently disabled", async t => {
+test("sign-in is inaccessible to other users and Alshival, with participation permanently disabled", async t => {
   const f = await fixture(t);
   const session = await f.launch();
   f.children[0].output("private one-time code");

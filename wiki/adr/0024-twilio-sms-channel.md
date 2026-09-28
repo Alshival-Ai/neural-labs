@@ -25,7 +25,7 @@ OpenClaw correctly rejects world-writable plugin artifacts. The control plane
 gives its protected runtime endpoint the effective
 channel configuration and all active users with verified phone numbers. OpenClaw
 uses those numbers as `dmPolicy: allowlist` peers and binds each direct peer to
-that user's deterministic personal Neura agent. Unknown, pending, removed, and
+that user's deterministic personal Alshival agent. Unknown, pending, removed, and
 disabled-user numbers are not accepted. Personal model credentials are not
 borrowed from the workspace or another member.
 

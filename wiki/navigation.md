@@ -15,7 +15,7 @@
 ## Use your workspace
 
 - [Your first session](shared-workspace.md)
-- [Neura](neura.md)
+- [Alshival](neura.md)
 - [Team Chats](team-chats.md)
 - [Files and previews](files.md)
 - [Terminal and voice](terminal.md)

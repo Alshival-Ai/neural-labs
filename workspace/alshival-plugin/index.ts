@@ -3,7 +3,7 @@ import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 export default definePluginEntry({
   id: "neural-labs-alshival",
   name: "Alshival workspace tools",
-  description: "Portal-authorized project, document, and resource tools under the explicit workspace background grant.",
+  description: "Portal-authorized project and resource tools under the explicit workspace background grant.",
   register(api) {
     for (const operation of ["list", "call"] as const) {
       const name = `alshival_${operation}_tool${operation === "list" ? "s" : ""}`;

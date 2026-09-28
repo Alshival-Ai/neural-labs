@@ -48,14 +48,14 @@ function nextMessage(socket: WebSocket): Promise<Record<string, unknown>> {
 }
 
 describe("Team Chat WebSocket", () => {
-  it("treats @Neura and dollar skill commands as invocations without matching currency", () => {
-    expect(invokesTeamAgent("@Neura summarize this")).toBe(true);
+  it("treats @Alshival and dollar skill commands as invocations without matching currency", () => {
+    expect(invokesTeamAgent("@Alshival summarize this")).toBe(true);
     expect(invokesTeamAgent("Can you check this, @neura?")).toBe(true);
     expect(invokesTeamAgent("Use $deep-research on this question")).toBe(true);
-    expect(invokesTeamAgent("$neura summarize the voice memo")).toBe(false);
-    expect(invokesTeamAgent("$nerua summarize the voice memo")).toBe(false);
+    expect(invokesTeamAgent("$neura summarize the voice memo")).toBe(true);
+    expect(invokesTeamAgent("$nerua summarize the voice memo")).toBe(true);
     expect(invokesTeamAgent("Use $neura-helper if it is installed")).toBe(true);
-    expect(invokesTeamAgent("Voice memo transcript:\nAsk @Neura to use $deep-research", false)).toBe(false);
+    expect(invokesTeamAgent("Voice memo transcript:\nAsk @Alshival to use $deep-research", false)).toBe(false);
     expect(invokesTeamAgent("Budget: $500")).toBe(false);
   });
 

@@ -76,7 +76,7 @@ describe("workspace provider MCP", () => {
       expect(new Headers(init?.headers).get("Authorization")).toBe(`Bearer ${providerConfig.notificationApi!.token}`);
       expect(JSON.parse(String(init?.body))).toEqual({
         handle: "@member",
-        outcome: "success", title: "Neura update", links: [],
+        outcome: "success", title: "Alshival update", links: [],
         message: "The automation is complete.",
         mediaUrls: [],
       });

@@ -16,7 +16,7 @@ Turn text, images, videos, and page elements into maintainable interactions that
 
 ## Website-builder handoff
 
-In Neura, `$site-generator` and `$local-business-website-builder` are the active website callers; `$website-template-1` is a compatibility adapter. Resolve the selected effect through the shared [effect catalog](references/effect-catalog.md). Preserve the caller's existing AUTO policy as delegated selection; do not introduce a questionnaire unless the user asks to choose or the caller requires a choice. Honor explicit or recorded effects without asking again. An isolated effect request goes directly to its recipe.
+In Alshival, `$site-generator` and `$local-business-website-builder` are the active website callers; `$website-template-1` is a compatibility adapter. Resolve the selected effect through the shared [effect catalog](references/effect-catalog.md). Preserve the caller's existing AUTO policy as delegated selection; do not introduce a questionnaire unless the user asks to choose or the caller requires a choice. Honor explicit or recorded effects without asking again. An isolated effect request goes directly to its recipe.
 
 For the Framer University article or its named examples, read [the source-to-recipe map](references/framer-scroll-effects.md). These are original code implementation recipes inspired by the documented behaviors, not imported Framer components or exact replicas.
 

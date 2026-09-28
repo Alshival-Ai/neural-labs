@@ -58,12 +58,12 @@ API-key text-account decisions were superseded by 0028 and 0032; 0033's Septembe
 
 | Decision record | Current guide |
 |---|---|
-| [ADR 0007: Make Neura conversations private by default](adr/0007-private-neura-sessions.md) | [Neura desktop app](neura.md) |
+| [ADR 0007: Make Alshival conversations private by default](adr/0007-private-neura-sessions.md) | [Alshival desktop app](neura.md) |
 | [ADR 0008: Store Team Chats as explicit control-plane channels](adr/0008-explicit-team-chat-channels.md) | [Team Chats](team-chats.md) |
-| [ADR 0013: Bind interactive Neura to personal OpenAI accounts](adr/0013-personal-neura-openai-accounts.md) | [AI accounts and models](ai-accounts.md) |
-| [ADR 0018: Relay generated Neura media with short-lived capabilities](adr/0018-private-neura-generated-media.md) | [Neura desktop app](neura.md) |
-| [ADR 0019: Scope Neura voice by private and team chat boundaries](adr/0019-neura-openai-voice.md) | [AI accounts and models](ai-accounts.md) |
-| [ADR 0020: Isolated managed browser for Neura QA](adr/0020-neura-managed-browser.md) | [Neura desktop app](neura.md) |
+| [ADR 0013: Bind interactive Alshival to personal OpenAI accounts](adr/0013-personal-neura-openai-accounts.md) | [AI accounts and models](ai-accounts.md) |
+| [ADR 0018: Relay generated Alshival media with short-lived capabilities](adr/0018-private-neura-generated-media.md) | [Alshival desktop app](neura.md) |
+| [ADR 0019: Scope Alshival voice by private and team chat boundaries](adr/0019-neura-openai-voice.md) | [AI accounts and models](ai-accounts.md) |
+| [ADR 0020: Isolated managed browser for Alshival QA](adr/0020-neura-managed-browser.md) | [Alshival desktop app](neura.md) |
 | [ADR 0023: Scoped model connections and versioned workload defaults](adr/0023-model-provider-policies.md) | [AI accounts and models](ai-accounts.md) |
 | [ADR 0026: Explicitly save chat attachments into the shared workspace](adr/0026-chat-attachment-workspace-saves.md) | [Files desktop app](files.md) |
 | [ADR 0028: Unmodified upstream OpenClaw runtime](adr/0028-upstream-openclaw-boundary.md) | [Updating the OpenClaw runtime](openclaw-upgrades.md) |
@@ -78,7 +78,7 @@ API-key text-account decisions were superseded by 0028 and 0032; 0033's Septembe
 | [ADR 0016: Scope Team Chat terminals to channel membership](adr/0016-team-chat-scoped-terminals.md) | [Terminal desktop app](terminal.md) |
 | [ADR 0017: Launch static-site previews inside the authenticated desktop](adr/0017-private-desktop-site-previews.md) | [Files desktop app](files.md) |
 | [ADR 0021: Recoverable Files operations and isolated image editing](adr/0021-files-explorer-image-editor.md) | [Files desktop app](files.md) |
-| [ADR 0025: Neura participation in interactive terminals](adr/0025-neura-terminal-participation.md) | [Terminal desktop app](terminal.md) |
+| [ADR 0025: Alshival participation in interactive terminals](adr/0025-neura-terminal-participation.md) | [Terminal desktop app](terminal.md) |
 | [ADR 0027: Team Terminal GIF reactions and browser media access](adr/0027-team-terminal-reactions.md) | [Terminal desktop app](terminal.md) |
 
 ### Skills, automations, and integrations
