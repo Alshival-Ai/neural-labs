@@ -186,3 +186,5 @@ COPY workspace/claude-runtime.mjs workspace/claude-accounts.mjs workspace/claude
 COPY workspace/claude-plugin /usr/local/lib/neural-labs/claude-plugin
 USER node
 COPY --chown=node:node workspace/public-apps.mjs /usr/local/lib/neural-labs/public-apps.mjs
+
+COPY workspace/imported-history.mjs workspace/import-history.mjs /usr/local/lib/neural-labs/

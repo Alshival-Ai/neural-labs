@@ -1,4 +1,4 @@
-# ADR 0013: Bind interactive Neura to personal OpenAI accounts
+# ADR 0013: Bind interactive Alshival to personal OpenAI accounts
 
 > Design history: for current instructions, see [AI accounts and models](../ai-accounts.md).
 > See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
@@ -8,11 +8,11 @@
 
 ## Context
 
-Neural Labs originally routed every Neura conversation and Team Chat agent turn
+Neural Labs originally routed every Alshival conversation and Team Chat agent turn
 through the OpenClaw `main` agent and its workspace-owned OpenAI credential.
 That made interactive usage by every approved teammate consume one
 administrator-configured account. Automations and unattended jobs still need a
-stable service credential, but a human's interactive Neura work should use that
+stable service credential, but a human's interactive Alshival work should use that
 human's own ChatGPT/Codex entitlement.
 
 The workspace remains one trusted developer appliance. Approved developers can
@@ -50,7 +50,7 @@ Map each trusted-proxy OpenClaw user profile to exactly one dynamic role whose
 agent allowlist contains only that user's personal agent and whose
 `sessions.others` policy is `none`. The default `unlinked` role has an empty
 agent allowlist. An unlinked, paused, expired, or otherwise unavailable personal
-account must fail closed; interactive Neura never falls back to `main`.
+account must fail closed; interactive Alshival never falls back to `main`.
 
 Keep public browser WebSockets on the existing authenticated trusted-proxy
 route. Generate a new internal Gateway password at workspace startup and use it
@@ -71,12 +71,12 @@ The runtime-only password fallback is narrower: it authenticates only the
 in-process administrative client, while browser identity continues to arrive
 from the separately authenticated container-network proxy address.
 
-When a Team Chat message invokes `@Neura` or a `$skill-name`, carry the immutable message-author ID
+When a Team Chat message invokes `@Alshival` or a `$skill-name`, carry the immutable message-author ID
 with the durable run record and execute the turn on that author's personal
 agent. Supply the recent shared channel transcript, including bounded public
-work details from prior Neura turns. Persist redacted plan, command, file, and
+work details from prior Alshival turns. Persist redacted plan, command, file, and
 tool-result projections with the run and render them as the same collapsed
-timeline used by private Neura chats. Never persist or display raw reasoning.
+timeline used by private Alshival chats. Never persist or display raw reasoning.
 
 Retain the workspace-owned `main` credential for automations, heartbeats, and
 other background/system work. Keep its Gateway role available only to the
@@ -90,7 +90,7 @@ interactive history does not remain under the system account.
 - A Team Chat run cannot start until its message author has connected and
   enabled a personal OpenAI account, even if another participant is connected.
 - Team members share the human/agent transcript and safe execution timeline,
-  but not the author's private Neura sessions or raw reasoning.
+  but not the author's private Alshival sessions or raw reasoning.
 - Automations remain independent of a particular user's login, logout, pause,
   or account expiry.
 - Rebuilding or recreating the workspace retains personal OAuth material in the
@@ -103,7 +103,7 @@ interactive history does not remain under the system account.
   Chat run records; it does not gain an OpenAI credential table.
 - Periodic access reconciliation is idempotent. It changes a profile only when
   its role is outside the permitted unlinked, personal, or service state, so it
-  does not disconnect an already restricted user's live Neura socket.
+  does not disconnect an already restricted user's live Alshival socket.
 
 ## Rejected alternatives
 

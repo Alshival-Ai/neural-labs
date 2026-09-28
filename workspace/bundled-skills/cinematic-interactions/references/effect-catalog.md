@@ -4,7 +4,7 @@ This is the shared source of display names and recipe IDs for the personal websi
 
 ## Selection workflow
 
-Neura caller policy: an established AUTO directive from the selected website workflow counts as delegated selection. Preserve its effect budget and preferences, and use this menu to resolve the chosen recipe. Only present a questionnaire when the user asks to choose or the caller requires one.
+Alshival caller policy: an established AUTO directive from the selected website workflow counts as delegated selection. Preserve its effect budget and preferences, and use this menu to resolve the chosen recipe. Only present a questionnaire when the user asks to choose or the caller requires one.
 
 When building or redesigning a site without an effect choice, ask: **Which signature effect should this site use?** Present every bold name below in numbered order. Names must remain exact; descriptions can be shortened. Put the recommendation and its reason separately, without renaming an option. Use the available question UI, or one readable numbered list when it cannot show all choices.
 

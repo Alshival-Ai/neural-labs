@@ -476,6 +476,10 @@ export const migrations: Migration[] = [
   },
   {
     version: 15,
+    sql: `ALTER TABLE team_channels ADD COLUMN import_source text UNIQUE;`,
+  },
+  {
+    version: 16,
     sql: `CREATE TABLE project_transfers (
       id uuid PRIMARY KEY, generation integer NOT NULL, manifest text NOT NULL,
       expected_count integer NOT NULL, state text NOT NULL, created_at timestamptz NOT NULL DEFAULT now()

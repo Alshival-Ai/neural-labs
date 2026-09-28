@@ -366,7 +366,7 @@ describe("Terminal app", () => {
     expect(await screen.findByRole("button", { name: "Open team session Incident room" })).toHaveAttribute("aria-current", "page");
   });
 
-  it("opens a Team Chat-scoped terminal requested by the Neura app", async () => {
+  it("opens a Team Chat-scoped terminal requested by the Alshival app", async () => {
     const channelSession = descriptor({
       id: "channel-terminal-1",
       title: "#private-release",
@@ -672,8 +672,8 @@ it("reports focused terminal context and acknowledges readiness before interacti
   expect(socket.send).not.toHaveBeenCalledWith(JSON.stringify({ type: "client-ready" }));
   act(() => { socket.readyState = MockWebSocket.OPEN; socket.onmessage?.({ data: JSON.stringify({ type: "ready", session, connectionId: "agent-test", mode: "replay" }) }); });
   expect(socket.send).toHaveBeenCalledWith(JSON.stringify({ type: "client-ready" }));
-  expect(screen.getByText("Neura can read and type")).toBeInTheDocument();
+  expect(screen.getByText("Alshival can read and type")).toBeInTheDocument();
   act(() => { socket.onmessage?.({ data: JSON.stringify({ type: "agent-participation", mode: "status-only", active: false }) }); });
-  expect(screen.getByText("Neura: status only")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Enable Neura" })).toBeInTheDocument();
+  expect(screen.getByText("Alshival: status only")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Enable Alshival" })).toBeInTheDocument();
 });

@@ -288,7 +288,7 @@ function Fixture() {
         </AppViewportProvider>
       </div>
       <nav className="dock" aria-label="QA applications">
-        <button onClick={() => setApp("neura")}>Neura</button>
+        <button onClick={() => setApp("neura")}>Alshival</button>
         <button onClick={() => setApp("terminal")}>Terminal</button>
       </nav>
     </>

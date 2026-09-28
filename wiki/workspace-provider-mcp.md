@@ -108,10 +108,10 @@ new security review plus explicit provider-tool wiring before public use.
 
 The same local server also registers `list_terminals`, `open_terminal`,
 `read_terminal`, and `send_terminal_input`. These tools work with the Terminal app
-and the user, including sessions opened independently of Neura. They are available
+and the user, including sessions opened independently of Alshival. They are available
 without Google, Pexels, or KLIPY credentials.
 
-An authenticated Neura message receives an expiring terminal context capability
+An authenticated Alshival message receives an expiring terminal context capability
 and `recentTerminals`: up to three snapshots chosen by per-user human interaction
 recency, with up to 4 KiB of eligible output each. Snapshots remain fixed for queued
 messages. Team message envelopes carry only the opaque capability into the run

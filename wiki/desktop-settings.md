@@ -8,7 +8,7 @@ Members open Settings with **Personalization**, **Security**, **Model Provider**
 and **Plugins**. Personalization controls device-local desktop font size, account
 identity, and notification preferences. Security manages personal sign-in methods,
 passkeys, and verified phone numbers. Model Provider connects or pauses the personal
-ChatGPT account and configures private Neura model/reasoning defaults. Plugins separates private,
+ChatGPT account and configures private Alshival model/reasoning defaults. Plugins separates private,
 user-owned connections from global workspace capabilities. Administrators
 receive those same areas plus the control-plane areas below.
 
@@ -78,7 +78,7 @@ user's dedicated OpenClaw agent. The control plane forwards only that immutable
 user ID to an internal token-authenticated endpoint. It stores no OAuth token;
 Settings polls only safe state, URL, code, expiry, model-readiness, and pause
 metadata. Pause removes the user's Gateway access while retaining the OpenClaw
-credential, and Resume restores it. Interactive Neura fails closed when the
+credential, and Resume restores it. Interactive Alshival fails closed when the
 personal account is unavailable. The Workspace pairing remains the independent
 service identity for automations and background work.
 
@@ -103,7 +103,7 @@ account and sender number. Credentials are entered manually, validated with a
 read-only Twilio request, and encrypted by the control plane. Neural Labs shows
 the exact inbound webhook URL and setup steps but does not change the Twilio
 Console in v1. Verified phone numbers are the inbound allowlist and route to
-that member's private Neura. Each member must separately enable **Agent SMS/MMS
+that member's private Alshival. Each member must separately enable **Agent SMS/MMS
 updates** in Personalization before an agent can send proactive messages to
 them. Agent tools accept only a workspace handle or user ID, never an arbitrary
 phone number.

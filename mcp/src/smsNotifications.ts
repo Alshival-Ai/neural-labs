@@ -20,11 +20,11 @@ export function registerSmsNotificationTool(server:McpServer,config:ProviderConf
   },input=>request("context",input));
   server.registerTool("notify_workspace_user",{
     title:"Notify a workspace user or automation subscribers",
-    description:"Submit an explicitly requested update for one workspace user, or stage a completed result for an active automation run's subscribers. The server chooses Neura, SMS, and email from current user settings. For automations use currentRunId from get_automation_notification_context; delivery waits for the scheduler outcome. Never supply arbitrary recipient addresses. Queued/accepted is not confirmed delivery.",
+    description:"Submit an explicitly requested update for one workspace user, or stage a completed result for an active automation run's subscribers. The server chooses Alshival, SMS, and email from current user settings. For automations use currentRunId from get_automation_notification_context; delivery waits for the scheduler outcome. Never supply arbitrary recipient addresses. Queued/accepted is not confirmed delivery.",
     inputSchema:z.object({
       handle:z.string().regex(/^@?[a-z0-9][a-z0-9._-]{1,31}$/).optional(),userId:z.string().uuid().optional(),
       automationId:z.string().min(1).max(200).optional(),runId:z.string().min(1).max(200).optional(),
-      outcome:z.enum(["success","failure"]).default("success"),title:z.string().min(1).max(200).default("Neura update"),
+      outcome:z.enum(["success","failure"]).default("success"),title:z.string().min(1).max(200).default("Alshival update"),
       message:z.string().trim().min(1).max(1600),idempotencyKey:z.string().min(1).max(200).optional(),
       links:z.array(z.object({label:z.string().max(120),url:z.string().url().startsWith("https://")})).max(5).default([]),
       mediaUrls:z.array(z.string().url().startsWith("https://")).max(10).default([]),

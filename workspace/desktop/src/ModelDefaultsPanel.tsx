@@ -52,7 +52,7 @@ export function ModelDefaultsPanel({ csrfToken, scope = "account", workload = "b
   const selectedModel = policy?.mode === "pinned" ? policy.model : saved?.resolved?.model ?? "";
   const selected = catalog?.models.find((row) => row.id === selectedModel);
   return <section className={`settings-card${compact ? " provider-defaults" : ""}`}>
-    <div className="settings-card__heading"><div><span>{scope === "account" ? "Private Neura" : "Workspace policy"}</span><h2>{scope === "account" ? "Agent defaults" : team ? "Team Neura" : "Background AI"}</h2><p>{scope === "account" ? "Uses your personal connection for the selected provider." : team ? "Uses the dedicated Team Neura connection. Members do not need a personal model connection to summon her after activation." : "Uses the selected workspace provider connection. Automations assigned to other agents keep those agents’ credentials and defaults."}</p></div></div>
+    <div className="settings-card__heading"><div><span>{scope === "account" ? "Private Alshival" : "Workspace policy"}</span><h2>{scope === "account" ? "Agent defaults" : team ? "Team Alshival" : "Background AI"}</h2><p>{scope === "account" ? "Uses your personal connection for the selected provider." : team ? "Uses the dedicated Team Alshival connection. Members do not need a personal model connection to summon her after activation." : "Uses the selected workspace provider connection. Automations assigned to other agents keep those agents’ credentials and defaults."}</p></div></div>
     <div className="model-provider-fields">
       {policy && <>
         {compact ? <>
@@ -69,7 +69,7 @@ export function ModelDefaultsPanel({ csrfToken, scope = "account", workload = "b
         </>}
         </>}
         {saved?.resolved?.held && <p role="status">Keeping the previous compatible model because the latest recommendation does not support your saved reasoning level.</p>}
-        {team && <label><span><input type="checkbox" checked={confirmShared} onChange={(event) => setConfirmShared(event.target.checked)} /> Use the dedicated workspace-owned Team Neura account for new team requests. Existing queued runs keep their accepted settings.</span></label>}
+        {team && <label><span><input type="checkbox" checked={confirmShared} onChange={(event) => setConfirmShared(event.target.checked)} /> Use the dedicated workspace-owned Team Alshival account for new team requests. Existing queued runs keep their accepted settings.</span></label>}
       </>}
       <div className="provider-defaults-actions">
         {policy && <button type="button" className="settings-button is-primary" disabled={busy || !saved || !catalog || catalog.stale || (team && !confirmShared) || (policy.mode === "pinned" && !policy.model)} onClick={() => void save()}>{busy ? "Working…" : saved?.pending ? "Retry applying defaults" : "Save defaults"}</button>}

@@ -1,7 +1,7 @@
 # VS Code desktop app
 
 The VS Code dock icon opens code-server inside a normal Neural Labs desktop
-window. The editor starts on `/home/node/workspace`, so Files, Terminal, Neura
+window. The editor starts on `/home/node/workspace`, so Files, Terminal, Alshival
 tools, and VS Code all operate on the same shared project tree. VS Code is the
 desktop's default source editor: new files and text/code files opened from Files
 are sent to the existing VS Code window, and every file or folder has an **Open

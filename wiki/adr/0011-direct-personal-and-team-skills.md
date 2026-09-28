@@ -8,7 +8,7 @@
 - Supersedes: ADR 0006 for first-party skill authoring
 
 ADR 0013 later adds a dedicated OpenClaw agent for each user's interactive
-Neura sessions. This ADR's skill storage, ownership, publication, and
+Alshival sessions. This ADR's skill storage, ownership, publication, and
 non-confidentiality decisions remain current.
 
 ## Context
@@ -33,7 +33,7 @@ Store personal skills under the persistent tenant home at
 beside each managed skill.
 
 Personal skills are user-invocable but set `disable-model-invocation: true`.
-The Neura picker combines OpenClaw status with the authenticated user's Neural
+The Alshival picker combines OpenClaw status with the authenticated user's Neural
 Labs ownership records and excludes other users' personal skills. Team Skills
 are model-visible and available to every user.
 
@@ -54,7 +54,7 @@ third-party instruction supply-chain mutation requiring `operator.admin`.
 - Personal and first-party Team Skills no longer require proposal approval.
 - Skill owners can share with the team or return a skill to personal scope in
   one step.
-- Other users do not see personal skills in their Neura picker by default, but
+- Other users do not see personal skills in their Alshival picker by default, but
   the shared filesystem does not promise secrecy.
 - Name collisions are workspace-wide because OpenClaw skill keys share one
   effective catalog.

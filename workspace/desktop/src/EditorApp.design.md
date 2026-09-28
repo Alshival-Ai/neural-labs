@@ -3,7 +3,7 @@
 `EditorApp.tsx` is the responsive desktop surface for editing shared workspace
 text files. `App.tsx` now owns its open documents and connects file reads and
 saves to the confined workspace API. Source-control, runtime, commands, and
-Neura actions remain visual placeholders.
+Alshival actions remain visual placeholders.
 
 ## Integration seam
 
@@ -24,5 +24,5 @@ The component owns its scoped stylesheet through `import "./editor-app.css"`. It
 - File tree and tabs switch documents; closing a tab preserves the placeholder document in the tree.
 - The source surface is editable, tracks dirty state, supports local save/reload, and exposes save/run callbacks.
 - Markdown documents can switch between source and rendered preview.
-- Outline entries focus their source position; Neura actions are visual placeholders.
+- Outline entries focus their source position; Alshival actions are visual placeholders.
 - The context pane drops away on medium windows, the explorer collapses to an activity rail, and the full sidebar becomes a drawer on mobile.

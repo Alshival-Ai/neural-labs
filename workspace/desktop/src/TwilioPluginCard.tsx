@@ -67,7 +67,7 @@ export function TwilioPluginCard({ initial, csrfToken, detailOnly = false, onBac
 
   return <section className="twilio-plugin-detail">
     <button className="settings-back-button" type="button" onClick={() => onBack ? onBack() : setDetails(false)}><ArrowLeft />All plugins</button>
-    <header><div className="twilio-plugin-detail__mark"><MessageSquareText /></div><div><span>Global channel plugin</span><h2>Twilio SMS/MMS</h2><p>One workspace sender. Verified members can text their private Neura; proactive messages require each member’s opt-in.</p></div></header>
+    <header><div className="twilio-plugin-detail__mark"><MessageSquareText /></div><div><span>Global channel plugin</span><h2>Twilio SMS/MMS</h2><p>One workspace sender. Verified members can text their private Alshival; proactive messages require each member’s opt-in.</p></div></header>
     {error && <p className="settings-error-note" role="alert">{error}</p>}
     {notice && <p className="settings-success-note" role="status"><Check />{notice}</p>}
     <div className="twilio-plugin-detail__grid">

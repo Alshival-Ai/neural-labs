@@ -5,7 +5,7 @@ Date: 2026-09-19
 
 ## Decision
 
-Extend the fixed personal, Team Neura, and Background AI bindings to Claude.
+Extend the fixed personal, Team Alshival, and Background AI bindings to Claude.
 Both providers can remain connected. A model's provider selects its credential
 owner; connecting alone never rewrites defaults. Workspace administrators may
 explicitly choose API-key billing instead of a subscription for each workload.
@@ -25,7 +25,7 @@ WebSocket tickets bound to the initiating actor and session. Only that actor
 can access the sign-in session, including workspace-owned logins. Active
 membership and workspace administrator role are checked on access and during
 socket heartbeats. The process always remains in the provider owner's native
-home; no generic shell or command string is used to launch it. Neura cannot
+home; no generic shell or command string is used to launch it. Alshival cannot
 list, read, write, or enable participation in these sessions. Output remains
 bounded in memory and is cleared on completion or closure; no shell history or
 audit receives the sign-in code. Closing the session cancels the native login.

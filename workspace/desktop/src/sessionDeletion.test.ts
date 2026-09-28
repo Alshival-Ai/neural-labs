@@ -13,7 +13,7 @@ const session: SessionRow = {
   visibility: "draft",
 };
 
-describe("Neura session deletion", () => {
+describe("Alshival session deletion", () => {
   it("archives an active conversation before using OpenClaw's operator-write deletion path", () => {
     expect(buildSessionDeletionPlan(session)).toEqual({
       archive: {

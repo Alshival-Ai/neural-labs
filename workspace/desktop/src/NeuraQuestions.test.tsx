@@ -9,7 +9,7 @@ const request = { id: "q-1", sessionKey: "private-1", agentId: "agent-1", status
   questions: [{ questionId: "approach", header: "Approach", question: "Which approach?", options: [{ label: "Small change", description: "Keep the existing structure." }, { label: "Refactor" }], isOther: true }],
 };
 
-describe("Neura planning questions", () => {
+describe("Alshival planning questions", () => {
   it("restores pending questions, requires an explicit answer, and keeps failed answers editable", async () => {
     let listener: ((event: GatewayEvent) => void) | undefined;
     const gateway = {
@@ -27,7 +27,7 @@ describe("Neura planning questions", () => {
     fireEvent.change(screen.getByLabelText("Your own answer"), { target: { value: "Start with a prototype" } });
     fireEvent.click(submit);
     await waitFor(() => expect(gateway.resolveQuestion).toHaveBeenLastCalledWith("q-1", { approach: ["Start with a prototype"] }));
-    await waitFor(() => expect(screen.queryByRole("form", { name: "Questions from Neura" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("form", { name: "Questions from Alshival" })).not.toBeInTheDocument());
     gateway.listQuestions.mockResolvedValue([]);
     act(() => listener?.({ event: "question.resolved", payload: { id: "q-1" } }));
     await waitFor(() => expect(gateway.listQuestions).toHaveBeenCalledTimes(2));

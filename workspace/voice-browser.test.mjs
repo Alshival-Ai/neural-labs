@@ -80,7 +80,7 @@ test(
             status: transcriptionFails ? 503 : 200,
             json: transcriptionFails
               ? { error: { message: "Transcription temporarily unavailable" } }
-              : { text: "The launch is Friday. Ask @Neura about the release." },
+              : { text: "The launch is Friday. Ask @Alshival about the release." },
           })
         : route.fulfill({
             status: 200,
@@ -117,11 +117,11 @@ test(
     try {
       await page.goto("http://127.0.0.1:4196/workspace/tests/mobile.html");
       const mic = page.getByRole("button", {
-        name: "Start private Neura voice chat",
+        name: "Start private Alshival voice chat",
         exact: true,
       });
       await mic.waitFor();
-      const input = page.getByPlaceholder("Message Neura…");
+      const input = page.getByPlaceholder("Message Alshival…");
       await input.fill("Hello");
       assert.equal(await mic.count(), 0);
       await page
@@ -147,7 +147,7 @@ test(
       await page.screenshot({ path: `/tmp/neura-voice-mobile-${engine}.png` });
       await page
         .getByRole("button", {
-          name: "End private Neura voice chat",
+          name: "End private Alshival voice chat",
           exact: true,
         })
         .tap();
@@ -157,7 +157,7 @@ test(
       await privateVoiceMode.tap();
       assert.equal(await privateVoiceMode.getAttribute("aria-checked"), "true");
       const hold = page.getByRole("button", {
-        name: "Hold to speak with Neura",
+        name: "Hold to speak with Alshival",
       });
       await hold.focus();
       await page.keyboard.down("Space");
@@ -168,7 +168,7 @@ test(
       assert.equal(await page.evaluate(() => window.voiceQA.enabled), false);
       await page
         .getByRole("button", {
-          name: "End private Neura voice chat",
+          name: "End private Alshival voice chat",
           exact: true,
         })
         .tap();
@@ -215,7 +215,7 @@ test(
         .waitFor();
       await page.mouse.up();
       await page
-        .getByText("The launch is Friday. Ask @Neura about the release.", {
+        .getByText("The launch is Friday. Ask @Alshival about the release.", {
           exact: false,
         })
         .waitFor();

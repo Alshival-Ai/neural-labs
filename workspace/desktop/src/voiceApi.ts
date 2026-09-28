@@ -17,9 +17,9 @@ export async function exchangeRealtimeOffer(sdp: string, signal?: AbortSignal): 
     body: sdp,
     signal,
   });
-  if (!response.ok) throw new Error(await errorMessage(response, "Neura voice is unavailable right now"));
+  if (!response.ok) throw new Error(await errorMessage(response, "Alshival voice is unavailable right now"));
   const answer = await response.text();
-  if (!answer.startsWith("v=")) throw new Error("Neura voice returned an invalid response");
+  if (!answer.startsWith("v=")) throw new Error("Alshival voice returned an invalid response");
   const configuredSeconds = Number(response.headers.get("X-Neural-Labs-Voice-Max-Seconds"));
   return { answer, maxSeconds: Number.isFinite(configuredSeconds) && configuredSeconds > 0 ? configuredSeconds : 300 };
 }

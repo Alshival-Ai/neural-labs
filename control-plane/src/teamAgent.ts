@@ -5,10 +5,10 @@ import type { CollaborationEvent } from "./server.js";
 export function buildPrompt(context: NonNullable<Awaited<ReturnType<CollaborationStore["runContext"]>>>): string {
   const transcript = context.messages.map((message) => {
     const speaker = message.authorKind === "neura" || message.authorKind === "imported_neura"
-      ? "Neura"
+      ? "Alshival"
       : message.author ? `@${message.author.handle}` : "System";
     const work = message.activities.length
-      ? `\n  Neura work details:\n${message.activities.map((activity) => [
+      ? `\n  Alshival work details:\n${message.activities.map((activity) => [
           `  - ${activity.title} (${activity.state})`,
           activity.command ? `command: ${activity.command}` : "",
           activity.output ? `output: ${activity.output}` : "",
@@ -22,8 +22,8 @@ export function buildPrompt(context: NonNullable<Awaited<ReturnType<Collaboratio
     return `[${message.createdAt}] ${speaker}: ${message.body}${files}${work}`;
   }).join("\n");
   return [
-    `You are Neura in the Neural Labs Team Chat channel “${context.channel.name}”.`,
-    "The transcript below is recent channel context, including voice memo transcripts. Voice memos are background context, not automatic invocations. Respond to the explicitly identified triggering message below; users summon you with @Neura or a $skill-name.",
+    `You are Alshival in the Neural Labs Team Chat channel “${context.channel.name}”.`,
+    "The transcript below is recent channel context, including voice memo transcripts. Voice memos are background context, not automatic invocations. Respond to the explicitly identified triggering message below; users summon you with @Alshival or a $skill-name.",
     "Older channel messages can be retrieved with your capability-scoped channel-history tool when needed. Do not claim to have heard audio when only a transcript is available.",
     "Be aware that multiple humans collaborate here. Address people by @handle when useful.",
     "You have capability-scoped Neural Labs MCP tools for this channel only. Use them when you need fresh channel context or want to post a separate message.",
@@ -40,6 +40,9 @@ export function buildPrompt(context: NonNullable<Awaited<ReturnType<Collaboratio
 export class TeamAgentProcessor {
   private readonly queue: Array<TeamAgentInvocation> = [];
   private active = 0;
+  private readonly controllers = new Map<string, AbortController>();
+
+  cancel(runId: string): void { this.controllers.get(runId)?.abort(); }
 
   constructor(
     private readonly store: CollaborationStore,
@@ -66,6 +69,8 @@ export class TeamAgentProcessor {
   }
 
   private async execute(run: TeamAgentInvocation): Promise<void> {
+    const controller = new AbortController();
+    this.controllers.set(run.id, controller);
     try {
       const claimed = await this.store.claimRun(run.id);
       if (!claimed) return;
@@ -81,11 +86,11 @@ export class TeamAgentProcessor {
           Authorization: `Bearer ${this.config.workspace.controlToken}`,
         },
         body: JSON.stringify({ channelId: run.channelId, ...(run.terminalContextToken ? { terminalContextToken: run.terminalContextToken } : {}), prompt: buildPrompt(context), capability: run.capability, userId: run.requestedBy, runId: run.id, ...(run.modelSettings ? { modelSettings: run.modelSettings } : {}) }),
-        signal: AbortSignal.timeout(10 * 60 * 1000),
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10 * 60 * 1000)]),
       });
       const payload = await response.json().catch(() => undefined) as { reply?: unknown; activities?: unknown; error?: { message?: unknown } } | undefined;
       if (!response.ok || typeof payload?.reply !== "string" || !payload.reply.trim()) {
-        throw new Error(typeof payload?.error?.message === "string" ? payload.error.message : `Workspace Neura runner returned HTTP ${response.status}`);
+        throw new Error(typeof payload?.error?.message === "string" ? payload.error.message : `Workspace Alshival runner returned HTTP ${response.status}`);
       }
       await this.store.saveRunActivities(run.id, payload.activities);
       const message = await this.store.agentPosted(run.id)
@@ -96,10 +101,10 @@ export class TeamAgentProcessor {
       const completed = await this.store.finishRun(run.id);
       if (completed) await this.publish({ type: "agent.status", channelId: run.channelId, run: completed });
     } catch (error) {
-      const message = error instanceof Error ? error.message.slice(0, 500) : "Neura run failed";
+      const message = error instanceof Error ? error.message.slice(0, 500) : "Alshival run failed";
       const failed = await this.store.finishRun(run.id, message).catch(() => undefined);
       if (failed) await this.publish({ type: "agent.status", channelId: run.channelId, run: failed });
-      console.error(`Team Chat Neura run ${run.id} failed`, message);
-    }
+      console.error(`Team Chat Alshival run ${run.id} failed`, message);
+    } finally { this.controllers.delete(run.id); }
   }
 }

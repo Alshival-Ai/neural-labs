@@ -177,7 +177,7 @@ function buildMcpServer(authInfo: AuthInfo | undefined, config: McpConfig, fetch
       "post_team_channel_message",
       {
         title: "Post to a Neural Labs Team Chat",
-        description: "Post a message as the signed-in Neural Labs user. Include $Neura only when the team intentionally wants to invoke the agent.",
+        description: "Post a message as the signed-in Neural Labs user. Include $Alshival only when the team intentionally wants to invoke the agent.",
         inputSchema: z.object({ channelId: z.string().uuid(), body: z.string().trim().min(1).max(128 * 1024) }),
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       },

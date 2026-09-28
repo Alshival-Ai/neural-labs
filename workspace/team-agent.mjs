@@ -118,7 +118,7 @@ export function activitiesFromHistory(rows) {
   }
   const publicActivities = activities.slice(-79).map(({ _id: _omitted, ...activity }) => activity);
   return sawReasoning
-    ? [{ kind: "thinking", title: "Reasoned through the request", detail: "Neura worked through the shared context before responding.", state: "done" }, ...publicActivities]
+    ? [{ kind: "thinking", title: "Reasoned through the request", detail: "Alshival worked through the shared context before responding.", state: "done" }, ...publicActivities]
     : publicActivities;
 }
 
@@ -184,7 +184,7 @@ export function activitiesFromExecSummary(value) {
   }];
 }
 
-export async function runTeamAgent({ prompt, capability, agentId, runId, modelSettings, workspaceRoot, execute = execFileAsync, loadConfig = loadOpenClawConfig }) {
+export async function runTeamAgent({ signal, prompt, capability, agentId, runId, modelSettings, workspaceRoot, execute = execFileAsync, loadConfig = loadOpenClawConfig }) {
   if (typeof prompt !== "string" || !prompt.trim() || prompt.length > 1024 * 1024) throw new Error("The Team Chat prompt is invalid");
   if (typeof capability !== "string" || capability.length < 32 || capability.length > 512) throw new Error("The Team Chat capability is invalid");
   if (typeof agentId !== "string" || !/^nl-[a-z0-9]{1,60}$/u.test(agentId)) throw new Error("The Team Chat personal agent is invalid");
@@ -207,15 +207,27 @@ export async function runTeamAgent({ prompt, capability, agentId, runId, modelSe
       delete environment.OPENAI_API_KEY;
     }
     await writeFile(configPath, JSON.stringify(config), { encoding: "utf8", mode: 0o600 });
-    ({ stdout } = await execute("openclaw", [
+    const execution = execute("openclaw", [
       "agent", "exec", "--config", configPath, "--message-file", messagePath, "--cwd", workspaceRoot, "--json", "--timeout", "1800",
     ], {
+      signal,
+      detached: process.platform !== "win32",
       cwd: workspaceRoot,
       encoding: "utf8",
       timeout: 30 * 60 * 1000,
       maxBuffer: 4 * 1024 * 1024,
       env: environment,
-    }));
+    });
+    const stop = () => {
+      if (process.platform !== "win32" && execution.child?.pid) {
+        try { process.kill(-execution.child.pid, "SIGTERM"); }
+        catch (error) { if (error.code !== "ESRCH") throw error; }
+      }
+    };
+    signal?.addEventListener("abort", stop, { once: true });
+    if (signal?.aborted) stop();
+    try { ({ stdout } = await execution); }
+    finally { signal?.removeEventListener("abort", stop); }
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true });
   }

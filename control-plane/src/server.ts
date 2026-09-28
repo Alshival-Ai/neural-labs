@@ -1,5 +1,6 @@
 import { registerProjectTransferRoutes } from "./projectTransferRoutes.js";
 import { registerProjectRoutes } from "./projectRoutes.js";
+import { registerManagedChat } from "./managedChat.js";
 import { UpdateService } from "./updates.js";
 import { registerUpdateRoutes } from "./updateRoutes.js";
 import { Notifications } from "./notifications.js";
@@ -322,6 +323,7 @@ export function createApplication(input: {
   modelPolicies?: ModelProviderPolicies;
   updates?: UpdateService;
   onCollaborationEvent?: (event: CollaborationEvent) => void;
+  onAgentCancel?: (runId: string) => void;
   onAgentRun?: (run: TeamAgentRun & { capability: string }) => void;
 }): ControlPlaneApplication {
   const { database, config } = input;
@@ -449,6 +451,7 @@ export function createApplication(input: {
   };
 
   registerManagedRoutes(app, config, database, sessions);
+  registerManagedChat(app, config, database, collaboration, publish, run => input.onAgentRun?.(run), id => input.onAgentCancel?.(id));
 
   const sendConsole = (response: Response): void => {
     response.sendFile(consoleIndex);
@@ -955,7 +958,7 @@ export function createApplication(input: {
     if (!actor || !requireCsrfJson(request, response, actor)) return;
     const parsed = z.object({ enabled: z.boolean() }).safeParse(request.body);
     if (!parsed.success) {
-      jsonError(response, 422, "invalid_notification_setting", "Choose whether Neura may send SMS notifications.");
+      jsonError(response, 422, "invalid_notification_setting", "Choose whether Alshival may send SMS notifications.");
       return;
     }
     try {
@@ -1134,7 +1137,7 @@ export function createApplication(input: {
       if (!parsed.success) { jsonError(response, 400, "invalid_model_policy", "Choose a valid model policy and reasoning level."); return; }
       if (!await database.consumeRateLimit(`model-defaults:${actor.user.id}`, 10, 60)) { jsonError(response, 429, "rate_limited", "Wait a moment before changing model defaults again."); return; }
       const workload = scope === "admin/workspace" && request.query.workload === "team" ? "team" : "background";
-      if (workload === "team" && !parsed.data.confirmShared) { jsonError(response, 400, "shared_confirmation_required", "Confirm that Team Neura will use the dedicated workspace-owned account."); return; }
+      if (workload === "team" && !parsed.data.confirmShared) { jsonError(response, 400, "shared_confirmation_required", "Confirm that Team Alshival will use the dedicated workspace-owned account."); return; }
       try {
         const result = await modelPolicies.save(scope === "account" ? actor.user.id : undefined, parsed.data.revision, parsed.data.policy, workload);
         await database.audit(actor.user.id, `${scope === "account" ? "account" : "workspace"}.model_defaults.updated`, scope === "account" ? actor.user.id : null, { revision: result.revision, pending: result.pending, policy: result.policy, workload });
@@ -1187,7 +1190,7 @@ export function createApplication(input: {
         response.setHeader("Cache-Control", "no-store");
         if (action !== "status") await database.audit(actor.user.id, `workspace.team_provider.${action}`, null, { provider: "openai", authMethod: "chatgpt" });
         response.status(action === "connect" ? 202 : 200).json(personalOpenAIAuthSchema.parse(await result.json()));
-      } catch { jsonError(response, 503, "team_provider_unavailable", "Team Neura connection is unavailable."); }
+      } catch { jsonError(response, 503, "team_provider_unavailable", "Team Alshival connection is unavailable."); }
     };
     if (action === "status") app.get(route, handler);
     else app.post(route, sameOrigin, handler);
@@ -1466,6 +1469,23 @@ export function createApplication(input: {
         return;
       }
       throw error;
+    }
+  });
+
+  app.post("/api/team/channels/:channelId/cancel", sameOrigin, async (request, response) => {
+    const actor = await requireActiveJson(request, response);
+    if (!actor || !requireCsrfJson(request, response, actor)) return;
+    const parsed = userIdSchema.safeParse(request.params.channelId);
+    if (!parsed.success) { response.status(400).end(); return; }
+    try {
+      for (const run of await collaboration.cancelRun(actor.user, parsed.data)) {
+        input.onAgentCancel?.(run.id);
+        publish({ type: "agent.status", channelId: parsed.data, run });
+      }
+      response.json({ cancelled: true });
+    } catch (error) {
+      if (error instanceof CollaborationError) jsonError(response, error.status, error.code, error.message);
+      else throw error;
     }
   });
 
@@ -2196,7 +2216,7 @@ export function createApplication(input: {
           protocolVersion: protocolVersion.success ? protocolVersion.data.protocolVersion : "2025-06-18",
           capabilities: { tools: { listChanged: false } },
           serverInfo: { name: "neural-labs-team", version: "0.3.2" },
-          instructions: "These tools are capability-scoped to the Team Chat that invoked Neura. They cannot access another channel.",
+          instructions: "These tools are capability-scoped to the Team Chat that invoked Alshival. They cannot access another channel.",
         });
         return;
       }
@@ -2234,7 +2254,7 @@ export function createApplication(input: {
           {
             name: "neural_labs_post_channel_message",
             title: "Post to current Team Chat",
-            description: "Post a Neura message and shared-workspace file or image attachments in the current Team Chat only. Attachment paths must be relative to the shared workspace.",
+            description: "Post a Alshival message and shared-workspace file or image attachments in the current Team Chat only. Attachment paths must be relative to the shared workspace.",
             inputSchema: {
               type: "object",
               properties: {

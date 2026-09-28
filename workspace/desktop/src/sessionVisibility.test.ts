@@ -7,7 +7,7 @@ import {
 } from "./sessionVisibility";
 import type { SessionRow } from "./types";
 
-describe("Neura session visibility", () => {
+describe("Alshival session visibility", () => {
   const legacy: SessionRow = {
     key: "agent:main:dashboard:legacy",
     title: "Legacy chat",

@@ -96,7 +96,7 @@ export function createVoiceService({
       const session = {
         type: "realtime",
         model: realtimeModel,
-        instructions: "You are Neura, the user's private voice assistant in Neural Labs. Speak naturally and concisely. Protect private workspace information and never imply that this voice call is shared with a team.",
+        instructions: "You are Alshival, the user's private voice assistant in Neural Labs. Speak naturally and concisely. Protect private workspace information and never imply that this voice call is shared with a team.",
         audio: { output: { voice: realtimeVoice } },
         max_output_tokens: 500,
       };
@@ -112,14 +112,14 @@ export function createVoiceService({
           signal: AbortSignal.timeout(20_000),
         });
       } catch {
-        throw new VoiceError(503, "voice_provider_unavailable", "Neura voice is unavailable right now");
+        throw new VoiceError(503, "voice_provider_unavailable", "Alshival voice is unavailable right now");
       }
       if (!upstream.ok) {
-        throw new VoiceError(503, "voice_provider_unavailable", "Neura voice is unavailable right now");
+        throw new VoiceError(503, "voice_provider_unavailable", "Alshival voice is unavailable right now");
       }
       const answer = await upstream.text();
       if (!answer.startsWith("v=")) {
-        throw new VoiceError(502, "invalid_voice_response", "Neura voice returned an invalid response");
+        throw new VoiceError(502, "invalid_voice_response", "Alshival voice returned an invalid response");
       }
       return answer;
     },

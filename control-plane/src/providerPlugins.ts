@@ -14,7 +14,7 @@ export type ProviderRuntimeReport = z.infer<typeof providerRuntimeReportSchema>;
 export const providerCheckSchema = z.object({ revision: z.number().int().nonnegative(), capabilities: z.array(z.object({ name: z.string().max(80), ok: z.boolean(), message: z.string().max(200) })).min(1).max(2) });
 const definitions = {
   "google-maps": { name: "Google Maps", description: "Find places and convert addresses to coordinates.", capabilities: ["Places", "Geocoding"] },
-  klipy: { name: "KLIPY", description: "Search GIFs for Neura and Team Terminal reactions.", capabilities: ["GIF search"] },
+  klipy: { name: "KLIPY", description: "Search GIFs for Alshival and Team Terminal reactions.", capabilities: ["GIF search"] },
   pexels: { name: "Pexels", description: "Find stock photos and videos for your projects.", capabilities: ["Photo search"] },
 };
 type Row = { plugin_id: string; enabled: boolean; public_config: { inherit?: boolean; check?: z.infer<typeof providerCheckSchema> }; encrypted_credentials: string | null; revision: string };

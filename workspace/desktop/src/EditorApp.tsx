@@ -100,7 +100,7 @@ export const PLACEHOLDER_EDITOR_DOCUMENTS: readonly EditorDocument[] = [
     path: "atlas/src/agents/workflow-agent.ts",
     language: "typescript",
     accent: "cyan",
-    content: `import { Neura } from "@neural-labs/runtime";
+    content: `import { Alshival } from "@neural-labs/runtime";
 import type { TeamContext, WorkflowPlan } from "../types";
 
 const MAX_PARALLEL_MOVES = 3;
@@ -109,7 +109,7 @@ export async function planWorkflow(
   brief: string,
   context: TeamContext,
 ): Promise<WorkflowPlan> {
-  const neura = new Neura({
+  const neura = new Alshival({
     workspace: context.workspace,
     skills: context.sharedSkills,
   });
@@ -196,7 +196,7 @@ Shared product workspace for the Neural Labs team.
 
 1. Read the product brief.
 2. Check active automations.
-3. Ask Neura for the latest project context.
+3. Ask Alshival for the latest project context.
 4. Leave the workspace clearer than you found it.
 `,
   },
@@ -209,7 +209,7 @@ Shared product workspace for the Neural Labs team.
     content: `{
   "name": "Atlas",
   "status": "in-motion",
-  "agent": "Neura",
+  "agent": "Alshival",
   "skills": ["research", "planning", "implementation"],
   "shared": true
 }`,
@@ -483,7 +483,7 @@ export function EditorApp({
           <button type="button" aria-label="Explorer" aria-pressed={sidebarMode === "explorer"} onClick={() => chooseSidebar("explorer")}><Files /></button>
           <button type="button" aria-label="Search files" aria-pressed={sidebarMode === "search"} onClick={() => chooseSidebar("search")}><Search /></button>
           <button type="button" aria-label="Source control" onClick={() => setNotice("Source control is a placeholder tool.")}><GitBranch /></button>
-          <button type="button" aria-label="Neura actions" onClick={() => { setRightPanel("neura"); setRightPanelOpen(true); }}><Sparkles /></button>
+          <button type="button" aria-label="Alshival actions" onClick={() => { setRightPanel("neura"); setRightPanelOpen(true); }}><Sparkles /></button>
           <button type="button" className="editor-activity__bottom" aria-label="More editor actions" onClick={() => setNotice("More editor actions are ready to connect.")}><MoreHorizontal /></button>
         </nav>
 
@@ -584,13 +584,13 @@ export function EditorApp({
 
         <footer className="editor-statusbar">
           <div><FolderOpen />Shared workspace {activeDocument && <><CircleDot />Live file</>}</div>
-          <div>{activeDocument ? <><span>{saving ? "Saving" : isDirty ? "Unsaved" : "Saved"}</span><span>Spaces: 2</span><span>UTF-8</span><span>{languageLabel(activeDocument.language)}</span></> : <span>Ready</span>}<Bot />Neura ready</div>
+          <div>{activeDocument ? <><span>{saving ? "Saving" : isDirty ? "Unsaved" : "Saved"}</span><span>Spaces: 2</span><span>UTF-8</span><span>{languageLabel(activeDocument.language)}</span></> : <span>Ready</span>}<Bot />Alshival ready</div>
         </footer>
       </main>
 
       {rightPanelOpen && activeDocument && (
         <aside className="editor-context" aria-label="Editor context">
-          <header><div><button type="button" aria-pressed={rightPanel === "outline"} onClick={() => setRightPanel("outline")}>Outline</button><button type="button" aria-pressed={rightPanel === "neura"} onClick={() => setRightPanel("neura")}>Neura</button></div><button type="button" aria-label="Close context panel" onClick={() => setRightPanelOpen(false)}><X /></button></header>
+          <header><div><button type="button" aria-pressed={rightPanel === "outline"} onClick={() => setRightPanel("outline")}>Outline</button><button type="button" aria-pressed={rightPanel === "neura"} onClick={() => setRightPanel("neura")}>Alshival</button></div><button type="button" aria-label="Close context panel" onClick={() => setRightPanelOpen(false)}><X /></button></header>
           {rightPanel === "outline" ? (
             <div className="editor-outline">
               <div><span>Symbols in</span><strong>{activeDocument?.name}</strong></div>
@@ -602,10 +602,10 @@ export function EditorApp({
             </div>
           ) : (
             <div className="editor-neura">
-              <div className="editor-neura__heading"><span>N</span><div><strong>Neura</strong><small>Project context synced</small></div></div>
+              <div className="editor-neura__heading"><span>N</span><div><strong>Alshival</strong><small>Project context synced</small></div></div>
               <p>I’m following this file with the Atlas brief and shared skills in context.</p>
-              <section><span>One useful move</span><strong>Extract the plan formatter</strong><p>The formatter can become a shared skill without changing this workflow’s public API.</p><button type="button" onClick={() => setNotice("Neura suggestion is a placeholder interaction.")}><Sparkles />Show the change</button></section>
-              <button type="button" className="editor-neura__ask" onClick={() => setNotice("Ask Neura is ready for the shared session API.")}><MessageSquareText />Ask about this file</button>
+              <section><span>One useful move</span><strong>Extract the plan formatter</strong><p>The formatter can become a shared skill without changing this workflow’s public API.</p><button type="button" onClick={() => setNotice("Alshival suggestion is a placeholder interaction.")}><Sparkles />Show the change</button></section>
+              <button type="button" className="editor-neura__ask" onClick={() => setNotice("Ask Alshival is ready for the shared session API.")}><MessageSquareText />Ask about this file</button>
             </div>
           )}
         </aside>

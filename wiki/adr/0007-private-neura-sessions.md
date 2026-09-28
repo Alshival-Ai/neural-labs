@@ -1,6 +1,6 @@
-# ADR 0007: Make Neura conversations private by default
+# ADR 0007: Make Alshival conversations private by default
 
-> Design history: for current instructions, see [Neura desktop app](../neura.md).
+> Design history: for current instructions, see [Alshival desktop app](../neura.md).
 > See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
 
 - Status: Accepted
@@ -8,7 +8,7 @@
 
 ## Context
 
-Neural Labs previously created every Neura conversation with OpenClaw
+Neural Labs previously created every Alshival conversation with OpenClaw
 `shared` visibility. The workspace's ordinary developer role may participate
 in shared sessions, so another approved developer could open and write in a
 conversation they did not create. Sidebar filtering would not fix this because
@@ -20,7 +20,7 @@ be an explicit transition, not a property inherited by every new agent chat.
 
 ## Decision
 
-Create private Neura conversations as OpenClaw `draft` sessions with category
+Create private Alshival conversations as OpenClaw `draft` sessions with category
 `neura-private`. OpenClaw treats `draft` as creator-only and enforces that rule
 for roster visibility, transcript reads, event subscriptions, agent sends, and
 session mutations.
@@ -39,11 +39,11 @@ restricted channels.
 ## Consequences
 
 - Approved users no longer receive implicit access to another user's new
-  Neura conversations.
+  Alshival conversations.
 - Existing private-intent chats become protected when their creator next opens
   the upgraded desktop.
-- Administrators do not gain Neura transcript access through the ordinary
-  Neura WebSocket, which continues to omit `operator.admin`.
+- Administrators do not gain Alshival transcript access through the ordinary
+  Alshival WebSocket, which continues to omit `operator.admin`.
 - Team channels require a separate data and permission design for membership,
   mentions, human-only messages, and file references. That design must replace
   the blanket `none` capability with a policy proven to honor explicit channel

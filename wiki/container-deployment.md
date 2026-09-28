@@ -100,7 +100,7 @@ bin/neural-labs doctor
 The doctor checks the workspace-local MCP through the container and requires
 the TURN service to be healthy. All three optional provider credentials (Google Maps, KLIPY, and Pexels) must
 be configured for its MCP check to pass. A basic personal deployment can use
-Neura text chat, Files, and Terminal without those keys; inspect the other
+Alshival text chat, Files, and Terminal without those keys; inspect the other
 checks separately. Doctor checks that TURN is running, not end-to-end voice.
 See [Troubleshooting](troubleshooting.md#doctor-reports-a-provider-failure).
 
@@ -159,8 +159,8 @@ The routing is:
 | `/` and landing assets | landing `127.0.0.1:4173` |
 | login, setup, account, admin, `/api/`, `/auth/` | control plane `127.0.0.1:4174` |
 | `/mcp`, `/oauth/`, OAuth well-known metadata | Explicit `404`; public MCP is disabled in V1 |
-| `/workspace`, its assets, `/workspace/api/files*`, and ticketed `/workspace/api/neura/media/outgoing/*` | Authenticated workspace desktop, confined file API, and fixed-origin Neura media relay `127.0.0.1:4181` |
-| `/workspace/neura/socket` | Authenticated Neura-to-OpenClaw WebSocket `127.0.0.1:4180` |
+| `/workspace`, its assets, `/workspace/api/files*`, and ticketed `/workspace/api/neura/media/outgoing/*` | Authenticated workspace desktop, confined file API, and fixed-origin Alshival media relay `127.0.0.1:4181` |
+| `/workspace/neura/socket` | Authenticated Alshival-to-OpenClaw WebSocket `127.0.0.1:4180` |
 
 The React console is compiled into the control-plane image and served below
 `/control-assets/console/`. It has no listener, container, or host port of its
@@ -214,14 +214,14 @@ The authenticated `/workspace/api/files/events` response is a long-lived SSE
 stream used for multi-user file invalidation. The supplied Nginx workspace
 location already disables response buffering and has a one-hour read timeout,
 so it does not require another public route or a WebSocket upgrade block.
-Generated Neura attachment URLs must first be authorized through the user's
-Neura WebSocket and resolved to a short-lived OpenClaw media ticket. The
+Generated Alshival attachment URLs must first be authorized through the user's
+Alshival WebSocket and resolved to a short-lived OpenClaw media ticket. The
 workspace media route accepts only that ticketed outgoing-media path and relays
 it to the container's loopback Gateway; it must not be expanded into a generic
 Gateway proxy.
 
 Open `/workspace` and connect your own ChatGPT account or personal OpenAI API key
-under **Settings → Model Provider → OpenAI**. Send a private Neura request to verify model access. If you
+under **Settings → Model Provider → OpenAI**. Send a private Alshival request to verify model access. If you
 want scheduled AI work, also connect the Background ChatGPT account under
 **Settings → Workspace**. These connections are independent; see
 [AI accounts and models](ai-accounts.md).

@@ -15,7 +15,7 @@ vi.mock("./TerminalApp", () => ({
 }));
 
 vi.mock("./NeuraApp", () => ({
-  NeuraApp: ({ onOpenTeamTerminal }: { onOpenTeamTerminal?: (channel: { id: string; name: string }) => void }) => <div data-testid="neura-live-view">Live Neura view<button type="button" onClick={() => onOpenTeamTerminal?.({ id: "55555555-5555-4555-8555-555555555555", name: "private-release" })}>Open mock Team Chat terminal</button></div>,
+  NeuraApp: ({ onOpenTeamTerminal }: { onOpenTeamTerminal?: (channel: { id: string; name: string }) => void }) => <div data-testid="neura-live-view">Live Alshival view<button type="button" onClick={() => onOpenTeamTerminal?.({ id: "55555555-5555-4555-8555-555555555555", name: "private-release" })}>Open mock Team Chat terminal</button></div>,
 }));
 
 vi.mock("./SkillsLiveApp", () => ({
@@ -213,10 +213,10 @@ describe("desktop admin navigation", () => {
     expect(restored.container.querySelector(".desktop-window")).not.toBeInTheDocument();
   });
 
-  it("creates and opens a channel-scoped terminal from Neura Team Chat", async () => {
+  it("creates and opens a channel-scoped terminal from Alshival Team Chat", async () => {
     renderDesktop("user");
     await waitForDesktop();
-    fireEvent.click(screen.getByRole("button", { name: "Neura" }));
+    fireEvent.click(screen.getByRole("button", { name: "Alshival" }));
     fireEvent.click(await screen.findByRole("button", { name: "Open mock Team Chat terminal" }));
 
     await waitFor(() => expect(screen.getByTestId("terminal-live-view")).toHaveTextContent("channel-terminal-1"));
@@ -228,7 +228,7 @@ describe("desktop admin navigation", () => {
     });
   });
 
-  it("provisions the personal agent before starting the Neura Gateway", async () => {
+  it("provisions the personal agent before starting the Alshival Gateway", async () => {
     renderDesktop("user");
 
     await waitFor(() => expect(gatewayMocks.setAgentId).toHaveBeenCalledWith("nl-userid"));
@@ -241,7 +241,7 @@ describe("desktop admin navigation", () => {
     renderDesktop("admin", { accountAuthenticated: false });
 
     const prompt = await screen.findByRole("button", { name: "Open model account settings in Model Provider" });
-    expect(prompt).toHaveTextContent("Connect your selected model account to start using Neura.");
+    expect(prompt).toHaveTextContent("Connect your selected model account to start using Alshival.");
     fireEvent.click(prompt);
 
     const settingsWindow = await screen.findByLabelText("Settings application");
@@ -252,7 +252,7 @@ describe("desktop admin navigation", () => {
   it("guides users with a paused ChatGPT connection to Model Provider", async () => {
     renderDesktop("user", { accountPaused: true });
 
-    expect(await screen.findByRole("button", { name: "Open model account settings in Model Provider" })).toHaveTextContent("Resume your selected model account to start using Neura.");
+    expect(await screen.findByRole("button", { name: "Open model account settings in Model Provider" })).toHaveTextContent("Resume your selected model account to start using Alshival.");
   });
 
   it("does not reopen Terminal when the saved desktop has no Terminal window", async () => {
@@ -541,18 +541,18 @@ describe("desktop admin navigation", () => {
     expect(screen.getByTestId("terminal-live-view")).toBe(liveView);
   });
 
-  it("keeps the live Neura transcript mounted while its window is minimized", async () => {
+  it("keeps the live Alshival transcript mounted while its window is minimized", async () => {
     renderDesktop("user");
     await waitForDesktop();
-    fireEvent.click(screen.getByRole("button", { name: "Neura" }));
-    const neuraWindow = await screen.findByLabelText("Neura application");
+    fireEvent.click(screen.getByRole("button", { name: "Alshival" }));
+    const neuraWindow = await screen.findByLabelText("Alshival application");
     const liveView = await within(neuraWindow).findByTestId("neura-live-view");
 
-    fireEvent.click(within(neuraWindow).getByRole("button", { name: "Minimize Neura" }));
+    fireEvent.click(within(neuraWindow).getByRole("button", { name: "Minimize Alshival" }));
     expect(neuraWindow).toHaveAttribute("hidden");
     expect(liveView).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Neura" }));
+    fireEvent.click(screen.getByRole("button", { name: "Alshival" }));
     expect(neuraWindow).not.toHaveAttribute("hidden");
     expect(within(neuraWindow).getByTestId("neura-live-view")).toBe(liveView);
   });
@@ -623,7 +623,7 @@ describe("desktop admin navigation", () => {
   });
 });
 
-it("opens and restores Terminal when Neura's desktop launch arrives", async () => {
+it("opens and restores Terminal when Alshival's desktop launch arrives", async () => {
   const streams: EventTarget[] = [];
   class FakeEvents extends EventTarget {
     close = vi.fn();

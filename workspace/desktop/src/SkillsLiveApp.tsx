@@ -39,11 +39,11 @@ function customFallback(skill: CustomSkill, index: number): SkillRecord {
     source: skill.scope === "team" ? "workspace" : "personal", scope: skill.scope,
     owner: skill.ownedByCurrentUser ? "You" : skill.ownerDisplayName, path: skill.path,
     enabled: true, eligibility: "eligible",
-    eligibilityNote: skill.scope === "team" ? "Available to everyone in the workspace." : "Ready in your Neura skill picker.",
+    eligibilityNote: skill.scope === "team" ? "Available to everyone in the workspace." : "Ready in your Alshival skill picker.",
     userInvocable: true, modelInvocable: skill.scope === "team", command: `$${skill.key}`,
     writable: skill.editable, custom: true, editable: skill.editable,
     ownedByCurrentUser: skill.ownedByCurrentUser, shared: skill.scope === "team",
-    agents: skill.scope === "team" || skill.ownedByCurrentUser ? ["Neura"] : [], useCount: 0,
+    agents: skill.scope === "team" || skill.ownedByCurrentUser ? ["Alshival"] : [], useCount: 0,
     lastUsed: "Not yet", requirements: [], files: [{ name: "SKILL.md", size: "Saved", kind: "instruction" }],
     revisions: [], instructions: skill.instructions, instructionsState: "loaded",
   };
@@ -61,7 +61,7 @@ export function mergeCustomSkills(gatewaySkills: SkillRecord[], customSkills: Cu
       owner: custom.ownedByCurrentUser ? "You" : custom.ownerDisplayName, path: custom.path,
       command: `$${custom.key}`, modelInvocable: custom.scope === "team", writable: custom.editable,
       custom: true, editable: custom.editable, ownedByCurrentUser: custom.ownedByCurrentUser,
-      shared: custom.scope === "team", agents: custom.scope === "team" || custom.ownedByCurrentUser ? ["Neura"] : [],
+      shared: custom.scope === "team", agents: custom.scope === "team" || custom.ownedByCurrentUser ? ["Alshival"] : [],
       instructions: custom.instructions, instructionsState: "loaded" as const, instructionsError: undefined,
     };
   });

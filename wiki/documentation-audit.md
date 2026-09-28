@@ -33,7 +33,7 @@ main user journey. No trust boundary changed in this documentation update.
 | Existing content | Place in the documentation |
 |---|---|
 | Deployment, authentication, Entra, passkeys | Set up and manage guides |
-| Workspace, Neura, Team Chats, Files, Terminal, VS Code, Skills, Automations, desktop state | Use your workspace |
+| Workspace, Alshival, Team Chats, Files, Terminal, VS Code, Skills, Automations, desktop state | Use your workspace |
 | Settings, provider MCP, backup/restore, OpenClaw upgrades | Manage your instance |
 | Four application release records, two runtime assessments, changelog | [Release history](release-history.md) |
 | All 33 architecture decisions | [Decision history and current-guide mapping](maintainer-reference.md#architecture-decision-history) |

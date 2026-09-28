@@ -120,7 +120,7 @@ test("Claude sign-in opens the actual desktop Terminal app and pastes through it
       await page.getByLabel("Claude sign-in interactive terminal").waitFor();
       assert.equal(terminalRequests, 1);
       assert.equal(await page.locator(".claude-login-terminal").count(), 0);
-      assert.equal(await page.getByRole("button", { name: "Enable Neura", exact: true }).count(), 0);
+      assert.equal(await page.getByRole("button", { name: "Enable Alshival", exact: true }).count(), 0);
       await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
       await page.evaluate(() => navigator.clipboard.writeText("example-pasted-code"));
       await page.getByRole("button", { name: "Paste into Claude sign-in", exact: true }).click();

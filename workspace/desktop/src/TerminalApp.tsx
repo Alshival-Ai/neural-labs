@@ -628,8 +628,8 @@ export function TerminalApp({ workspaceName = "Workspace", notify, storageNamesp
 
       <div className="terminal-banners">
       {!showLaunchpad && focusedSession && <div className="terminal-neura-participation" role="status">
-        {focusedSession.agentActive && <strong>Neura is participating · </strong>}<span>{focusedSession.providerSignIn ? "Private Claude sign-in · Neura has no access" : focusedSession.agentMode === "status-only" ? "Neura: status only" : "Neura can read and type"}</span>
-        {focusedSession.canControlAgent && <button type="button" onClick={() => void setTerminalParticipation(focusedSession.id, focusedSession.agentMode === "status-only" ? "shared" : "status-only").then(mergeSession).catch((error) => report(error.message))}>{focusedSession.agentMode === "status-only" ? "Enable Neura" : "Pause Neura"}</button>}
+        {focusedSession.agentActive && <strong>Alshival is participating · </strong>}<span>{focusedSession.providerSignIn ? "Private Claude sign-in · Alshival has no access" : focusedSession.agentMode === "status-only" ? "Alshival: status only" : "Alshival can read and type"}</span>
+        {focusedSession.canControlAgent && <button type="button" onClick={() => void setTerminalParticipation(focusedSession.id, focusedSession.agentMode === "status-only" ? "shared" : "status-only").then(mergeSession).catch((error) => report(error.message))}>{focusedSession.agentMode === "status-only" ? "Enable Alshival" : "Pause Alshival"}</button>}
       </div>}
 
         {!showLaunchpad && focusedSession?.providerSignIn && <div className="terminal-notice" role="status"><span>Open Anthropic, sign in, then paste the returned code here and press Enter. Return to Settings to check the connection. </span>{focusedSession.providerSignIn.verificationUrl && <a href={focusedSession.providerSignIn.verificationUrl} target="_blank" rel="noreferrer">Open Anthropic sign-in</a>}</div>}
@@ -1192,7 +1192,7 @@ function LiveTerminalPane({ session, active, fontSize, searchQuery, voiceMode, o
     <section className={`terminal-pane${active ? " is-active" : ""}`} aria-label={`${session.title} terminal pane`} onFocusCapture={onActivate} onMouseDown={(event) => { if ((event.target as HTMLElement).closest("button,input,select,summary,[role=dialog]")) return; onActivate(); if (!viewport.mobile) terminalRef.current?.focus(); }}>
       <header className="terminal-pane__header">
         <div className={`terminal-pane__session is-${session.scope}`}><i /><strong title={session.title}>{viewport.mobile ? session.title : session.shell}</strong><span>{session.cwd}</span>{session.scope === "team" && <em><Users />shared</em>}</div>
-        {neuraLastInput && <span className="terminal-pane__typing" title={new Date(neuraLastInput).toLocaleTimeString()}>Neura sent input</span>}
+        {neuraLastInput && <span className="terminal-pane__typing" title={new Date(neuraLastInput).toLocaleTimeString()}>Alshival sent input</span>}
         {typingLabels.length > 0 && <span className="terminal-pane__typing">{typingLabels.length === 1 ? `${typingLabels[0]} is typing…` : `${typingLabels.length} teammates are typing…`}</span>}
         <span className={`terminal-pane__mode is-${inputMode}`} title="Insert toggles Insert/Overwrite mode">{inputMode === "insert" ? "INS" : "OVR"}</span>
         <span className={`terminal-pane__state is-${connectionStatus}`}><i />{connectionStatus}</span>

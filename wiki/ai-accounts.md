@@ -1,7 +1,7 @@
 # AI accounts and models
 
 Signing in to Neural Labs gives you access to the desktop. Connecting an AI
-account lets Neura run requests. These are separate steps, even if you are the
+account lets Alshival run requests. These are separate steps, even if you are the
 only user and the administrator.
 
 ## Connect your personal account
@@ -11,17 +11,17 @@ only user and the administrator.
 3. For ChatGPT, wait for the verification URL and one-time code, then open the
    URL and finish sign-in. Keep Settings open until it confirms the connection.
    For a key, enter an OpenAI Platform API key and choose **Save and use API key**.
-4. Check the model status, then send a request in a private Neura conversation.
+4. Check the model status, then send a request in a private Alshival conversation.
 
 API usage is billed separately from ChatGPT subscriptions. Saving a personal key
-selects key authentication for that person's Neura; choosing ChatGPT selects
+selects key authentication for that person's Alshival; choosing ChatGPT selects
 their ChatGPT credential instead. Neural Labs keeps the two credentials in
 separate native profiles and never falls back to the unselected method. A
 previously connected method stays stored but inactive. Choosing ChatGPT can
 reuse an existing valid sign-in; to select key billing again, enter the key in
 Settings because saved keys are never shown there. **Disconnect** removes both
 personal OpenAI credentials.
-Saving confirms that the key reached the personal credential store; send a Neura
+Saving confirms that the key reached the personal credential store; send a Alshival
 message to verify that OpenAI accepts it and the account has usable quota.
 
 If the provider asks you to enable device-code login, follow its account
@@ -39,7 +39,7 @@ sign-in**, complete the browser steps, then use Terminal's paste button (or
 Ctrl/Cmd+Shift+V) to paste the returned code and press Enter. Return to Settings
 to check the connection. **Open sign-in in Terminal** reopens the same unfinished
 session. Closing that terminal or choosing **Cancel sign-in** stops the attempt.
-Neura cannot access this sign-in session.
+Alshival cannot access this sign-in session.
 
 This flow needs no additional public DNS, OAuth callback registration, or inbound
 port. The CLI and browser need outbound access to Anthropic. Claude keeps the
@@ -56,12 +56,12 @@ a new conversation after the account is replaced.
 
 | Work | Account used |
 |---|---|
-| Private Neura conversation or a personal skill test | Your personal account for the selected model provider |
+| Private Alshival conversation or a personal skill test | Your personal account for the selected model provider |
 | Manually running an AI task automation from the desktop | The person pressing Run's personal account |
 | Scheduled automation | The automation's assigned agent; `main` uses the background account |
-| Team Chat before dedicated Team Neura activation | The message author's personal account |
-| Team Chat after dedicated Team Neura activation | The dedicated Team account, including requests from members without a personal connection |
-| Neura realtime voice and voice-memo transcription | The server's `OPENAI_API_KEY`, configured separately for audio |
+| Team Chat before dedicated Team Alshival activation | The message author's personal account |
+| Team Chat after dedicated Team Alshival activation | The dedicated Team account, including requests from members without a personal connection |
+| Alshival realtime voice and voice-memo transcription | The server's `OPENAI_API_KEY`, configured separately for audio |
 | `codex` run directly in a terminal | The terminal CLI's separate login cache |
 
 A missing, paused, or unusable connection does not silently fall back to another
@@ -77,7 +77,7 @@ Administrators open **Settings → Workspace** to configure these separately:
 - **Background AI Claude connection** provides an independent Claude sign-in or
   workspace API key. Saving an API key explicitly selects separately billed API
   usage for this workload. It does not change your model default.
-- **Team Neura** has its own OpenAI and Claude connections and model defaults. Connect the dedicated
+- **Team Alshival** has its own OpenAI and Claude connections and model defaults. Connect the dedicated
   account, then explicitly confirm and save the Team defaults to activate it.
   Once activated, Team Chat requires that account; a later disconnect does not
   restore the message-author fallback.
@@ -117,6 +117,6 @@ logins stay in the owning Claude configuration directory. All approved developer
 boundary; see [Sharing and privacy](sharing-and-privacy.md).
 
 The separate terminal CLI can be connected with
-`bin/neural-labs workspace codex-login` when needed. It does not configure Neura.
+`bin/neural-labs workspace codex-login` when needed. It does not configure Alshival.
 For personal, background, or Team sign-in problems, start with
 [Troubleshooting](troubleshooting.md#neura-will-not-answer).

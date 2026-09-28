@@ -11,22 +11,22 @@ Versioning and Git tags in the form `vMAJOR.MINOR.PATCH`.
   credentials, read-only connection and webhook checks, in-product Twilio
   Console setup steps, and the official pinned OpenClaw SMS channel.
 - Verified workspace phone numbers now form the inbound SMS allowlist and route
-  to each member's private Neura. Proactive agent SMS/MMS requires a per-member
+  to each member's private Alshival. Proactive agent SMS/MMS requires a per-member
   opt-in and the agent tool accepts only workspace identities.
 
 - Added a personal Model Provider page, account-aware model/reasoning pickers,
   versioned follow-latest/pinned defaults, and independent Background AI,
-  dedicated Team Neura and Voice settings. Team activation is administrator
+  dedicated Team Alshival and Voice settings. Team activation is administrator
   confirmed; queued runs preserve accepted settings. Claude subscriptions remain
   explicitly release-gated. Workspace status distinguishes credentials from
   runtime/model readiness. Automations preserve reasoning `off` and strict pins.
 
-- Neura private and Team Chat composers now use Enter to send and Shift+Enter
+- Alshival private and Team Chat composers now use Enter to send and Shift+Enter
   for a new line on every viewport. During an active private run Enter steers,
   while queueing remains an explicit Send options action. Enter also accepts
   the highlighted `@` mention or `$` skill suggestion.
-- Team Chat now completes `@Neura` and current channel-member `@handle` tags in
-  a searchable composer popup. Neura is summoned only through `@Neura`; the
+- Team Chat now completes `@Alshival` and current channel-member `@handle` tags in
+  a searchable composer popup. Alshival is summoned only through `@Alshival`; the
   misspelled `$nerua` and legacy `$neura` aliases no longer invoke the agent.
 - Team Chat voice memos are now always hold-to-talk with no mode toggle. Private
   voice keeps a dedicated Open/Hold switch for continuous or press-to-transmit
@@ -35,7 +35,7 @@ Versioning and Git tags in the form `vMAJOR.MINOR.PATCH`.
 - Fresh desktops start empty instead of automatically opening Terminal. Returning
   sessions continue to restore their saved open and minimized windows.
 
-- Neura's phone layout now has searchable, collapsible conversation history,
+- Alshival's phone layout now has searchable, collapsible conversation history,
   visible chat actions, a channel-terminal drawer, and a growing touch-friendly
   composer. Terminal adds named session navigation, mobile split-pane tabs,
   keyboard/Ctrl/Esc/Tab/arrow controls, and clipboard permission feedback. Both
@@ -49,28 +49,28 @@ Versioning and Git tags in the form `vMAJOR.MINOR.PATCH`.
 - A self-hosted, sandboxed miniPaint Image Editor opens workspace images and saves
   layered `.minipaint.json` projects or flattened PNG/JPEG/WebP through the
   authenticated Files API with stale-write protection.
-- Neura now has a durable OpenClaw-managed Chromium browser for QA. The
+- Alshival now has a durable OpenClaw-managed Chromium browser for QA. The
   workspace image includes browser fonts and Chromium, and private and Team
   agents receive OpenClaw's browser snapshots, screenshots, and interaction
   tool through the isolated `openclaw` profile.
-- Neura's website toolchain now includes FFmpeg/FFprobe, WebP and ImageMagick
+- Alshival's website toolchain now includes FFmpeg/FFprobe, WebP and ImageMagick
   image utilities, and a working rsync installation. Team website skills make
   omitted creative choices automatically, require complete showcase builds to
   include a viewport-scale scroll-video or frame-sequence scene when compatible
   media is available, and prepare seek-friendly local video instead of falling
   back to a pointer reveal for convenience.
-- Isolated Team Neura runs may now use up to 30 minutes, allowing supervised
+- Isolated Team Alshival runs may now use up to 30 minutes, allowing supervised
   website research, media preparation, browser QA, and deployment to finish as
   one bounded run instead of being cut off by the former 10-minute ceiling.
-- Neura now streams only the final answer in the main transcript while signed
+- Alshival now streams only the final answer in the main transcript while signed
   commentary, safe thinking status, plans, tools, commands, outputs, and file
   patches stay in the collapsed **Work details** below it. Expanded file steps
   show a bounded, credential-redacted patch for code review.
-- Neura private chats now have a wave control for a five-minute, live WebRTC
+- Alshival private chats now have a wave control for a five-minute, live WebRTC
   voice conversation. Team Chat's wave control records a voice memo, stores a
   playable workspace attachment, transcribes it, and sends the transcript as
-  an `@Neura` turn so the agent receives the spoken context.
-- Neura opens on its new-chat screen when the newest conversation has been idle
+  an `@Alshival` turn so the agent receives the spoken context.
+- Alshival opens on its new-chat screen when the newest conversation has been idle
   for at least three hours. Returning again without new activity does not keep
   resetting the user's selection, and an active run is always preserved.
 - VS Code replaces the standalone Editor in the desktop dock and Files workflow.
@@ -78,10 +78,10 @@ Versioning and Git tags in the form `vMAJOR.MINOR.PATCH`.
   file has an **Open in VS Code** action, and folder context menus can open the
   selected directory in VS Code. Previously saved Editor windows migrate to VS
   Code when desktop state is restored.
-- Team Chat now uses `@Neura` for general agent turns while retaining `$skill-name`
+- Team Chat now uses `@Alshival` for general agent turns while retaining `$skill-name`
   commands. Personal and Team Chat render image attachments inline and other
-  files as download cards; Team Neura can attach generated workspace artifacts.
-- Neura-generated static-site links now open the desktop Preview app. Website
+  files as download cards; Team Alshival can attach generated workspace artifacts.
+- Alshival-generated static-site links now open the desktop Preview app. Website
   previews use short-lived, user-bound launch capabilities instead of reusable
   folder-encoded URLs, and the sandbox no longer permits remote assets or popups.
 
@@ -134,7 +134,7 @@ Versioning and Git tags in the form `vMAJOR.MINOR.PATCH`.
 - Passkey rows now show the localized creation date and time. After the first
   credential is registered, the enrollment form clearly changes to **Add
   another passkey**.
-- Neura now presents an animated, centered readiness state while a new private
+- Alshival now presents an animated, centered readiness state while a new private
   conversation is created, subscribed over the live Gateway connection, and
   reconciled with its recent history.
 - Explicit assistant commentary is now grouped with plans, commands, tools,
@@ -148,7 +148,7 @@ Versioning and Git tags in the form `vMAJOR.MINOR.PATCH`.
 - Preserved the successful registration response optimistically if the
   follow-up list request fails, while later successful synchronization remains
   authoritative.
-- Removed the synthetic **starting model / Neura is working through the
+- Removed the synthetic **starting model / Alshival is working through the
   request / Done** step produced by routine Gateway status frames. Status still
   drives the live run and queue controls without being presented as work.
 - Fixed durable commentary appearing as separate assistant chat bubbles after
@@ -163,7 +163,7 @@ Versioning and Git tags in the form `vMAJOR.MINOR.PATCH`.
 - The synchronization carries only the existing public passkey metadata. It
   does not expose WebAuthn private keys, credential material, challenges, or
   transaction tokens and adds no network listener or trust-boundary change.
-- Neura's progress projection uses OpenClaw's explicit `commentary` phase and
+- Alshival's progress projection uses OpenClaw's explicit `commentary` phase and
   same-turn supersession; raw model reasoning remains excluded and
   credential-shaped command output remains redacted.
 - Rebuild and recreate the workspace service to deploy the updated desktop.
@@ -178,7 +178,7 @@ Versioning and Git tags in the form `vMAJOR.MINOR.PATCH`.
 - Renamed the canonical Skills desktop window to **Skills & Automations** so
   its title reflects both dock entry points and the combined workflow surface.
 - The desktop now provisions and verifies the signed-in user's personal agent
-  through the authenticated account endpoint before starting the shared Neura
+  through the authenticated account endpoint before starting the shared Alshival
   Gateway client. Transient bootstrap failures retry when the page is visible,
   online, or the retry timer expires.
 - A disconnected or paused personal account now produces a long-lived, actionable
@@ -198,7 +198,7 @@ Versioning and Git tags in the form `vMAJOR.MINOR.PATCH`.
   immediately for an existing authenticated account or after successful login;
   unauthenticated users can request their first device code without circular
   setup steps.
-- Removed the Neura client's implicit `main` agent default. Socket startup and
+- Removed the Alshival client's implicit `main` agent default. Socket startup and
   agent-scoped requests now fail closed until the verified personal agent ID is
   available, so interactive work cannot race onto the workspace automation
   identity.
@@ -229,11 +229,11 @@ Versioning and Git tags in the form `vMAJOR.MINOR.PATCH`.
   scripts, assets, invocation policy, icons, and MCP dependencies.
 - Added durable server-side drafts with Yjs character-level collaboration,
   presence, owner-selected collaborators, administrator oversight, validation,
-  explicit publication, and shared unpublished Neura tests.
+  explicit publication, and shared unpublished Alshival tests.
 - Added a graphical automation draft flow, including a first-class **Run a
   skill** action that emits the canonical `$skill-name` invocation.
 - Added a Personalization card where every user connects, monitors, pauses, and
-  resumes their own ChatGPT device-code session for interactive Neura.
+  resumes their own ChatGPT device-code session for interactive Alshival.
 - Added one isolated OpenClaw agent/auth directory and one exact Gateway agent
   role per Neural Labs user, provisioned from the immutable user ID.
 - Added durable, redacted Team Chat work timelines for plans, commands, file
@@ -252,9 +252,9 @@ Versioning and Git tags in the form `vMAJOR.MINOR.PATCH`.
 - Skill details now fetch and render the live OpenClaw `SKILL.md` instruction
   body in a bounded document viewer. Installed OpenClaw skills have a dedicated
   detail pane, and automation prompts use the same scrollable Markdown treatment.
-- Private Neura now uses the signed-in user's personal OpenClaw agent instead of
+- Private Alshival now uses the signed-in user's personal OpenClaw agent instead of
   the shared `main` agent. Missing or paused personal auth fails closed.
-- Team Chat `$Neura` turns use the message author's personal OpenAI account and
+- Team Chat `$Alshival` turns use the message author's personal OpenAI account and
   receive prior shared work details alongside the bounded channel transcript.
 - The workspace `main` OpenAI connection is now explicitly reserved for
   automations, heartbeats, and other background/system work.
@@ -267,10 +267,10 @@ Versioning and Git tags in the form `vMAJOR.MINOR.PATCH`.
   OpenClaw's optional `skill-card.md` instead of the actual `SKILL.md`. Static
   instructions now use an authenticated, allowlisted read while live skill
   status continues over the Gateway WebSocket.
-- Fixed interactive Neura usage being attributed to the administrator's shared
+- Fixed interactive Alshival usage being attributed to the administrator's shared
   workspace OpenAI account.
 - Fixed periodic personal-access reconciliation reapplying the `unlinked` role
-  and disconnecting an already restricted Neura browser every 30 seconds.
+  and disconnecting an already restricted Alshival browser every 30 seconds.
 
 ### Security
 
@@ -280,7 +280,7 @@ Versioning and Git tags in the form `vMAJOR.MINOR.PATCH`.
 - Builder HTTP and WebSocket operations derive identity from authenticated
   ingress, require the configured origin for mutations, authorize each draft,
   constrain package paths and sizes, and reject common credential shapes.
-- The builder adds no public port and does not widen the ordinary Neura
+- The builder adds no public port and does not widen the ordinary Alshival
   Gateway scopes.
 - Personal OAuth tokens stay in per-agent OpenClaw auth storage and are never
   returned to the browser or stored in PostgreSQL. The default Gateway role has
@@ -322,7 +322,7 @@ Versioning and Git tags in the form `vMAJOR.MINOR.PATCH`.
 - Added pop-out and pop-in controls to every integrated desktop app window.
   Live app surfaces move between the desktop and a separate browser window
   without creating a duplicate app instance.
-- Made Neura steering reliable during active work and added a visible FIFO
+- Made Alshival steering reliable during active work and added a visible FIFO
   follow-up queue that advances automatically after each run.
 
 ### Added
@@ -339,15 +339,15 @@ Versioning and Git tags in the form `vMAJOR.MINOR.PATCH`.
   persistent user settings and extensions.
 - A same-origin authenticated HTTP and WebSocket proxy for the embedded VS Code
   surface.
-- Per-window **Pop out** and **Pop back into desktop** controls for Neura,
+- Per-window **Pop out** and **Pop back into desktop** controls for Alshival,
   Files, Editor, Preview, VS Code, Terminal, Automations, Skills, and Settings.
 - Dock actions to focus an external app window or bring one or more pop-outs
   back into the desktop.
 - Automatic recovery when a pop-out is closed with browser chrome, plus clear
   guidance when a browser blocks the requested window.
-- A compact Neura run-state banner and scrollable queued-message panel with
+- A compact Alshival run-state banner and scrollable queued-message panel with
   queue positions, attachment counts, and per-message removal.
-- Compact, expandable Neura work timelines for thinking status, plans,
+- Compact, expandable Alshival work timelines for thinking status, plans,
   commands, file operations, tool actions, command output, and durable history.
 - A **Copy path** action for Files context menus that copies the selected file
   or folder's `~/workspace/...` path and reports clipboard permission failures.
@@ -358,14 +358,14 @@ Versioning and Git tags in the form `vMAJOR.MINOR.PATCH`.
   created only after the user starts, resumes, or joins a session.
 - Terminal launch controls, text scaling, empty states, and responsive layouts
   were simplified to keep the coding surface primary.
-- Minimized Neura, Terminal, and VS Code surfaces remain mounted to preserve
+- Minimized Alshival, Terminal, and VS Code surfaces remain mounted to preserve
   their live browser-side state.
 - Desktop window titles now reserve space for four controls and truncate long
   preview titles cleanly.
-- Neura now treats Enter as immediate steering for the complete lifetime of an
+- Alshival now treats Enter as immediate steering for the complete lifetime of an
   active run. Ctrl/Cmd+Enter admits a Gateway-owned follow-up instead of relying
   on a browser-side timer.
-- Neura keeps its transcript mounted during Gateway reconnects and reconciles
+- Alshival keeps its transcript mounted during Gateway reconnects and reconciles
   durable history without replacing stable message nodes.
 
 ### Fixed
@@ -376,10 +376,10 @@ Versioning and Git tags in the form `vMAJOR.MINOR.PATCH`.
 - Fixed small-screen window-control targeting so adding the pop-out action does
   not hide the close control.
 - Fixed persisted assistant updates and follow-up admission acknowledgements
-  incorrectly marking Neura idle while the original agent run was still active.
-- Fixed sessions that were already running when Neura opened not exposing the
+  incorrectly marking Alshival idle while the original agent run was still active.
+- Fixed sessions that were already running when Alshival opened not exposing the
   steer, queue, and stop controls until another streaming event arrived.
-- Fixed Neura clearing and rebuilding its transcript during a Gateway WebSocket
+- Fixed Alshival clearing and rebuilding its transcript during a Gateway WebSocket
   reconnect, which could reset the reader to the top of a long chat.
 - Fixed transcript updates either stealing the reader's position or failing to
   follow new messages. Bottom-follow now pauses after an intentional upward

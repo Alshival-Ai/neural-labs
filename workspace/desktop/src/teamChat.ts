@@ -40,6 +40,7 @@ export type TeamMessage = {
   sequence: number;
   channelId: string;
   authorKind: "user" | "neura" | "system" | "imported_user" | "imported_neura";
+  clientRequestId?: string;
   author?: TeamDirectoryUser;
   body: string;
   attachments: TeamAttachment[];
@@ -73,13 +74,15 @@ function mutate(csrfToken: string, method: string, body?: unknown): RequestInit 
 }
 
 export const teamChatApi = {
+  cancel: (csrfToken: string, channelId: string) =>
+    json<void>(`/api/team/channels/${encodeURIComponent(channelId)}/cancel`, mutate(csrfToken, "POST")),
   postMemo: (csrfToken: string, channelId: string, input: { body: string; attachments: TeamAttachment[]; clientRequestId: string }, signal?: AbortSignal) =>
     json<{ message: TeamMessage }>(`/api/team/channels/${encodeURIComponent(channelId)}/messages`, {
       ...mutate(csrfToken, "POST", { ...input, invokeAgent: false }), signal,
     }),
   directory: () => json<{ users: TeamDirectoryUser[] }>("/api/team/directory"),
   channels: () => json<{ channels: TeamChannel[] }>("/api/team/channels"),
-  messages: (channelId: string) => json<{ messages: TeamMessage[] }>(`/api/team/channels/${encodeURIComponent(channelId)}/messages`),
+  messages: (channelId: string, before?: number) => json<{ messages: TeamMessage[] }>(`/api/team/channels/${encodeURIComponent(channelId)}/messages${before ? `?before=${before}` : ""}`),
   members: (channelId: string) => json<{ users: TeamDirectoryUser[] }>(`/api/team/channels/${encodeURIComponent(channelId)}/members`),
   ticket: (csrfToken: string) => json<{ ticket: string; expiresAt: string }>("/api/team/socket-ticket", mutate(csrfToken, "POST")),
   create: (csrfToken: string, input: {

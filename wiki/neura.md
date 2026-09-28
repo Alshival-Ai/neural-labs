@@ -1,13 +1,13 @@
-# Neura desktop app
+# Alshival desktop app
 
-Neura is the Neural Labs desktop interface for each user's personal OpenClaw
+Alshival is the Neural Labs desktop interface for each user's personal OpenClaw
 agent. It runs in the workspace image and connects directly to the version-
 matched OpenClaw Gateway browser protocol through the authenticated same-origin
 WebSocket at `/workspace/neura/socket`.
 
 ## Start a conversation
 
-Connect your account in **Settings → Model Provider → OpenAI**, open Neura from
+Connect your account in **Settings → Model Provider → OpenAI**, open Alshival from
 the dock, and create a private conversation. Enter sends a request; Shift+Enter
 adds a line. Use `$` to select a skill, or attach files using the composer.
 See [Your first workspace session](shared-workspace.md) for a complete first run.
@@ -34,7 +34,7 @@ the app. Shift+Enter adds a newline; the visible send controls also work on phon
 ## Planning and sending in private chats
 
 Private chats have a **Normal / Draft plan** selector. Draft plan sends an ordinary
-request asking Neura to propose steps before implementation. This is an advisory
+request asking Alshival to propose steps before implementation. This is an advisory
 prompt: it does not restrict tools or enforce Codex's native Plan mode. Existing
 tool permissions and approvals still apply. The choice is local to the current
 browser tab and conversation; refreshing returns the composer to Normal.
@@ -46,7 +46,7 @@ Old proposed-plan signatures remain readable for existing history.
 
 With focus in the composer:
 
-- **Enter** sends when idle and steers the current run when Neura is working.
+- **Enter** sends when idle and steers the current run when Alshival is working.
 - **Ctrl/Cmd+Enter** queues a follow-up during a run, or sends when idle.
 - **Shift+Enter** inserts a newline.
 - **Ctrl/Cmd+Shift+P** switches between Normal and Draft plan when idle.
@@ -65,19 +65,19 @@ Neural Labs features and the unchanged OpenClaw runtime.
 
 ## Gateway lifecycle
 
-The socket remains open for the desktop session. Neura subscribes to the shared
+The socket remains open for the desktop session. Alshival subscribes to the shared
 conversation roster and acquires a targeted `sessions.messages.subscribe`
 lease for the selected conversation before loading its history or enabling the
 composer. Roster events trigger a fresh `sessions.list` request; the
 `sessions.subscribe` acknowledgement is control-plane metadata and is never
 treated as the conversation list. OpenClaw then delivers streaming `chat` events and durable
-`session.message` commits over that same connection. Neura reconciles the two
+`session.message` commits over that same connection. Alshival reconciles the two
 projections so a committed final answer replaces its temporary streaming row
 without waiting for a page refresh.
 
-Creating a private conversation has an explicit readiness transition. Neura
+Creating a private conversation has an explicit readiness transition. Alshival
 shows **Starting a new chat** while OpenClaw creates the session, then **Getting
-Neura ready** while it acquires the exact message subscription and reconciles
+Alshival ready** while it acquires the exact message subscription and reconciles
 recent context. The previous composer is hidden during creation, and the new
 composer is enabled only after the subscription and history load both succeed.
 The animated indicator respects reduced-motion preferences.
@@ -87,7 +87,7 @@ of the bottom. Scrolling upward pauses that behavior and reveals a compact
 **Latest** control; using it resumes bottom-follow. WebSocket reconnects keep
 the current keyed transcript mounted while history is reconciled in place, so
 a transient connection change does not clear the chat or reset its scroll
-position. Minimizing Neura also keeps the live app mounted.
+position. Minimizing Alshival also keeps the live app mounted.
 
 ## Project placement
 
@@ -111,14 +111,14 @@ also created as OpenClaw `draft` sessions. A named Gateway role allowlists only
 that agent and sets `sessions.others` to `none`, so the Gateway—not only the
 desktop sidebar—rejects another user's roster, transcript, subscription, or
 mutation request. The default role has an empty agent allowlist until the user
-connects a personal account. Legacy `main`-agent private Neura sessions are
+connects a personal account. Legacy `main`-agent private Alshival sessions are
 deleted once during the development migration to avoid retaining interactive
 history under the system account.
 
 The sidebar separates **Your chats** from **Team chats**. Team chats are an
 explicit sharing mode and must never be inferred merely because two approved
 developers use the same deployment. See [Team Chats](team-chats.md) for channel
-membership, live updates, `@Neura`, attachments, and MCP behavior. Every
+membership, live updates, `@Alshival`, attachments, and MCP behavior. Every
 approved Neural Labs user can:
 
 - create and switch conversations;
@@ -133,7 +133,7 @@ cron, heartbeat, and automation sessions. New private conversations use the
 `neura-private` category and `draft` visibility. Team channels are durable
 control-plane records rather than shared OpenClaw sessions. A user can
 explicitly copy a private conversation into a restricted or Everyone channel,
-and `@Neura` invokes the message author's personal OpenClaw agent only for that
+and `@Alshival` invokes the message author's personal OpenClaw agent only for that
 channel turn.
 
 ## Voice
@@ -145,21 +145,21 @@ wave is pressed. Private chat opens a two-way WebRTC session directly between th
 browser and OpenAI Realtime. A persistent call bar provides mute/unmute and hangup,
 including while typing. Mute disables the outgoing audio track. Hold mode only
 transmits while pressed; release, lost focus, and touch cancellation close the mic.
-Changing conversations or closing Neura releases its media. Calls stop after five
+Changing conversations or closing Alshival releases its media. Calls stop after five
 minutes. The authenticated server exchanges SDP and keeps the provider key private.
 
 In Team Chat, the wave is always hold-to-talk and has no mode switch. Releasing
 it transcribes and posts the voice memo rather than opening a live call. The original audio is saved under
 `team-uploads/` and the visible transcript becomes durable channel history. Posting
 a memo explicitly sets `invokeAgent: false`, even if its transcript contains a
-mention or skill command. Teammates can later summon Neura with `@Neura`; recent
+mention or skill command. Teammates can later summon Alshival with `@Alshival`; recent
 transcripts enter that run's bounded channel context, with older history
 accessible through channel-scoped tools. This does not copy team history
 into unrelated private Realtime calls.
 
 Failed memos stay in memory in the current tab for playback, transcription retry,
 audio-only sending, download, or discard. Audio-only posts have no transcript for
-Neura. The memo is retained until the server acknowledges saving it; retries reuse
+Alshival. The memo is retained until the server acknowledges saving it; retries reuse
 one request ID and any completed transcription/upload. Changing channels aborts
 in-flight work and preserves the pending memo for its original channel. Refreshing
 or closing the tab loses unsent audio, so download it first. Both voice API paths
@@ -168,22 +168,22 @@ are separate.
 
 ## Browser QA
 
-Neura can use OpenClaw's bundled browser tool for multi-step website QA. The
+Alshival can use OpenClaw's bundled browser tool for multi-step website QA. The
 workspace image installs Debian's Chromium package plus broad-coverage web and
 emoji fonts; OpenClaw already supplies the Playwright-backed control runtime and
-its `browser-automation` skill. Both private Neura turns and isolated Team Chat
+its `browser-automation` skill. Both private Alshival turns and isolated Team Chat
 turns inherit the browser tool.
 
 The default `openclaw` profile is a dedicated agent-only profile. It runs
 headless in the workspace container, uses `/usr/bin/chromium`, and does not
-attach to a developer's host browser, cookies, or signed-in sessions. Neura can
+attach to a developer's host browser, cookies, or signed-in sessions. Alshival can
 open public HTTP(S) sites, take accessibility snapshots and screenshots, and
 click, type, wait, or inspect browser errors and requests. It should use the
 bundled browser skill's status, stable-tab, snapshot, and stale-reference loop
 for longer QA tasks.
 
 OpenClaw's private-network navigation guard remains active. Only exact
-`localhost` and `127.0.0.1` destinations are added so Neura can test preview
+`localhost` and `127.0.0.1` destinations are added so Alshival can test preview
 servers that it starts inside its own workspace container; the rest of the
 Compose and host private network is not browser-addressable through this grant.
 The browser requires no additional public listener.
@@ -194,7 +194,7 @@ team's website-builder skills treat ordinary style and effect choices as
 evidence-led `AUTO` decisions: complete showcase builds receive a full-bleed
 media opening and one purposeful viewport-scale scroll-video or frame-sequence
 scene whenever compatible media passes the quality gates.
-Neura asks about effects only when the user wants to choose; factual identity or
+Alshival asks about effects only when the user wants to choose; factual identity or
 unsafe conversion ambiguity can still stop a build. Cinematic runtime media is
 stored locally, classified as authentic, representative, or generated, and
 verified before browser QA.
@@ -220,14 +220,14 @@ client after login so a newly saved token is usable without restarting the
 workspace.
 
 On page load, Neural Labs provisions and verifies the personal agent before it
-starts the Neura WebSocket. If the safe account status is disconnected or paused, an
+starts the Alshival WebSocket. If the safe account status is disconnected or paused, an
 actionable desktop toast opens Settings directly on Model Provider. The login
 flow can begin before a Gateway browser profile exists; after successful OpenAI
 authentication, Neural Labs assigns the matching personal role.
 
-Private Neura fails closed when this connection is missing, paused, expired,
+Private Alshival fails closed when this connection is missing, paused, expired,
 or not model-ready. Team Chat initially uses the message author's account;
-after an administrator activates dedicated Team Neura, it uses that separate
+after an administrator activates dedicated Team Alshival, it uses that separate
 account instead. Scheduled automations use their assigned agent, while manual
 AI task runs use the caller's personal account. None uses the shared audio API
 key as a text fallback. See [AI accounts and models](ai-accounts.md).
@@ -239,7 +239,7 @@ a new line. During an active private run, Enter steers the run; queueing remains
 an explicit choice in Send options. When an `@` mention or `$` skill popup is
 open, Enter accepts the highlighted suggestion. IME composition does
 not accidentally submit a message. The split send control exposes both
-active-run choices. Neura also recognizes a
+active-run choices. Alshival also recognizes a
 run reported active by the session roster, including one started before this
 browser opened the app; receiving an intermediate durable assistant message
 does not change the composer back to idle.
@@ -248,7 +248,7 @@ Queued prompts appear in a compact, scrollable FIFO panel above the composer.
 Each row shows its queue position and attachment count and can be removed before
 it begins. Neural Labs admits queued prompts immediately with OpenClaw's
 `followup` mode, so the Gateway starts the next prompt when the current run
-finishes; delivery does not depend on a tab timer or on keeping the Neura window
+finishes; delivery does not depend on a tab timer or on keeping the Alshival window
 visible. The queue row becomes an ordinary user transcript message when that
 turn starts. A follow-up admission acknowledgement is not mistaken for the end
 of the original run.
@@ -325,7 +325,7 @@ node --test workspace/http-server.test.mjs
 Your Chats initially shows five recent conversations. Load more chats reveals
 five more in its own scrolling section, keeping Team chats accessible below.
 Collapse Your Chats to make more room; this preference is remembered for each
-Neura window on the current device. Searching temporarily opens matching private
+Alshival window on the current device. Searching temporarily opens matching private
 history, and clearing the search restores the collapse preference. An older open
 conversation remains reachable under Current chat.
 
@@ -336,7 +336,7 @@ near the viewport to load. Playback depends on the browser's codec support, and
 Download remains available when a video cannot play. Private video playback uses
 the same authorization tickets and supports byte-range requests for seeking.
 
-In private Neura replies, standalone `MEDIA:` lines pointing to files already in
+In private Alshival replies, standalone `MEDIA:` lines pointing to files already in
 the shared workspace become attachments, including after reopening a conversation.
 For example, `MEDIA:/home/node/workspace/projects/demo/clip.mp4` becomes an inline
 video with download actions. The marker is removed from the displayed caption.

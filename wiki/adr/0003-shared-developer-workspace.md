@@ -7,7 +7,7 @@
 - Date: 2026-09-01
 
 The single-container trust decision remains current. ADR 0013 supersedes the
-same-agent and same-interactive-credential details: Neura now uses one logical
+same-agent and same-interactive-credential details: Alshival now uses one logical
 OpenClaw agent and auth directory per user, while files, root access,
 automations, and the operating-system trust domain remain shared.
 
@@ -37,7 +37,7 @@ that same image so custom OpenClaw applications share the runtime boundary.
 Publish both the desktop and Gateway only on host loopback and place them on a
 dedicated bridge whose gateway IP is the only OpenClaw trusted proxy.
 
-Host nginx authenticates every desktop, asset, and Neura WebSocket request with
+Host nginx authenticates every desktop, asset, and Alshival WebSocket request with
 a control-plane subrequest, overwrites forwarded address and identity headers,
 and sends the immutable Neural Labs user ID to the workspace. The generic
 OpenClaw Control UI is disabled; the only public Gateway surface is the exact
@@ -45,7 +45,7 @@ OpenClaw Control UI is disabled; the only public Gateway surface is the exact
 auto-approval and limits authenticated desktop clients to the main agent and
 the read, write, approvals, and questions operator scopes.
 
-Neura exposes shared main-agent chat sessions. Any approved user may create,
+Alshival exposes shared main-agent chat sessions. Any approved user may create,
 rename, archive, restore, or permanently delete those sessions and may resolve
 an inline agent approval. These are collaboration capabilities, not
 administrator-console privileges. The control plane receives no Docker socket
@@ -138,7 +138,7 @@ per-user isolation boundary.
   provisioner, or idle-stop policy.
 - Approved users can see or alter shared files and credentials; application
   roles do not create secret isolation inside the workspace.
-- Approved users can delete shared Neura transcripts after an explicit client
+- Approved users can delete shared Alshival transcripts after an explicit client
   confirmation. V1 has no per-conversation ownership or retention policy.
 - Approved users can also permanently delete shared workspace files and folders
   after confirmation. The Files app has no per-user ownership or recoverable

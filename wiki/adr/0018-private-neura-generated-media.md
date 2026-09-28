@@ -1,6 +1,6 @@
-# ADR 0018: Relay generated Neura media with short-lived capabilities
+# ADR 0018: Relay generated Alshival media with short-lived capabilities
 
-> Design history: for current instructions, see [Neura desktop app](../neura.md).
+> Design history: for current instructions, see [Alshival desktop app](../neura.md).
 > See the [decision index](../maintainer-reference.md#architecture-decision-history) for amendments and related records.
 
 - Status: Accepted
@@ -16,13 +16,13 @@ broken, and opening a card reached an unrelated API path that returned `404`.
 
 Publishing the Gateway HTTP media tree or copying its private state into a
 public file route would broaden the workspace trust boundary. Generated media
-must remain attached to the authorized Neura conversation and must not become a
+must remain attached to the authorized Alshival conversation and must not become a
 stable public URL.
 
 ## Decision
 
 Preserve OpenClaw artifact identifiers in the desktop message projection. Use
-the already authenticated, user-scoped Neura WebSocket to call
+the already authenticated, user-scoped Alshival WebSocket to call
 `artifacts.download`; OpenClaw then authorizes session access and returns either
 inline bytes or a short-lived, session-and-attachment-bound media ticket.
 
@@ -37,7 +37,7 @@ as clickable URLs.
 
 ## Consequences
 
-- Generated images render in Neura without exposing a new public Gateway
+- Generated images render in Alshival without exposing a new public Gateway
   surface or a stable public file URL.
 - Session authorization happens before ticket issuance on the authenticated
   WebSocket; the relay cannot mint or widen access.

@@ -73,7 +73,7 @@ export class TerminalAgentBridge {
 
   async authorize(token) {
     const grant = this.grants.get(token);
-    if (!grant || grant.expiresAt <= this.now()) fail(403, "terminal_context_expired", "Terminal context expired; send a new message from Neura");
+    if (!grant || grant.expiresAt <= this.now()) fail(403, "terminal_context_expired", "Terminal context expired; send a new message from Alshival");
     const actor = await this.resolveActor(grant.actor.id);
     if (!actor) fail(403, "terminal_access_revoked", "Workspace access was revoked");
     grant.actor = actor;
@@ -98,12 +98,12 @@ export class TerminalAgentBridge {
     if (!id) fail(422, "terminal_required", "Provide an explicit terminal ID from recentTerminals or list_terminals");
     let session = await this.session(grant, id);
     if (tool === "send_terminal_input") {
-      if (session.agentMode !== "shared") fail(403, "terminal_paused", "Neura participation is paused; the user must enable it in Terminal");
+      if (session.agentMode !== "shared") fail(403, "terminal_paused", "Alshival participation is paused; the user must enable it in Terminal");
       if (!session.process || session.status !== "running") fail(409, "terminal_not_running", "Terminal process is not running");
       const data = input.interrupt === true ? "\x03" : input.text;
       if (typeof data !== "string" || !data || Buffer.byteLength(data) > 64 * 1024) fail(422, "invalid_input", "Terminal input must contain 1–65536 bytes");
       this.activity(session);
-      this.manager.input(session, { actor: { ...grant.actor, label: "Neura" }, lastTypingAt: 0, agent: true }, data);
+      this.manager.input(session, { actor: { ...grant.actor, label: "Alshival" }, lastTypingAt: 0, agent: true }, data);
       this.manager.broadcast(session, { type: "agent-input", at: this.now() });
       return { terminalId: id, sent: true };
     }

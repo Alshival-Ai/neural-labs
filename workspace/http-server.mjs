@@ -1,3 +1,4 @@
+import { createImportedHistory } from "./imported-history.mjs";
 import { revokeManagedMember } from "./managed-members.mjs";
 import { trackResponseWork } from "./update-maintenance.mjs";
 import { PersonalAutomationRuns, AutomationRunError } from "./personal-automation-runs.mjs";
@@ -193,16 +194,16 @@ function parseNeuraMediaRequest(url) {
   const match = url.pathname.match(/^\/workspace\/api\/neura\/media\/outgoing\/([^/]+)\/([A-Za-z0-9-]{1,128})\/(full|thumbnail)$/u);
   const ticket = url.searchParams.get("mediaTicket");
   if (!match || !ticket || !NEURA_MEDIA_TICKET.test(ticket) || [...url.searchParams.keys()].some((key) => !["mediaTicket", "download", "name"].includes(key)) || (url.searchParams.has("download") && url.searchParams.get("download") !== "1") || (url.searchParams.has("name") && (!url.searchParams.has("download") || url.searchParams.get("name").length > 255))) {
-    throw new WorkspaceFileError(404, "media_not_found", "This Neura attachment is unavailable");
+    throw new WorkspaceFileError(404, "media_not_found", "This Alshival attachment is unavailable");
   }
   let sessionKey;
   try {
     sessionKey = decodeURIComponent(match[1]);
   } catch {
-    throw new WorkspaceFileError(404, "media_not_found", "This Neura attachment is unavailable");
+    throw new WorkspaceFileError(404, "media_not_found", "This Alshival attachment is unavailable");
   }
   if (!sessionKey || sessionKey.length > 512 || sessionKey.includes("/") || sessionKey.includes("\\")) {
-    throw new WorkspaceFileError(404, "media_not_found", "This Neura attachment is unavailable");
+    throw new WorkspaceFileError(404, "media_not_found", "This Alshival attachment is unavailable");
   }
   return `/api/chat/media/outgoing/${encodeURIComponent(sessionKey)}/${match[2]}/${match[3]}?mediaTicket=${encodeURIComponent(ticket)}`;
 }
@@ -220,7 +221,7 @@ async function relayNeuraMedia(response, method, upstreamOrigin, upstreamPath, g
       signal: AbortSignal.timeout(15_000),
     });
   } catch {
-    throw new WorkspaceFileError(502, "media_unavailable", "Neura could not load this attachment");
+    throw new WorkspaceFileError(502, "media_unavailable", "Alshival could not load this attachment");
   }
   if (upstream.status === 416) {
     await upstream.body?.cancel().catch(() => {});
@@ -234,11 +235,11 @@ async function relayNeuraMedia(response, method, upstreamOrigin, upstreamPath, g
   }
   if (!upstream.ok) {
     await upstream.body?.cancel().catch(() => {});
-    throw new WorkspaceFileError([401, 403, 404].includes(upstream.status) ? upstream.status : 502, "media_unavailable", "This Neura attachment is unavailable");
+    throw new WorkspaceFileError([401, 403, 404].includes(upstream.status) ? upstream.status : 502, "media_unavailable", "This Alshival attachment is unavailable");
   }
   const contentType = upstream.headers.get("content-type") ?? "application/octet-stream";
   if (!downloadName && !/^(?:image|audio|video)\//iu.test(contentType) && contentType !== "application/pdf" && contentType !== "application/octet-stream") {
-    throw new WorkspaceFileError(415, "media_unavailable", "This Neura attachment type is unavailable");
+    throw new WorkspaceFileError(415, "media_unavailable", "This Alshival attachment type is unavailable");
   }
   response.setHeader("Cache-Control", "private, no-store");
   response.setHeader("Content-Type", contentType);
@@ -480,6 +481,7 @@ export function createWorkspaceHttpServer({
     root: builderDraftsRoot,
     publishSkill: (actor, skillPackage, targetKey) => skills.savePackage(actor, skillPackage, targetKey),
   });
+  const importedHistory = createImportedHistory({ root: workspaceRoot, stateRoot: path.join(filesStateRoot, "history") });
   const fileEvents = createWorkspaceFileEvents({ root: workspaceRoot });
   const explorer = createExplorerManager({ files, root: workspaceRoot, stateRoot: filesStateRoot, paused: () => updateMaintenance?.gated, changed: (event) => fileEvents.publish(event) });
   const terminals = terminalManager ?? new WorkspaceTerminalManager({ workspaceRoot, turnCredentialProvider, teamChannelAuthorizer, gifProvider });
@@ -668,7 +670,7 @@ export function createWorkspaceHttpServer({
         if (action) modelCatalog?.invalidate();
         sendJson(response, action === "start" ? 202 : 200, result, method);
       } catch {
-        sendJson(response, 503, { error: { code: "team_provider_unavailable", message: "Team Neura connection is unavailable" } }, method);
+        sendJson(response, 503, { error: { code: "team_provider_unavailable", message: "Team Alshival connection is unavailable" } }, method);
       }
       return;
     }
@@ -721,6 +723,8 @@ export function createWorkspaceHttpServer({
         sendJson(response, 405, { error: { code: "method_not_allowed", message: "Method not allowed" } }, method);
         return;
       }
+      const abort = new AbortController();
+      response.once("close", () => { if (!response.writableEnded) abort.abort(); });
       try {
         const body = await readJsonBody(request, 2 * 1024 * 1024);
         const terminalActor = terminalActorResolver ? await terminalActorResolver(body?.userId) : null;
@@ -729,12 +733,12 @@ export function createWorkspaceHttpServer({
             ? await terminalAgent.context(body.terminalContextToken, terminalActor.id, body.channelId)
             : await terminalAgent.mint(terminalActor, { conversationId: `team:${body.channelId}:${body.runId}`, channelId: body.channelId })
           : null;
-        const result = await runTeamAgent({ prompt: body?.prompt + (terminalContext ? terminalContextInstructions(terminalContext) : ""), capability: body?.capability, userId: body?.userId, runId: body?.runId, ...(body?.modelSettings ? { modelSettings: body.modelSettings } : {}) });
+        const result = await runTeamAgent({ signal: abort.signal, prompt: body?.prompt + (terminalContext ? terminalContextInstructions(terminalContext) : ""), capability: body?.capability, userId: body?.userId, runId: body?.runId, ...(body?.modelSettings ? { modelSettings: body.modelSettings } : {}) });
         sendJson(response, 200, typeof result === "string" ? { reply: result } : result, method);
       } catch (error) {
         console.error("Team Chat agent run failed", error instanceof Error ? error.message : error);
         const personalAccountRequired = error?.code === "personal_openai_required";
-        sendJson(response, personalAccountRequired ? 409 : 502, { error: { code: personalAccountRequired ? "personal_openai_required" : "agent_run_failed", message: personalAccountRequired ? error.message : "Neura could not complete this Team Chat turn" } }, method);
+        sendJson(response, personalAccountRequired ? 409 : 502, { error: { code: personalAccountRequired ? "personal_openai_required" : "agent_run_failed", message: personalAccountRequired ? error.message : "Alshival could not complete this Team Chat turn" } }, method);
       }
       return;
     }
@@ -909,7 +913,7 @@ export function createWorkspaceHttpServer({
         return;
       }
       if (!gatewayMediaOrigin) {
-        sendJson(response, 503, { error: { code: "media_unavailable", message: "Neura media is unavailable" } }, method);
+        sendJson(response, 503, { error: { code: "media_unavailable", message: "Alshival media is unavailable" } }, method);
         return;
       }
       try {
@@ -1166,13 +1170,26 @@ export function createWorkspaceHttpServer({
         const user = request.headers["x-forwarded-user"].trim();
         const requestedPath = url.searchParams.get("path") ?? "";
         const options = Object.fromEntries(url.searchParams);
+        if (pathname === "/workspace/api/files/history" && method === "GET") {
+          sendJson(response, 200, await importedHistory.list(requestedPath), method); return;
+        }
+        if (pathname === "/workspace/api/files/history/download" && method === "GET") {
+          const file = await importedHistory.download(url.searchParams.get("id"));
+          response.setHeader("Cache-Control", "private, no-store");
+          response.setHeader("Content-Type", file.mimeType);
+          response.setHeader("Content-Length", file.size);
+          response.setHeader("Content-Disposition", contentDisposition(file.name));
+          response.setHeader("X-Content-Type-Options", "nosniff");
+          response.writeHead(200);
+          file.stream().on("error", () => response.destroy()).pipe(response); return;
+        }
         if (pathname === "/workspace/api/files/import-neura" && method === "POST") {
-          if (!gatewayMediaOrigin) throw new WorkspaceFileError(503, "media_unavailable", "Neura media is unavailable");
+          if (!gatewayMediaOrigin) throw new WorkspaceFileError(503, "media_unavailable", "Alshival media is unavailable");
           const body = await readJsonBody(request);
           if (!body || typeof body.mediaUrl !== "string" || !body.mediaUrl.startsWith(NEURA_MEDIA_PREFIX)
             || typeof body.destination !== "string" || typeof body.name !== "string"
             || (body.conflict !== undefined && !["replace", "keep-both"].includes(body.conflict))) {
-            throw new WorkspaceFileError(400, "invalid_import", "Choose a Neura attachment and a workspace destination");
+            throw new WorkspaceFileError(400, "invalid_import", "Choose a Alshival attachment and a workspace destination");
           }
           const upstreamPath = parseNeuraMediaRequest(new URL(body.mediaUrl, publicOrigin));
           const controller = new AbortController();
@@ -1185,7 +1202,7 @@ export function createWorkspaceHttpServer({
               signal: AbortSignal.any([controller.signal, AbortSignal.timeout(600_000)]),
             });
             if (!upstream.ok || !upstream.body) {
-              throw new WorkspaceFileError([401, 403, 404].includes(upstream.status) ? upstream.status : 502, "media_unavailable", "This Neura attachment is unavailable; reload it and try again");
+              throw new WorkspaceFileError([401, 403, 404].includes(upstream.status) ? upstream.status : 502, "media_unavailable", "This Alshival attachment is unavailable; reload it and try again");
             }
             const input = Readable.fromWeb(upstream.body);
             // Upload admission may await the file-operation lock before consuming bytes.

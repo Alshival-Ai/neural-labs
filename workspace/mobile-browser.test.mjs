@@ -9,7 +9,7 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 
 test(
-  "Neura history and terminal controls work at mobile widths",
+  "Alshival history and terminal controls work at mobile widths",
   {
     skip: !process.env.PLAYWRIGHT_MODULE_PATH,
     timeout: 90000,
@@ -104,7 +104,7 @@ test(
         ),
         true,
       );
-      const composer = page.getByPlaceholder("Message Neura…");
+      const composer = page.getByPlaceholder("Message Alshival…");
       const mode = page.getByRole("combobox", { name: "Conversation mode" });
       await mode.selectOption("plan");
       assert.equal(await mode.inputValue(), "plan");
@@ -136,7 +136,7 @@ test(
         (await page.evaluate(() => window.mobileQA.sends)).length,
         1,
       );
-      const activeComposer = page.getByPlaceholder("Steer Neura now, or queue what comes next…");
+      const activeComposer = page.getByPlaceholder("Steer Alshival now, or queue what comes next…");
       await activeComposer.fill("A queued follow-up");
       await page.getByRole("button", { name: "Queue after this run" }).waitFor();
       await screenshot("neura-send-controls-mobile");
@@ -295,7 +295,7 @@ test("chat sidebar, image preview, and download menus fit desktop and short phon
         return route.fulfill({ json: { path: "Downloads", parent: "", entries: [] } });
       });
       await page.goto(`${process.env.MOBILE_TEST_ORIGIN || "http://127.0.0.1:4196"}/workspace/tests/mobile.html`);
-      await page.getByPlaceholder("Message Neura…").waitFor();
+      await page.getByPlaceholder("Message Alshival…").waitFor();
       if (viewport.width < 700) await page.getByRole("button", { name: "Open conversation history" }).click();
       const section = page.locator(".private-chat-section");
       assert.equal(await section.locator(".history-row").count(), 5);

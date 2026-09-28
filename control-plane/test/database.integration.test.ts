@@ -45,7 +45,8 @@ integration("PostgreSQL account state", () => {
       }
       const owner = await upgrade.createLocalUser({ email: "chat-upgrade@example.org", displayName: "Chat upgrade", passwordHash: "test-only" });
       const store = new CollaborationStore(upgradePool);
-      const channel = await store.createChannel(owner, { name: "Attachment upgrade", audience: "everyone", memberIds: [] });
+      const channel = { channel: { id: randomUUID() } };
+      await upgradePool.query("INSERT INTO team_channels(id,name,audience,owner_user_id) VALUES($1,'Attachment upgrade','everyone',$2)", [channel.channel.id, owner.id]);
       const attachment = { path: "uploads/photo.png", name: "photo.png", type: "image/png", size: 12 };
       // Seed the historical schema directly. Current message admission also
       // requires the update gate introduced by the later migrations.
@@ -176,7 +177,7 @@ integration("PostgreSQL account state", () => {
     expect(await database.findPasskeyByCredentialId("integration-credential")).toBeUndefined();
   });
 
-  it("enforces Team Chat membership and scopes Neura capabilities to one channel", async () => {
+  it("enforces Team Chat membership and scopes Alshival capabilities to one channel", async () => {
     const collaborationSchema = `collaboration_${randomUUID().replaceAll("-", "")}`;
     await adminPool.query(`CREATE SCHEMA ${collaborationSchema}`);
     const collaborationPool = new Pool({
@@ -235,7 +236,7 @@ integration("PostgreSQL account state", () => {
       )).rejects.toMatchObject({ code: "23514" });
       const posted = await store.postMessage(member, {
         channelId: created.channel.id,
-        body: `(@${owner.handle}), please review this with @Neura.`,
+        body: `(@${owner.handle}), please review this with @Alshival.`,
         attachments: [],
         clientRequestId: randomUUID(),
       });

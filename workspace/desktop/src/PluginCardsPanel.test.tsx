@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PluginCardsPanel } from "./PluginCardsPanel";
 import type { ApiProviderPlugin, PluginCatalog } from "./settingsApi";
-const provider: ApiProviderPlugin = { id: "klipy", type: "api-provider", name: "KLIPY", description: "GIFs for Neura", scope: "global", ownership: "workspace", editable: true, configured: false, ready: false, source: null, applied: true, revision: 0, appliedRevision: 0, deploymentOverride: false, state: "disconnected", capabilities: ["GIF search"], check: null };
+const provider: ApiProviderPlugin = { id: "klipy", type: "api-provider", name: "KLIPY", description: "GIFs for Alshival", scope: "global", ownership: "workspace", editable: true, configured: false, ready: false, source: null, applied: true, revision: 0, appliedRevision: 0, deploymentOverride: false, state: "disconnected", capabilities: ["GIF search"], check: null };
 function setup(editable = true) {
   let current = { ...provider, editable };
   const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {

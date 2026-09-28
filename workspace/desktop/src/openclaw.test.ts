@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { NeuraGateway, activitiesFromGatewayEvent, normalizeNeuraHistory, workspaceNeuraMediaUrl } from "./openclaw";
 
-describe("Neura Gateway projections", () => {
+describe("Alshival Gateway projections", () => {
   it("reconstructs safe command and thinking steps from durable history", () => {
     const history = normalizeNeuraHistory([
       { role: "user", id: "user-1", content: [{ type: "text", text: "Run the checks" }] },

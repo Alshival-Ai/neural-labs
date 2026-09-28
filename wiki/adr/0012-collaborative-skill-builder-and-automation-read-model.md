@@ -43,18 +43,18 @@ shortcut. A published slug is immutable. Owners edit Neural Labs-managed skills
 directly; other skills are duplicated into a new personal draft.
 
 Test an unpublished skill by sending an immutable inline package snapshot to a
-new private Neura session. Persist test summaries in the shared draft, display
+new private Alshival session. Persist test summaries in the shared draft, display
 agent steps compactly, and let only the initiating user resolve approvals or
 stop that run. Testing does not install the draft into the effective catalog.
 
 Expose operational automation state to every active workspace user through the
-ordinary `operator.read` Neura connection. Before rendering that state for a
+ordinary `operator.read` Alshival connection. Before rendering that state for a
 non-administrator, replace payload content and remove condition scripts,
 working directories, tools, model/thinking settings, agent identity, delivery
 targets, token usage, and errors. All scheduler mutations and unredacted reads
 continue through the administrator-only connection established by ADR 0005.
 
-Do not add a public port or widen the ordinary Neura connection's scopes.
+Do not add a public port or widen the ordinary Alshival connection's scopes.
 
 ## Consequences
 

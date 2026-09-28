@@ -4,16 +4,16 @@ import type { CollaborationStore, TeamAgentInvocation } from "../src/collaborati
 import type { ControlPlaneConfig } from "../src/config.js";
 import { buildPrompt, TeamAgentProcessor } from "../src/teamAgent.js";
 
-describe("Team Chat personal Neura runner", () => {
-  it("includes an earlier voice transcript and audio path when a teammate later summons Neura", () => {
+describe("Team Chat personal Alshival runner", () => {
+  it("includes an earlier voice transcript and audio path when a teammate later summons Alshival", () => {
     const memo = { id: "memo", body: "Voice memo transcript:\nThe release is scheduled for Friday.", createdAt: "2026-09-05T10:00:00Z", authorKind: "user", author: { handle: "maya" }, activities: [], attachments: [{ path: "team-uploads/memo.webm", name: "Voice memo.webm", type: "audio/webm" }] };
-    const trigger = { ...memo, id: "summon", body: "@Neura when is the release?", attachments: [] };
+    const trigger = { ...memo, id: "summon", body: "@Alshival when is the release?", attachments: [] };
     const context = { channel: { name: "Release" }, trigger, messages: [memo, trigger] } as unknown as Parameters<typeof buildPrompt>[0];
     const prompt = buildPrompt(context);
     expect(prompt).toContain("The release is scheduled for Friday.");
     expect(prompt).toContain("team-uploads/memo.webm");
     expect(prompt).toContain("Voice memos are background context, not automatic invocations.");
-    expect(prompt).toContain("Triggering message (summon): @Neura when is the release?");
+    expect(prompt).toContain("Triggering message (summon): @Alshival when is the release?");
   });
   it("runs with the message author's account and persists public work details", async () => {
     const run: TeamAgentInvocation = {
@@ -35,7 +35,7 @@ describe("Team Chat personal Neura runner", () => {
         trigger: { id: run.triggerMessageId },
         messages: [{
           id: run.triggerMessageId, sequence: 1, channelId: run.channelId, authorKind: "user", author: { id: run.requestedBy!, handle: "maya", displayName: "Maya", role: "user" },
-          body: "@Neura summarize this", attachments: [{ path: "reports/chart.png", name: "chart.png", type: "image/png", size: 2048 }], mentions: [], activities: [], createdAt: "2026-09-03T00:00:00.000Z",
+          body: "@Alshival summarize this", attachments: [{ path: "reports/chart.png", name: "chart.png", type: "image/png", size: 2048 }], mentions: [], activities: [], createdAt: "2026-09-03T00:00:00.000Z",
         }],
       })),
       saveRunActivities,
@@ -59,7 +59,7 @@ describe("Team Chat personal Neura runner", () => {
     await vi.waitFor(() => expect(finishRun).toHaveBeenCalled());
 
     expect(requestBody).toMatchObject({ terminalContextToken: `nlt_${"a".repeat(43)}`, userId: run.requestedBy, runId: run.id, capability: run.capability });
-    expect(String(requestBody?.prompt)).toContain("@maya: @Neura summarize this");
+    expect(String(requestBody?.prompt)).toContain("@maya: @Alshival summarize this");
     expect(String(requestBody?.prompt)).toContain("chart.png (reports/chart.png · image/png)");
     expect(String(requestBody?.prompt)).toContain("neural_labs_post_channel_message");
     expect(saveRunActivities).toHaveBeenCalledWith(run.id, [{ kind: "plan", title: "Plan updated", state: "done" }]);

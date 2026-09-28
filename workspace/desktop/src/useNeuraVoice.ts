@@ -101,7 +101,7 @@ export function usePrivateNeuraVoice(
       !navigator.mediaDevices?.getUserMedia ||
       typeof RTCPeerConnection === "undefined"
     ) {
-      notify("This browser does not support Neura voice chat.");
+      notify("This browser does not support Alshival voice chat.");
       return;
     }
     const id = ++generation.current;
@@ -146,7 +146,7 @@ export function usePrivateNeuraVoice(
               type: "response.create",
               response: {
                 instructions:
-                  "Greet the user briefly as Neura, then ask how you can help.",
+                  "Greet the user briefly as Alshival, then ask how you can help.",
               },
             }),
           );
@@ -169,7 +169,7 @@ export function usePrivateNeuraVoice(
         () => {
           stop();
           current.current.notify(
-            "The five-minute Neura voice session has ended.",
+            "The five-minute Alshival voice session has ended.",
           );
         },
         Math.min(300, result.maxSeconds) * 1000,
