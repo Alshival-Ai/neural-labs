@@ -1,3 +1,6 @@
+import { attachProjectSocket } from "./projectSocket.js";
+import { ProjectStore } from "./projects.js";
+import { SessionService } from "./sessions.js";
 import { bindAuthenticationMode, reconcileManagedMembers } from "./managed.js";
 import { UpdateService } from "./updates.js";
 import { createServer } from "node:http";
@@ -101,6 +104,7 @@ if (process.argv[2] === "setup-reset") {
   notificationTimer.unref();
   const server = createServer(application.app);
   socketHub.attach(server);
+  const projectSocket = attachProjectSocket(server, new SessionService(database, config), new ProjectStore(database.pool));
   server.listen(config.port, config.host, () => {
     console.log(`Neural Labs control plane listening on ${config.host}:${config.port}`);
   });
@@ -117,6 +121,7 @@ if (process.argv[2] === "setup-reset") {
     // Upgrade connections are not counted as ordinary HTTP requests, so close
     // them before waiting for the HTTP server to drain.
     socketHub.close();
+    projectSocket.close();
     server.close(async (error) => {
       if (error) {
         console.error("HTTP shutdown failed", error);

@@ -191,6 +191,11 @@ export class Database {
     }
   }
 
+  async getUser(id: string): Promise<UserRecord | undefined> {
+    const result = await this.pool.query<UserRow>("SELECT * FROM users WHERE id=$1", [id]);
+    return result.rows[0] ? mapUser(result.rows[0]) : undefined;
+  }
+
   async close(): Promise<void> {
     await this.pool.end();
   }

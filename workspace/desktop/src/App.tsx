@@ -1,3 +1,4 @@
+import { ProjectsApp } from "./ProjectsApp";
 import { UpdateNotice } from "./UpdateNotice";
 import { recordTerminalFocus, terminalAgentRequest } from "./terminalAgentApi";
 import {
@@ -63,7 +64,7 @@ type Session = {
 type Runtime = { status: string };
 type PersonalModelBootstrap = { agentId: string; authenticated: boolean; paused: boolean };
 type ToastNotice = { message: string; action?: "open-personalization" };
-type DesktopApp = "neura" | "files" | "preview" | "image-editor" | "settings" | "terminal" | "vscode" | "automations" | "skills";
+type DesktopApp = "projects" | "neura" | "files" | "preview" | "image-editor" | "settings" | "terminal" | "vscode" | "automations" | "skills";
 type WindowVisibility = "open" | "minimized" | "popped-out";
 type DesktopWindowState = { id: string; app: DesktopApp; visibility: WindowVisibility; order: number; preview?: WorkspacePreviewFile; filesPath?: string };
 type ManagedPopout = PopoutSurface & { handlePageHide: () => void };
@@ -76,7 +77,7 @@ type AppearanceDeviceState = {
   fontScale: number;
 };
 
-const DESKTOP_APPS = new Set<DesktopApp>(["neura", "files", "preview", "image-editor", "settings", "terminal", "vscode", "automations", "skills"]);
+const DESKTOP_APPS = new Set<DesktopApp>(["projects", "neura", "files", "preview", "image-editor", "settings", "terminal", "vscode", "automations", "skills"]);
 
 function storedPreviewFile(value: unknown): WorkspacePreviewFile | undefined {
   if (!value || typeof value !== "object") return undefined;
@@ -162,6 +163,7 @@ function desktopWindowTitle(window: DesktopWindowState): string {
   if (window.app === "preview") return `Preview — ${window.preview?.name ?? "File"}`;
   if (window.app === "image-editor") return `Image Editor — ${window.preview?.name ?? "Untitled"}`;
   if (window.app === "settings") return "Settings";
+  if (window.app === "projects") return "Projects";
   if (window.app === "automations") return "Automations";
   if (window.app === "skills") return "Skills & Automations";
   if (window.app === "vscode") return "VS Code";
@@ -725,6 +727,7 @@ export function App() {
                 {desktopWindow.app === "settings" && session?.user && session.csrfToken && <TerminalLaunchContext.Provider value={openProviderTerminal}><SettingsApp managed={session.managed} workspaceStatus={runtime} administrator={session.user.role === "admin"} csrfToken={session.csrfToken} currentUserId={session.user.id} user={session.user} providers={session.providers ?? []} initialNotice={initialSettingsLaunch.notice} initialSection={initialSettingsLaunch.open ? initialSettingsLaunch.section : undefined} sectionRequest={settingsLaunchRequest?.targetWindowId === desktopWindow.id ? settingsLaunchRequest : undefined} fontScale={fontScale} onFontScaleChange={setFontScale} onLogout={() => void logout()} storageNamespace={persistenceUserId} storageArea={`settings.${desktopWindow.id}`} /></TerminalLaunchContext.Provider>}
                 {desktopWindow.app === "terminal" && <TerminalApp active={activeWindowId === desktopWindow.id} onFocusSession={reportTerminalFocus} workspaceName="Workspace" notify={notify} storageNamespace={persistenceUserId} storageArea={`terminal.${desktopWindow.id}`} fontScale={fontScale} onFontScaleChange={setFontScale} openRequest={terminalOpenRequest?.targetWindowId === desktopWindow.id ? terminalOpenRequest : undefined} />}
                 {desktopWindow.app === "vscode" && <VsCodeApp notify={notify} openRequest={vsCodeOpenRequest?.targetWindowId === desktopWindow.id ? vsCodeOpenRequest : undefined} />}
+                {desktopWindow.app === "projects" && <ProjectsApp />}
                 {(desktopWindow.app === "skills" || desktopWindow.app === "automations") && session?.user && <SkillsLiveApp reader={gateway} administrator={session.user.role === "admin" ? automationsGateway : undefined} canManage={session.user.role === "admin"} currentUser={{ id: session.user.id, displayName: session.user.displayName, role: session.user.role }} initialSection={skillsLaunchRequest?.targetWindowId === desktopWindow.id ? skillsLaunchRequest.section : "mine"} sectionRequestId={skillsLaunchRequest?.targetWindowId === desktopWindow.id ? skillsLaunchRequest.id : undefined} notify={notify} onComposeInNeura={composeInNeura} workspaceName="Workspace" />}
               </Suspense>
             </DesktopWindow>
@@ -736,6 +739,7 @@ export function App() {
       <span className="shell-reveal-zone shell-reveal-zone--bottom" aria-hidden="true" />
       <nav className="dock" aria-label="Applications">
         <DockButton name="Neura" primary active={windowCount("neura") > 0} count={windowCount("neura")} onClick={() => toggleDockApp("neura")} onContextMenu={(event) => openDockMenu("neura", event)}><Sparkles /></DockButton>
+        <DockButton name="Projects" active={windowCount("projects") > 0} count={windowCount("projects")} onClick={() => toggleDockApp("projects")}><PanelTopOpen /></DockButton>
         <DockButton name="Files" active={windowCount("files") > 0} count={windowCount("files")} onClick={() => toggleDockApp("files")} onContextMenu={(event) => openDockMenu("files", event)}><Folder /></DockButton>
         <DockButton name="Image Editor" active={windowCount("image-editor") > 0} count={windowCount("image-editor")} onClick={() => toggleDockApp("image-editor")} onContextMenu={(event) => openDockMenu("image-editor", event)}><ImageIcon /></DockButton>
         <DockButton name="VS Code" active={windowCount("vscode") > 0} count={windowCount("vscode")} onClick={() => toggleDockApp("vscode")} onContextMenu={(event) => openDockMenu("vscode", event)}><Code2 /></DockButton>

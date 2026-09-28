@@ -16,6 +16,9 @@
     "validate": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
+    "@modelcontextprotocol/express": "2.0.0",
+    "@modelcontextprotocol/node": "2.0.0",
+    "@modelcontextprotocol/server": "2.0.0",
     "@simplewebauthn/server": "14.0.0",
     "argon2": "0.45.1",
     "express": "5.2.1",

@@ -81,6 +81,7 @@ export class CollaborationSocketHub {
 
   private async upgrade(request: IncomingMessage, socket: import("node:stream").Duplex, head: Buffer): Promise<void> {
     const url = new URL(request.url ?? "/", "http://localhost");
+    if (url.pathname === "/api/projects/socket") return;
     if (url.pathname !== "/api/team/socket") return rejectUpgrade(request, socket, 403, "Unknown WebSocket endpoint");
     const forwardedProto = String(request.headers["x-forwarded-proto"] ?? "http").split(",")[0]!.trim();
     const forwardedHost = String(request.headers["x-forwarded-host"] ?? request.headers.host ?? "").split(",")[0]!.trim();

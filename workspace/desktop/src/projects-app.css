@@ -1,0 +1,21 @@
+.projects-app { height:100%; overflow:auto; background:var(--surface,#111); color:var(--text,#eee); padding:20px; font:14px/1.5 system-ui; box-sizing:border-box; }
+.projects-app header,.projects-app nav,.projects-actions { display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between; }
+.projects-app h1,.projects-app h2 { margin:0 0 10px; } .projects-app h2 { font-size:16px; }
+.projects-app button { background:#30343b; color:#fff; border:1px solid #62666c; border-radius:8px; padding:8px 12px; cursor:pointer; }
+.projects-app button[aria-pressed=true],.projects-app button[type=submit] { background:#fff; color:#111; }
+.projects-app button:disabled { opacity:.6; cursor:wait; }
+.projects-app nav { justify-content:flex-start; margin:18px 0; }
+.projects-layout { display:grid; grid-template-columns:minmax(0,1fr) 280px; gap:20px; }
+.projects-board { display:flex; gap:12px; overflow:auto; align-items:flex-start; }
+.projects-column { flex:1; min-width:190px; background:#ffffff08; border:1px solid #8885; border-radius:12px; padding:12px; }
+.projects-app .projects-card { width:100%; text-align:left; margin:0 0 10px; display:grid; gap:8px; overflow-wrap:anywhere; }
+.projects-card small,.projects-app header span { opacity:.7; }
+.projects-app label { display:grid; gap:4px; margin:10px 0; }
+.projects-app nav label { display:flex; }
+.projects-app input,.projects-app textarea,.projects-app select { box-sizing:border-box; max-width:100%; width:100%; background:#191b20; color:#eee; border:1px solid #8888; border-radius:6px; padding:8px; font:inherit; }
+.projects-app input[type=checkbox] { width:auto; }
+.projects-app textarea { min-height:85px; resize:vertical; }
+.projects-app [role=alert] { padding:12px; border:1px solid #ffbd66; border-radius:8px; }
+.projects-app details { margin-top:24px; border-top:1px solid #8885; padding-top:14px; }
+@media(max-width:760px) { .projects-layout { grid-template-columns:1fr; } .projects-board { max-height:50vh; } }
+@media(prefers-color-scheme:light) { .projects-app { background:#fff; color:#111; } .projects-app input,.projects-app textarea,.projects-app select { background:#f6f6f6; color:#111; } .projects-app .projects-card { background:#f3f3f3; color:#111; } }

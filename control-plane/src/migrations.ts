@@ -437,4 +437,41 @@ export const migrations: Migration[] = [
         UNIQUE(issuer, workspace, subject)
       );`,
   },
+  {
+    version: 14,
+    sql: `
+      CREATE TABLE project_storage (
+        singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),
+        state text NOT NULL DEFAULT 'active' CHECK(state IN ('active','importing','frozen','exported')),
+        revision bigint NOT NULL DEFAULT 1,
+        migration_id uuid,
+        manifest_hash text
+      );
+      INSERT INTO project_storage(singleton) VALUES(true);
+      CREATE TABLE project_items (
+        id uuid PRIMARY KEY, kind text NOT NULL,
+        revision integer NOT NULL DEFAULT 1,
+        data jsonb NOT NULL,
+        author_id uuid NOT NULL REFERENCES users(id),
+        created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX project_parent ON project_items((data->>'parent_id'));
+      CREATE TABLE project_requests (
+        actor_id uuid NOT NULL REFERENCES users(id), request_id uuid NOT NULL,
+        fingerprint text NOT NULL, item_id uuid NOT NULL REFERENCES project_items(id),
+        PRIMARY KEY(actor_id,request_id)
+      );
+      CREATE TABLE project_events (
+        sequence bigserial PRIMARY KEY, item_id uuid NOT NULL REFERENCES project_items(id),
+        actor_id uuid NOT NULL REFERENCES users(id), operation text NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE TABLE project_api_keys (
+        id uuid PRIMARY KEY, token_hash text UNIQUE NOT NULL, user_id uuid NOT NULL REFERENCES users(id),
+        name text NOT NULL, scopes jsonb NOT NULL, expires_at timestamptz NOT NULL,
+        authority_generation integer NOT NULL DEFAULT 0,
+        revoked_at timestamptz, created_at timestamptz NOT NULL DEFAULT now()
+      );
+    `,
+  },
 ];
