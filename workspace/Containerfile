@@ -94,6 +94,7 @@ RUN npm ci --omit=dev --prefix /usr/local/lib/neural-labs \
 
 COPY workspace/sudoers-neural-labs /etc/sudoers.d/neural-labs-workspace
 COPY workspace/start.mjs /usr/local/lib/neural-labs/start.mjs
+COPY workspace/native-state-migration.mjs /usr/local/lib/neural-labs/native-state-migration.mjs
 COPY workspace/browser-config.mjs /usr/local/lib/neural-labs/browser-config.mjs
 COPY workspace/http-server.mjs /usr/local/lib/neural-labs/http-server.mjs
 COPY workspace/builder-manager.mjs /usr/local/lib/neural-labs/builder-manager.mjs

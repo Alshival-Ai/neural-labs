@@ -47,5 +47,13 @@ maintenance backups. The 2026.9.6 migration also wrote its own pre-startup
 SQLite backups. Restoring the old state discards later writes and must be done
 only while the stack is stopped.
 
+The managed ARM64 rehearsal on 2026-09-28 found that an existing schema-21 agent
+database rejects session-history access until the public `openclaw doctor --fix
+--non-interactive` migration runs with the Gateway stopped. Neural Labs startup
+now performs that migration once per pinned upstream release, before Gateway
+startup or provider reconciliation, and records completion only on success.
+Failure keeps the deployment gated. The synthetic migration probe exercises this
+same startup helper and verifies retained transcripts and credential ownership.
+
 Upstream evidence: [2026.9.6 release](https://github.com/openclaw/openclaw/releases/tag/v2026.9.6),
 [Skill Workshop configuration](https://docs.openclaw.ai/tools/skill-workshop/configuration).

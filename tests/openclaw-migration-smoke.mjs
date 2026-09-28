@@ -27,6 +27,11 @@ if(mode==='seed') {
 }
 assert.equal(await readFile('/state/.neural-upgrade-probe','utf8'),'synthetic');
 console.log((await cli('--version')).trim(),mode);
+if(mode==='candidate') {
+ const {migrateNativeState}=await import('/usr/local/lib/neural-labs/native-state-migration.mjs');
+ const version=(await import('/usr/local/lib/neural-labs/openclaw-runtime.mjs')).openclawRelease.version;
+ await migrateNativeState({root:'/state/.neural-labs-updates',version,run:async args=>{await cli(...args);return {status:0};}});
+}
 for(const id of ['nl-alice','nl-bob']) {
  const a=await auth(id);
  assert.ok(a.authStatePath.endsWith(`/agents/${id}/agent/openclaw-agent.sqlite`),JSON.stringify(a));

@@ -1,4 +1,5 @@
 import { UpdateMaintenance, prepareProbation } from "./update-maintenance.mjs";
+import { migrateNativeState } from "./native-state-migration.mjs";
 import { ClaudeAccounts } from "./claude-accounts.mjs";
 import { ModelAccounts } from "./model-accounts.mjs";
 import { backgroundProviderStatus } from "/usr/local/lib/neural-labs/background-provider-status.mjs";
@@ -436,6 +437,7 @@ await installTerminalGuidance(workspaceRoot);
 ensureOfficialSmsPlugin();
 let twilioRuntimeConfig = await fetchTwilioConfig();
 configureGateway(twilioRuntimeConfig);
+await migrateNativeState({ root: updateStateRoot, version: openclawRelease.version, run: runOpenClaw });
 await prepareProbation({ probation: updateProbation, run: runOpenClaw, root: updateStateRoot });
 // Fail before starting the text Gateway if a legacy audio-key fallback cannot
 // be retired. The voice service retains its server-only API environment.

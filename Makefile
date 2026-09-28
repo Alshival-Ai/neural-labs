@@ -20,6 +20,7 @@ validate:
 	node --check web/app.js
 	node --check web/server.mjs
 	node --check workspace/start.mjs
+	node --check workspace/native-state-migration.mjs
 	node --check workspace/browser-config.mjs
 	node --check workspace/notification-scheduler.mjs
 	node --check workspace/personal-automation-runs.mjs
