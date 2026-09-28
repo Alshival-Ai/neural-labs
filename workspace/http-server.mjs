@@ -53,14 +53,20 @@ const XTERM_GLOBAL_STYLE_HASHES = [
   "'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU='",
   "'sha256-0HLsQTd9pfKPyap6Gal6YdqwXATwb28CEdo/XWqlODU='",
 ];
-function contentSecurityPolicy(nonce) {
+function projectEmbedOrigins() {
+  return (process.env.NEURAL_LABS_EMBED_ORIGINS || "").split(",").map(value => value.trim()).filter(value => {
+    try { const url = new URL(value); return url.protocol === "https:" && url.origin === value; }
+    catch { return false; }
+  });
+}
+function contentSecurityPolicy(nonce, ancestors = []) {
   return [
     "default-src 'self'",
     "base-uri 'none'",
     "connect-src 'self'",
     "form-action 'self'",
     "frame-src 'self'",
-    "frame-ancestors 'none'",
+    `frame-ancestors ${ancestors.length ? ancestors.join(" ") : "'none'"}`,
     "img-src 'self' data: blob: https://static.klipy.com https://static1.klipy.com https://static2.klipy.com",
     "media-src 'self' blob:",
     "object-src 'none'",
@@ -1363,9 +1369,10 @@ export function createWorkspaceHttpServer({
         }
         const nonce = randomBytes(18).toString("base64");
         const body = template.replace(CSP_NONCE_MARKER, nonce);
-        response.setHeader("Content-Security-Policy", contentSecurityPolicy(nonce));
+        const ancestors = url.searchParams.get("app") === "projects" ? projectEmbedOrigins() : [];
+        response.setHeader("Content-Security-Policy", contentSecurityPolicy(nonce, ancestors));
         response.setHeader("Referrer-Policy", "same-origin");
-        response.setHeader("X-Frame-Options", "DENY");
+        if (!ancestors.length) response.setHeader("X-Frame-Options", "DENY");
         send(response, 200, body, "text/html; charset=utf-8", method);
         return;
       }

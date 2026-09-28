@@ -166,7 +166,7 @@ export function registerManagedRoutes(app: Express, config: ControlPlaneConfig, 
       if (!actor.token) throw new Error("Missing session grant");
       const userId = await syncManagedUser(database, managed, actor);
       await sessions.create(response, userId, { token: actor.token, expiresAt: new Date(actor.expires_at) });
-      response.redirect(303, "/workspace");
+      response.redirect(303, request.body.app === "projects" ? "/workspace?app=projects" : "/workspace");
     } catch {
       response.status(403).json({ error: "Launch Neural Labs again from your Alshival workspace." });
     }

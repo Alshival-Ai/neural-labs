@@ -51,8 +51,12 @@ integration("managed identity database boundary", () => {
     registerManagedRoutes(app, config, database, sessions);
     app.get("/probe", async (req, res) => { const current = await sessions.actor(req); res.status(current ? 200 : 401).json(current?.user ?? {}); });
     const login = await request(app).post("/auth/alshival/handoff").set("Host", config.publicOrigin!.host)
-      .set("Origin", managed.portalOrigin).type("form").send({ handoff: "h".repeat(43) });
+      .set("Origin", managed.portalOrigin).type("form").send({ handoff: "h".repeat(43), app: "projects" });
     expect(login.status).toBe(303);
+    expect(login.headers.location).toBe("/workspace?app=projects");
+    for (const cookie of login.headers["set-cookie"] as unknown as string[]) {
+      expect(cookie).toContain("SameSite=None"); expect(cookie).toContain("Secure"); expect(cookie).toContain("Partitioned");
+    }
     const cookie = (login.headers["set-cookie"] as unknown as string[]).map(value => value.split(";")[0]).join("; ");
     expect(cookie).toContain("__Host-neural-labs-session=");
     const stored = await database.pool.query("SELECT portal_grant FROM sessions");

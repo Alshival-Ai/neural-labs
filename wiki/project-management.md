@@ -40,6 +40,28 @@ not reuse a portal API key and do not forward project content to the portal.
 
 This app is a new local project service, not yet a drop-in replacement for an
 existing portal board. Migration, custom statuses, publication rules, complete
-resource/file workflows, embedded sign-in and protected-mode controls are still
-pending. Existing managed workspaces must remain portal-backed until those paths
+resource/file workflows and protected-mode controls are still pending. Embedded
+sign-in now uses a single-use handoff with partitioned secure cookies; direct
+customer-host ingress and browser acceptance remain rollout gates. Existing managed workspaces must remain portal-backed until those paths
 have been implemented and rehearsed. See [ADR 0038](adr/0038-environment-projects.md).
+
+## Embedding and transfer protocol
+
+An operator can set `NEURAL_LABS_EMBED_ORIGINS` on the workspace container to a
+comma-separated list of HTTPS origins. Only `/workspace?app=projects` accepts
+those frame ancestors; the full desktop remains unframeable. Managed handoffs
+accept the fixed `app=projects` target, never an arbitrary redirect URL. If a
+browser disallows embedded authentication, open the project view directly.
+
+The managed control plane exposes a private, instance-signed transfer protocol.
+It accepts bounded, idempotent batches, verifies a complete SHA-256 manifest and
+identity/parent references, and requires verification before activation. Imported
+historical authors are disabled identities, not login grants. Frozen exports
+include current items, original source records, authors and local events. The
+receiver must confirm the export hash before retirement; retired projects refuse
+ordinary reads and writes. Transfers currently support up to 100,000 records and
+64 MiB of serialized record content. Files require a separate verified transfer.
+
+This protocol does **not** migrate an existing portal workspace by itself. The
+source adapter, file/secret transfer, cleanup and subscription lifecycle must be
+implemented and rehearsed before it is used for a customer cutover.

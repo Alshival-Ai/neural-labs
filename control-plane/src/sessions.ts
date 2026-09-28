@@ -43,7 +43,8 @@ export class SessionService {
     return {
       httpOnly,
       secure: this.config.secureCookies,
-      sameSite: "lax" as const,
+      sameSite: this.config.managed && this.config.secureCookies ? "none" as const : "lax" as const,
+      partitioned: Boolean(this.config.managed && this.config.secureCookies),
       path: "/",
       maxAge: ABSOLUTE_MILLISECONDS,
     };

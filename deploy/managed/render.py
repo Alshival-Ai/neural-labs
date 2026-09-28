@@ -81,6 +81,7 @@ def build(registration, destination):
                             "interval": "15s", "timeout": "8s", "retries": 12, "start_period": "120s"},
             "environment": {"NEURAL_LABS_AUTH_MODE": "alshival", "NEURAL_LABS_PUBLIC_ORIGIN": public, "NEURAL_LABS_WORKSPACE_PROXY_IP": str(network.network_address + 1),
                 "NEURAL_LABS_APP_DOMAIN": hostname,
+                "NEURAL_LABS_EMBED_ORIGINS": "https://alshival.ai",
                 "NEURAL_LABS_WORKSPACE_CONTROL_TOKEN": cfg["control_token"], "OPENCLAW_GATEWAY_PORT": "18789",
                 "NEURAL_LABS_OPENCLAW_VERSION": release["version"], "NEURAL_LABS_CODEX_VERSION": release["codexVersion"],
                 "NEURAL_LABS_WORKSPACE_STATUS_PORT": "18790", "NEURAL_LABS_PROJECTS_ROOT": "/home/node/workspace/projects",

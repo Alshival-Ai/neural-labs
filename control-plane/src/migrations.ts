@@ -474,4 +474,16 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    version: 15,
+    sql: `CREATE TABLE project_transfers (
+      id uuid PRIMARY KEY, generation integer NOT NULL, manifest text NOT NULL,
+      expected_count integer NOT NULL, state text NOT NULL, created_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE TABLE project_transfer_records (
+      transfer_id uuid NOT NULL REFERENCES project_transfers(id), key text NOT NULL,
+      payload jsonb NOT NULL, digest text NOT NULL, PRIMARY KEY(transfer_id,key)
+    );
+    CREATE TABLE project_archive (key text PRIMARY KEY,payload jsonb NOT NULL,digest text NOT NULL);`,
+  },
 ];

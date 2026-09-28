@@ -7,22 +7,22 @@ import type { Database } from "./database.js";
 import type { ControlPlaneConfig } from "./config.js";
 import type { SessionActor, UserRecord } from "./types.js";
 import { portalExchange } from "./managed.js";
-import { ProjectError, ProjectStore, createProjectItem, updateProjectItem, projectAction } from "./projects.js";
+import { ProjectError, ProjectStore, type ProjectActor, createProjectItem, updateProjectItem, projectAction } from "./projects.js";
 
 const hash = (token: string) => createHash("sha256").update(token).digest("hex");
 const scopesSchema = z.array(z.enum(["project:read", "project:write"])).min(1).max(2);
-export async function authorizeProjectMember(database: Database, config: ControlPlaneConfig, userId: string): Promise<UserRecord & { authorizationGeneration?: number }> {
+export async function authorizeProjectMember(database: Database, config: ControlPlaneConfig, userId: string, external = true): Promise<ProjectActor & { authorizationGeneration?: number }> {
   const user = await database.getUser(userId);
   if (!user || user.status !== "active") throw new ProjectError(403, "member_inactive", "Active membership is required.");
   if (config.managed) {
     const identity = (await database.pool.query("SELECT subject FROM managed_identities WHERE user_id=$1", [user.id])).rows[0];
     if (!identity) throw new ProjectError(403, "member_inactive", "Managed membership is required.");
-    const result = z.object({ generation: z.number().int().positive(), members: z.array(z.object({ subject: z.string(), role: z.enum(["admin", "user"]) })) }).parse(
-      await portalExchange(config, "project-members", { subjects: [identity.subject] }));
+    const result = z.object({ generation: z.number().int().positive(), members: z.array(z.object({ subject: z.string(), role: z.enum(["admin", "user"]), project_internal: z.boolean().default(false), project_plan: z.boolean().default(false) })) }).parse(
+      await portalExchange(config, external ? "project-members" : "project-ui-members", { subjects: [identity.subject] }));
     const member = result.members.find(entry => entry.subject === identity.subject);
     if (!member) throw new ProjectError(403, "member_inactive", "Managed membership has ended.");
     user.role = member.role;
-    return { ...user, authorizationGeneration: result.generation };
+    return { ...user, authorizationGeneration: result.generation, projectInternal: member.project_internal, projectPlan: member.project_plan };
   }
   return user;
 }
@@ -42,7 +42,7 @@ export function registerProjectRoutes(app: Express, database: Database, config: 
       } });
     }
   };
-  const authenticate = async (req: Request, res: Response, scope: string): Promise<UserRecord | undefined> => {
+  const authenticate = async (req: Request, res: Response, scope: string): Promise<ProjectActor | undefined> => {
     const token = req.get("authorization")?.replace(/^Bearer /, "");
     if (token) {
       if (!/^nlp_[A-Za-z0-9_-]{43}$/.test(token)) throw new ProjectError(401, "invalid_key", "Invalid environment credential.");
@@ -56,7 +56,7 @@ export function registerProjectRoutes(app: Express, database: Database, config: 
     const actor = await options.active(req, res);
     if (!actor) return;
     if (!["GET", "HEAD"].includes(req.method) && !options.csrf(req, res, actor)) return;
-    return actor.user;
+    return config.managed ? authorizeProjectMember(database, config, actor.user.id, false) : actor.user;
   };
   app.use("/api/projects", (req, res, next) => {
     if (req.get("origin") && req.get("origin") !== `${req.protocol}://${req.get("host")}`) { res.sendStatus(403); return; }

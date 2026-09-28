@@ -75,6 +75,29 @@ const url = process.env.TEST_DATABASE_URL;
     await pool.query("UPDATE project_api_keys SET revoked_at=now() WHERE id=$1", [created.body.id]);
     expect((await request(app).get("/api/projects/items").auth(token, { type: "bearer" })).status).toBe(401);
   });
+  it("does not treat managed customer owners as internal staff", async () => {
+    const staff = { ...owner, projectInternal: true };
+    const customer = { ...owner, projectInternal: false };
+    const internal = await store.mutate(staff, "create", null, { idempotency_key: randomUUID(), kind: "task", data: { title: "Private", visibility: "internal" } });
+    await expect(store.get(customer, internal.id)).rejects.toMatchObject({ status: 404 });
+    const published = await store.mutate(staff, "create", null, { idempotency_key: randomUUID(), kind: "task", data: {
+      title: "Staff plan", body: "Staff details", details: { secret: "internal" }, publication: { published: true, title: "Customer title", body: "Customer summary" },
+    } });
+    const visible = await store.get(customer, published.id);
+    expect(visible.data.title).toBe("Customer title"); expect(visible.data.body).toBe("Customer summary");
+    expect(visible.data.details).toEqual({});
+    const draft = await store.mutate(staff, "create", null, { idempotency_key: randomUUID(), kind: "deliverable", data: {
+      title: "Draft", publication: { published: false, title: "", body: "" },
+    } });
+    const nested = await store.mutate(staff, "create", null, { idempotency_key: randomUUID(), kind: "note", data: { title: "Nested", parent_id: draft.id } });
+    await expect(store.get(customer, nested.id)).rejects.toMatchObject({ status: 404 });
+    expect((await store.list(customer)).some(item => item.id === nested.id)).toBe(false);
+  });
+  it("does not serve a stale project after its export is committed", async () => {
+    await pool.query("UPDATE project_storage SET state='exported'");
+    await expect(store.list(member)).rejects.toMatchObject({ status: 423 });
+    await pool.query("UPDATE project_storage SET state='active'");
+  });
   it("fences writes during transfer and leaves existing content readable", async () => {
     await pool.query("UPDATE project_storage SET state='frozen'");
     await expect(store.mutate(owner, "create", null, { idempotency_key: randomUUID(), kind: "task", data: { title: "Blocked" } })).rejects.toMatchObject({ status: 423 });

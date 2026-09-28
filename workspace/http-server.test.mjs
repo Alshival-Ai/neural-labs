@@ -1564,3 +1564,22 @@ test("Claude connect returns a private Terminal app session through the existing
     await rm(root, { recursive: true, force: true });
   }
 });
+
+
+test("embeds only the project shell on configured HTTPS origins", async () => {
+  const prior = process.env.NEURAL_LABS_EMBED_ORIGINS;
+  process.env.NEURAL_LABS_EMBED_ORIGINS = "https://portal.example.test,http://unsafe.test,https://bad.test/path";
+  const app = await fixture();
+  try {
+    const project = await fetch(`${app.origin}/workspace?app=projects`);
+    assert.match(project.headers.get("content-security-policy"), /frame-ancestors https:\/\/portal.example.test;/);
+    assert.equal(project.headers.get("x-frame-options"), null);
+    const desktop = await fetch(`${app.origin}/workspace`);
+    assert.match(desktop.headers.get("content-security-policy"), /frame-ancestors 'none'/);
+    assert.equal(desktop.headers.get("x-frame-options"), "DENY");
+  } finally {
+    await app.close();
+    if (prior === undefined) delete process.env.NEURAL_LABS_EMBED_ORIGINS;
+    else process.env.NEURAL_LABS_EMBED_ORIGINS = prior;
+  }
+});

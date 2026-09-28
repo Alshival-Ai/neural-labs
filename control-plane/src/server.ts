@@ -1,3 +1,4 @@
+import { registerProjectTransferRoutes } from "./projectTransferRoutes.js";
 import { registerProjectRoutes } from "./projectRoutes.js";
 import { UpdateService } from "./updates.js";
 import { registerUpdateRoutes } from "./updateRoutes.js";
@@ -913,6 +914,7 @@ export function createApplication(input: {
   };
   registerUpdateRoutes(app, updates, { admin: requireAdminJson, active: requireActiveJson, csrf: requireCsrfJson, sameOrigin,
     workerToken: config.updates?.workerToken, workspaceToken: config.workspace.controlToken });
+  registerProjectTransferRoutes(app, database, config);
   registerProjectRoutes(app, database, config, { active: requireActiveJson, csrf: requireCsrfJson, sameOrigin });
   registerNotificationRoutes(app, notifications, { sameOrigin, active: requireActiveJson, admin: requireAdminJson, csrf: requireCsrfJson, token: config.workspace.controlToken });
   app.get("/api/account/phone", async (request, response) => {
