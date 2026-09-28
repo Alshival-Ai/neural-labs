@@ -1,4 +1,4 @@
-ARG OPENCLAW_IMAGE=ghcr.io/openclaw/openclaw:2026.9.5@sha256:ea298b62be8955d3ef750e2004a610dd90c3a30e5f9886e5d654d78a0c573218
+ARG OPENCLAW_IMAGE=ghcr.io/openclaw/openclaw:2026.9.6@sha256:0a5ff5e682e62afa19149df126aa50063bf65ef885b5c94713ce32dc0eb12e15
 # OpenClaw application files are inherited unchanged from the reviewed image.
 FROM ${OPENCLAW_IMAGE} AS desktop-build
 
@@ -108,7 +108,7 @@ COPY workspace/personal-openai.mjs /usr/local/lib/neural-labs/personal-openai.mj
 COPY workspace/model-catalog.mjs /usr/local/lib/neural-labs/model-catalog.mjs
 COPY workspace/codex-runtime.mjs /usr/local/lib/neural-labs/codex-runtime.mjs
 # Independently pinned app-server: it changes only in a reviewed image release.
-ARG CODEX_APP_SERVER_VERSION=0.154.0
+ARG CODEX_APP_SERVER_VERSION=0.155.1
 RUN npm install --prefix /usr/local/lib/neural-labs/codex-app-server --ignore-scripts --no-audit --no-fund "@openai/codex@${CODEX_APP_SERVER_VERSION}"
 COPY workspace/update-app-server-probe.mjs /usr/local/lib/neural-labs/update-app-server-probe.mjs
 COPY workspace/update-probe.mjs /usr/local/lib/neural-labs/update-probe.mjs
@@ -154,7 +154,7 @@ ENV HOME=/home/node \
     OPENCLAW_STATE_DIR=/home/node/.openclaw \
     OPENCLAW_CONFIG_PATH=/home/node/.openclaw/openclaw.json \
     OPENCLAW_WORKSPACE_DIR=/home/node/workspace \
-    NEURAL_LABS_OPENCLAW_VERSION=2026.9.5 \
+    NEURAL_LABS_OPENCLAW_VERSION=2026.9.6 \
     NEURAL_LABS_CODEX_VERSION=${CODEX_VERSION} \
     NEURAL_LABS_CODE_SERVER_VERSION=${CODE_SERVER_VERSION}
 

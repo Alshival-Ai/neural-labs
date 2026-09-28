@@ -4,7 +4,7 @@ Neural Labs upgrades OpenClaw as a tested workspace image. Do not run
 `openclaw update`, replace npm packages, or edit compiled bundles inside a running
 workspace: those changes bypass the reviewed image, browser clients and SMS plugin and disappear when the container is recreated.
 
-The current assessment is [OpenClaw 2026.9.5](upgrades/openclaw-2026.9.5.md).
+The current assessment is [OpenClaw 2026.9.6](upgrades/openclaw-2026.9.6.md).
 Discovery and preparation do not deploy a release.
 The [upstream boundary verification](upgrades/upstream-boundary-2026-09-06.md)
 records the unmodified 2026.8.2 application tree in the refactored image.
