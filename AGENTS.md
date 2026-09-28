@@ -2,6 +2,25 @@
 
 These instructions apply to the Neural Labs repository.
 
+## Repository separation and GitHub synchronization
+
+- This is the independently deployable, open-source Neural Labs product at
+  `https://github.com/Alshival-Ai/neural-labs`. Keep default configuration and
+  onboarding generic so users can deploy it on their own websites.
+- Alshival.ai billing, Free/Go/Plus/Pro plan rules, portal navigation, customer
+  provisioning policy, and portal-specific background-access policy belong in
+  the separate website repository. Do not copy those business rules into base
+  Neural Labs. Shared integration interfaces must remain optional and generic.
+- After completing Neural Labs source changes, run the required validation,
+  commit the completed changes, and push them to this repository's `main` branch
+  before reporting the work finished. Fetch first and preserve concurrent work.
+  A website-repository push does not update Neural Labs on GitHub.
+- Keep credentials, customer data, private deployment configuration, and runtime
+  state out of Git. Report the repository and pushed commit, plus any validation
+  failures or blocked push; never imply unpushed changes are published.
+- Pushing source does not deploy or upgrade existing installations. Follow the
+  deployment/release runbooks separately when deployment is requested.
+
 ## Product and onboarding
 
 Neural Labs is the complete self-hosted product in this repository. The public
