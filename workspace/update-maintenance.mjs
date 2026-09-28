@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 export async function atomicJson(filename, data) {
   await mkdir(path.dirname(filename), { recursive: true, mode: 0o700 });
@@ -37,7 +38,14 @@ export async function prepareProbation({ probation, run, root, activate = false 
     const result = await run(["config", "set", "--batch-json", JSON.stringify(ledger.map(item => ({ path: item.path, value: { ...(item.value ?? {}), every: "0m" } })))]);
     if (result.status !== 0) throw new Error("Cannot disable probation heartbeats");
   } else if (ledger && activate) {
+    const inventory = await run(["config", "get", "agents", "--json"], { quiet: true });
+    if (inventory.status !== 0) throw new Error("Cannot inventory heartbeat configuration for restoration");
+    const current = { agents: JSON.parse(inventory.stdout) };
     for (const item of ledger) {
+      // Unsetting an already absent key fails in the public CLI. A previous
+      // attempt may have applied some changes before a timeout or disconnect.
+      const value = item.path.split(".").reduce((object, key) => object?.[key], current) ?? null;
+      if (isDeepStrictEqual(value, item.value)) continue;
       const result = item.value === null ? await run(["config", "unset", item.path], { quiet: true })
         : await run(["config", "set", item.path, JSON.stringify(item.value), "--strict-json"], { quiet: true });
       if (result.status !== 0) throw new Error("Cannot restore heartbeat configuration");

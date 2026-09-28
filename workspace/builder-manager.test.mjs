@@ -8,6 +8,7 @@ import test from "node:test";
 import * as Y from "yjs";
 
 import { BuilderError, createBuilderManager } from "./builder-manager.mjs";
+import { createSkillsManager } from "./skills-manager.mjs";
 
 const maya = { id: "maya-hash", userId: "maya-id", displayName: "Maya", role: "user" };
 const owen = { id: "owen-hash", userId: "owen-id", displayName: "Owen", role: "user" };
@@ -45,6 +46,26 @@ test("skill drafts autosave complete packages and publish only explicit snapshot
   assert.equal(published.skill.key, "release-helper");
   assert.deepEqual(publications[0].skillPackage.files.map((file) => file.path).sort(), ["SKILL.md", "agents/openai.yaml", "references/style.md"]);
   assert.equal((await manager.get(maya, draft.id)).draft.publishedKey, "release-helper");
+});
+
+test("source-only skill metadata publishes through the real skill store", async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "builder-publication-"));
+  const skills = createSkillsManager({ personalRoot: path.join(root, "personal"), teamRoot: path.join(root, "team") });
+  const manager = createBuilderManager({ root: path.join(root, "drafts"),
+    publishSkill: (actor, pkg, key) => skills.savePackage(actor, pkg, key) });
+  t.after(async () => { await manager.close(); await rm(root, { recursive: true, force: true }); });
+  const description = "Summarize customer work into a useful handoff.";
+  const draft = await manager.create(maya, { kind: "skill", initial: {
+    name: "Handoff", description: "", key: "handoff",
+    skillSource: `---\nname: handoff\ndescription: ${JSON.stringify(description)}\n---\n\n# Handoff\n\nSummarize the work.\n`,
+  } });
+  assert.deepEqual((await manager.validate(maya, draft.id)).issues, []);
+  const published = await manager.publish(maya, draft.id);
+  assert.equal(published.skill.description, description);
+  assert.equal(published.skill.key, "handoff");
+  assert.equal((await skills.list(maya))[0].description, description);
+  const updated = await manager.publish(maya, draft.id);
+  assert.equal(updated.skill.description, description);
 });
 
 test("draft access follows owner, selected collaborators, and administrator visibility", async (t) => {

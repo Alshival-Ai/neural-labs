@@ -583,6 +583,12 @@ export function createBuilderManager({ root, publishSkill }) {
     const fields = {};
     for (const [key, value] of room.doc.getMap("fields")) fields[key] = yTextValue(value);
     const files = collectSkillPackage(room);
+    // Source edits can leave the form projection stale. Publish the same
+    // metadata that validateSkill accepted from the package itself.
+    const header = parseSkillHeader(files.find(file => file.path === "SKILL.md").content);
+    fields.slug = header.name;
+    fields.description = header.description;
+    fields.name = fields.name?.trim() || fields.displayName?.trim() || header.name;
     for (const descriptor of collectAssetDescriptors(room)) {
       const blobPath = path.join(room.directory, BLOBS_DIRECTORY, descriptor.hash);
       const blobInfo = await lstat(blobPath).catch(() => undefined);

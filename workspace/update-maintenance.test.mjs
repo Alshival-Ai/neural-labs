@@ -45,12 +45,45 @@ test("probation cannot activate and unknown activity schemas never mean idle", a
 test("pre-start probation disables all heartbeats and restores only overridden settings", async t => {
   const data = await fixture(t), calls = [];
   const agents = { defaults: { heartbeat: { every: "1h", target: "none" } }, entries: { one: { heartbeat: { every: "2h" } }, two: {} } };
-  const run = args => { calls.push(args); return { status: 0, stdout: JSON.stringify(agents) }; };
+  const run = args => {
+    calls.push(args);
+    if (args[1] === "set" && args[2] === "--batch-json") {
+      for (const item of JSON.parse(args[3])) {
+        const keys = item.path.split(".").slice(1), key = keys.pop();
+        keys.reduce((object, part) => object[part], agents)[key] = item.value;
+      }
+    }
+    return { status: 0, stdout: JSON.stringify(agents) };
+  };
+  const originalDefault = JSON.stringify(agents.defaults.heartbeat);
   await prepareProbation({ ...data, run, probation: true });
   const edits = JSON.parse(calls.at(-1)[3]); assert.equal(edits.length, 3); assert.ok(edits.every(e => e.value.every === "0m"));
   await prepareProbation({ ...data, run, probation: false, activate: true });
   assert.ok(calls.some(a => a[1] === "unset" && a[2] === "agents.entries.two.heartbeat"));
-  assert.ok(calls.some(a => a[2] === "agents.defaults.heartbeat" && a[3] === JSON.stringify(agents.defaults.heartbeat)));
+  assert.ok(calls.some(a => a[2] === "agents.defaults.heartbeat" && a[3] === originalDefault));
+});
+
+test("heartbeat restoration can resume after a partially applied failure", async t => {
+  const data = await fixture(t);
+  const filename = path.join(data.root, "probation.json");
+  await writeFile(filename, JSON.stringify([
+    { path: "agents.entries.one.heartbeat", value: null },
+    { path: "agents.entries.two.heartbeat", value: null },
+  ]));
+  const agents = { entries: { one: { heartbeat: { every: "0m" } }, two: { heartbeat: { every: "0m" } } } };
+  let fail = true;
+  const removed = [];
+  const run = args => {
+    if (args[1] === "get") return { status: 0, stdout: JSON.stringify(agents) };
+    const id = args[2].split(".")[2];
+    if (id === "two" && fail) return { status: 1 };
+    if (!agents.entries[id].heartbeat) return { status: 1 };
+    delete agents.entries[id].heartbeat; removed.push(id); return { status: 0 };
+  };
+  await assert.rejects(prepareProbation({ ...data, run, probation: false, activate: true }), /Cannot restore/);
+  fail = false;
+  await prepareProbation({ ...data, run, probation: false, activate: true });
+  assert.deepEqual(removed, ["one", "two"]);
 });
 
 
