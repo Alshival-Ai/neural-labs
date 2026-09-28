@@ -27,3 +27,29 @@ test("dedicated Team Claude runs never consult a member's personal account", asy
   assert.deepEqual(owners, [{ workload: "team" }]);
   assert.equal(await accounts.prepareTeamRun("openai/test"), "team-openai");
 });
+
+
+test("slow access discovery survives caller retries without repeating provider work", async () => {
+  const accounts = new ModelAccounts({ openai: {}, claude: {} });
+  const pending = new Map();
+  let calls = 0;
+  accounts.snapshotOnce = userId => { calls++; return new Promise((resolve, reject) => pending.set(userId, { resolve, reject })); };
+  const first = accounts.snapshot("alice");
+  const retry = accounts.snapshot("alice");
+  assert.equal(first, retry);
+  const other = accounts.snapshot("bob");
+  assert.notEqual(first, other);
+  assert.equal(calls, 2);
+  pending.get("alice").resolve({ agentId: "nl-alice", authenticated: false });
+  assert.deepEqual(await first, { agentId: "nl-alice", authenticated: false });
+  assert.equal(accounts.snapshot("alice"), first);
+  accounts.accessSnapshots.get("alice").expiresAt = Date.now() - 1;
+  assert.notEqual(accounts.snapshot("alice"), first);
+  pending.get("bob").reject(new Error("temporary failure"));
+  await assert.rejects(other, /temporary failure/);
+  const secondBob = accounts.snapshot("bob");
+  assert.notEqual(secondBob, other);
+  pending.get("bob").resolve({ agentId: "nl-bob" });
+  pending.get("alice").resolve({ agentId: "nl-alice" });
+  await secondBob;
+});

@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
 // provisioned the Alshival agent. Credentials stay with their native managers.
 export class ModelAccounts {
   constructor({ openai, claude, team, catalog }) {
+    this.accessSnapshots = new Map();
     this.openai = openai; this.claude = claude; this.team = team; this.catalog = catalog;
     claude.onChange = owner => this.changed(owner);
     openai.otherProviderReady = async userId => (await claude.snapshot({ userId })).modelReady;
@@ -65,7 +66,26 @@ export class ModelAccounts {
     const model = agents.entries?.[account.agentId]?.model ?? agents.defaults?.model;
     return typeof model === "string" ? model : model?.primary;
   }
-  async snapshot(userId) {
+  snapshot(userId) {
+    // Provider discovery can outlive the HTTP caller's timeout on smaller hosts.
+    // Keep one owner-scoped check alive across retries and briefly retain its
+    // result so a retry can consume it instead of starting the same slow work.
+    // This is display/bootstrap state only: prepareExecution still checks fresh
+    // provider authorization and readiness before permitting any model work.
+    const previous = this.accessSnapshots.get(userId);
+    if (previous && (!previous.expiresAt || previous.expiresAt > Date.now())) return previous.promise;
+    const entry = { expiresAt: 0, promise: undefined };
+    entry.promise = this.snapshotOnce(userId).then(result => {
+      entry.expiresAt = Date.now() + 10_000;
+      return result;
+    }, error => {
+      if (this.accessSnapshots.get(userId) === entry) this.accessSnapshots.delete(userId);
+      throw error;
+    });
+    this.accessSnapshots.set(userId, entry);
+    return entry.promise;
+  }
+  async snapshotOnce(userId) {
     const model = await this.selectedModel(userId);
     const result = model?.startsWith("anthropic/") ? await this.claude.snapshot({ userId }) : await this.openai.snapshot(userId);
     return { ...result, selectedModel: model ?? null };
