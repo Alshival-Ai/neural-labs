@@ -3,6 +3,8 @@ import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promis
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { NativeState, canonical, digest } from "./native/state.mjs";
 import { exportPreservation, importPreservation, projectPreservation, verifyProjection, activatePreservation, RECORD_CATEGORIES, TREE_CATEGORIES } from "./native/migration.mjs";
 import { calendarFiles, cronExpression, dueOccurrence, NativeScheduler, occurrenceKey } from "./native/schedules.mjs";
@@ -336,4 +338,16 @@ test("customer preservation retains chat references and only stages scheduling f
   assert.equal(state.metadata("scheduling"), "disabled");
   assert.deepEqual(JSON.parse(state.metadata("maintenance")), afterCommit);
   await assert.rejects(activatePreservation({ ...input, controlPlaneRecords: fixture.records, chatReceipt }), /evidence changed/);
+});
+
+test("operator CLI imports and verifies a real bundle with the documented sha256 argument", async t => {
+  const fixture = await preservationFixture(t);
+  const script = fileURLToPath(new URL("../bin/native-migration.mjs", import.meta.url));
+  const db = path.join(fixture.root, "cli.sqlite"), map = path.join(fixture.root, "paths.json");
+  await writeFile(map, JSON.stringify(fixture.trees));
+  const args = ["--database", db, "--workspace", "workspace-1", "--sha256", fixture.exported.id];
+  const run = (command, extra = []) => JSON.parse(execFileSync(process.execPath, [script, command, ...args, ...extra], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+  assert.equal(run("import", ["--source", fixture.bundle, "--destination", fixture.destination]).inventory.jobs, 19);
+  assert.equal(run("project", ["--source", fixture.bundle, "--path-map", map]).inventory.receipts, 124);
+  assert.equal(run("verify").recordsVerified, fixture.exported.inventory.jobs + fixture.exported.inventory.receipts + fixture.exported.inventory.scratch + fixture.exported.inventory.proposals + 3);
 });

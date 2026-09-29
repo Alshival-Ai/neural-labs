@@ -13,7 +13,7 @@ function required(key) {
 }
 try {
   for (let index = 0; index < argv.length; index += 2) {
-    if (!/^--[a-z-]+$/.test(argv[index]) || !argv[index + 1] || argv[index + 1].startsWith("--") || Object.hasOwn(options, argv[index].slice(2))) throw new Error("Expected unique --name value arguments");
+    if (!/^--[a-z][a-z0-9-]*$/.test(argv[index]) || !argv[index + 1] || argv[index + 1].startsWith("--") || Object.hasOwn(options, argv[index].slice(2))) throw new Error("Expected unique --name value arguments");
     options[argv[index].slice(2)] = argv[index + 1];
   }
   if (command === "inventory") {
