@@ -19,7 +19,7 @@ it("connects OpenAI in its card, shows the device code, then selects a loaded mo
     const request = JSON.parse(String(init?.body));
     if (request.operation === "account.status") {
       checks++;
-      return Response.json(checks >= 3 ? { ready: true } : { ready: false, signIn: { verificationUrl: "https://auth.openai.com/codex/device", userCode: "ABCD-EFGH" } });
+      return Response.json(checks >= 3 ? { ready: true, pending: false } : { ready: false, pending: true, signIn: { verificationUrl: "https://auth.openai.com/codex/device", userCode: "ABCD-EFGH" } });
     }
     if (request.operation === "account.login") return Response.json({ terminalId: "private-terminal" });
     expect(request.operation).toBe("models.list");
@@ -53,4 +53,25 @@ it("loads models on demand from the selected account and never silently selects 
   fireEvent.change(screen.getByLabelText("Model"), { target: { value: "claude-exact" } });
   fireEvent.click(screen.getByRole("button", { name: "Use for my chats" }));
   expect(nativeSelection()).toEqual({ connection: "shared", model: "claude-exact" });
+});
+
+it("offers a new OpenAI sign-in when the device attempt ends", async () => {
+  configureNativeActor("fixture", "fixture-csrf");
+  vi.spyOn(window, "open").mockImplementation(() => null);
+  let checks = 0;
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    if (input === "/api/runtime/connections") return Response.json({ connections: [
+      { id: "personal", provider: "codex", scope: "personal", method: "subscription", enabled: true, generation: 1, label: "My OpenAI" },
+    ] });
+    const operation = JSON.parse(String(init?.body)).operation;
+    if (operation === "account.login") return Response.json({ terminalId: "private-terminal" });
+    checks++;
+    return Response.json({ ready: false, pending: checks < 3,
+      ...(checks < 3 ? { signIn: { verificationUrl: "https://auth.openai.com/codex/device", userCode: "ABCD-EFGH" } } : {}) });
+  });
+  render(<NativeConnectionsPanel csrfToken="fixture-csrf" />);
+  fireEvent.click(await screen.findByRole("button", { name: "Connect OpenAI" }));
+  await screen.findByText("ABCD-EFGH");
+  await screen.findByText("OpenAI sign-in ended. Start a new sign-in to try again.", {}, { timeout: 4000 });
+  expect(screen.getByRole("button", { name: "Connect OpenAI" })).toBeEnabled();
 });

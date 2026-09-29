@@ -46,8 +46,10 @@ export class NativeAccounts extends EventEmitter {
         ? /^Logged in using ChatGPT\b/m.test(`${result.stdout}\n${result.stderr}`)
         : claude.loggedIn === true && ["claude.ai", "oauth"].includes(claude.authMethod);
     } catch { /* Device login can be pending while status exits unsuccessfully. */ }
-    const signIn = !ready && provider === "codex" ? await this.deviceSignIn(grant) : null;
-    return { ready, reason: ready ? null : "native-sign-in-required", ...(signIn ? { signIn } : {}) };
+    const entry = this.logins.get(grant.connection);
+    const pending = Boolean(!ready && entry && entry.actor === grant.actor);
+    const signIn = pending && provider === "codex" ? await this.deviceSignIn(grant) : null;
+    return { ready, pending, reason: ready ? null : "native-sign-in-required", ...(signIn ? { signIn } : {}) };
   }
   async deviceSignIn(grant) {
     const entry = this.logins.get(grant.connection);

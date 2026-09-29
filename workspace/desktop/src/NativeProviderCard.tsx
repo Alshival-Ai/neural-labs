@@ -4,7 +4,7 @@ import { nativeRequest, nativeSelection, selectNativeConnection, type NativeConn
 import type { ProviderCatalog } from "./modelProviders";
 
 type Provider = NativeConnection["provider"];
-type AccountStatus = { ready: boolean; signIn?: { verificationUrl: string; userCode: string } };
+type AccountStatus = { ready: boolean; pending?: boolean; signIn?: { verificationUrl: string; userCode: string } };
 const OPENAI_DEVICE_URL = "https://auth.openai.com/codex/device";
 
 export function NativeProviderCard({ provider, connection, ensureConnection }: {
@@ -48,6 +48,9 @@ export function NativeProviderCard({ provider, connection, ensureConnection }: {
     if (next.ready) {
       setConnecting(false);
       if (!catalog) await loadModels(id);
+    } else if (next.pending === false) {
+      setConnecting(false); autoSelect.current = false;
+      setNotice(`${name} sign-in ended. Start a new sign-in to try again.`);
     }
   }
 
@@ -59,7 +62,7 @@ export function NativeProviderCard({ provider, connection, ensureConnection }: {
       .then(async next => {
         if (!active) return;
         setStatus(next);
-        if (next.signIn) { autoSelect.current = true; setConnecting(true); }
+        if (next.pending) { autoSelect.current = true; setConnecting(true); }
         if (next.ready) await loadModels(connectionId, false);
       }).catch(error => { if (active) setNotice(error instanceof Error ? error.message : "Connection could not be checked."); });
     return () => { active = false; };

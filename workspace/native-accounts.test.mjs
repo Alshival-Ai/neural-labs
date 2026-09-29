@@ -36,18 +36,22 @@ test("OpenAI device code is exposed only to its owner and can be cancelled", asy
   const root = await mkdtemp(path.join(os.tmpdir(), "native-device-"));
   const terminals = new WorkspaceTerminalManager({ workspaceRoot: root });
   const actor = { id: "member", label: "Fixture", role: "user" };
+  const exits = [];
   const accounts = new NativeAccounts({ terminals, resolveActor: async id => ({ ...actor, id }),
-    spawnPty: () => ({ onData() {}, onExit() {}, kill() {} }) });
+    spawnPty: () => ({ onData() {}, onExit(fn) { exits.push(fn); }, kill() { for (const fn of exits) fn({ exitCode: 1 }); } }) });
   t.after(async () => { terminals.shutdown(); accounts.close(); await rm(root, { recursive: true, force: true }); });
   const grant = { actor: actor.id, connection: "personal-fixture", binding: { provider: "codex", method: "subscription" }, revalidate: async () => {} };
   const launch = { invocation: () => ({ file: "fixture", args: [], options: {} }), exec: async () => { throw new Error("Not signed in"); } };
   const { terminalId } = await accounts.login(grant, launch);
   const session = await terminals.get(actor, terminalId);
   terminals.recordOutput(session, "Open this URL: https://auth.openai.com/codex/device\r\nCode: ABCD-EFGH\r\n");
-  assert.deepEqual((await accounts.status(grant, launch)).signIn, {
+  const pending = await accounts.status(grant, launch);
+  assert.equal(pending.pending, true);
+  assert.deepEqual(pending.signIn, {
     verificationUrl: "https://auth.openai.com/codex/device", userCode: "ABCD-EFGH",
   });
   assert.equal(await accounts.deviceSignIn({ ...grant, actor: "other" }), null);
   assert.equal((await accounts.cancel(grant)).cancelled, true);
   assert.equal(await accounts.deviceSignIn(grant), null);
+  assert.equal((await accounts.status(grant, launch)).pending, false);
 });
