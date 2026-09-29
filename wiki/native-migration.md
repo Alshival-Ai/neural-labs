@@ -80,16 +80,21 @@ Local recovery copies do not establish NAS backup or restore acceptance.
 
 ## Accounts and jobs
 
-Native account sign-in uses Settings → Model Provider → AI connections and a
-private Terminal. Codex uses device authorization; Claude uses its native login.
-An OpenClaw-only connection needs native reconnection. Choose the owner and model
-explicitly; no provider, account or billing substitution occurs automatically.
+Native account sign-in uses the OpenAI and Anthropic cards in Settings → Model
+Provider. OpenAI opens device authorization in a browser tab and shows the code
+in its card. On completion, the card loads available models and selects the
+provider's default model for that member's chats. Anthropic sign-in uses a
+private Terminal for the returned code; its card tracks sign-in and model status.
+Additional account scopes remain under Advanced connections. An OpenClaw-only
+connection needs native reconnection; no account or billing substitution occurs
+automatically.
 
 Claude text output is persisted as exact provider deltas. Lease checks occur on
 control requests and at short intervals during text output; nearby deltas are
 batched for browser delivery to reduce request overhead. A regular Terminal
-sign-in has a separate home and does not create an AI connection. Select a
-model with **Use for my chats** before opening a private Alshival conversation.
+sign-in has a separate home and does not create an AI connection. If an existing
+connection was already signed in, choose **Use for my chats** in its card before
+opening a private Alshival conversation.
 
 Imported jobs retain enabled/paused intent, original definitions and historical
 receipts. Missing native connections, unsupported policies and uncertain old runs

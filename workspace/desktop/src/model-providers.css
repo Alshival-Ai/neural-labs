@@ -3,6 +3,20 @@
 .model-provider-fields select { width: 100%; min-width: 0; min-height: 44px; color: var(--settings-text, #222); background: var(--settings-surface, #fff); border: 1px solid #b7b7c5; border-radius: 10px; padding: 8px 10px; }
 .model-provider-fields small { line-height: 1.5; }
 .model-provider-fields .settings-button, .user-settings-openai-actions button { min-height: 44px; }
+.native-provider-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.native-provider-card { display: grid; align-content: start; gap: 12px; min-width: 0; }
+.native-provider-card .settings-card__heading { margin: 0; }
+.native-provider-status { margin: 0; padding: 8px 11px; border-radius: 9px; background: rgba(95, 96, 132, .11); font-weight: 700; }
+.native-provider-steps { display: grid; gap: 7px; }
+.native-provider-steps p { margin: 0; line-height: 1.45; }
+.native-provider-steps strong { margin-right: 5px; }
+.native-provider-code { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.native-provider-code code { padding: 8px 12px; border-radius: 8px; background: rgba(8, 169, 239, .12); font-size: 1.1em; letter-spacing: .08em; user-select: all; }
+.native-provider-ready { display: grid; gap: 10px; }
+.native-provider-advanced { border: 1px solid var(--settings-line); border-radius: 12px; padding: 13px; }
+.native-provider-advanced summary { cursor: pointer; font-weight: 750; }
+.native-provider-advanced[open] { display: grid; gap: 12px; }
+@media (max-width: 760px) { .native-provider-grid { grid-template-columns: 1fr; } }
 .conversation-model-picker { position: relative; margin-left: auto; flex: 0 0 auto; }
 .conversation-model-picker summary { cursor: pointer; padding: 10px 12px; border-radius: 10px; background: #eeebf7; color: #393049; }
 .conversation-model-picker > div { position: absolute; right: 0; top: calc(100% + 8px); width: min(340px, calc(100vw - 40px)); padding: 18px; background: #faf9fd; color: #282535; border: 1px solid #d7d3e2; border-radius: 16px; box-shadow: 0 12px 32px #211b3426; z-index: 30; }

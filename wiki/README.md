@@ -135,9 +135,11 @@ startup problems.
 1. Open `https://YOUR-HOSTNAME/signup` and register using the **exact email** you
    set in `NEURAL_LABS_INITIAL_ADMIN_EMAIL`. That account becomes the initial
    administrator. Other addresses wait for approval.
-2. Open `/workspace`, then **Settings → Model Provider → AI connections**.
-3. Choose **Connect ChatGPT** and finish the one-time-code sign-in, or choose
-   **Use an API key** and save your personal OpenAI Platform key.
+2. Open `/workspace`, then **Settings → Model Provider → OpenAI**.
+3. Choose **Connect OpenAI**. A new tab opens for ChatGPT sign-in; enter the
+   one-time code shown in the card. When sign-in finishes, available models load
+   and the default model is selected for your chats. The **Anthropic** card
+   offers Claude sign-in through a private Terminal.
 4. Open **Alshival** from the dock, start a private conversation, and send a simple
    request, such as “Help me plan my first project.” A reply confirms that your
    personal agent can use its account.

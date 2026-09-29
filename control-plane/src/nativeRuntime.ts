@@ -12,7 +12,7 @@ import type { ControlPlaneConfig } from "./config.js";
 const selectionSchema = z.object({ connection: z.string().uuid(), model: z.string().trim().min(1).max(160) }).strict();
 const operationSchema = z.object({
   operation: z.enum(["conversations.list", "conversations.create", "conversations.update", "conversations.delete",
-    "jobs.snapshot", "jobs.create", "jobs.update", "jobs.remove", "jobs.review", "jobs.run", "turns.start", "turns.cancel", "events.read", "approvals.resolve", "models.list", "account.status", "account.login", "account.refresh"]),
+    "jobs.snapshot", "jobs.create", "jobs.update", "jobs.remove", "jobs.review", "jobs.run", "turns.start", "turns.cancel", "events.read", "approvals.resolve", "models.list", "account.status", "account.login", "account.refresh", "account.cancel"]),
   selection: selectionSchema,
   params: z.record(z.string(), z.unknown()).default({}),
 }).strict();

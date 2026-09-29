@@ -3,6 +3,18 @@ import { watch } from "node:fs";
 import { providerEnvironment, CODEX_APP_SERVER } from "./codex.mjs";
 import { NATIVE_HOME } from "./launcher.mjs";
 
+const OPENAI_DEVICE_URL = "https://auth.openai.com/codex/device";
+function openAIDeviceCode(output) {
+  const clean = output.replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/gu, "")
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/gu, "").replace(/\r/gu, "\n");
+  const url = clean.match(/URL:\s*(https:\/\/[^\s]+)/iu)?.[1];
+  const code = clean.match(/Code:\s*([A-Z0-9][A-Z0-9-]{3,31})/u)?.[1];
+  if (!url || !code) return null;
+  // A provider process must not supply an arbitrary destination to the browser.
+  if (url !== OPENAI_DEVICE_URL) return null;
+  return { verificationUrl: url, userCode: code };
+}
+
 export function nativeAccountEnvironment(provider, method = "subscription") {
   return providerEnvironment({ provider, method, home: NATIVE_HOME,
     credentialHome: `${NATIVE_HOME}/${provider === "codex" ? ".codex" : ".claude"}` });
@@ -24,16 +36,28 @@ export class NativeAccounts extends EventEmitter {
   async status(grant, launch) {
     if (grant.binding.method !== "subscription") return { ready: false, reason: "api-key-not-configured" };
     const provider = grant.binding.provider;
+    let ready = false;
     try {
       const result = await launch.exec(provider === "codex" ? CODEX_APP_SERVER : "/usr/local/bin/claude",
         provider === "codex" ? ["login", "status"] : ["auth", "status", "--json"],
         { env: nativeAccountEnvironment(provider), timeout: 10000, maxBuffer: 65536 });
       const claude = provider === "claude" ? JSON.parse(result.stdout) : null;
-      const ready = provider === "codex"
+      ready = provider === "codex"
         ? /^Logged in using ChatGPT\b/m.test(`${result.stdout}\n${result.stderr}`)
         : claude.loggedIn === true && ["claude.ai", "oauth"].includes(claude.authMethod);
-      return { ready, reason: ready ? null : "native-sign-in-required" };
-    } catch { return { ready: false, reason: "native-sign-in-required" }; }
+    } catch { /* Device login can be pending while status exits unsuccessfully. */ }
+    const signIn = !ready && provider === "codex" ? await this.deviceSignIn(grant) : null;
+    return { ready, reason: ready ? null : "native-sign-in-required", ...(signIn ? { signIn } : {}) };
+  }
+  async deviceSignIn(grant) {
+    const entry = this.logins.get(grant.connection);
+    if (!entry || entry.actor !== grant.actor || !this.terminals || !this.resolveActor) return null;
+    const actor = await this.resolveActor(grant.actor);
+    if (!actor || actor.id !== grant.actor) return null;
+    const terminal = await this.terminals.get(actor, await entry.terminal);
+    if (!terminal || terminal.status !== "running") return null;
+    const output = terminal.backlog.map(chunk => chunk.data).join("").slice(-65536);
+    return openAIDeviceCode(output);
   }
   async login(grant, launch) {
     if (!this.terminals || !this.spawnPty || !this.resolveActor) throw new Error("Private native sign-in terminal is unavailable");
@@ -78,6 +102,16 @@ export class NativeAccounts extends EventEmitter {
       }).then(terminal => terminal.id);
       return { terminalId: await entry.terminal };
     } catch (error) { this.logins.delete(grant.connection); throw error; }
+  }
+  async cancel(grant) {
+    const entry = this.logins.get(grant.connection);
+    if (!entry) return { cancelled: false };
+    if (entry.actor !== grant.actor) throw new Error("Another administrator is connecting this account");
+    const actor = await this.resolveActor(grant.actor);
+    if (!actor || actor.id !== grant.actor) throw new Error("Sign-in membership is unavailable");
+    await grant.revalidate();
+    const closed = await this.terminals.close(actor, await entry.terminal);
+    return { cancelled: closed };
   }
   close() { for (const watchers of this.watchers.values()) for (const watcher of watchers) watcher.close(); this.watchers.clear(); }
 }

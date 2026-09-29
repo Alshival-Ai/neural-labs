@@ -196,10 +196,11 @@ export class NativeRuntime {
       }
       return { events, cursor: events.at(-1)?.id ?? params.after ?? 0 };
     }
-    if (["account.status", "account.refresh", "account.login"].includes(operation)) {
+    if (["account.status", "account.refresh", "account.login", "account.cancel"].includes(operation)) {
       if (this.turns.gated) throw new Error("Native runtime admission is closed");
       const grant = await this.execution(actor, lease, operation);
-      return operation === "account.login" ? this.accounts.login(grant, grant.launch) : this.accounts.status(grant, grant.launch);
+      return operation === "account.login" ? this.accounts.login(grant, grant.launch)
+        : operation === "account.cancel" ? this.accounts.cancel(grant) : this.accounts.status(grant, grant.launch);
     }
     throw new Error("Unsupported native runtime operation");
   }

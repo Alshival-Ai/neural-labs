@@ -6,26 +6,33 @@ import { configureNativeActor, nativeSelection } from "./nativeApi";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); localStorage.clear(); });
 
-it("opens native login for the explicitly chosen owner in a private Terminal", async () => {
+it("connects OpenAI in its card, shows the device code, then selects a loaded model", async () => {
   configureNativeActor("fixture", "fixture-csrf");
-  const terminal = vi.fn(async () => {});
+  const open = vi.spyOn(window, "open").mockImplementation(() => null);
+  let checks = 0;
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     if (input === "/api/runtime/connections") return Response.json({ connections: [
-      { id: "personal", provider: "codex", scope: "personal", method: "subscription", enabled: true, generation: 1, label: "My Codex" },
-      { id: "background", provider: "claude", scope: "background", method: "subscription", enabled: true, generation: 2, label: "Scheduled Claude" },
+      { id: "personal", provider: "codex", scope: "personal", method: "subscription", enabled: true, generation: 1, label: "My OpenAI" },
     ] });
     expect(input).toBe("/api/runtime/request");
     expect(new Headers(init?.headers).get("X-CSRF-Token")).toBe("fixture-csrf");
-    expect(JSON.parse(String(init?.body))).toMatchObject({ operation: "account.login", selection: { connection: "background" } });
-    return Response.json({ terminalId: "private-terminal" });
+    const request = JSON.parse(String(init?.body));
+    if (request.operation === "account.status") {
+      checks++;
+      return Response.json(checks >= 3 ? { ready: true } : { ready: false, signIn: { verificationUrl: "https://auth.openai.com/codex/device", userCode: "ABCD-EFGH" } });
+    }
+    if (request.operation === "account.login") return Response.json({ terminalId: "private-terminal" });
+    expect(request.operation).toBe("models.list");
+    return Response.json({ defaultModel: "gpt-fixture", models: [{ id: "gpt-fixture", name: "GPT fixture", available: true }] });
   });
-  render(<TerminalLaunchContext.Provider value={terminal}><NativeConnectionsPanel csrfToken="fixture-csrf" administrator /></TerminalLaunchContext.Provider>);
-  await screen.findByRole("option", { name: "Scheduled Claude · background" });
-  fireEvent.change(screen.getByLabelText("Connection"), { target: { value: "background" } });
-  expect(screen.getByRole("button", { name: "Use for my chats" })).toBeDisabled();
-  fireEvent.click(screen.getByRole("button", { name: "Sign in in Terminal" }));
-  await waitFor(() => expect(terminal).toHaveBeenCalledWith("private-terminal"));
-  expect(nativeSelection()).toBeUndefined();
+  render(<NativeConnectionsPanel csrfToken="fixture-csrf" />);
+  await screen.findByRole("button", { name: "Connect OpenAI" });
+  fireEvent.click(screen.getByRole("button", { name: "Connect OpenAI" }));
+  expect(open).toHaveBeenCalledWith("https://auth.openai.com/codex/device", "_blank", "noopener,noreferrer");
+  await screen.findByText("ABCD-EFGH");
+  await waitFor(() => expect(checks).toBeGreaterThanOrEqual(3), { timeout: 4000 });
+  await screen.findByRole("option", { name: "GPT fixture" });
+  expect(nativeSelection()).toEqual({ connection: "personal", model: "gpt-fixture" });
 });
 it("loads models on demand from the selected account and never silently selects shared AI", async () => {
   configureNativeActor("fixture", "fixture-csrf");

@@ -31,3 +31,23 @@ test("native sign-in revalidates immediately before spawn and keeps the owner's 
   for (const exit of exits) exit({ exitCode: 0 });
   assert.equal(accounts.logins.size, 0);
 });
+
+test("OpenAI device code is exposed only to its owner and can be cancelled", async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "native-device-"));
+  const terminals = new WorkspaceTerminalManager({ workspaceRoot: root });
+  const actor = { id: "member", label: "Fixture", role: "user" };
+  const accounts = new NativeAccounts({ terminals, resolveActor: async id => ({ ...actor, id }),
+    spawnPty: () => ({ onData() {}, onExit() {}, kill() {} }) });
+  t.after(async () => { terminals.shutdown(); accounts.close(); await rm(root, { recursive: true, force: true }); });
+  const grant = { actor: actor.id, connection: "personal-fixture", binding: { provider: "codex", method: "subscription" }, revalidate: async () => {} };
+  const launch = { invocation: () => ({ file: "fixture", args: [], options: {} }), exec: async () => { throw new Error("Not signed in"); } };
+  const { terminalId } = await accounts.login(grant, launch);
+  const session = await terminals.get(actor, terminalId);
+  terminals.recordOutput(session, "Open this URL: https://auth.openai.com/codex/device\r\nCode: ABCD-EFGH\r\n");
+  assert.deepEqual((await accounts.status(grant, launch)).signIn, {
+    verificationUrl: "https://auth.openai.com/codex/device", userCode: "ABCD-EFGH",
+  });
+  assert.equal(await accounts.deviceSignIn({ ...grant, actor: "other" }), null);
+  assert.equal((await accounts.cancel(grant)).cancelled, true);
+  assert.equal(await accounts.deviceSignIn(grant), null);
+});

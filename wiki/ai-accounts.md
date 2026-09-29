@@ -7,11 +7,15 @@ only user and the administrator.
 ## Connect your personal account
 
 1. Open **Settings → Model Provider**, then the **OpenAI** card.
-2. Choose **Connect ChatGPT** or **Use an API key**.
-3. For ChatGPT, wait for the verification URL and one-time code, then open the
-   URL and finish sign-in. Keep Settings open until it confirms the connection.
-   For a key, enter an OpenAI Platform API key and choose **Save and use API key**.
-4. Check the model status, then send a request in a private Alshival conversation.
+2. Choose **Connect OpenAI**. The browser opens the OpenAI device sign-in page in
+   a new tab; the one-time code appears in the card when the native login starts.
+3. Enter the code on that page and finish sign-in. Keep Settings open while the
+   card checks your account, loads models, and selects the default available
+   model for your chats.
+4. Send a request in a private Alshival conversation to verify the account.
+
+Additional personal, shared, Team, and background connections can be managed
+under **Advanced connections**. These require explicit owner and model choices.
 
 API usage is billed separately from ChatGPT subscriptions. Saving a personal key
 selects key authentication for that person's Alshival; choosing ChatGPT selects
@@ -33,13 +37,11 @@ still valid.
 
 ## Connect Claude
 
-Open **Settings → Model Provider → Claude**, then **Connect Claude**. This opens
-a private Claude sign-in session in the Terminal app. Choose **Open Anthropic
-sign-in**, complete the browser steps, then use Terminal's paste button (or
-Ctrl/Cmd+Shift+V) to paste the returned code and press Enter. Return to Settings
-to check the connection. **Open sign-in in Terminal** reopens the same unfinished
-session. Closing that terminal or choosing **Cancel sign-in** stops the attempt.
-Alshival cannot access this sign-in session.
+Open **Settings → Model Provider → Anthropic**, then **Connect Anthropic**. This
+opens a private Claude sign-in session in the Terminal app. Complete the browser
+steps, then paste the returned code into Terminal and press Enter. The card
+checks sign-in status and loads available models after completion. Alshival
+cannot access this sign-in session.
 
 This flow needs no additional public DNS, OAuth callback registration, or inbound
 port. The CLI and browser need outbound access to Anthropic. Claude keeps the
