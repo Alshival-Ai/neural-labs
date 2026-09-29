@@ -59,7 +59,7 @@ await providers.start();
 const tools = new NativeTools({ origin: `http://127.0.0.1:${toolsPort}`, createApplication: createProviderApplication, configuration: () => providers.snapshot() });
 const skills = new NativeSkills({ root: "/run/neural-labs/skills", manager: createSkillsManager({
   personalRoot: path.join(path.dirname(workspaceRoot), ".agents", "skills"), teamRoot: path.join(workspaceRoot, "skills"),
-  libraryRoots: ["/usr/local/share/neural-labs/prospect-skills", path.join(root, "installed-skills")],
+  libraryRoots: [path.join(root, "installed-skills")],
 }) });
 const runtime = new NativeRuntime({ stateRoot: root, workspaceRoot, authorize: controlPlaneAuthority({ origin: controlOrigin, token }),
   tools, skills, terminals, spawnPty: pty.spawn, resolveActor });
@@ -89,7 +89,7 @@ const mcpStatus = async () => ({ ready: mcpServer.listening, mode: "workspace-lo
     googleGeocoding: providers.status()["google-maps"].available, klipy: providers.status().klipy.available, pexels: providers.status().pexels.available }, tools: [] });
 const server = createWorkspaceHttpServer({ desktopRoot: "/usr/local/share/neural-labs/desktop", workspaceRoot, publicOrigin,
   nativeRuntime: runtime, requireSignedRequests: true, nativeEditors: editors, updateMaintenance: maintenance,
-  skillLibraryRoots: ["/usr/local/share/neural-labs/prospect-skills", path.join(root, "installed-skills")],
+  skillLibraryRoots: [path.join(root, "installed-skills")],
   runtimeReady: async () => !stopping && triggers.status().ready, mcpStatus, apiProviderRuntime: providers, terminalManager: terminals,
   terminalActorResolver: resolveActor, workspaceControlToken: token, codexVersion: release.codex, claudeVersion: release.claude,
   voiceService: createVoiceService({ safetySecret: token }),

@@ -91,6 +91,8 @@ test("Claude resumes exact native session without fallback model or permission b
   assert.ok(!args.includes("--fallback-model"));
   assert.ok(!args.includes("--dangerously-skip-permissions"));
   assert.ok(args.includes("--strict-mcp-config"));
+  const writable = claudeArguments({ model: "fixture", sessionId: session, policy: { sandbox: "workspace-write", approval: "on-request" } });
+  assert.equal(writable[writable.indexOf("--tools") + 1], "Read,Glob,Grep,Edit,Write");
 });
 
 test("Claude cancellation during version verification cannot execute the prompt", async () => {

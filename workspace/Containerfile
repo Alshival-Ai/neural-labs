@@ -60,7 +60,6 @@ COPY workspace/start.mjs workspace/http-server.mjs workspace/response-work.mjs \
      workspace/public-apps.mjs workspace/imported-history.mjs ./
 COPY workspace/native ./native
 COPY --chmod=0755 workspace/entrypoint.sh /usr/local/bin/neural-labs-runtime
-COPY --chown=node:node workspace/bundled-skills /usr/local/share/neural-labs/prospect-skills
 COPY --from=desktop-build /build/dist /usr/local/share/neural-labs/desktop
 COPY --chown=node:node --from=mcp-build /build/package.json /build/package-lock.json /usr/local/lib/neural-labs/mcp/
 COPY --chown=node:node --from=mcp-build /build/node_modules /usr/local/lib/neural-labs/mcp/node_modules

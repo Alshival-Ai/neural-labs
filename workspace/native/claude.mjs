@@ -11,7 +11,7 @@ export function claudeArguments({ model, nativeSession, sessionId, policy, mcpCo
   if (effort !== undefined && !["low", "medium", "high", "xhigh", "max"].includes(effort)) throw new Error("Unsupported Claude reasoning effort");
   return ["--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
     "--permission-prompt-tool", "stdio", "--permission-mode", "default", "--setting-sources", "", "--strict-mcp-config",
-    "--tools", policy.sandbox === "read-only" ? "Read,Glob,Grep" : "default",
+    "--tools", policy.sandbox === "read-only" ? "Read,Glob,Grep" : "Read,Glob,Grep,Edit,Write",
     ...(mcpConfig ? ["--mcp-config", mcpConfig] : []), "--model", model,
     ...(effort ? ["--effort", effort] : []),
     ...(nativeSession ? ["--resume", nativeSession] : ["--session-id", sessionId])];
