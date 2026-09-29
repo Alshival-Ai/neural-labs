@@ -306,7 +306,9 @@ function validateSkill(room) {
   if (!skill) return [issue("error", "missing_skill", "SKILL.md is required")];
   const header = parseSkillHeader(skill.content);
   if (!header.name || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(header.name)) issues.push(issue("error", "invalid_name", "Frontmatter name must be a lowercase hyphenated skill name", "SKILL.md"));
-  if (!header.description || header.description.length > 500) issues.push(issue("error", "invalid_description", "Frontmatter description is required and must be at most 500 characters", "SKILL.md"));
+  if (!header.description || header.description === "Explain what this skill does and when to use it." || header.description.length > 500) {
+    issues.push(issue("error", "invalid_description", "Enter a description explaining when this skill is useful (up to 500 characters).", "SKILL.md"));
+  }
   const fieldSlug = yTextValue(room.doc.getMap("fields").get("slug")).trim();
   const expectedSlug = room.manifest.targetKey || fieldSlug;
   if (header.name && expectedSlug && header.name !== expectedSlug) issues.push(issue("error", "name_mismatch", `SKILL.md name must remain ${expectedSlug}`, "SKILL.md"));

@@ -68,6 +68,15 @@ test("source-only skill metadata publishes through the real skill store", async 
   assert.equal(updated.skill.description, description);
 });
 
+test("an empty description cannot pass validation using generated template text", async t => {
+  const { manager, publications } = await fixture(t);
+  const draft = await manager.create(maya, { kind: "skill", initial: { name: "Handoff" } });
+  const validation = await manager.validate(maya, draft.id);
+  assert.ok(validation.issues.some(issue => issue.code === "invalid_description" && issue.file === "SKILL.md"));
+  await assert.rejects(manager.publish(maya, draft.id), error => error.status === 422 && error.code === "invalid_draft");
+  assert.equal(publications.length, 0);
+});
+
 test("draft access follows owner, selected collaborators, and administrator visibility", async (t) => {
   const { manager } = await fixture(t);
   const draft = await manager.create(maya, { kind: "skill", initial: { name: "Shared draft", description: "A collaborative skill." } });
