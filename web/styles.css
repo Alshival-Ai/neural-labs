@@ -891,7 +891,7 @@ a {
   font-size: 0.54rem;
 }
 
-.openclaw-section {
+.teamwork-section {
   display: grid;
   grid-template-columns: minmax(20rem, 0.88fr) minmax(28rem, 1.12fr);
   gap: clamp(4rem, 8vw, 9rem);
@@ -902,35 +902,11 @@ a {
   scroll-margin-top: 4.8rem;
 }
 
-.openclaw-intro {
+.teamwork-intro {
   align-self: start;
 }
 
-.openclaw-wordmark {
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
-  margin: 2.2rem 0 1.6rem;
-  font-family: var(--mono);
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-}
-
-.openclaw-wordmark span {
-  display: grid;
-  place-items: center;
-  width: 2.35rem;
-  height: 2.35rem;
-  border-radius: 0.7rem;
-  color: white;
-  background: var(--ink);
-  font-size: 0.66rem;
-  box-shadow: 0.28rem 0.28rem 0 var(--coral);
-}
-
-.openclaw-intro h2 {
+.teamwork-intro h2 {
   max-width: 12ch;
   margin: 0;
   font-size: clamp(3.1rem, 5.8vw, 6.5rem);
@@ -939,14 +915,14 @@ a {
   letter-spacing: -0.07em;
 }
 
-.openclaw-intro h2 span {
+.teamwork-intro h2 span {
   color: transparent;
   background: linear-gradient(92deg, var(--cyan), var(--violet), var(--pink), var(--coral));
   background-clip: text;
   -webkit-background-clip: text;
 }
 
-.openclaw-lede {
+.teamwork-lede {
   max-width: 35rem;
   margin: 1.8rem 0 0;
   color: var(--muted);
@@ -954,28 +930,27 @@ a {
   line-height: 1.7;
 }
 
-.openclaw-section .text-action {
+.teamwork-section .text-action {
   color: var(--ink);
   text-decoration-color: var(--coral);
 }
 
-.openclaw-capabilities {
+.teamwork-capabilities {
   display: grid;
   align-self: start;
 }
 
-.openclaw-capability {
+.teamwork-capability {
   --capability: var(--coral);
   display: grid;
-  grid-template-columns: 2rem 1fr auto;
+  grid-template-columns: 2rem 1fr;
   gap: clamp(1rem, 2.5vw, 2.2rem);
   padding: clamp(1.6rem, 3vw, 2.7rem) 0;
   border-top: 1px solid var(--line);
   color: var(--ink);
-  text-decoration: none;
 }
 
-.openclaw-capability:last-child {
+.teamwork-capability:last-child {
   border-bottom: 1px solid var(--line);
 }
 
@@ -1002,7 +977,7 @@ a {
   color: var(--capability);
 }
 
-.openclaw-capability h3 {
+.teamwork-capability h3 {
   max-width: 15ch;
   margin: 0;
   font-size: clamp(1.55rem, 2.7vw, 2.75rem);
@@ -1010,7 +985,7 @@ a {
   letter-spacing: -0.05em;
 }
 
-.openclaw-capability div > p:last-child {
+.teamwork-capability div > p:last-child {
   max-width: 34rem;
   margin: 0.9rem 0 0;
   color: var(--muted);
@@ -1018,25 +993,7 @@ a {
   line-height: 1.6;
 }
 
-.openclaw-capability > i {
-  display: grid;
-  place-items: center;
-  width: 2.6rem;
-  height: 2.6rem;
-  border: 1px solid var(--line);
-  border-radius: 50%;
-  font-style: normal;
-  transition: color 160ms ease, background 160ms ease, border-color 160ms ease, transform 160ms ease;
-}
-
-.openclaw-capability:hover > i {
-  border-color: var(--capability);
-  color: white;
-  background: var(--capability);
-  transform: translate(0.18rem, -0.18rem);
-}
-
-.openclaw-flow {
+.teamwork-flow {
   grid-column: 1 / -1;
   display: grid;
   grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr;
@@ -1046,7 +1003,7 @@ a {
   padding-top: clamp(2rem, 5vw, 4.5rem);
 }
 
-.openclaw-flow > div {
+.teamwork-flow > div {
   position: relative;
   display: grid;
   align-content: start;
@@ -1057,26 +1014,26 @@ a {
   background: rgba(255, 254, 249, 0.6);
 }
 
-.openclaw-flow > div > span {
+.teamwork-flow > div > span {
   color: var(--muted);
   font-family: var(--mono);
   font-size: 0.54rem;
 }
 
-.openclaw-flow > div > strong {
+.teamwork-flow > div > strong {
   align-self: end;
   margin-top: 2rem;
   font-size: 1rem;
   letter-spacing: -0.03em;
 }
 
-.openclaw-flow > div > small {
+.teamwork-flow > div > small {
   margin-top: 0.3rem;
   color: var(--muted);
   font-size: 0.68rem;
 }
 
-.openclaw-flow > i {
+.teamwork-flow > i {
   align-self: center;
   color: var(--muted);
   font-family: var(--mono);
@@ -1084,18 +1041,18 @@ a {
   font-style: normal;
 }
 
-.openclaw-flow .flow-neural {
+.teamwork-flow .flow-neural {
   color: white;
   background: var(--ink);
 }
 
-.openclaw-flow .flow-neural small,
-.openclaw-flow .flow-neural > span {
+.teamwork-flow .flow-neural small,
+.teamwork-flow .flow-neural > span {
   color: rgba(255, 255, 255, 0.52);
 }
 
-.openclaw-flow .flow-neural::before,
-.openclaw-flow .flow-openclaw::before {
+.teamwork-flow .flow-neural::before,
+.teamwork-flow .flow-tools::before {
   position: absolute;
   inset: -1px -1px auto;
   height: 0.3rem;
@@ -1104,7 +1061,7 @@ a {
   background: linear-gradient(90deg, var(--cyan), var(--violet), var(--pink), var(--coral), var(--amber));
 }
 
-.openclaw-flow .flow-openclaw {
+.teamwork-flow .flow-tools {
   border-color: rgba(11, 12, 17, 0.35);
 }
 
@@ -1447,7 +1404,7 @@ a {
 
 .flow-list li {
   display: grid;
-  grid-template-columns: 2rem 1fr auto;
+  grid-template-columns: 2rem 1fr;
   align-items: center;
   gap: 1.2rem;
   min-height: 8rem;
@@ -1886,11 +1843,11 @@ footer > div a { text-underline-offset: 0.3rem; }
     grid-column: 2;
   }
 
-  .openclaw-section {
+  .teamwork-section {
     grid-template-columns: 1fr;
   }
 
-  .openclaw-intro h2 {
+  .teamwork-intro h2 {
     max-width: 13ch;
   }
 
@@ -1965,11 +1922,11 @@ footer > div a { text-underline-offset: 0.3rem; }
   .mode-strip > div:nth-child(2) { border-right: 0; }
   .mode-strip > div:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
 
-  .openclaw-flow {
+  .teamwork-flow {
     grid-template-columns: repeat(2, 1fr);
   }
 
-  .openclaw-flow > i {
+  .teamwork-flow > i {
     display: none;
   }
 
@@ -2040,10 +1997,9 @@ footer > div a { text-underline-offset: 0.3rem; }
   .mode-number { grid-row: auto; }
   .mode-strip small { display: none; }
   .mode-strip strong { font-size: 0.82rem; }
-  .openclaw-intro h2 { font-size: clamp(2.7rem, 14vw, 4.2rem); }
-  .openclaw-capability { grid-template-columns: 1.5rem 1fr; }
-  .openclaw-capability > i { display: none; }
-  .openclaw-flow { grid-template-columns: 1fr; }
+  .teamwork-intro h2 { font-size: clamp(2.7rem, 14vw, 4.2rem); }
+  .teamwork-capability { grid-template-columns: 1.5rem 1fr; }
+  .teamwork-flow { grid-template-columns: 1fr; }
   .section-intro h2,
   .flow-heading h2,
   .principles-heading h2,
