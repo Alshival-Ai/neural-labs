@@ -8,7 +8,8 @@ import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Database } from "../src/database.js";
 import type { ControlPlaneConfig } from "../src/config.js";
-import { bindAuthenticationMode, managedUserId, registerManagedRoutes } from "../src/managed.js";
+import { bindAuthenticationMode, managedUserId, registerManagedRoutes, resolveManagedUserId, syncManagedUser } from "../src/managed.js";
+import { adoptManagedIdentity } from "../src/adoptManagedIdentity.js";
 import { SessionService } from "../src/sessions.js";
 
 const integration = process.env.TEST_DATABASE_URL ? describe : describe.skip;
@@ -42,6 +43,40 @@ integration("managed identity database boundary", () => {
     await database.createLocalUser({ email: "local@example.com", displayName: "Existing", passwordHash: "fixture" });
     await expect(bindAuthenticationMode(database, config)).rejects.toThrow("fresh identity database");
     await bindAuthenticationMode(database, standalone);
+  });
+  it("adopts only a complete explicit mapping, preserves native identity, and invalidates old sessions", async () => {
+    await database.createLocalUser({ email: "local@example.com", displayName: "Existing", passwordHash: "fixture" });
+    await bindAuthenticationMode(database, standalone);
+    const id = (await database.pool.query("SELECT id FROM users WHERE normalized_email='local@example.com'")).rows[0].id;
+    const mapping = { users: [{ userId: id, subject: "123", expectedEmail: "local@example.com" }] };
+    const actor = { subject: "123", email: "local@example.com", display_name: "Existing", role: "admin" as const,
+      workspace: managed.workspace, instance: managed.instance, origin: config.publicOrigin!.origin,
+      generation: 3, expires_at: new Date(Date.now() + 3600000).toISOString(), token: "g".repeat(43) };
+    expect(await adoptManagedIdentity(database, managed, mapping)).toEqual({ users: 1, committed: false });
+    await bindAuthenticationMode(database, standalone);
+    expect((await database.pool.query("SELECT count(*)::int AS n FROM managed_identities")).rows[0].n).toBe(0);
+    await expect(adoptManagedIdentity(database, managed, { users: [{ ...mapping.users[0], expectedEmail: "other@example.com" }] }, true)).rejects.toThrow("every existing user");
+    await expect(adoptManagedIdentity(database, managed, { users: [...mapping.users, ...mapping.users] }, true)).rejects.toThrow("one-to-one");
+    await database.createSession({ tokenHash: "old-session", csrfHash: "old-csrf", userId: id,
+      idleExpiresAt: new Date(Date.now() + 3600000), absoluteExpiresAt: new Date(Date.now() + 3600000) });
+    expect(await adoptManagedIdentity(database, managed, mapping, true)).toEqual({ users: 1, committed: true });
+    await bindAuthenticationMode(database, config);
+    await expect(bindAuthenticationMode(database, standalone)).rejects.toThrow();
+    expect((await database.pool.query("SELECT count(*)::int AS n FROM sessions")).rows[0].n).toBe(0);
+    expect(await resolveManagedUserId(database, managed, actor.subject)).toBe(id);
+    expect(await syncManagedUser(database, managed, actor)).toBe(id);
+    expect((await database.pool.query("SELECT count(*)::int AS n FROM users")).rows[0].n).toBe(1);
+    expect(await resolveManagedUserId(database, { ...managed, workspace: managed.instance }, actor.subject)).not.toBe(id);
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json(actor));
+    const app = express(); app.use(express.urlencoded({ extended: false })); app.use(express.json());
+    const sessions = new SessionService(database, config);
+    registerManagedRoutes(app, config, database, sessions);
+    app.get("/probe", async (req, res) => { const current = await sessions.actor(req); res.status(current ? 200 : 401).json(current?.user ?? {}); });
+    const login = await request(app).post("/auth/alshival/handoff").set("Host", config.publicOrigin!.host)
+      .set("Origin", managed.portalOrigin).type("form").send({ handoff: "h".repeat(43) });
+    expect(login.status).toBe(303);
+    const cookie = (login.headers["set-cookie"] as unknown as string[]).map(value => value.split(";")[0]).join("; ");
+    expect((await request(app).get("/probe").set("Cookie", cookie)).body.id).toBe(id);
   });
   it("redeems a portal handoff, encrypts its grant, and rechecks roles and revocation", async () => {
     await bindAuthenticationMode(database, config);

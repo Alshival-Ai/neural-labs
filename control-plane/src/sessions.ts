@@ -3,7 +3,7 @@ import type { Request, Response } from "express";
 import type { ControlPlaneConfig } from "./config.js";
 import { hashToken, randomToken } from "./crypto.js";
 import { CredentialCipher } from "./crypto.js";
-import { managedUserId, portalCall, syncManagedUser } from "./managed.js";
+import { resolveManagedUserId, portalCall, syncManagedUser } from "./managed.js";
 import type { Database } from "./database.js";
 import type { SessionActor } from "./types.js";
 
@@ -78,7 +78,7 @@ export class SessionService {
         const result = await this.database.pool.query("SELECT portal_grant FROM sessions WHERE token_hash=$1", [hashToken(token)]);
         const grant = new CredentialCipher(this.config.masterKey).decrypt<{ token: string }>(result.rows[0]?.portal_grant);
         const identity = (await portalCall(this.config, "authorize", grant.token))!;
-        if (managedUserId(this.config.managed, identity.subject) !== actor.user.id) return undefined;
+        if (await resolveManagedUserId(this.database, this.config.managed, identity.subject) !== actor.user.id) return undefined;
         await syncManagedUser(this.database, this.config.managed, identity);
         actor.user.role = identity.role;
         actor.user.status = "active";

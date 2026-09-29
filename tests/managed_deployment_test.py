@@ -57,6 +57,19 @@ class ManagedDeploymentTests(unittest.TestCase):
         cfg = self.fixture(); cfg["images"]["workspace"] = "fixture/workspace:latest"
         with self.assertRaises(ValueError): render.build(cfg, Path("/etc/neura/fixture"))
 
+    def test_operator_can_register_portal_origin_without_tenant_hostname_suffix(self):
+        cfg = self.fixture(); cfg["hostname"] = "portal.example.com"
+        compose, descriptor, ingress = render.build(cfg, Path("/etc/neura/fixture"))
+        self.assertEqual(compose["services"]["control-plane"]["environment"]["CONTROL_PLANE_PUBLIC_ORIGIN"],
+                         "https://portal.example.com")
+        self.assertEqual(descriptor["hostname"], cfg["hostname"])
+        self.assertIn("server_name portal.example.com;", ingress)
+        for hostname in ("https://portal.example.com", "localhost", "portal.example.com/path", "portal.example.com:443",
+                         "-portal.example.com", "portal..example.com", "portal.example.com\n"):
+            cfg["hostname"] = hostname
+            with self.subTest(hostname=hostname), self.assertRaises(ValueError):
+                render.build(cfg, Path("/etc/neura/fixture"))
+
     def test_existing_private_ingress_updates_only_reviewed_template(self):
         cfg = self.fixture()
         desired = render.ingress(cfg["hostname"], cfg["runtime"], cfg["port"])

@@ -102,8 +102,16 @@ export function managedUserId(config: ManagedConfig, subject: string): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
+/** Explicit operator adoption may preserve a pre-existing native identity. */
+export async function resolveManagedUserId(database: Database, config: ManagedConfig, subject: string): Promise<string> {
+  const row = await database.pool.query(
+    "SELECT user_id FROM managed_identities WHERE issuer=$1 AND workspace=$2 AND subject=$3",
+    [config.portalOrigin, config.workspace, subject]);
+  return row.rows[0]?.user_id ?? managedUserId(config, subject);
+}
+
 export async function syncManagedUser(database: Database, config: ManagedConfig, actor: ManagedActor): Promise<string> {
-  const id = managedUserId(config, actor.subject);
+  const id = await resolveManagedUserId(database, config, actor.subject);
   // Serialized identity updates cannot attach an existing local identity by matching email.
   await database.pool.query(
     `INSERT INTO users(id, email, normalized_email, display_name, handle, role, status)

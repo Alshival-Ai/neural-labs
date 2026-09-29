@@ -13,7 +13,15 @@ Standalone installations continue to own their local identity and configuration.
 `NEURAL_LABS_AUTH_MODE` defaults to `standalone`. The `alshival` adapter requires
 an HTTPS portal origin, immutable workspace/instance UUIDs, and a private signing
 secret available only to the control plane. PostgreSQL records the identity
-binding. Switching authorities or importing a standalone account database fails.
+binding. Ordinary startup refuses switching authorities or importing a standalone
+account database. An explicit offline operator adoption can preserve native user
+IDs when an existing installation joins a portal. It requires a complete,
+one-to-one subject-to-UUID mapping with expected emails, a previously bound
+standalone authority, no existing managed identities, and current membership in
+the target portal. The operation is transactional, defaults to rollback, and
+invalidates old sessions. It never links an account by email during sign-in.
+Login, session authorization and imported historical authors resolve the stored
+issuer/workspace/subject binding before deriving IDs for new users.
 
 Visitors enter through the portal. A member's explicit launch posts a one-use,
 60-second handoff to the workspace origin. The control plane redeems it through

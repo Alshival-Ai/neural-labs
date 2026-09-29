@@ -17,7 +17,10 @@ def build(registration, destination):
     cfg = registration
     runtime, workspace, instance = (str(uuid.UUID(cfg[key])) for key in ("runtime", "workspace", "instance"))
     hostname = cfg["hostname"]
-    if not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.alshival\.cloud", hostname):
+    # This is private operator input. Portal admission separately owns which
+    # workspace may use an origin, including a portal's own team desktop.
+    if (len(hostname) > 253 or not re.fullmatch(
+            r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,62}", hostname)):
         raise ValueError("Invalid managed hostname")
     if not re.fullmatch(r"[a-f0-9]{40}", cfg["release"]):
         raise ValueError("Pin the Neural Labs source commit")

@@ -6,7 +6,7 @@ import type { ControlPlaneConfig } from "./config.js";
 import type { Database } from "./database.js";
 import { CollaborationError, type CollaborationStore, type TeamAgentInvocation } from "./collaboration.js";
 import type { CollaborationEvent } from "./server.js";
-import { portalCall, portalExchange, managedUserId, syncManagedUser } from "./managed.js";
+import { portalCall, portalExchange, resolveManagedUserId, syncManagedUser } from "./managed.js";
 import type { UserRecord } from "./types.js";
 
 export const MANAGED_CHAT_PROTOCOL = 1;
@@ -67,18 +67,24 @@ export function registerManagedChat(app: Express, config: ControlPlaneConfig, da
         if (imported.workspace !== managed.workspace || imported.instance !== managed.instance
             || imported.generation !== identity.generation || imported.id !== input.sourceConversation)
           throw new Error("Shared history binding mismatch");
+        const authorIds = new Map<string, string>();
         for (const user of imported.users) {
-          const historicalId = managedUserId(managed, user.subject);
+          const historicalId = await resolveManagedUserId(database, managed, user.subject);
+          authorIds.set(user.subject, historicalId);
           // Preserve historical authors without giving former members a login
           // or enrolling them into currently active workspace membership.
           await database.pool.query(`INSERT INTO users(id,email,normalized_email,display_name,handle,role,status)
             VALUES($1,$2,lower($2),$3,$4,'user','disabled') ON CONFLICT(id) DO NOTHING`,
             [historicalId, user.email, user.display_name, `p-${historicalId.replaceAll("-", "").slice(0,28)}`]);
         }
+        for (const message of imported.messages) {
+          if (message.subject && !authorIds.has(message.subject))
+            authorIds.set(message.subject, await resolveManagedUserId(database, managed, message.subject));
+        }
         const result = await store.createChannel(actor, { name: imported.name || "Alshival · Workspace-shared",
           audience: "everyone", memberIds: [], importSource: `portal:${managed.workspace}:${imported.id}`,
           importedMessages: imported.messages.map(message => ({ ...message,
-            ...(message.subject ? { authorUserId: managedUserId(managed, message.subject) } : {}) })),
+            ...(message.subject ? { authorUserId: authorIds.get(message.subject)! } : {}) })),
         });
         publish({ type: "channels.changed", channelId: result.channel.id });
         response.json(result); return;
