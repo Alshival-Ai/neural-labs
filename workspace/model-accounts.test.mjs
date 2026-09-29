@@ -53,3 +53,37 @@ test("slow access discovery survives caller retries without repeating provider w
   pending.get("alice").resolve({ agentId: "nl-alice" });
   await secondBob;
 });
+
+test("Claude sign-in discovers defaults without a session catalog and grants only the owner's role", async () => {
+  const owner = { agentId: "nl-alice", roleId: "personal-nl-alice" };
+  let routed = false;
+  const roles = [];
+  const accounts = new ModelAccounts({
+    openai: {
+      queueMutation: fn => fn(), ensureProvisioned: async () => owner,
+      openclawJson: async () => ({ entries: { [owner.agentId]: { models: {} } } }),
+      gatewayRequest: async (method, args) => {
+        assert.equal(method, "models.list");
+        assert.equal(args.agentId, owner.agentId);
+        // Mirrors a fresh managed instance with no Anthropic session catalog.
+        return { models: args.provider === "anthropic" && args.includeDefaultModels
+          ? [{ provider: "anthropic", id: "test-model" }] : [] };
+      },
+      execute: async (binary, args, options) => {
+        assert.equal(binary, "openclaw");
+        const [operation] = JSON.parse(args[3]);
+        assert.equal(operation.path, "agents.entries.nl-alice.models");
+        assert.equal(operation.value["anthropic/test-model"].agentRuntime.id, "neural-labs-claude");
+        assert.ok(options.timeout > 30_000);
+        routed = true;
+      },
+      snapshot: async () => ({ authenticated: false }),
+      assignRole: async (...args) => roles.push(args),
+    },
+    claude: { owner: async () => owner.agentId,
+      snapshot: async () => ({ authenticated: true, paused: false, modelReady: routed }) },
+  });
+  await accounts.changed({ userId: "alice" });
+  assert.equal(routed, true);
+  assert.deepEqual(roles, [["alice", "personal-nl-alice"]]);
+});

@@ -91,7 +91,7 @@ export class UpdateMaintenance {
   }
   async scheduler(enabled) {
     const args = enabled === null ? ["config", "unset", "cron.enabled"] : ["config", "set", "cron.enabled", JSON.stringify(enabled), "--strict-json"];
-    try { await this.execute("openclaw", args, { encoding: "utf8", timeout: 30000, maxBuffer: 2 ** 20 }); }
+    try { await this.execute("openclaw", args, { encoding: "utf8", timeout: 110_000, killSignal: "SIGKILL", maxBuffer: 2 ** 20 }); }
     catch { throw new Error("Cannot change the native scheduler state"); }
     const expected = enabled !== false;
     for (let i = 0; i < 30; i++) {
@@ -128,7 +128,7 @@ export class UpdateMaintenance {
     try {
       await prepareProbation({ root: this.root, probation: false, activate: true,
         run: async args => {
-          try { const result = await this.execute("openclaw", args, { encoding: "utf8", timeout: 30000, maxBuffer: 2 ** 20 }); return { status: 0, stdout: result.stdout }; }
+          try { const result = await this.execute("openclaw", args, { encoding: "utf8", timeout: 110_000, killSignal: "SIGKILL", maxBuffer: 2 ** 20 }); return { status: 0, stdout: result.stdout }; }
           catch { return { status: 1 }; }
         },
       });

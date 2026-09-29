@@ -3,6 +3,8 @@ import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
 import path from "node:path";
 import { CLAUDE_RUNTIME } from "./claude-runtime.mjs";
 import { randomUUID } from "node:crypto";
+import { applyNativeConfigBatch } from "./native-config-batch.mjs";
+import { claudeModelCatalog } from "./model-catalog.mjs";
 
 // Public account access is independent of the provider that originally
 // provisioned the Alshival agent. Credentials stay with their native managers.
@@ -32,6 +34,7 @@ export class ModelAccounts {
   }
   async changed(owner) {
     this.catalog?.invalidate(owner.userId);
+    if (owner.userId) this.accessSnapshots.delete(owner.userId);
     const id = await this.claude.owner(owner);
     const caStatus = await this.claude.snapshot(owner);
     // Bind every discoverable Claude model so explicit conversation/job picks
@@ -39,7 +42,7 @@ export class ModelAccounts {
     if (caStatus.authenticated && !caStatus.paused) await this.openai.queueMutation(async () => {
       const [agents, listed] = await Promise.all([
         this.openai.openclawJson(["config", "get", "agents", "--json"]),
-        this.openai.gatewayRequest("models.list", { agentId: id, view: "all", includeProviderCapabilities: true, refresh: true }),
+        claudeModelCatalog((method, params) => this.openai.gatewayRequest(method, params), id),
       ]);
       const models = { ...agents.entries?.[id]?.models };
       for (const row of listed.models ?? []) if (row.provider === "anthropic") {
@@ -47,7 +50,8 @@ export class ModelAccounts {
         models[ref] = { ...models[ref], agentRuntime: { id: CLAUDE_RUNTIME } };
       }
       if (!Object.values(models).some(row => row.agentRuntime?.id === CLAUDE_RUNTIME)) throw new Error("The Claude model catalog is unavailable");
-      await this.openai.execute("openclaw", ["config", "set", `agents.entries.${id}.models`, JSON.stringify(models), "--strict-json"], { timeout: 30_000 });
+      await applyNativeConfigBatch([{ path: `agents.entries.${id}.models`, value: models }],
+        (...args) => this.openai.execute(...args));
     });
     if (caStatus.paused) {
       const listed = await this.openai.gatewayRequest("sessions.list", { agentId: id, limit: 500 });

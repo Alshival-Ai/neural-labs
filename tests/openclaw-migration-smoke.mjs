@@ -31,6 +31,7 @@ if(mode==='candidate') {
  const {migrateNativeState}=await import('/usr/local/lib/neural-labs/native-state-migration.mjs');
  const version=(await import('/usr/local/lib/neural-labs/openclaw-runtime.mjs')).openclawRelease.version;
  await migrateNativeState({root:'/state/.neural-labs-updates',version,run:async args=>{await cli(...args);return {status:0};}});
+ await cli('config','set','plugins.entries.anthropic.config.sessionCatalog.enabled','false','--strict-json');
 }
 for(const id of ['nl-alice','nl-bob']) {
  const a=await auth(id);
@@ -75,6 +76,10 @@ try {
  assert.equal(await readFile('/state/workspace/migration-sentinel.txt','utf8'),'synthetic retained file');
  console.log('Owned credentials/order, transcripts, disabled schedule, files and cross-agent tool isolation passed');
  if(mode==='candidate') {
+  const {claudeModelCatalog}=await import('/usr/local/lib/neural-labs/model-catalog.mjs');
+  const catalog=await claudeModelCatalog(rpc,'nl-alice');
+  assert.ok(catalog.models.some(row=>row.provider==='anthropic'), 'Claude defaults must be discoverable without a session catalog or ambient credentials');
+  console.log('Claude provider defaults discovered without session catalog or personal credentials');
   await cli('agents','add','nl-new','--non-interactive','--workspace','/state/workspace','--json');
   const fresh=await auth('nl-new');assert.ok(!fresh.profiles.some(p=>p.id==='openai:nl-alice'||p.id==='openai:nl-bob'));
   await cli('models','auth','logout','openai:nl-alice','--agent','nl-alice','--yes');

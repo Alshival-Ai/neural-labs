@@ -125,3 +125,19 @@ test("Claude availability is bound to the requested owner and never borrows back
   await catalog.list({ agentId: "other-agent" });
   assert.deepEqual(owners, [{ userId: "alice" }, { userId: "bob" }]);
 });
+
+test("Claude defaults appear without a session catalog but require the matching owner's connection", async () => {
+  const catalog = new ModelCatalog({
+    gatewayRequest: async (method, args) => method === "models.list" ? {
+      models: args.provider === "anthropic" && args.includeDefaultModels
+        ? [{ id: "claude-test", provider: "anthropic", available: false, unavailableReason: "missing-auth" }]
+        : payload.models,
+    } : {},
+    personalOpenAI: { ensureProvisioned: async id => ({ agentId: `nl-${id}` }), snapshot: async () => ({ authenticated: false }) },
+    claudeAccounts: { snapshot: async ({ userId }) => ({ modelReady: userId === "alice" }) },
+  });
+  const alice = await catalog.list({ userId: "alice" });
+  const bob = await catalog.list({ userId: "bob" });
+  assert.equal(alice.models.find(row => row.provider === "anthropic").available, true);
+  assert.equal(bob.models.find(row => row.provider === "anthropic").available, false);
+});
