@@ -47,6 +47,10 @@ docker run --rm -i --pull never --network none --read-only --user 0 \
 run_phase "${base_image}" "${probe_prefix}-restore" restore
 docker run --rm --pull never --network none --read-only --user node \
   --tmpfs /tmp:rw,nosuid,nodev,size=512m \
+  --mount "type=bind,src=${repository_root}/tests/claude-catalog-smoke.mjs,dst=/probe.mjs,readonly" \
+  -e NEURAL_LABS_UPGRADE_PROBE=synthetic --entrypoint node "${candidate_image}" /probe.mjs
+docker run --rm --pull never --network none --read-only --user node \
+  --tmpfs /tmp:rw,nosuid,nodev,size=512m \
   --mount "type=bind,src=${repository_root}/tests/openclaw-role-smoke.mjs,dst=/probe.mjs,readonly" \
   --entrypoint node "${candidate_image}" /probe.mjs
 # A registry-origin record is required for trusted SMS ingress. Download the

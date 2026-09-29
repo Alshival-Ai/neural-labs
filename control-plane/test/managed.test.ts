@@ -2,7 +2,7 @@ import { createHmac } from "node:crypto";
 import express from "express";
 import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
-import { managedConfig, managedUserId, portalCall, registerManagedRoutes } from "../src/managed.js";
+import { managedConfig, managedUserId, portalCall, registerManagedRoutes, reconcileManagedMembers, managedMembersReady } from "../src/managed.js";
 import type { ControlPlaneConfig } from "../src/config.js";
 import type { Database } from "../src/database.js";
 import type { SessionService } from "../src/sessions.js";
@@ -15,6 +15,36 @@ const config = { managed, publicOrigin: new URL("https://fixture.alshival.cloud"
 const actor = { subject: "123", email: "fixture@example.com", display_name: "Fixture", role: "user",
   workspace: managed.workspace, instance: managed.instance, origin: config.publicOrigin!.origin,
   generation: 1, expires_at: new Date(Date.now() + 3600000).toISOString() };
+
+describe("managed membership availability", () => {
+  it("fails readiness without revoking accounts or provider connections on a temporary lookup failure", async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [{ user_id: "11111111-1111-4111-8111-111111111111", subject: "123" }] });
+    const fetcher = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Temporary network failure"));
+    try {
+      await expect(reconcileManagedMembers({ pool: { query } } as unknown as Database, config)).rejects.toThrow("membership is unavailable");
+      expect(managedMembersReady()).toBe(false);
+      expect(query).toHaveBeenCalledTimes(1);
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(String(fetcher.mock.calls[0]![0])).toContain("/members/");
+    } finally { fetcher.mockRestore(); }
+  });
+  it("still revokes confirmed removals and restores account status for confirmed members", async () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    const query = vi.fn().mockResolvedValue({ rows: [{ user_id: id, subject: "123" }] });
+    const fetcher = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ members: [], generation: 1 }));
+    const managedConfig = { ...config, workspace: { controlUrl: new URL("http://workspace:18790"), controlToken: "fixture" } } as unknown as ControlPlaneConfig;
+    try {
+      await reconcileManagedMembers({ pool: { query } } as unknown as Database, managedConfig);
+      expect(query.mock.calls.some(([sql]) => String(sql).includes("status='disabled'"))).toBe(true);
+      expect(fetcher.mock.calls.some(([url]) => String(url).includes("/revoke-member"))).toBe(true);
+      query.mockClear(); fetcher.mockClear();
+      fetcher.mockResolvedValue(Response.json({ members: [{ subject: "123", role: "user" }], generation: 1 }));
+      await reconcileManagedMembers({ pool: { query } } as unknown as Database, managedConfig);
+      expect(query.mock.calls.some(([sql]) => String(sql).includes("status='active'"))).toBe(true);
+      expect(fetcher.mock.calls.some(([url]) => String(url).includes("/revoke-member"))).toBe(false);
+    } finally { fetcher.mockRestore(); }
+  });
+});
 
 describe("Alshival managed authentication", () => {
   it("defaults standalone and rejects incomplete managed configuration", () => {

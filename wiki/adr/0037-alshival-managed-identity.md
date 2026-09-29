@@ -57,3 +57,11 @@ A portal outage denies new human access. Coverage loss fences the managed runtim
 Recovery copies are local migration artifacts, not a claim of NAS backup or a
 verified disaster recovery process. Nested customer website publishing is a
 separate feature; this decision reserves one workspace hostname for the desktop.
+
+Membership lookup failures close managed readiness and are retried. A timeout,
+failed transport or invalid response is not an authoritative empty membership
+list: it must not permanently pause provider connections, disable users or delete
+sessions. Human requests still require current portal authorization and host
+execution leases remain enforced. Confirmed removals retain the native revocation
+path; confirmed members regain their managed account status without changing
+provider connection preferences.

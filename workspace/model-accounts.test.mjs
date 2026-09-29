@@ -68,7 +68,7 @@ test("Claude sign-in discovers defaults without a session catalog and grants onl
         assert.equal(args.preparedOnly, true);
         assert.equal(args.refresh, undefined);
         // Mirrors a fresh managed instance with no Anthropic session catalog.
-        return { models: args.provider === "anthropic" && args.includeDefaultModels
+        return { models: args.provider === "anthropic" && args.view === "all"
           ? [{ provider: "anthropic", id: "test-model" }] : [] };
       },
       execute: async (binary, args, options) => {

@@ -204,7 +204,12 @@ async function reconcileMembers(database: Database, config: ControlPlaneConfig):
       const result = await portalExchange(config, "members", { subjects: batch.map(row => row.subject) });
       allowed = z.object({ members: z.array(z.object({ subject: z.string(), role: z.enum(["admin", "user"]) })),
         generation: z.number().int().positive() }).parse(result).members;
-    } catch { /* Fail closed, and retry without deleting identity or history. */ }
+    } catch {
+      // An unavailable authority is not an authoritative empty membership list.
+      // Keep readiness closed and retry; do not permanently pause credentials,
+      // delete sessions or disable accounts because of a transient outage.
+      throw new Error("Portal membership is unavailable");
+    }
     const revoked = batch.filter(row => !allowed.some(member => member.subject === row.subject));
     if (revoked.length) {
       const ids = revoked.map(row => row.user_id);
@@ -213,7 +218,7 @@ async function reconcileMembers(database: Database, config: ControlPlaneConfig):
     }
     for (const row of batch) {
       const member = allowed.find(value => value.subject === row.subject);
-      if (member) await database.pool.query("UPDATE users SET role=$2 WHERE id=$1", [row.user_id, member.role]);
+      if (member) await database.pool.query("UPDATE users SET role=$2, status='active' WHERE id=$1", [row.user_id, member.role]);
     }
     let failed = false;
     for (let index = 0; index < revoked.length; index += 8) {

@@ -34,13 +34,21 @@ export function publicModelCatalog(payload) {
 }
 
 // The owner-scoped Claude CLI adapter does not use OpenClaw's session catalog
-// or ambient credentials. Ask the public RPC for provider defaults explicitly:
-// a fresh installation can otherwise return no Anthropic rows after sign-in.
-export function claudeModelCatalog(request, agentId) {
-  return request("models.list", {
-    agentId, provider: "anthropic", includeDefaultModels: true,
-    view: "all", includeProviderCapabilities: true, preparedOnly: true,
-  });
+// or ambient credentials. Initialize discovery for a new owner, then use the
+// prepared catalog once a private runtime is bound. Refreshing native auth for
+// that binding would incorrectly prepare ambient Anthropic credentials.
+export async function claudeModelCatalog(request, agentId, { now = Date.now, wait = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
+  const params = { agentId, provider: "anthropic", view: "all", includeProviderCapabilities: true };
+  const prepared = await request("models.list", { ...params, preparedOnly: true });
+  if (prepared.models?.some(row => row.provider === "anthropic")) return prepared;
+  let result = await request("models.list", { ...params, refresh: true });
+  const deadline = now() + 30_000;
+  while (!result.models?.some(row => row.provider === "anthropic")
+    && result.pendingProviders?.includes("anthropic") && now() < deadline) {
+    await wait(500);
+    result = await request("models.list", { ...params, preparedOnly: true });
+  }
+  return result;
 }
 
 export class ModelCatalog {

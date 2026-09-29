@@ -71,6 +71,7 @@ validate:
 	bash -n bin/openclaw-upgrade-smoke
 	node --check tests/openclaw-update-maintenance-smoke.mjs
 	node --check tests/openclaw-migration-smoke.mjs
+	node --check tests/claude-catalog-smoke.mjs
 	node --check tests/openclaw-role-smoke.mjs
 	node --check tests/openclaw-sms-smoke.mjs
 	bash tests/deployment_cli_test.sh

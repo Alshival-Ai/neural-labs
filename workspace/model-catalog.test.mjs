@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ModelCatalog, publicModelCatalog, modelCredentialSource } from "./model-catalog.mjs";
+import { ModelCatalog, publicModelCatalog, modelCredentialSource, claudeModelCatalog } from "./model-catalog.mjs";
 
 const payload = { models: [{ id: "new-model", provider: "openai", name: "New model", available: true, supportsTools: true, thinkingLevels: [{ id: "xhigh", label: "Extra high" }], apiKey: "must-not-leak" }] };
 test("first Team catalog requests coalesce and wait for the dedicated agent without logging in", async () => {
@@ -129,7 +129,7 @@ test("Claude availability is bound to the requested owner and never borrows back
 test("Claude defaults appear without a session catalog but require the matching owner's connection", async () => {
   const catalog = new ModelCatalog({
     gatewayRequest: async (method, args) => method === "models.list" ? {
-      models: args.provider === "anthropic" && args.includeDefaultModels
+      models: args.provider === "anthropic" && args.view === "all"
         ? [{ id: "claude-test", provider: "anthropic", available: false, unavailableReason: "missing-auth" }]
         : payload.models,
     } : {},
@@ -140,6 +140,35 @@ test("Claude defaults appear without a session catalog but require the matching 
   const bob = await catalog.list({ userId: "bob" });
   assert.equal(alice.models.find(row => row.provider === "anthropic").available, true);
   assert.equal(bob.models.find(row => row.provider === "anthropic").available, false);
+});
+
+test("a fresh Claude owner initializes discovery when no prepared catalog exists", async () => {
+  const calls = [];
+  const result = await claudeModelCatalog(async (method, args) => {
+    calls.push(args);
+    assert.equal(method, "models.list");
+    assert.equal(args.agentId, "nl-new");
+    return { models: args.preparedOnly ? [] : [{ id: "claude-test", provider: "anthropic" }] };
+  }, "nl-new");
+  assert.equal(result.models.length, 1);
+  assert.equal(calls[0].preparedOnly, true);
+  assert.equal(calls[1].refresh, true);
+  assert.equal(calls[1].preparedOnly, undefined);
+});
+
+test("pending Claude discovery completes without repeatedly restarting its generation", async () => {
+  let clock = 0, refreshes = 0, calls = 0;
+  const result = await claudeModelCatalog(async (_method, args) => {
+    calls++; if (args.refresh) refreshes++;
+    return calls < 4 ? { models: [], pendingProviders: ["anthropic"] }
+      : { models: [{ provider: "anthropic", id: "claude-test" }] };
+  }, "nl-new", { now: () => clock, wait: async ms => { clock += ms; } });
+  assert.equal(result.models.length, 1);
+  assert.equal(refreshes, 1);
+  const unavailable = await claudeModelCatalog(async () => ({ models: [], pendingProviders: ["anthropic"] }),
+    "nl-new", { now: () => clock, wait: async ms => { clock += ms; } });
+  assert.deepEqual(unavailable.models, []);
+  assert.equal(clock, 31_000);
 });
 
 test("refreshing owner models never prepares ambient Anthropic credentials for the private CLI adapter", async () => {
