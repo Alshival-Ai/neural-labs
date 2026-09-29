@@ -65,6 +65,8 @@ test("Claude sign-in discovers defaults without a session catalog and grants onl
       gatewayRequest: async (method, args) => {
         assert.equal(method, "models.list");
         assert.equal(args.agentId, owner.agentId);
+        assert.equal(args.preparedOnly, true);
+        assert.equal(args.refresh, undefined);
         // Mirrors a fresh managed instance with no Anthropic session catalog.
         return { models: args.provider === "anthropic" && args.includeDefaultModels
           ? [{ provider: "anthropic", id: "test-model" }] : [] };
@@ -77,7 +79,7 @@ test("Claude sign-in discovers defaults without a session catalog and grants onl
         assert.ok(options.timeout > 30_000);
         routed = true;
       },
-      snapshot: async () => ({ authenticated: false }),
+      snapshot: async () => { throw new Error("A ready Claude connection must not wait for unrelated OpenAI discovery"); },
       assignRole: async (...args) => roles.push(args),
     },
     claude: { owner: async () => owner.agentId,

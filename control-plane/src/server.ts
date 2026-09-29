@@ -1108,7 +1108,7 @@ export function createApplication(input: {
       else url.searchParams.set("workload", request.query.workload === "team" ? "team" : "background");
       try {
         const result = await workspaceFetch(url, { method: action ? "POST" : "GET", headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.workspace.controlToken}` },
-          ...(action ? { body: JSON.stringify({ action, input: input.success ? input.data : {}, actorId: actor.user.id }) } : {}), signal: AbortSignal.timeout(45_000) });
+          ...(action ? { body: JSON.stringify({ action, input: input.success ? input.data : {}, actorId: actor.user.id }) } : {}), signal: AbortSignal.timeout(action ? 180_000 : 45_000) });
         if (!result.ok) throw new Error();
         response.setHeader("Cache-Control", "no-store");
         if (action) await database.audit(actor.user.id, `model_provider.anthropic.${action}`, scope === "account" ? actor.user.id : null, { scope, workload: scope === "account" ? "personal" : url.searchParams.get("workload") });

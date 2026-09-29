@@ -39,7 +39,7 @@ export function publicModelCatalog(payload) {
 export function claudeModelCatalog(request, agentId) {
   return request("models.list", {
     agentId, provider: "anthropic", includeDefaultModels: true,
-    view: "all", includeProviderCapabilities: true, refresh: true,
+    view: "all", includeProviderCapabilities: true, preparedOnly: true,
   });
 }
 
@@ -83,6 +83,8 @@ export class ModelCatalog {
         }
         const payload = await this.gatewayRequest("models.list", {
           agentId, view: "default", includeProviderCapabilities: true,
+          ...(this.claudeAccounts && (userId || agentId === "main" || agentId === this.teamOpenAI?.agentId)
+            ? { provider: "openai" } : {}),
           ...(refresh || cached ? { refresh: true } : { preparedOnly: true }),
         });
         const roster = await this.gatewayRequest("agents.list", {}).catch(() => undefined);

@@ -141,3 +141,18 @@ test("Claude defaults appear without a session catalog but require the matching 
   assert.equal(alice.models.find(row => row.provider === "anthropic").available, true);
   assert.equal(bob.models.find(row => row.provider === "anthropic").available, false);
 });
+
+test("refreshing owner models never prepares ambient Anthropic credentials for the private CLI adapter", async () => {
+  const catalog = new ModelCatalog({
+    gatewayRequest: async (method, args) => {
+      if (method !== "models.list") return {};
+      if (args.provider === "openai") return payload;
+      if (args.provider !== "anthropic" || !args.preparedOnly || args.refresh) throw new Error("Prepared synthetic auth is missing for anthropic");
+      return { models: [{ id: "claude-test", provider: "anthropic", available: false, unavailableReason: "missing-auth" }] };
+    },
+    personalOpenAI: { ensureProvisioned: async () => ({ agentId: "nl-alice" }), snapshot: async () => ({ authenticated: false }) },
+    claudeAccounts: { snapshot: async () => ({ modelReady: true }) },
+  });
+  const result = await catalog.list({ userId: "alice", refresh: true });
+  assert.equal(result.models.find(row => row.provider === "anthropic").available, true);
+});

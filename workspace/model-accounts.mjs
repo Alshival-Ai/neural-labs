@@ -61,8 +61,9 @@ export class ModelAccounts {
     }
     if (!owner.userId) return;
     const account = await this.openai.ensureProvisioned(owner.userId);
-    const oa = await this.openai.snapshot(owner.userId), ca = await this.claude.snapshot(owner);
-    await this.openai.assignRole(owner.userId, (!oa.paused && oa.authenticated) || ca.modelReady ? account.roleId : "unlinked");
+    const ca = await this.claude.snapshot(owner);
+    const oa = ca.modelReady ? null : await this.openai.snapshot(owner.userId);
+    await this.openai.assignRole(owner.userId, ca.modelReady || (oa?.authenticated && !oa.paused) ? account.roleId : "unlinked");
   }
   async selectedModel(userId) {
     const account = await this.openai.ensureProvisioned(userId);

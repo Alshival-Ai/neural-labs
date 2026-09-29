@@ -32,6 +32,7 @@ if(mode==='candidate') {
  const version=(await import('/usr/local/lib/neural-labs/openclaw-runtime.mjs')).openclawRelease.version;
  await migrateNativeState({root:'/state/.neural-labs-updates',version,run:async args=>{await cli(...args);return {status:0};}});
  await cli('config','set','plugins.entries.anthropic.config.sessionCatalog.enabled','false','--strict-json');
+ await cli('config','set','plugins.load.paths',JSON.stringify(['/usr/local/lib/neural-labs/claude-plugin']),'--strict-json');
 }
 for(const id of ['nl-alice','nl-bob']) {
  const a=await auth(id);
@@ -79,6 +80,10 @@ try {
   const {claudeModelCatalog}=await import('/usr/local/lib/neural-labs/model-catalog.mjs');
   const catalog=await claudeModelCatalog(rpc,'nl-alice');
   assert.ok(catalog.models.some(row=>row.provider==='anthropic'), 'Claude defaults must be discoverable without a session catalog or ambient credentials');
+  const first=catalog.models.find(row=>row.provider==='anthropic');
+  const ref=first.id.startsWith('anthropic/')?first.id:`anthropic/${first.id}`;
+  await cli('config','set','agents.entries.nl-alice.models',JSON.stringify({[ref]:{agentRuntime:{id:'neural-labs-claude'}}}),'--strict-json');
+  assert.ok((await claudeModelCatalog(rpc,'nl-alice')).models.some(row=>row.provider==='anthropic'), 'Discovery must still work after binding the private Claude runtime');
   console.log('Claude provider defaults discovered without session catalog or personal credentials');
   await cli('agents','add','nl-new','--non-interactive','--workspace','/state/workspace','--json');
   const fresh=await auth('nl-new');assert.ok(!fresh.profiles.some(p=>p.id==='openai:nl-alice'||p.id==='openai:nl-bob'));

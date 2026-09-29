@@ -763,4 +763,24 @@ describe("Claude account boundary", () => {
     expect(launch.text).not.toContain("must-not-leave-runtime");
     await request(member.app).post("/api/account/model-providers/anthropic/connection/api-key").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").send({ key: "test-only-key" }).expect(403);
   });
+  it("waits for a slow provider setup while retaining a bounded request deadline", async () => {
+    const member = application(regular);
+    const timeout = AbortSignal.timeout.bind(AbortSignal);
+    // Compress elapsed time while preserving the production deadline ratio.
+    const deadline = vi.spyOn(AbortSignal, "timeout").mockImplementation(ms => timeout(ms / 1000));
+    member.workspaceFetch.mockImplementationOnce(async (_url, init) => {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, 60);
+        init?.signal?.addEventListener("abort", () => { clearTimeout(timer); reject(new Error("Timed out")); }, { once: true });
+      });
+      return new Response(JSON.stringify({ provider: "anthropic", authMethod: "subscription", agentId: "nl-test",
+        state: "connected", authenticated: true, modelReady: true, paused: false, message: null }));
+    });
+    try {
+      const response = await request(member.app).post("/api/account/model-providers/anthropic/connection/resume")
+        .set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").send({}).expect(200);
+      expect(response.body.modelReady).toBe(true);
+      expect(deadline).toHaveBeenCalledWith(180_000);
+    } finally { deadline.mockRestore(); }
+  });
 });
