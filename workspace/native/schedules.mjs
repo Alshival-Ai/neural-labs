@@ -1,0 +1,115 @@
+import { identity } from "./state.mjs";
+
+export function timezone(value) {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_+/-]+$/.test(value)) throw new Error("Invalid schedule timezone");
+  try { new Intl.DateTimeFormat("en", { timeZone: value }).format(0); }
+  catch { throw new Error("Unknown schedule timezone"); }
+  return value;
+}
+
+export function cronExpression(value) {
+  // Accept the portable five-field calendar grammar. Unsupported legacy
+  // expressions stay held for review instead of being silently rewritten.
+  if (typeof value !== "string" || value.includes("\n") || value.includes("\r")) throw new Error("Invalid calendar expression");
+  const fields = value.trim().split(/\s+/);
+  if (fields.length !== 5) throw new Error("Calendar schedules require five fields");
+  const ranges = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 7]];
+  fields.forEach((field, index) => {
+    const [min, max] = ranges[index];
+    for (const part of field.split(",")) {
+      const match = /^(\*|\d+(?:-\d+)?)(?:\/(\d+))?$/.exec(part);
+      if (!match) throw new Error("Unsupported calendar expression");
+      if (match[2] && (!Number.isSafeInteger(Number(match[2])) || Number(match[2]) < 1 || Number(match[2]) > max + 1)) throw new Error("Invalid calendar step");
+      if (match[1] !== "*") {
+        const bounds = match[1].split("-").map(Number);
+        if (bounds.some(number => number < min || number > max) || bounds.length === 2 && bounds[0] > bounds[1]) throw new Error("Invalid calendar range");
+      }
+    }
+  });
+  return fields.join(" ");
+}
+
+// One file/process per distinct timezone avoids relying on implementation-
+// dependent interpretation of repeated CRON_TZ assignments in a single file.
+// Run Supercronic with -overlapping: durable workflow locks, not its process
+// scheduler, decide which jobs may overlap. Prompts never enter a shell command.
+export function calendarFiles(jobs) {
+  const files = new Map();
+  for (const job of jobs) {
+    if (!job.enabled || job.hold || job.completed || job.classification !== "automation" || job.definition.schedule?.kind !== "cron") continue;
+    const schedule = job.definition.schedule;
+    const tz = timezone(schedule.tz || "UTC"), expression = cronExpression(schedule.expr);
+    const lines = files.get(tz) || [`CRON_TZ=${tz}`];
+    lines.push(`${expression} /usr/local/bin/node /usr/local/lib/neural-labs/native/runner.mjs ${identity(job.id)}`);
+    files.set(tz, lines);
+  }
+  return Object.fromEntries([...files].map(([tz, lines]) => [tz, lines.join("\n") + "\n"]));
+}
+
+export function occurrenceKey(kind, instant) {
+  if (!Number.isSafeInteger(instant) || instant < 0) throw new Error("Invalid occurrence time");
+  return `${kind}:${instant}`;
+}
+
+export function dueOccurrence(job, { now, previousCheck = now, event } = {}) {
+  if (!Number.isSafeInteger(now) || !Number.isSafeInteger(previousCheck) || previousCheck > now) throw new Error("Invalid scheduler clock");
+  if (!job.enabled || job.hold || job.completed || job.classification !== "automation") return null;
+  const schedule = job.definition.schedule;
+  const missed = job.definition.missedRunPolicy ?? "skip";
+  if (!["skip", "run-once"].includes(missed)) throw new Error("Imported missed-run policy requires review");
+  if (schedule.kind === "at") {
+    const instant = Date.parse(schedule.at);
+    if (!Number.isSafeInteger(instant)) throw new Error("Invalid one-time schedule");
+    return instant <= now && (instant > previousCheck || instant === now || missed === "run-once") ? occurrenceKey("at", instant) : null;
+  }
+  if (schedule.kind === "every") {
+    if (!Number.isSafeInteger(schedule.everyMs) || schedule.everyMs < 1 || !Number.isSafeInteger(schedule.anchorMs) || schedule.anchorMs < 0) throw new Error("Interval schedules require a positive interval and persistent anchor");
+    const slot = Math.floor((now - schedule.anchorMs) / schedule.everyMs);
+    if (slot < 0) return null;
+    const instant = schedule.anchorMs + slot * schedule.everyMs;
+    return instant > previousCheck || instant === now || missed === "run-once" ? occurrenceKey("every", instant) : null;
+  }
+  if (["process", "stream"].includes(schedule.kind)) {
+    // Events must come from the authenticated process/stream source, never the
+    // browser. Source generation makes restart and duplicate callbacks stable.
+    if (!event || event.kind !== schedule.kind || event.source !== schedule.source) return null;
+    identity(event.generation); identity(event.id);
+    if (schedule.kind === "process" && event.type !== "exit") return null;
+    return `${schedule.kind}:${event.generation}:${event.id}`;
+  }
+  if (schedule.kind === "cron") return null; // Supercronic supplies calendar occurrences.
+  throw new Error("Unsupported schedule trigger");
+}
+
+export class NativeScheduler {
+  constructor({ state, authorize, execute, now = Date.now }) {
+    this.state = state; this.authorize = authorize; this.execute = execute; this.now = now;
+    this.active = new Map();
+  }
+  async launch(jobId, occurrence, { actor, connection, manual = false } = {}) {
+    const job = this.state.job(jobId);
+    if (!job) throw new Error("Automation not found");
+    const binding = await this.authorize({ job, actor, connection, manual });
+    // authorize resolves membership, background grant, and the *saved* account
+    // for scheduled work; it must never select a fallback account or provider.
+    const claim = this.state.claim({ jobId, occurrence, actor: binding.actor, connection: binding.connection,
+      manual, workflowKey: job.definition.workflowLock || null, expectedDefinitionHash: job.source_hash });
+    if (!claim.accepted) return claim;
+    const run = Promise.resolve().then(async () => {
+      try {
+        // Recheck the lease after the durable claim and immediately before spawn.
+        await binding.revalidate();
+        this.state.startRun(claim.id);
+        const outcome = await this.execute({ id: claim.id, job, binding, manual });
+        this.state.finishRun(claim.id, outcome.status, outcome.result);
+      } catch {
+        // A thrown transport error cannot prove whether execution had effects.
+        const row = this.state.db.prepare("SELECT status FROM occurrences WHERE id=?").get(claim.id);
+        if (["claimed", "running"].includes(row?.status)) this.state.finishRun(claim.id, "unknown", { code: "execution-outcome-unknown" });
+      }
+    }).finally(() => this.active.delete(claim.id));
+    this.active.set(claim.id, run);
+    return claim;
+  }
+  async drain() { await Promise.all(this.active.values()); }
+}

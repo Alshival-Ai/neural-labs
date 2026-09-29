@@ -9,6 +9,8 @@ validate:
 	node --check workspace/update-probe.mjs
 	node --check workspace/update-app-server-probe.mjs
 	node --check bin/control-plane-fingerprint.mjs
+	node --check bin/native-migration.mjs
+	node --check tests/native-claude-probe.mjs
 	bash tests/public_boundary_test.sh
 	python3 bin/export-wiki.py --check
 	python3 tests/wiki_export_test.py
