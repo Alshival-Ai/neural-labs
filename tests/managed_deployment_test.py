@@ -64,6 +64,16 @@ class ManagedDeploymentTests(unittest.TestCase):
         self.assertIn("127.0.0.1:43003;", ingress)
         self.assertTrue(workspace["volumes"][-1].endswith(":ro"))
 
+    def test_native_upgrade_keeps_the_existing_database_binding(self):
+        cfg = self.fixture()
+        cfg["database_name"] = "neural_labs_native_" + "1" * 20
+        compose, _, _ = render.build(cfg, Path("/etc/neura/fixture"))
+        self.assertEqual(compose["services"]["control-plane"]["environment"]["PGDATABASE"], cfg["database_name"])
+        for name in ("neural_labs_native_" + "1" * 19, "neural_labs_native_" + "z" * 20, "other_database"):
+            cfg["database_name"] = name
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                render.build(cfg, Path("/etc/neura/fixture"))
+
     def test_mutable_images_and_invalid_placement_rejected(self):
         for key, value in [("hostname", "fixture.alshival.cloud; injected"), ("port", 65534), ("memory_mb", 512),
                            ("cpu", 1), ("subnet", "198.51.100.0/28"), ("storage_root", "/"), ("release", "main")]:

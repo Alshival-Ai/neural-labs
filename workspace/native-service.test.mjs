@@ -125,6 +125,22 @@ test("authenticated native service executes, reconnects and keeps actor ownershi
   assert.equal((await f.request("conversations.list")).sessions.length, 0);
   assert.equal(f.service.state.db.prepare("SELECT COUNT(*) AS n FROM turns").get().n, 1);
 });
+test("event reads batch nearby output while preserving every delta", async t => {
+  const f = await fixture(t); f.service.turns.gated = false;
+  const { session } = await f.request("conversations.create");
+  const binding = { provider: "codex", owner: "account", generation: 1, method: "subscription" };
+  const turn = f.service.state.startTurn(session.key, "member", binding, "batched-output", { input: [{ type: "text", text: "fixture" }] });
+  const reading = f.request("events.read", { conversation: session.key, after: 0, waitMs: 500 });
+  while (!f.service.turns.listenerCount("event")) await new Promise(resolve => setTimeout(resolve, 1));
+  f.service.state.event(turn.id, "output", { text: "Hello" });
+  f.service.turns.emit("event", { conversation: session.key });
+  await new Promise(resolve => setTimeout(resolve, 5));
+  f.service.state.event(turn.id, "output", { text: " world" });
+  f.service.turns.emit("event", { conversation: session.key });
+  const result = await reading;
+  assert.deepEqual(result.events.map(row => row.payload.text), ["Hello", " world"]);
+  assert.equal(result.cursor, result.events.at(-1).id);
+});
 test("runtime refuses forged actor or lease purpose and stops using a changed generation", async t => {
   const f = await fixture(t); f.service.turns.gated = false;
   await f.request("conversations.create");

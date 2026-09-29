@@ -37,6 +37,23 @@ test("Claude initializes, persists session and streams a native reply", async ()
   assert.equal(result.nativeSession, persisted);
   assert.equal(events[0].data.text, "hello");
 });
+test("Claude preserves rapid text deltas without waiting for a lease round trip per fragment", async () => {
+  const output = [], fragments = Array.from({ length: 30 }, (_, index) => `part-${index} `);
+  let checks = 0;
+  const child = new FakeClaude((row, child) => {
+    if (row.type !== "user") return;
+    for (const text of fragments) child.output({ type: "stream_event", session_id: row.session_id,
+      event: { type: "content_block_delta", delta: { type: "text_delta", text } } });
+    child.output({ type: "result", session_id: row.session_id, is_error: false });
+  });
+  const result = await runClaudeTurn(context(child, {
+    revalidate: async () => { checks++; await new Promise(resolve => setTimeout(resolve, 5)); },
+    onEvent: async (kind, data) => { if (kind === "output") output.push(data.text); },
+  }));
+  assert.equal(result.status, "succeeded");
+  assert.deepEqual(output, fragments);
+  assert.ok(checks < fragments.length / 2, `expected bounded lease checks, got ${checks}`);
+});
 
 test("Claude native permission decisions return only the approved original tool input", async () => {
   const child = new FakeClaude((row, child) => {

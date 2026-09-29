@@ -50,8 +50,8 @@ def build(registration, destination):
     if not re.fullmatch(r"[a-fA-F0-9]{64}", cfg.get("master_key", "")):
         raise ValueError("Master key must be 32 random bytes encoded as hexadecimal")
     database_name = cfg.get("database_name", "neural_labs")
-    if database_name != "neural_labs" and database_name != "neural_labs_native_" + cfg["release"][:20]:
-        raise ValueError("Native migration database must match the reviewed release")
+    if database_name != "neural_labs" and not re.fullmatch(r"neural_labs_native_[a-f0-9]{20}", database_name):
+        raise ValueError("Unrecognized managed database binding")
     public = "https://" + hostname
     release = json.loads((Path(__file__).resolve().parents[2] / "workspace/native/release.json").read_text())
     labels = {"ai.alshival.workspace": workspace, "ai.alshival.runtime": runtime, "ai.alshival.instance": instance}

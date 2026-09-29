@@ -85,6 +85,12 @@ private Terminal. Codex uses device authorization; Claude uses its native login.
 An OpenClaw-only connection needs native reconnection. Choose the owner and model
 explicitly; no provider, account or billing substitution occurs automatically.
 
+Claude text output is persisted as exact provider deltas. Lease checks occur on
+control requests and at short intervals during text output; nearby deltas are
+batched for browser delivery to reduce request overhead. A regular Terminal
+sign-in has a separate home and does not create an AI connection. Select a
+model with **Use for my chats** before opening a private Alshival conversation.
+
 Imported jobs retain enabled/paused intent, original definitions and historical
 receipts. Missing native connections, unsupported policies and uncertain old runs
 remain visible holds. Completed one-time jobs stay completed. Reviewing a hold

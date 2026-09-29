@@ -41,6 +41,10 @@ standard layout uses control-plane port 4174 and desktop front/backend ports
 4181/4183. Custom topology requires a corresponding host adapter. Managed hosting
 must use its existing host worker and migration machinery.
 
+After a native cutover, later managed releases keep the same PostgreSQL database
+binding. The new source SHA and immutable image digest change; the existing
+database and accepted workspace writes remain in place.
+
 First perform the [native security preparation](../deploy/security/README.md).
 This installs separate native AppArmor and seccomp profiles without restarting
 Docker or modifying existing volumes. Do not disable host security controls to

@@ -164,13 +164,16 @@ export class NativeRuntime {
       if (!Number.isInteger(params.waitMs ?? 0) || (params.waitMs ?? 0) < 0 || (params.waitMs ?? 0) > 15000) throw new Error("Invalid event wait");
       if (!events.length && params.waitMs) {
         await new Promise(resolve => {
-          const changed = event => { if (event.conversation === params.conversation) finish(); };
-          const finish = () => { clearTimeout(timer); this.turns.off("event", changed); resolve(); };
+          let batchTimer;
+          const changed = event => {
+            if (event.conversation === params.conversation && !batchTimer) batchTimer = setTimeout(finish, 25);
+          };
+          const finish = () => { clearTimeout(timer); clearTimeout(batchTimer); this.turns.off("event", changed); resolve(); };
           const timer = setTimeout(finish, params.waitMs);
           this.turns.on("event", changed);
           // Subscribe before checking again so completion between the first
           // read and listener registration cannot be missed.
-          if (this.state.events(params.conversation, actor, authorization.binding, params.after ?? 0).length) finish();
+          if (this.state.events(params.conversation, actor, authorization.binding, params.after ?? 0).length) changed({ conversation: params.conversation });
         });
         events = await this.turns.events(actor, lease, params.conversation, params.after ?? 0);
       }

@@ -37,6 +37,7 @@ export async function runClaudeTurn({ command = "/usr/local/bin/claude", version
   if (!actual.stdout.trim().startsWith(`${version} `) || version !== CLAUDE_PROTOCOL_VERSION) throw new Error("Claude executable does not match the reviewed pin");
   await revalidate();
   if (signal?.aborted) return { status: "cancelled" };
+  let lastOutputValidation = Date.now();
   const child = spawnProcess(command, args, { cwd, env, detached: true, stdio: ["pipe", "pipe", "pipe"] });
   let resolveDone, settled = false, buffer = "", eventTail = Promise.resolve(), initialized = false;
   const done = new Promise(resolve => { resolveDone = resolve; });
@@ -93,8 +94,15 @@ export async function runClaudeTurn({ command = "/usr/local/bin/claude", version
       }
       if (!initialized) return;
       if (row.session_id && row.session_id !== sessionId) throw new Error("Claude session identity mismatch");
-      await revalidate();
-      if (row.type === "stream_event" && row.event?.type === "content_block_delta" && row.event.delta?.type === "text_delta") {
+      const textDelta = row.type === "stream_event" && row.event?.type === "content_block_delta" && row.event.delta?.type === "text_delta";
+      // The lease timer and control requests keep checking authority. Avoid a
+      // control-plane round trip for every tiny text fragment while bounding
+      // stream revocation latency to a short window.
+      if (!textDelta || Date.now() - lastOutputValidation >= 250) {
+        await revalidate();
+        lastOutputValidation = Date.now();
+      }
+      if (textDelta) {
         await onEvent("output", { text: row.event.delta.text });
       } else if (["assistant", "user", "tool_progress"].includes(row.type)) {
         await onEvent(row.type === "tool_progress" ? "tool-output" : "item-completed", row);
