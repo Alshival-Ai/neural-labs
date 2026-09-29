@@ -634,7 +634,7 @@ export function createApplication(input: {
         ...(action === "api-key" ? { "Content-Type": "application/json" } : {}),
       },
       ...(action === "api-key" ? { body: JSON.stringify({ key }) } : {}),
-      signal: AbortSignal.timeout(action === "api-key" ? 45_000 : action === "start" ? 15_000 : 8_000),
+      signal: AbortSignal.timeout(action === "api-key" ? 45_000 : action === "start" ? 15_000 : !action ? 110_000 : 8_000),
     });
     const payload = await runtimeResponse.json().catch(() => undefined) as { error?: { message?: string } } | undefined;
     if (!runtimeResponse.ok) {
@@ -1087,7 +1087,7 @@ export function createApplication(input: {
     const url = new URL("/internal/model-providers/access", config.workspace.controlUrl);
     url.searchParams.set("userId", actor.user.id);
     try {
-      const result = await workspaceFetch(url, { headers: { Authorization: `Bearer ${config.workspace.controlToken}` }, signal: AbortSignal.timeout(30_000) });
+      const result = await workspaceFetch(url, { headers: { Authorization: `Bearer ${config.workspace.controlToken}` }, signal: AbortSignal.timeout(110_000) });
       if (!result.ok) throw new Error();
       response.setHeader("Cache-Control", "no-store"); response.json(modelAccessSchema.parse(await result.json()));
     } catch { jsonError(response, 503, "model_access_unavailable", "Your model connection could not be checked."); }
@@ -1164,7 +1164,7 @@ export function createApplication(input: {
       try {
         const result = await workspaceFetch(url, {
           method: request.method, headers: { Accept: "application/json", Authorization: `Bearer ${config.workspace.controlToken}` },
-          signal: AbortSignal.timeout(30_000),
+          signal: AbortSignal.timeout(110_000),
         });
         if (!result.ok) throw new Error("Catalog unavailable");
         response.setHeader("Cache-Control", "no-store");

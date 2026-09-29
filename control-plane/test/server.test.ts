@@ -763,6 +763,24 @@ describe("Claude account boundary", () => {
     expect(launch.text).not.toContain("must-not-leave-runtime");
     await request(member.app).post("/api/account/model-providers/anthropic/connection/api-key").set("Cookie", cookies).set("X-CSRF-Token", "csrf-token").send({ key: "test-only-key" }).expect(403);
   });
+  it.each(["/api/account/openai", "/api/account/model-providers/access", "/api/account/model-providers/catalog"])("allows bounded cold status discovery at %s", async route => {
+    const member = application(regular);
+    const timeout = AbortSignal.timeout.bind(AbortSignal);
+    const deadline = vi.spyOn(AbortSignal, "timeout").mockImplementation(ms => timeout(ms / 1000));
+    member.workspaceFetch.mockImplementationOnce(async (_url, init) => {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, 45);
+        init?.signal?.addEventListener("abort", () => { clearTimeout(timer); reject(new Error("Timed out")); }, { once: true });
+      });
+      return new Response(JSON.stringify({ provider: "openai", authMethod: "chatgpt", agentId: "nl-test",
+        state: "disconnected", authenticated: false, modelReady: false, paused: true, selectedModel: "openai/test",
+        verificationUrl: null, userCode: null, expiresAt: null, message: null, models: [] }));
+    });
+    try {
+      await request(member.app).get(route).set("Cookie", cookies).expect(200);
+      expect(deadline).toHaveBeenCalledWith(110_000);
+    } finally { deadline.mockRestore(); }
+  });
   it("waits for a slow provider setup while retaining a bounded request deadline", async () => {
     const member = application(regular);
     const timeout = AbortSignal.timeout.bind(AbortSignal);

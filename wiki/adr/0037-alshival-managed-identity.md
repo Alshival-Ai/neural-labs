@@ -65,3 +65,12 @@ sessions. Human requests still require current portal authorization and host
 execution leases remain enforced. Confirmed removals retain the native revocation
 path; confirmed members regain their managed account status without changing
 provider connection preferences.
+
+The optional private Claude adapter declares backend ownership and a non-secret,
+private-runtime capability marker through OpenClaw's public provider discovery API.
+The marker permits choosing that CLI runtime, never making an Anthropic bearer
+request. Provider settings continue to attest the exact owner's login. Every
+execution resolves its agent directory, checks the owner's connection generation
+and pause state, clears ambient provider credentials, and uses only that owner's
+Claude home or explicitly owned API-key profile. No portal credentials or shared
+provider login are used to satisfy this runtime capability contract.

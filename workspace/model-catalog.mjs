@@ -33,18 +33,17 @@ export function publicModelCatalog(payload) {
   });
 }
 
-// The owner-scoped Claude CLI adapter does not use OpenClaw's session catalog
-// or ambient credentials. Initialize discovery for a new owner, then use the
-// prepared catalog once a private runtime is bound. Refreshing native auth for
-// that binding would incorrectly prepare ambient Anthropic credentials.
+// Bindings need a published native runtime capability as well as catalog rows.
+// The private adapter's provider descriptor supplies that capability; the actual
+// owner's connection is checked separately for display and again at execution.
 export async function claudeModelCatalog(request, agentId, { now = Date.now, wait = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
   const params = { agentId, provider: "anthropic", view: "all", includeProviderCapabilities: true };
   const prepared = await request("models.list", { ...params, preparedOnly: true });
-  if (prepared.models?.some(row => row.provider === "anthropic")) return prepared;
+  if (prepared.models?.some(row => row.provider === "anthropic" && row.available === true
+    && row.agentRuntime?.id === "neural-labs-claude")) return prepared;
   let result = await request("models.list", { ...params, refresh: true });
   const deadline = now() + 30_000;
-  while (!result.models?.some(row => row.provider === "anthropic")
-    && result.pendingProviders?.includes("anthropic") && now() < deadline) {
+  while (result.pendingProviders?.includes("anthropic") && now() < deadline) {
     await wait(500);
     result = await request("models.list", { ...params, preparedOnly: true });
   }
@@ -101,9 +100,10 @@ export class ModelCatalog {
         let models = publicModelCatalog(payload);
         // Personal access uses only explicitly supported owner-bound adapters.
         // Do not expose a workspace environment-key route as a personal option.
-        if (userId) {
-          const account = await this.personalOpenAI.snapshot(userId);
-          models = models.filter((model) => model.provider === "openai").map((model) => ({
+        if (userId) models = models.filter(model => model.provider === "openai");
+        if (userId && models.length) {
+          const account = await this.personalOpenAI.snapshot(userId).catch(() => ({ authenticated: false, paused: true }));
+          models = models.map((model) => ({
             ...model, available: model.available && account.authenticated && !account.paused,
             unavailableReason: !account.authenticated || account.paused ? "Connect or resume your personal account" : model.unavailableReason,
           }));

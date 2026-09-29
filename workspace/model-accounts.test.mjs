@@ -7,7 +7,7 @@ test("default and explicit models choose the matching personal provider without 
   let claudeActive = true;
   const accounts = new ModelAccounts({
     openai: { account: () => owner, ensureProvisioned: async () => owner,
-      openclawJson: async () => ({ entries: { "nl-alice": { model: { primary: "anthropic/test" } } } }),
+      gatewayRequest: async () => ({ agents: [{ id: "nl-alice", model: { primary: "anthropic/test" } }] }),
       snapshot: async () => ({ ...owner, authenticated: true, modelReady: true, paused: false, provider: "openai" }),
     },
     claude: { snapshot: async ({ userId, workload }) => { assert.equal(userId, "alice"); assert.equal(workload, undefined); return { ...owner, authenticated: true, modelReady: claudeActive, paused: !claudeActive, provider: "anthropic" }; } },
@@ -65,8 +65,7 @@ test("Claude sign-in discovers defaults without a session catalog and grants onl
       gatewayRequest: async (method, args) => {
         assert.equal(method, "models.list");
         assert.equal(args.agentId, owner.agentId);
-        assert.equal(args.preparedOnly, true);
-        assert.equal(args.refresh, undefined);
+        assert.ok(args.preparedOnly === true || args.refresh === true);
         // Mirrors a fresh managed instance with no Anthropic session catalog.
         return { models: args.provider === "anthropic" && args.view === "all"
           ? [{ provider: "anthropic", id: "test-model" }] : [] };

@@ -67,8 +67,10 @@ export class ModelAccounts {
   }
   async selectedModel(userId) {
     const account = await this.openai.ensureProvisioned(userId);
-    const agents = await this.openai.openclawJson(["config", "get", "agents", "--json"]);
-    const model = agents.entries?.[account.agentId]?.model ?? agents.defaults?.model;
+    const roster = await this.openai.gatewayRequest("agents.list", {});
+    const agent = roster.agents?.find(row => row.id === account.agentId);
+    if (!agent) throw new Error("The personal agent is unavailable");
+    const model = agent.model;
     return typeof model === "string" ? model : model?.primary;
   }
   snapshot(userId) {

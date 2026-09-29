@@ -3,6 +3,8 @@ import {mkdir,writeFile} from 'node:fs/promises';
 import {spawn,execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+import {createGatewayAdminRequest} from '/usr/local/lib/neural-labs/personal-openai.mjs';
 import {claudeModelCatalog} from '/usr/local/lib/neural-labs/model-catalog.mjs';
 const execute=promisify(execFile);
 assert.equal(process.env.NEURAL_LABS_UPGRADE_PROBE,'synthetic','Use bin/openclaw-upgrade-smoke');
@@ -22,5 +24,23 @@ gateway.kill('SIGTERM');await new Promise(resolve=>gateway.once('exit',resolve))
 gateway=spawn('openclaw',['gateway','run','--port','18789'],{stdio:['ignore','pipe','pipe']});gateway.stdout.on('data',b=>logs+=b);gateway.stderr.on('data',b=>logs+=b);
 ready=false;for(let n=0;n<240;n++){try{if((await fetch('http://127.0.0.1:18789/healthz')).ok){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,500));}assert.ok(ready,logs.slice(-3000));
 const cold=await claudeModelCatalog(rpc,'nl-new');console.log(JSON.stringify({phase:'restarted',count:cold.models?.length}));assert.ok(cold.models?.some(r=>r.provider==='anthropic'));
-console.log('Fresh owner, configured owner and restarted Claude catalog discovery passed without credentials or network');
+await mkdir('/tmp/fresh/.openclaw/agents/nl-new/agent/neural-labs-claude/home-1',{recursive:true});
+await writeFile('/tmp/fresh/.openclaw/agents/nl-new/agent/neural-labs-claude/connection.json',JSON.stringify({paused:false,method:'subscription',generation:1}));
+const prepared=await claudeModelCatalog(rpc,'nl-new');
+assert.equal(prepared.models?.find(row=>row.provider==='anthropic' && `anthropic/${row.id}`===ref)?.available,true);
+const request=createGatewayAdminRequest({url:'ws://127.0.0.1:18789',password:'synthetic-fresh-password'});
+const key='agent:nl-new:neura:claude-smoke';
+await request('sessions.create',{key,agentId:'nl-new',label:'Synthetic Claude runtime',visibility:'draft'});
+await request('sessions.patch',{key,model:ref});
+await request('chat.send',{sessionKey:key,message:'Reply with the synthetic marker.',idempotencyKey:randomUUID()});
+let completed=false;
+for(let n=0;n<90;n++){
+ const history=await request('chat.history',{sessionKey:key,agentId:'nl-new'});
+ const text=JSON.stringify(history);
+ if(text.includes('CLAUDE_RUNTIME_OK')){completed=true;break;}
+ assert.ok(!text.includes('owner-plugin-not-activatable'),text);
+ await new Promise(r=>setTimeout(r,1000));
+}
+assert.ok(completed,logs.slice(-4000));
+console.log('Fresh, bound and restarted Claude catalog plus Gateway-to-CLI inference passed without credentials or network');
 }finally{gateway.kill('SIGTERM');await new Promise(r=>{gateway.once('exit',r);setTimeout(()=>{gateway.kill('SIGKILL');r();},10000).unref();});}

@@ -256,3 +256,20 @@ operator-client identity failures are separate from model authentication; do not
 relax user/role policies to work around them.
 
 Administrator policy, reviewed release publication and host maintenance are documented in [Workspace updates](workspace-updates.md).
+
+### Claude adapter acceptance
+
+The owner-scoped Claude CLI plugin must declare `neural-labs-claude` in its
+manifest's `cliBackends` and setup descriptors. Runtime registration alone can
+pass inspection and catalog discovery while message execution fails to activate
+the backend. The isolated Claude smoke now executes a Gateway message through
+the adapter against a mock CLI after restart, in addition to catalog checks.
+This verifies routing without customer credentials; it is not a live Anthropic
+inference claim. Connecting a provider preserves saved model defaults.
+
+Prepare the owner-scoped Anthropic catalog before testing explicit model
+selection. A full, unscoped refresh can omit the canonical provider's prepared
+auth facts when the agent still defaults to another provider. Retain the user's
+saved default and use the public provider-filtered discovery request. The smoke
+must begin with an OpenAI default, bind Claude, restart, select Claude for one
+session, and receive the mock reply from that owner's private Claude home.

@@ -171,17 +171,57 @@ test("pending Claude discovery completes without repeatedly restarting its gener
   assert.equal(clock, 31_000);
 });
 
-test("refreshing owner models never prepares ambient Anthropic credentials for the private CLI adapter", async () => {
+test("inventory alone refreshes native runtime readiness before explicit model selection", async () => {
+  const calls = [];
+  const result = await claudeModelCatalog(async (_method, args) => {
+    calls.push(args);
+    return { models: [{ id: "claude-test", provider: "anthropic", available: !!args.refresh,
+      agentRuntime: { id: "neural-labs-claude" } }] };
+  }, "nl-alice");
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].refresh, true);
+  assert.equal(result.models[0].available, true);
+  const reused = await claudeModelCatalog(async (_method, args) => {
+    assert.equal(args.preparedOnly, true);
+    return result;
+  }, "nl-alice");
+  assert.equal(reused, result);
+});
+
+test("Claude-only catalogs do not inspect an unused OpenAI connection", async () => {
+  let checks = 0;
   const catalog = new ModelCatalog({
-    gatewayRequest: async (method, args) => {
-      if (method !== "models.list") return {};
-      if (args.provider === "openai") return payload;
-      if (args.provider !== "anthropic" || !args.preparedOnly || args.refresh) throw new Error("Prepared synthetic auth is missing for anthropic");
-      return { models: [{ id: "claude-test", provider: "anthropic", available: false, unavailableReason: "missing-auth" }] };
-    },
-    personalOpenAI: { ensureProvisioned: async () => ({ agentId: "nl-alice" }), snapshot: async () => ({ authenticated: false }) },
+    personalOpenAI: { ensureProvisioned: async () => ({ agentId: "nl-alice" }),
+      snapshot: async () => { checks++; throw new Error("Unused OpenAI status must not be requested"); } },
     claudeAccounts: { snapshot: async () => ({ modelReady: true }) },
+    gatewayRequest: async (method, args) => method === "models.list"
+      ? { models: args.provider === "anthropic" ? [{ id: "claude-test", provider: "anthropic", unavailableReason: "missing-auth" }] : [] }
+      : { agents: [{ id: "nl-alice", model: { primary: "anthropic/claude-test" } }] },
   });
-  const result = await catalog.list({ userId: "alice", refresh: true });
-  assert.equal(result.models.find(row => row.provider === "anthropic").available, true);
+  const result = await catalog.list({ userId: "alice" });
+  assert.equal(checks, 0);
+  assert.equal(result.models.length, 1);
+  assert.equal(result.models[0].available, true);
+  assert.equal(result.defaultModel, "anthropic/claude-test");
+});
+
+test("an OpenAI status failure cannot hide a ready Claude model", async () => {
+  const catalog = new ModelCatalog({
+    personalOpenAI: { ensureProvisioned: async () => ({ agentId: "nl-alice" }), snapshot: async () => { throw Error("unavailable"); } },
+    claudeAccounts: { snapshot: async () => ({ modelReady: true }) },
+    gatewayRequest: async (method, args) => method === "models.list"
+      ? args.provider === "anthropic" ? { models: [{ id: "claude-test", provider: "anthropic", unavailableReason: "missing-auth" }] } : payload : {},
+  });
+  const result = await catalog.list({ userId: "alice" });
+  assert.equal(result.models.find(m => m.provider === "openai").available, false);
+  assert.equal(result.models.find(m => m.provider === "anthropic").available, true);
+});
+
+test("skipping unused OpenAI status does not expose workspace-only provider credentials", async () => {
+  const catalog = new ModelCatalog({
+    gatewayRequest: async () => ({ models: [{ id: "shared", provider: "other", available: true }] }),
+    personalOpenAI: { ensureProvisioned: async () => ({ agentId: "nl-alice" }),
+      snapshot: async () => { throw new Error("No personal OpenAI models need a status check"); } },
+  });
+  assert.deepEqual((await catalog.list({ userId: "alice" })).models, []);
 });

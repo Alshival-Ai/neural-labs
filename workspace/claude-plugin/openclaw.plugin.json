@@ -1,1 +1,36 @@
-{"id":"neural-labs-claude","name":"Neural Labs Claude runtime","configSchema":{"type":"object","additionalProperties":false,"properties":{"credentialOwner":{"type":"string","pattern":"^(main|nl-[a-z0-9]+)$"}}}}
+{
+  "id": "neural-labs-claude",
+  "name": "Neural Labs Claude runtime",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "credentialOwner": {
+        "type": "string",
+        "pattern": "^(main|nl-[a-z0-9]+)$"
+      }
+    }
+  },
+  "cliBackends": [
+    "neural-labs-claude"
+  ],
+  "setup": {
+    "cliBackends": [
+      "neural-labs-claude"
+    ],
+    "requiresRuntime": false
+  },
+  "activation": {
+    "onStartup": true
+  },
+  "providers": [
+    "neural-labs-claude"
+  ],
+  "syntheticAuthRefs": [
+    "neural-labs-claude"
+  ],
+  "nonSecretAuthMarkers": [
+    "neural-labs:owner-scoped-claude"
+  ],
+  "providerCatalogEntry": "./provider-discovery.mjs"
+}

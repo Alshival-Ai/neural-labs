@@ -122,3 +122,15 @@ test("the workspace image pins the same native CLI version as connection verific
   const containerfile = await readFile(new URL("./Containerfile", import.meta.url), "utf8");
   assert.ok(containerfile.includes(`ARG CLAUDE_VERSION=${CLAUDE_VERSION}\n`));
 });
+
+test("Claude plugin declares its backend and exposes no Anthropic bearer credential", async () => {
+  const { default: provider, CLAUDE_NATIVE_MARKER } = await import("./claude-plugin/provider-discovery.mjs");
+  const manifest = JSON.parse(await readFile(new URL("./claude-plugin/openclaw.plugin.json", import.meta.url), "utf8"));
+  assert.ok(manifest.cliBackends.includes(buildClaudeBackend().id));
+  assert.ok(manifest.syntheticAuthRefs.includes(provider.id));
+  assert.ok(manifest.nonSecretAuthMarkers.includes(CLAUDE_NATIVE_MARKER));
+  assert.equal(await provider.resolveSyntheticAuth({ provider: "anthropic" }), undefined);
+  assert.equal(await provider.resolveSyntheticAuth({ provider: "openai" }), undefined);
+  assert.equal(provider.id, buildClaudeBackend().id);
+  assert.equal(provider.resolveSyntheticAuth({ provider: provider.id }).apiKey, CLAUDE_NATIVE_MARKER);
+});

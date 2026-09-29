@@ -1,0 +1,10 @@
+#!/bin/sh
+# Only bind over the pinned CLI inside a disposable, network-disabled probe.
+[ "$NEURAL_LABS_UPGRADE_PROBE" = synthetic ] || exit 90
+case " $* " in
+ *" --version "*) echo '2.1.226'; exit 0;;
+ *" status "*) echo '{"loggedIn":true,"authMethod":"oauth"}'; exit 0;;
+esac
+[ "$CLAUDE_CONFIG_DIR" = /tmp/fresh/.openclaw/agents/nl-new/agent/neural-labs-claude/home-1 ] || exit 91
+cat >/dev/null
+echo '{"type":"result","result":"CLAUDE_RUNTIME_OK","session_id":"11111111-1111-4111-8111-111111111111","is_error":false,"usage":{"input_tokens":1,"output_tokens":1}}'
