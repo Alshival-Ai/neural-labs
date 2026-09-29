@@ -43,4 +43,11 @@ describe("native execution authority", () => {
     f.connection.scope = "personal"; f.connection.enabled = false;
     await expect(f.authority.verify("lease")).rejects.toThrow("paused");
   });
+  it("allows administrators to explicitly select background accounts for review without permitting personal turns", async () => {
+    const f = fixture(); f.connection.scope = "background"; f.actor.user.role = "admin";
+    expect(await f.authority.issue(f.actor, { connection: "connection", model: "fixture" }, "jobs.review")).toBeTruthy();
+    await expect(f.authority.issue(f.actor, { connection: "connection", model: "fixture" }, "turns.start")).rejects.toThrow("unavailable");
+    f.actor.user.role = "user";
+    await expect(f.authority.issue(f.actor, { connection: "connection", model: "fixture" }, "jobs.review")).rejects.toThrow("unavailable");
+  });
 });

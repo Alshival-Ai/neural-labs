@@ -3,6 +3,8 @@ import { cronExpression, timezone } from "./schedules.mjs";
 
 const plain = value => value && typeof value === "object" && !Array.isArray(value);
 const text = (value, max) => typeof value === "string" && value.trim() && value.length <= max;
+const REVIEWABLE_HOLDS = new Set(["native-connection-required", "execution-policy-review-required",
+  "authorization-or-policy-unavailable", "membership-revoked"]);
 export function validateJob(definition) {
   identity(definition.id); identity(definition.actor); identity(definition.connection?.owner);
   if (!text(definition.name, 200) || typeof definition.enabled !== "boolean"
@@ -38,7 +40,9 @@ export function validateJob(definition) {
 }
 
 export class NativeJobs {
-  constructor({ state, changed = async () => {} }) { this.state = state; this.changed = changed; }
+  constructor({ state, changed = async () => {}, authorizeReview }) {
+    this.state = state; this.changed = changed; this.authorizeReview = authorizeReview;
+  }
   administrator(grant) { if (grant.actorRole !== "admin") throw new Error("Administrator access is required to change automations"); }
   history(grant, { jobId, before = "", limit = 50 }) {
     identity(jobId);
@@ -118,7 +122,8 @@ export class NativeJobs {
         configRevision: row.source_hash, hold: row.hold, manualRunWarning: row.hold ? `Held: ${row.hold}` : undefined,
         state: { ...(definition.state || {}), ...(latest ? { lastRunAtMs: latest.claimed_at, lastRunStatus: latest.status } : {}),
           ...(active ? { runningAtMs: active.claimed_at } : {}) } };
-      return admin ? { ...definition, ...publicFields, schedule: definition.schedule, payload: definition.payload } : publicFields;
+      return admin ? { ...definition, ...publicFields, schedule: definition.schedule, payload: definition.payload,
+        reviewable: row.classification === "automation" && REVIEWABLE_HOLDS.has(row.hold) } : publicFields;
     });
     const entries = this.state.db.prepare("SELECT * FROM occurrences ORDER BY claimed_at DESC LIMIT 2000").all().map(row => this.projectRun(grant, row));
     return { status: { enabled: this.state.metadata("scheduling") === "enabled" }, jobs, entries };
@@ -168,5 +173,50 @@ export class NativeJobs {
       this.state.db.prepare("UPDATE jobs SET hold='deleted' WHERE id=?").run(id);
     });
     await this.changed(); return { ok: true };
+  }
+  async review(grant, input) {
+    this.administrator(grant);
+    if (!plain(input) || Object.keys(input).some(key => !["id", "requestId", "expectedRevision", "missedRunPolicy", "overlap", "executionPolicy"].includes(key))) throw new Error("Invalid automation review");
+    const { id, requestId, expectedRevision, missedRunPolicy, overlap, executionPolicy } = input;
+    identity(id); identity(requestId);
+    // The selected account is explicit. No inferred default, credential copy or
+    // browser-supplied actor can change the saved scheduled owner.
+    const request = canonical({ input, actor: grant.actor, connection: grant.binding, model: grant.model });
+    const prior = this.state.db.prepare("SELECT * FROM job_reviews WHERE request_id=?").get(requestId);
+    if (prior) {
+      if (prior.request !== request) throw new Error("Automation review request conflicts");
+      await this.changed();
+      return { id, configRevision: prior.revision, accepted: false };
+    }
+    const job = this.state.job(id);
+    const check = current => {
+      if (!current || current.source_hash !== expectedRevision || current.hold !== job?.hold) throw new Error("Automation changed; refresh before reviewing");
+      if (current.classification !== "automation" || !REVIEWABLE_HOLDS.has(current.hold)) throw new Error("This hold requires operator review");
+      if (current.definition.state?.runningAtMs || this.state.db.prepare("SELECT 1 FROM occurrences WHERE job_id=? AND status IN ('claimed','running','unknown')").get(id))
+        throw new Error("An active or uncertain run requires reconciliation before review");
+    };
+    check(job);
+    // Only account/model and these displayed execution choices change. Payload,
+    // triggers, locks, delivery, timeouts and failure policies remain intact.
+    const definition = validateJob({ ...job.definition, actor: grant.actor, connection: grant.binding, model: grant.model,
+      enabled: job.enabled, missedRunPolicy, overlap, executionPolicy });
+    if (definition.failureAlert || definition.schedule.staggerMs > 0
+        || definition.payload.lightContext === true || definition.sessionTarget && definition.sessionTarget !== "isolated"
+        || definition.schedule.kind === "process" || definition.schedule.kind === "stream")
+      throw new Error("The retained automation needs an unsupported policy adapter; its hold remains in place");
+    if (typeof this.authorizeReview !== "function") throw new Error("Native background readiness cannot be verified");
+    const revalidate = await this.authorizeReview(grant, definition);
+    await revalidate();
+    const serialized = canonical(definition), revision = digest(serialized);
+    this.state.transaction(() => {
+      check(this.state.job(id));
+      this.state.db.prepare("INSERT INTO job_reviews VALUES (?,?,?,?,?,?,?,?,?)")
+        .run(requestId, id, grant.actor, request, canonical(job.definition), serialized, job.hold, this.state.now(), revision);
+      // Completed flags, receipts, checkpoints and original migration records
+      // remain untouched. Releasing a hold is never an occurrence claim.
+      this.state.db.prepare("UPDATE jobs SET definition=?,source_hash=?,hold=NULL WHERE id=?").run(serialized, revision, id);
+    });
+    await this.changed();
+    return { id, configRevision: revision, accepted: true };
   }
 }

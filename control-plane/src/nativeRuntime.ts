@@ -12,7 +12,7 @@ import type { ControlPlaneConfig } from "./config.js";
 const selectionSchema = z.object({ connection: z.string().uuid(), model: z.string().trim().min(1).max(160) }).strict();
 const operationSchema = z.object({
   operation: z.enum(["conversations.list", "conversations.create", "conversations.update", "conversations.delete",
-    "jobs.snapshot", "jobs.create", "jobs.update", "jobs.remove", "jobs.run", "turns.start", "turns.cancel", "events.read", "approvals.resolve", "models.list", "account.status", "account.login", "account.refresh"]),
+    "jobs.snapshot", "jobs.create", "jobs.update", "jobs.remove", "jobs.review", "jobs.run", "turns.start", "turns.cancel", "events.read", "approvals.resolve", "models.list", "account.status", "account.login", "account.refresh"]),
   selection: selectionSchema,
   params: z.record(z.string(), z.unknown()).default({}),
 }).strict();
@@ -27,7 +27,7 @@ export class NativeExecutionAuthority {
     const row = (await this.database.pool.query<Connection>("SELECT * FROM native_connections WHERE id=$1", [id])).rows[0];
     const own = row?.scope === "personal" && row.user_id === actor.user.id;
     const shared = row?.scope === "shared";
-    const configuration = (purpose.startsWith("account.") || ["models.list", "jobs.create", "jobs.update", "jobs.remove", "jobs.snapshot"].includes(purpose))
+    const configuration = (purpose.startsWith("account.") || ["models.list", "jobs.create", "jobs.update", "jobs.remove", "jobs.review", "jobs.snapshot"].includes(purpose))
       && actor.user.role === "admin" && row?.scope !== "personal";
     if (actor.user.status !== "active" || !row || !(own || shared || configuration)
         || purpose === "account.login" && !own && actor.user.role !== "admin") {

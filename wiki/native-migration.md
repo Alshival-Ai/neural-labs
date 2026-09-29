@@ -97,6 +97,22 @@ remain visible holds. Completed one-time jobs stay completed. Reviewing a hold
 must not replay an uncertain occurrence or change the scheduled account when a
 member performs a manual run.
 
+Administrators can open an eligible job's **Review migration hold** action in
+Automations. Review the saved instruction and schedule, choose a native connection
+and model, and explicitly select workspace access, missed-run and overlap policies.
+Releasing the hold checks native sign-in and separate background permission without
+launching a provider turn. It assigns the scheduled owner to the reviewing
+administrator and the selected connection; it does not change personal chat or
+manual-run selections. Shared and background connections can be selected directly.
+
+Review retains enabled/paused intent, completed one-time flags, workflow locks,
+checkpoints, IDs and history. It journals both definitions and rejects stale edits
+or conflicting retries. Unknown outcomes, system/helper records, unsupported
+triggers and policies (including delivery or failure policies without native
+adapters) remain held for operator review. No unsupported field is silently dropped
+to make a job eligible. Choosing catch-up behavior applies only to unclaimed future
+scheduler decisions; it never retries a previously claimed unknown occurrence.
+
 ## Acceptance evidence
 
 Protocol initialization, filesystem isolation, native editor lifecycle, sandboxed

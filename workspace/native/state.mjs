@@ -32,7 +32,7 @@ export class NativeState {
     if (filename !== ":memory:") chmodSync(filename, 0o600);
     this.db.exec(`PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;`);
     const version = this.db.prepare("PRAGMA user_version").get().user_version;
-    if (version > 5) { this.db.close(); throw new Error("Native state was written by a newer runtime"); }
+    if (version > 6) { this.db.close(); throw new Error("Native state was written by a newer runtime"); }
     this.db.exec(`
       BEGIN IMMEDIATE;
       CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -59,6 +59,12 @@ export class NativeState {
         actor TEXT NOT NULL, connection TEXT NOT NULL, definition TEXT NOT NULL,
         manual INTEGER NOT NULL CHECK(manual IN (0,1)), claimed_at INTEGER NOT NULL,
         finished_at INTEGER, result TEXT, UNIQUE(job_id,occurrence)
+      );
+      CREATE TABLE IF NOT EXISTS job_reviews (
+        request_id TEXT PRIMARY KEY, job_id TEXT NOT NULL REFERENCES jobs(id),
+        actor TEXT NOT NULL, request TEXT NOT NULL, before_definition TEXT NOT NULL,
+        after_definition TEXT NOT NULL, previous_hold TEXT NOT NULL,
+        reviewed_at INTEGER NOT NULL, revision TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS manual_requests (
         job_id TEXT NOT NULL REFERENCES jobs(id), request_id TEXT NOT NULL,
@@ -100,7 +106,7 @@ export class NativeState {
       INSERT OR IGNORE INTO turn_bindings SELECT t.id,c.binding FROM turns t JOIN conversations c ON c.id=t.conversation;
     `);
     if (version < 4) this.db.exec("ALTER TABLE conversation_profiles ADD COLUMN effort TEXT");
-    this.db.exec("PRAGMA user_version=5; COMMIT;");
+    this.db.exec("PRAGMA user_version=6; COMMIT;");
   }
 
   close() { this.db.close(); }

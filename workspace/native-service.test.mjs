@@ -19,7 +19,7 @@ async function fixture(t) {
   t.after(async () => { await service.close(); await rm(root, { recursive: true, force: true }); });
   const request = (operation, params = {}, actor = "member") => {
     const lease = `lease-${leases.size}`;
-    leases.set(lease, { actor, connection: "account", binding: { provider: "codex", owner: "account", generation: 1, method: "subscription" },
+    leases.set(lease, { actor, actorRole: actor === "admin" ? "admin" : "user", connection: "account", binding: { provider: "codex", owner: "account", generation: 1, method: "subscription" },
       model: "fixture", background: false, purpose: operation, policy: { sandbox: "workspace-write", approval: "on-request" } });
     return service.handle({ actor, lease, operation, params });
   };
@@ -175,4 +175,34 @@ test("subscription readiness never silently accepts API-key native login", async
     const status = await accounts.status({ binding: { provider, method: "subscription" } }, { exec: async () => ({ stdout, stderr }) });
     assert.equal(status.ready, expected);
   }
+});
+
+test("review verifies native credentials, background authority and live admin role before releasing a hold", async t => {
+  const f = await fixture(t), job = automation();
+  f.service.state.putJob(job, { hold: "native-connection-required" }); f.service.turns.gated = false;
+  const foreground = f.service.authorize;
+  const background = [];
+  f.service.authorize = async selection => {
+    if (typeof selection !== "object") return foreground(selection);
+    background.push(selection);
+    return { actor: selection.actor, actorRole: "admin", connection: selection.connection,
+      binding: { owner: selection.connection, provider: selection.provider, method: selection.method, generation: selection.generation },
+      model: selection.model, policy: selection.policy, background: true, authorityGeneration: 1 };
+  };
+  const input = { id: job.id, requestId: "review-job", expectedRevision: f.service.state.job(job.id).source_hash,
+    missedRunPolicy: "skip", overlap: "forbid", executionPolicy: { sandbox: "read-only", approval: "on-request" } };
+  f.service.accounts.status = async () => ({ ready: false });
+  await assert.rejects(f.request("jobs.review", input, "admin"), /native sign-in/);
+  assert.ok(f.service.state.job(job.id).hold); assert.equal(f.calls(), 0);
+  f.service.accounts.status = async () => {
+    for (const [key, lease] of f.leases) f.leases.set(key, { ...lease, actorRole: "user" });
+    return { ready: true };
+  };
+  await assert.rejects(f.request("jobs.review", input, "admin"), /binding changed/);
+  assert.ok(f.service.state.job(job.id).hold);
+  f.service.accounts.status = async () => ({ ready: true });
+  assert.equal((await f.request("jobs.review", input, "admin")).accepted, true);
+  assert.equal(f.service.state.job(job.id).hold, null); assert.equal(f.calls(), 0);
+  assert.ok(background.every(row => row.job === job.id && row.actor === "admin" && row.policy.sandbox === "read-only"));
+  assert.deepEqual(f.service.state.job(job.id).definition.connection, { owner: "account", provider: "codex", generation: 1, method: "subscription" });
 });

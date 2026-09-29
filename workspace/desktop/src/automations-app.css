@@ -499,6 +499,15 @@
 .automations-workspace { grid-template-columns:var(--library-width,18.5rem) minmax(0,1fr); }
 .automations-list { position:relative; padding-right:7px; }
 .automations-toolbar__actions { margin-left:auto; }
+.automation-review { width:min(38rem,calc(100vw - 2rem)); max-height:85vh; overflow:auto; padding:1.5rem; border:1px solid #475569; border-radius:1rem; background:#0f172a; color:#e2e8f0; }
+.automation-review::backdrop { background:rgb(0 0 0 / .65); }
+.automation-review label { display:grid; gap:.4rem; margin:.9rem 0; }
+.automation-review select { padding:.5rem; background:#1e293b; color:#e2e8f0; border:1px solid #475569; border-radius:.4rem; }
+.automation-review pre { white-space:pre-wrap; overflow-wrap:anywhere; }
+.automation-review button { padding:.55rem .8rem; background:#334155; color:#f8fafc; border:0; border-radius:.4rem; cursor:pointer; }
+.automation-review button.is-primary { background:#0e7490; }
+.automation-review button:disabled { opacity:.5; cursor:default; }
+.automation-review footer { display:flex; gap:.7rem; justify-content:flex-end; margin-top:1rem; }
 @container app-window (max-width:720px) {
   .automations-workspace .library-resizer { display:none; }
   .automations-list { position:absolute; padding-right:0; }

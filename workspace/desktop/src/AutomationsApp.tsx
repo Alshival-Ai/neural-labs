@@ -1,6 +1,7 @@
 import "./minimal-apps.css";
 import { settingsRequest } from "./settingsApi";
 import { mapRun } from "./automationsApi";
+import { AutomationReview } from "./AutomationReview";
 import { ItemActions, type ItemAction } from "./ItemActions";
 import { AutomationSubscription } from "./notifications";
 import {
@@ -68,6 +69,9 @@ export type AutomationRun = {
 };
 
 export type AutomationJob = {
+  reviewable?: boolean;
+  completed?: boolean;
+  reviewPolicy?: { sandbox?: string; missedRunPolicy?: string; overlap?: string };
   nativeHistory?: boolean;
   manualRunWarning?: string;
   id: string;
@@ -424,6 +428,7 @@ export function AutomationsApp({
   const [mobileDetail, setMobileDetail] = useState(false);
   const [notice, setNotice] = useState<string>();
   const [pendingAction, setPendingAction] = useState<string>();
+  const [reviewing, setReviewing] = useState<AutomationJob>();
 
   useEffect(() => {
     setLocalJobs(jobs.map(cloneJob));
@@ -438,7 +443,7 @@ export function AutomationsApp({
       const matchesFilter = filter === "all"
         || (filter === "active" && job.enabled)
         || (filter === "paused" && !job.enabled)
-        || (filter === "issues" && (["error", "blocked", "unknown"].includes(job.lastStatus) || Boolean(job.autoDisabled)));
+        || (filter === "issues" && (["error", "blocked", "unknown"].includes(job.lastStatus) || Boolean(job.autoDisabled) || Boolean(job.manualRunWarning)));
       return matchesText && matchesFilter;
     });
   }, [filter, localJobs, query]);
@@ -630,13 +635,16 @@ export function AutomationsApp({
 
   return (
     <section className="automations-app" aria-label="Workspace automations">
+      {reviewing && <AutomationReview job={reviewing} onClose={() => setReviewing(undefined)} onReviewed={async () => {
+        await onRefresh?.(); setNotice(`${reviewing.name} reviewed. Its saved enabled or completed state was preserved.`);
+      }} />}
       <header className="automations-toolbar">
         {!embedded && <div className="automations-toolbar__identity">
           <span><CalendarClock /></span><div><strong>Automations</strong><small>Neural Labs scheduler</small></div>
         </div>}
         <div className={`automations-scheduler${schedulerOnline ? " is-online" : " is-offline"}`}>
           <i />
-          <span><strong>{schedulerOnline ? "Scheduler online" : "Scheduler offline"}</strong><small>{schedulerOnline ? "Gateway is accepting jobs" : "Schedules will not fire"}</small></span>
+          <span><strong>{schedulerOnline ? "Scheduler online" : "Scheduler offline"}</strong><small>{schedulerOnline ? "Native scheduler is accepting jobs" : "Schedules will not fire"}</small></span>
         </div>
         <div className="automations-toolbar__actions">
           <button type="button" aria-label="Refresh automations" disabled={pendingAction === "refresh"} onClick={() => void refreshJobs()}><RefreshCw className={pendingAction === "refresh" ? "is-spinning" : undefined} /></button>
@@ -695,7 +703,8 @@ export function AutomationsApp({
           </header>
 
           {selected.payload.kind === "agentTurn" && <p className="automation-account-note">Run now uses your selected model account. Scheduled runs use {selected.agent}.</p>}
-          {selected.manualRunWarning && <div className="automation-warning" role="status">{selected.manualRunWarning}</div>}
+          {selected.manualRunWarning && <div className="automation-warning" role="status">{selected.manualRunWarning}
+            {selected.reviewable && <button type="button" onClick={() => setReviewing(selected)}>Review migration hold</button>}</div>}
           {selected.autoDisabled && <div className="automation-warning"><ShieldAlert /><div><strong>Auto-disabled after {selected.autoDisabled.consecutiveErrors} failures</strong><span>Neural Labs stopped this recurring job as a safety backstop. Fix the cause, then enable it to clear the failure streak.</span></div>{onToggle && <button type="button" onClick={() => void toggleJob(selected)}>Review and enable</button>}</div>}
 
           <nav className="automation-detail-tabs" aria-label="Automation details">

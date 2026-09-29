@@ -26,6 +26,15 @@ broker-supplied spawn/version-probe functions plus a live execution revalidator.
 Membership, generation, account state and background authorization must be
 checked at admission, before spawn, during execution and after approval.
 
+The native workspace image must not contribute team-specific skills to every
+tenant. Skill discovery uses the workspace's own team and personal directories
+plus packages installed into that workspace. Claude's native tool list is
+explicitly limited to file discovery and reads, with Edit and Write added only
+for workspace-write policy. Shell and network-fetch tools are not granted to
+Claude turns by default. Provider processes still need outbound access for AI
+inference, so host egress rules and the process filesystem namespace remain
+separate containment controls.
+
 SQLite records occurrence claims before execution. Lost responses and interrupted
 claims are unknown and never automatically replayed. Unknown work retains its
 workflow lock. Manual executions retain their initiating actor/connection without
@@ -67,8 +76,17 @@ plane; native preferences use a separate table. A scoped operator journal permit
 schema migration while preserving the closed admission gate. See
 [Native runtime migration](../native-migration.md) for staged operator steps.
 
-Production remains on its original image while complete application integrations,
-release publication and pilot acceptance are unfinished. Protocol initialization
+Imported automation holds can now be released through an administrator review.
+The runtime checks the exact source revision, active membership/administrator role,
+selected credential generation, native sign-in, and separate background authority
+before committing the new binding. SQLite atomically records the before/after
+definitions and review request ID, preserving completed flags and occurrence
+claims. Unknown work and unsupported policies remain held. This review cannot
+grant a browser background execution authority or change its personal selection.
+
+Existing installations remain pinned unless explicitly upgraded through the
+operator preview procedure. Complete application integrations, public release
+publication and pilot acceptance are unfinished. Protocol initialization
 and recovery rehearsal on native ARM64 do not establish real model inference or
 the representative four-job workload on an 8GB Pi. No native runtime image is
 approved for automatic migration by this ADR.

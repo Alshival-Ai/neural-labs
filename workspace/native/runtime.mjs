@@ -34,7 +34,18 @@ export class NativeRuntime {
     this.skillHistory = new NativeSkillHistory(this.state);
     this.accounts = accounts || new NativeAccounts({ terminals, spawnPty, resolveActor });
     this.executionGrants = new Map();
-    this.jobs = new NativeJobs({ state: this.state, changed: async () => this.triggers?.refresh() });
+    this.jobs = new NativeJobs({ state: this.state, changed: async () => this.triggers?.refresh(),
+      authorizeReview: async (actorGrant, definition) => {
+        const selected = definition.connection;
+        const grant = await this.execution(definition.actor, { job: definition.id, actor: definition.actor,
+          connection: selected.owner, generation: selected.generation, provider: selected.provider, method: selected.method,
+          model: definition.model, policy: definition.executionPolicy }, "scheduled-run", definition.executionPolicy);
+        if (!grant.background) throw new Error("Separate background authorization is required");
+        return async () => {
+          if (this.turns.gated) throw new Error("Native runtime admission is closed");
+          await actorGrant.revalidate(); await grant.revalidate();
+        };
+      } });
     this.turns = new NativeTurns({ state: this.state, providers, tools,
       resolveExecution: ({ actor, selection, purpose }) => this.execution(actor, selection, purpose) });
     this.scheduler = new NativeScheduler({ state: this.state,
@@ -87,7 +98,8 @@ export class NativeRuntime {
       readOnly: policy.sandbox === "read-only" });
     const revalidate = async () => {
       const current = await this.authorize(lease);
-      if (current.actor !== actor || current.connection !== original.connection || canonical(current.binding) !== binding
+      if (current.actor !== actor || current.actorRole !== original.actorRole || current.scope !== original.scope
+          || current.connection !== original.connection || canonical(current.binding) !== binding
           || current.model !== original.model || current.background !== original.background || current.authorityGeneration !== original.authorityGeneration || canonical(current.policy) !== canonical(original.policy)) {
         throw new Error("Native execution binding changed");
       }
@@ -123,6 +135,11 @@ export class NativeRuntime {
       return nativeModelCatalog(grant, await this.accounts.status(grant, grant.launch));
     }
     if (operation === "jobs.snapshot") return this.jobs.snapshot(authorization);
+    if (operation === "jobs.review") {
+      if (this.turns.gated) throw new Error("Native runtime admission is closed");
+      const grant = await this.execution(actor, lease, operation);
+      return this.jobs.review(grant, params);
+    }
     if (["jobs.create", "jobs.update", "jobs.remove"].includes(operation)) {
       if (this.turns.gated) throw new Error("Native runtime admission is closed");
       return this.jobs[operation.split(".")[1]](authorization, params);

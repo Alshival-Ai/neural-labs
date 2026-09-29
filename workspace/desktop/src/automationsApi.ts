@@ -147,6 +147,10 @@ function mapJob(job: RecordValue, runs: AutomationRun[], index: number): Automat
   return {
     id,
     configRevision: stringValue(job.configRevision),
+    reviewable: job.reviewable === true,
+    completed: job.completed === true,
+    reviewPolicy: { sandbox: isRecord(job.executionPolicy) ? stringValue(job.executionPolicy.sandbox) : undefined,
+      missedRunPolicy: stringValue(job.missedRunPolicy), overlap: stringValue(job.overlap) },
     name: stringValue(job.displayName) ?? stringValue(job.name) ?? "Untitled automation",
     description: stringValue(job.description) ?? "Shared Neural Labs automation",
     manualRunWarning: stringValue(job.manualRunWarning),
