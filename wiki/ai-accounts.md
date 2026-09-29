@@ -14,26 +14,18 @@ only user and the administrator.
    model for your chats.
 4. Send a request in a private Alshival conversation to verify the account.
 
+If the device-code attempt ends or expires, the card stops waiting and offers
+**Connect OpenAI** again for a fresh code.
+
 Additional personal, shared, Team, and background connections can be managed
 under **Advanced connections**. These require explicit owner and model choices.
 
-API usage is billed separately from ChatGPT subscriptions. Saving a personal key
-selects key authentication for that person's Alshival; choosing ChatGPT selects
-their ChatGPT credential instead. Neural Labs keeps the two credentials in
-separate native profiles and never falls back to the unselected method. A
-previously connected method stays stored but inactive. Choosing ChatGPT can
-reuse an existing valid sign-in; to select key billing again, enter the key in
-Settings because saved keys are never shown there. **Disconnect** removes both
-personal OpenAI credentials.
-Saving confirms that the key reached the personal credential store; send a Alshival
-message to verify that OpenAI accepts it and the account has usable quota.
-
-If the provider asks you to enable device-code login, follow its account
-security instructions and retry with a new code. **Refresh connection** checks
-account and model availability; it does not install a new runtime or resume a
-paused connection. **Pause** suspends your personal agent's access while
-retaining the saved account; **Resume** restores access when the credential is
-still valid.
+ChatGPT subscriptions and OpenAI Platform API usage are separate. The OpenAI
+card uses native ChatGPT sign-in and does not switch to API billing on failure.
+If OpenAI asks you to enable device-code login, follow its account security
+instructions and start a new sign-in. **Reload models** refreshes the catalog;
+it does not resume a paused connection. Pause and Resume are under **Advanced
+connections**.
 
 ## Connect Claude
 
