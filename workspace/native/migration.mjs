@@ -208,6 +208,7 @@ export async function importPreservation({ source, destination, state, workspace
     state.transaction(() => {
       if (state.db.prepare("SELECT 1 FROM migrations").get()) throw new Error("Another source migration already owns this native state");
       state.setMetadata("workspace", workspace);
+      state.setMetadata("installation", "migration");
       state.db.prepare("INSERT INTO migrations VALUES (?,?,?,'copying','{}')").run(expectedId, workspace, raw.toString());
     });
   }
@@ -267,4 +268,162 @@ export async function importPreservation({ source, destination, state, workspace
     state.db.prepare("UPDATE migrations SET phase='verified',report=? WHERE id=?").run(canonical(report), expectedId);
   });
   return report;
+}
+
+// Operator-only, while both old and candidate writers are stopped. The path map
+// is explicit because a retained archive is not a usable installed library.
+// Never rewrite an original package to make it compatible with a provider.
+export async function projectPreservation({ state, workspace, expectedId, source, targets }) {
+  hash(expectedId);
+  const migration = state.db.prepare("SELECT * FROM migrations WHERE id=?").get(expectedId);
+  if (!migration || migration.workspace !== workspace || migration.phase !== "verified"
+      || state.metadata("scheduling") !== "disabled" || state.metadata("delivery") !== "disabled"
+      || state.metadata("activation")) throw new Error("Projection requires a verified, inactive migration");
+  const manifest = JSON.parse(migration.manifest);
+  validateManifest(manifest, workspace);
+  if (digest(migration.manifest) !== expectedId || canonical(Object.keys(targets).sort()) !== canonical([...TREE_CATEGORIES].sort()))
+    throw new Error("Projection requires the complete reviewed path map");
+  const map = {};
+  for (const category of TREE_CATEGORIES) {
+    const target = targets[category];
+    if (typeof target !== "string" || !path.isAbsolute(target) || path.resolve(target) !== target || target === "/")
+      throw new Error("Projection targets must be canonical absolute directories");
+    await directory(target);
+    map[category] = target;
+  }
+  // Overlapping category roots would make independent integrity checks ambiguous.
+  const roots = Object.values(map);
+  if (roots.some((a, i) => roots.some((b, j) => i !== j && (a === b || b.startsWith(a + path.sep)))))
+    throw new Error("Projection roots must not overlap");
+  await directory(source); await directory(path.join(source, "blobs"));
+  if (digest((await regularFile(path.join(source, "manifest.json"))).data) !== expectedId)
+    throw new Error("Projection source does not match the migration");
+  const previous = state.metadata("projection");
+  const receipt = canonical({ migration: expectedId, workspace, targets: map });
+  if (previous && previous !== receipt) throw new Error("Projection paths changed during recovery");
+  state.setMetadata("projection", receipt);
+  for (const row of manifest.files) {
+    const root = map[row.category], target = child(root, row.path);
+    if (row.type === "directory") await mkdirBelow(root, row.path);
+    else {
+      const parent = path.posix.dirname(row.path);
+      if (parent !== ".") await mkdirBelow(root, parent);
+      const { data } = await regularFile(path.join(source, "blobs", row.sha256));
+      if (data.length !== row.size || digest(data) !== row.sha256) throw new Error("Projection source file failed its integrity check");
+      await writeOnce(target, data);
+      await chmod(target, row.mode);
+    }
+  }
+  // Apply directory modes after writing children. Read-only package directories
+  // are valid; their original permissions must survive the projection too.
+  for (const row of manifest.files.filter(row => row.type === "directory").reverse())
+    await chmod(child(map[row.category], row.path), row.mode);
+  return verifyProjection({ state, workspace, expectedId });
+}
+
+export async function verifyProjection({ state, workspace, expectedId }) {
+  hash(expectedId);
+  const migration = state.db.prepare("SELECT * FROM migrations WHERE id=?").get(expectedId);
+  if (!migration || migration.workspace !== workspace || migration.phase !== "verified" || digest(migration.manifest) !== expectedId)
+    throw new Error("A verified matching migration is required");
+  const manifest = JSON.parse(migration.manifest);
+  validateManifest(manifest, workspace);
+  const projection = JSON.parse(state.metadata("projection") || "null");
+  if (projection?.migration !== expectedId || projection.workspace !== workspace
+      || canonical(Object.keys(projection.targets).sort()) !== canonical([...TREE_CATEGORIES].sort()))
+    throw new Error("The installed path map has not been reviewed");
+  const expected = new Map(manifest.files.map(row => [row.category + "/" + row.path, row]));
+  let verified = 0;
+  for (const category of TREE_CATEGORIES) {
+    const root = projection.targets[category];
+    await directory(root);
+    async function visit(prefix = "") {
+      for (const entry of await readdir(prefix ? child(root, prefix) : root, { withFileTypes: true })) {
+        const name = prefix ? prefix + "/" + entry.name : entry.name;
+        const row = expected.get(category + "/" + name);
+        if (!row) throw new Error("Installed package contains an uninventoried entry");
+        const filename = child(root, name), info = await lstat(filename);
+        if ((info.mode & 0o777) !== row.mode || info.isSymbolicLink()) throw new Error("Installed package permissions or type changed");
+        if (row.type === "directory") {
+          if (!info.isDirectory()) throw new Error("Installed package type changed");
+          await visit(name);
+        } else {
+          const { data } = await regularFile(filename);
+          if (data.length !== row.size || digest(data) !== row.sha256) throw new Error("Installed package hash changed");
+        }
+        verified++;
+      }
+    }
+    await visit();
+  }
+  if (verified !== manifest.files.length) throw new Error("Installed package entries are missing");
+  const retained = state.db.prepare("SELECT * FROM retained_records WHERE migration=?").all(expectedId);
+  if (retained.length !== manifest.records.length) throw new Error("Retained record count changed");
+  const rows = new Map(retained.map(row => [canonical([row.category, row.source_key]), row]));
+  const manualLinks = manifest.records.filter(row => row.category === "scratch").map(row => row.value);
+  for (const source of manifest.records) {
+    const row = rows.get(canonical([source.category, source.key]));
+    if (!row || row.sha256 !== source.sha256 || digest(canonical(JSON.parse(row.payload))) !== source.sha256)
+      throw new Error("Retained record integrity changed");
+    if (source.category === "jobs") {
+      const job = state.job(source.value.id);
+      const classification = classifyJob(source.value, manualLinks);
+      const completed = source.value.schedule?.kind === "at" && Boolean(source.value.state?.lastRunAtMs);
+      if (!job || job.migration !== expectedId || job.source_hash !== source.sha256
+          || canonical(job.definition) !== canonical(source.value) || job.enabled !== source.value.enabled
+          || job.completed !== completed || job.classification !== classification || job.hold !== jobHold(source.value, classification))
+        throw new Error("Imported automation changed before policy review");
+    }
+  }
+  return { migration: expectedId, workspace, filesVerified: verified, recordsVerified: retained.length,
+    targets: projection.targets, inventory: manifest.inventory, scheduling: state.metadata("scheduling"),
+    delivery: state.metadata("delivery"), activationReady: false };
+}
+
+// Admit the imported workspace only after the host has stopped the old scheduler,
+// projected every package and obtained the control plane's explicit reset receipt.
+// This does not clear any job hold, enable scheduling, or send old notifications.
+export async function activatePreservation({ state, workspace, expectedId, controlPlaneRecords, chatReceipt,
+  afterCommit = { scheduling: "disabled", delivery: "disabled" } }) {
+  if (canonical(Object.keys(afterCommit).sort()) !== canonical(["delivery", "scheduling"])
+      || Object.values(afterCommit).some(value => !["enabled", "disabled"].includes(value)))
+    throw new Error("An explicit post-commit execution policy is required");
+  if (state.metadata("scheduling") !== "disabled" || state.metadata("delivery") !== "disabled")
+    throw new Error("Activation requires scheduling and delivery disabled");
+  const projected = await verifyProjection({ state, workspace, expectedId });
+  const migration = state.db.prepare("SELECT * FROM migrations WHERE id=?").get(expectedId);
+  const manifest = JSON.parse(migration.manifest);
+  if (chatReceipt?.workspace !== workspace || chatReceipt.migration !== expectedId
+      || chatReceipt.chatResetPolicy !== manifest.chatResetPolicy
+      || !["preserve", "reset-team-pilot", "separately-authorized-reset"].includes(manifest.chatResetPolicy)
+      || manifest.chatResetPolicy === "preserve" && chatReceipt.channelsRemoved !== 0
+      || !Number.isSafeInteger(chatReceipt.channelsRemoved) || chatReceipt.channelsRemoved < 0)
+    throw new Error("A matching control-plane chat-reset receipt is required");
+  if (state.db.prepare("SELECT 1 FROM conversations LIMIT 1").get()
+      || state.db.prepare("SELECT 1 FROM occurrences LIMIT 1").get())
+    throw new Error("Native work was already accepted; use forward recovery");
+  const tables = RECORD_CATEGORIES.filter(category => category.startsWith("notification_") || category === "automation_subscriptions");
+  const verified = {};
+  for (const category of [...tables, "ownership"]) {
+    const current = controlPlaneRecords?.[category];
+    if (!Array.isArray(current)) throw new Error("Complete live control-plane evidence is required");
+    const original = manifest.records.filter(row => row.category === category).map(row => row.value);
+    const hashes = rows => rows.map(row => digest(canonical(row))).sort();
+    const expected = original.map(row => category === "notification_preferences" && manifest.chatResetPolicy !== "preserve" ? { ...row, session_key: null } : row);
+    const live = hashes(current.map(row => row.value));
+    if (canonical(live) !== canonical(hashes(expected))) throw new Error("Control-plane preservation comparison failed");
+    if (tables.includes(category)) verified[category] = live;
+  }
+  if (digest(canonical(verified)) !== chatReceipt.notificationState) throw new Error("Control-plane receipt does not match current notification state");
+  const receipt = canonical({ migration: expectedId, workspace, projection: JSON.parse(state.metadata("projection")), chatReceipt, afterCommit });
+  const existing = state.metadata("activationReceipt");
+  if (existing && existing !== receipt) throw new Error("Activation evidence changed; use forward recovery");
+  state.transaction(() => {
+    state.setMetadata("activationReceipt", receipt);
+    state.setMetadata("activation", "verified");
+    // Scheduling remains disabled in probation. Only the host's durable commit
+    // and subsequent maintenance resume may apply this reviewed policy.
+    state.setMetadata("maintenance", canonical(afterCommit));
+  });
+  return { ...projected, activationReady: true, jobsHeld: state.db.prepare("SELECT count(*) AS count FROM jobs WHERE hold IS NOT NULL").get().count };
 }

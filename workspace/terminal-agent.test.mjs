@@ -146,7 +146,7 @@ test("launch chooses focused desktop, claims once, waits for ready, and deduplic
   const { session } = await f.bridge.claim(alice, { requestId, desktopId: "current" });
   assert.equal(f.processes.length, 0);
   await assert.rejects(f.bridge.claim(alice, { requestId, desktopId: "current" }), { code: "launch_claimed" });
-  f.manager.start(f.manager.sessions.get(session.id));
+  await f.manager.start(f.manager.sessions.get(session.id));
   const result = await launch;
   assert.equal(result.state, "started");
   assert.equal(session.agentMode, "status-only");

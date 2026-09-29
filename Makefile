@@ -6,16 +6,15 @@ validate:
 	python3 tests/updater_test.py
 	python3 -m py_compile deploy/updater/updater.py deploy/updater/install.py deploy/updater/release.py tests/updater_rehearsal.py
 	node --check workspace/update-maintenance.mjs
-	node --check workspace/update-probe.mjs
-	node --check workspace/update-app-server-probe.mjs
+	node --check workspace/native/update-probe.mjs
 	node --check bin/control-plane-fingerprint.mjs
 	node --check bin/native-migration.mjs
 	node --check tests/native-claude-probe.mjs
 	bash tests/public_boundary_test.sh
 	python3 bin/export-wiki.py --check
 	python3 tests/wiki_export_test.py
-	node bin/openclaw-release.mjs check
-	node --test tests/openclaw-release.test.mjs tests/openclaw-tree.test.mjs
+	node bin/native-release.mjs check
+	python3 tests/native_security_test.py
 	npm --prefix console run validate
 	npm --prefix control-plane run validate
 	npm --prefix mcp run validate

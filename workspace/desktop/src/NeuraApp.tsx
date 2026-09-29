@@ -38,7 +38,7 @@ import remarkGfm from "remark-gfm";
 import { useAppViewport } from "./appViewport";
 import { AppDrawer } from "./AppDrawer";
 import { useMobileAppLayout } from "./useMobileAppLayout";
-import { activitiesFromGatewayEvent, eventRecord, assistantMessageContent, messagesFromSessionEvent, NeuraGateway } from "./openclaw";
+import { activitiesFromGatewayEvent, eventRecord, assistantMessageContent, messagesFromSessionEvent, NativeClient } from "./nativeClient";
 import { readDeviceState, writeDeviceState } from "./deviceState";
 import { createWorkspaceFolder, uploadWorkspaceFile, workspaceContentUrl, workspaceDownloadUrl, type WorkspacePreviewFile } from "./filesApi";
 import { listCustomSkills } from "./skillsApi";
@@ -66,7 +66,7 @@ import type {
 
 type Props = {
   initialChannelId?: string | undefined;
-  gateway: NeuraGateway;
+  gateway: NativeClient;
   notify: (message: string) => void;
   active?: boolean;
   storageNamespace?: string;
@@ -106,7 +106,7 @@ function skillSuggestionsFromStatus(status: unknown): SkillSuggestion[] {
     return [{
       key,
       name: recordString(candidate, "name") ?? key,
-      description: recordString(candidate, "description") ?? "OpenClaw skill",
+      description: recordString(candidate, "description") ?? "Native skill",
     }];
   }).sort((left, right) => left.name.localeCompare(right.name));
 }
@@ -930,7 +930,7 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
       return;
     }
     let active = true;
-    let subscription: Awaited<ReturnType<NeuraGateway["subscribeSession"]>> | undefined;
+    let subscription: Awaited<ReturnType<NativeClient["subscribeSession"]>> | undefined;
     setSessionReady(false);
     void (async () => {
       try {
@@ -1859,7 +1859,7 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
                 ? "Creating a private session"
                 : selectedChannel
                 ? teamConnection === "connected" ? `${selectedChannel.memberCount} members · live` : teamConnection
-                : connection === "connected" ? selected && !sessionReady ? "Syncing conversation" : "Connected through OpenClaw" : connection}
+                : connection === "connected" ? selected && !sessionReady ? "Syncing conversation" : "Connected to Neural Labs" : connection}
             </span>
           </div>
           {selected && !selectedChannel && connection === "connected" && <ConversationModelPicker key={`${selected.key}:${selected.sessionId}`} session={selected} gateway={gateway} />}
@@ -1891,7 +1891,7 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
             <div className="neura-welcome">
               <div className="neura-orb">A</div>
               <h1>Work with Alshival</h1>
-              <p>Alshival is your OpenClaw agent. New conversations are private to your account.</p>
+              <p>Neura uses your selected native AI connection. New conversations are private to your account.</p>
               <button type="button" onClick={() => void createConversation()}><MessageSquarePlus />Start a conversation</button>
             </div>
           )}
@@ -2275,10 +2275,10 @@ function NeuraSessionLoader({ stage }: { stage: "creating" | "connecting" }) {
   return <div className="neura-welcome compact neura-session-loader" role="status" aria-label="Preparing Alshival conversation">
     <div className="neura-ready-orb" aria-hidden="true"><span>A</span><i /><i /><i /></div>
     <h1>{stage === "creating" ? "Starting a new chat" : "Getting Alshival ready"}</h1>
-    <p>{stage === "creating" ? "Creating your private conversation." : "Opening the live OpenClaw session and loading recent context."}</p>
+    <p>{stage === "creating" ? "Creating your private conversation." : "Opening your native session and loading recent context."}</p>
     <div className="neura-ready-progress" aria-hidden="true">
       <span><Check />{stage === "creating" ? "Private session" : "Session created"}</span>
-      <span><i />{stage === "creating" ? "Connecting to OpenClaw" : "Opening live connection"}</span>
+      <span><i />{stage === "creating" ? "Connecting to Neural Labs" : "Opening live connection"}</span>
     </div>
   </div>;
 }

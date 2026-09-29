@@ -71,11 +71,17 @@ export class SessionService {
   async actor(request: Request): Promise<SessionActor | undefined> {
     const token = parseCookies(request.headers.cookie).get(this.sessionCookieName);
     if (!token) return undefined;
-    const actor = await this.database.getSessionActor(hashToken(token));
+    return this.actorByTokenHash(hashToken(token));
+  }
+
+  // Execution leases revalidate the originating session without retaining its
+  // browser cookie in the workspace runtime. Managed authorization stays live.
+  async actorByTokenHash(tokenHash: string): Promise<SessionActor | undefined> {
+    const actor = await this.database.getSessionActor(tokenHash);
     if (!actor) return undefined;
     if (this.config.managed) {
       try {
-        const result = await this.database.pool.query("SELECT portal_grant FROM sessions WHERE token_hash=$1", [hashToken(token)]);
+        const result = await this.database.pool.query("SELECT portal_grant FROM sessions WHERE token_hash=$1", [tokenHash]);
         const grant = new CredentialCipher(this.config.masterKey).decrypt<{ token: string }>(result.rows[0]?.portal_grant);
         const identity = (await portalCall(this.config, "authorize", grant.token))!;
         if (await resolveManagedUserId(this.database, this.config.managed, identity.subject) !== actor.user.id) return undefined;

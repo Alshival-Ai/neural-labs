@@ -1,728 +1,109 @@
-import { UpdateMaintenance, prepareProbation } from "./update-maintenance.mjs";
-import { migrateNativeState } from "./native-state-migration.mjs";
-import { ClaudeAccounts } from "./claude-accounts.mjs";
-import { ModelAccounts } from "./model-accounts.mjs";
-import { backgroundGatewayStatus } from "/usr/local/lib/neural-labs/background-provider-status.mjs";
-import { ProviderRuntime } from "/usr/local/lib/neural-labs/mcp/dist/providerRuntime.js";
-import { loadProviderConfig } from "/usr/local/lib/neural-labs/mcp/dist/providerConfig.js";
-import { installTerminalGuidance } from "/usr/local/lib/neural-labs/terminal-guidance.mjs";
-import { execFile, spawn, spawnSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
-import { constants } from "node:fs";
-import { copyFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import { mkdir, access } from "node:fs/promises";
 import path from "node:path";
-import { promisify } from "node:util";
+import * as pty from "node-pty";
+import { createWorkspaceHttpServer } from "./http-server.mjs";
+import { WorkspaceTerminalManager } from "./terminal-manager.mjs";
+import { createVoiceService } from "./voice.mjs";
+import { NativeRuntime, controlPlaneAuthority } from "./native/runtime.mjs";
+import { NativeInteractive, interactiveAuthority } from "./native/interactive.mjs";
+import { NativeEditors } from "./native/editors.mjs";
+import { NativeMaintenance, initializeNativeInstallation, nativePreservationReady } from "./native/maintenance.mjs";
+import { NativeTriggerLoop } from "./native/trigger-loop.mjs";
+import { NativeTools } from "./native/tools.mjs";
+import { NativeSkills } from "./native/skills.mjs";
+import { createSkillsManager } from "./skills-manager.mjs";
+import { createNativeLauncher, prepareNativeHome, NATIVE_HOME } from "./native/launcher.mjs";
+import { CODEX_APP_SERVER } from "./native/codex.mjs";
+import release from "./native/release.json" with { type: "json" };
+import { ProviderRuntime } from "./mcp/dist/providerRuntime.js";
+import { loadProviderConfig } from "./mcp/dist/providerConfig.js";
+import { createProviderApplication } from "./mcp/dist/providerServer.js";
 
-import { createWorkspaceHttpServer } from "/usr/local/lib/neural-labs/http-server.mjs";
-import { browserConfigurationOperations } from "/usr/local/lib/neural-labs/browser-config.mjs";
-import { createProviderAuthController } from "/usr/local/lib/neural-labs/provider-auth.mjs";
-import { verifyCodexRuntime } from "/usr/local/lib/neural-labs/codex-runtime.mjs";
-import { startTerminalCodexUpdates } from "/usr/local/lib/neural-labs/codex-updates.mjs";
-import { openclawRelease, verifyOpenClawRuntime, isOfficialSmsInstallation } from "/usr/local/lib/neural-labs/openclaw-runtime.mjs";
-import { gatewayIsolationOperations } from "/usr/local/lib/neural-labs/gateway-isolation.mjs";
-import { createGatewayAdminRequest, PersonalOpenAIManager } from "/usr/local/lib/neural-labs/personal-openai.mjs";
-import { runTeamAgent } from "/usr/local/lib/neural-labs/team-agent.mjs";
-import { createVoiceService } from "/usr/local/lib/neural-labs/voice.mjs";
-import { ModelCatalog } from "/usr/local/lib/neural-labs/model-catalog.mjs";
-import { ModelPolicies } from "/usr/local/lib/neural-labs/model-policies.mjs";
-import { TeamOpenAI } from "/usr/local/lib/neural-labs/team-openai.mjs";
-import { agentEnvironment, retireWorkspaceApiKey } from "/usr/local/lib/neural-labs/provider-environment.mjs";
-
-const updateProbation = process.env.NEURAL_LABS_UPDATE_PROBATION === "true";
-const updateStateRoot = "/home/node/.local/state/neural-labs/updates";
-let updateMaintenance;
-const updatePaused = () => updateProbation || updateMaintenance?.gated;
-let backgroundOperations = 0;
-const openclawRuntime = await verifyOpenClawRuntime();
-const gatewayPort = parsePort(process.env.OPENCLAW_GATEWAY_PORT, 18789);
-const statusPort = parsePort(process.env.NEURAL_LABS_WORKSPACE_STATUS_PORT, 18790);
-const mcpPort = parsePort(process.env.NEURAL_LABS_WORKSPACE_MCP_PORT, 8792);
-const codeServerPort = parsePort(process.env.NEURAL_LABS_CODE_SERVER_PORT, 18881);
-const codeServerOrigin = `http://127.0.0.1:${codeServerPort}`;
-const publicOrigin = parsePublicOrigin(
-  process.env.NEURAL_LABS_PUBLIC_ORIGIN ?? "https://neural-labs.example.com",
-);
-const trustedProxy = process.env.NEURAL_LABS_WORKSPACE_PROXY_IP?.trim() || "172.30.42.1";
-const desktopRoot = "/usr/local/share/neural-labs/desktop";
-const workspaceRoot = process.env.OPENCLAW_WORKSPACE_DIR ?? "/home/node/workspace";
-const personalSkillsRoot = path.join(process.env.HOME || "/home/node", ".agents", "skills");
-const builderDraftsRoot = path.join(process.env.HOME || "/home/node", ".local", "state", "neural-labs", "builder-drafts");
-const maxUploadBytes = parsePositiveInteger(
-  process.env.NEURAL_LABS_WORKSPACE_MAX_UPLOAD_BYTES,
-  2 * 1024 * 1024 * 1024,
-  "NEURAL_LABS_WORKSPACE_MAX_UPLOAD_BYTES",
-);
-const execFileAsync = promisify(execFile);
-const providerStatusRefreshMs = 5 * 60_000;
-const providerStatusCommandTimeoutMs = 120_000;
-const workspaceControlToken = process.env.NEURAL_LABS_WORKSPACE_CONTROL_TOKEN?.trim();
-if (!workspaceControlToken || workspaceControlToken.length < 32) {
-  throw new Error("NEURAL_LABS_WORKSPACE_CONTROL_TOKEN must contain at least 32 characters");
+const root = path.resolve(process.env.NEURAL_LABS_NATIVE_STATE_ROOT || "/home/node/.local/state/neural-labs/native");
+const workspaceRoot = path.resolve(process.env.NEURAL_LABS_WORKSPACE_ROOT || "/home/node/workspace");
+const controlOrigin = process.env.NEURAL_LABS_CONTROL_PLANE_ORIGIN || "http://control-plane:4174";
+const token = process.env.NEURAL_LABS_WORKSPACE_CONTROL_TOKEN?.trim();
+if (!token || token.length < 32) throw new Error("A private workspace control token is required");
+const publicUrl = new URL(process.env.NEURAL_LABS_PUBLIC_ORIGIN || "https://neural-labs.example.com");
+if (publicUrl.pathname !== "/" || publicUrl.search || publicUrl.hash || publicUrl.username || publicUrl.password
+    || publicUrl.protocol !== "https:" && !(publicUrl.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(publicUrl.hostname)))
+  throw new Error("An HTTPS workspace origin is required");
+const publicOrigin = publicUrl.origin;
+function port(value, fallback) { const parsed = Number(value ?? fallback); if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) throw new Error("Invalid runtime port"); return parsed; }
+const statusPort = port(process.env.NEURAL_LABS_WORKSPACE_STATUS_PORT, 18790);
+const toolsPort = port(process.env.NEURAL_LABS_WORKSPACE_MCP_PORT, 8792);
+const probation = process.env.NEURAL_LABS_UPDATE_PROBATION === "true";
+await mkdir(workspaceRoot, { recursive: true, mode: 0o755 });
+await mkdir(root, { recursive: true, mode: 0o700 });
+// entrypoint.sh holds the exclusive filesystem lock for this entire process.
+const probeHome = await prepareNativeHome(path.join(root, "probe-home"));
+const probe = await createNativeLauncher({ workspaceRoot, homeRoot: probeHome, readOnly: true });
+await probe.probe();
+for (const [command, expected] of [[CODEX_APP_SERVER, `codex-cli ${release.codex}`], ["/usr/local/bin/claude", `${release.claude} (Claude Code)`]]) {
+  const result = await probe.exec(command, ["--version"], { env: { HOME: NATIVE_HOME, PATH: "/usr/local/bin:/usr/bin:/bin", DISABLE_AUTOUPDATER: "1" }, timeout: 20000, maxBuffer: 65536 });
+  if (result.stdout.trim() !== expected) throw new Error("The installed provider executable does not match the native release");
 }
-const voiceService = createVoiceService({ safetySecret: workspaceControlToken });
-const turnCredentialUrl = new URL(
-  process.env.NEURAL_LABS_TURN_CREDENTIAL_URL ?? "http://control-plane:4174/internal/turn-credentials",
-);
-const teamChannelAccessUrl = new URL(
-  process.env.NEURAL_LABS_TEAM_CHANNEL_ACCESS_URL ?? "http://control-plane:4174/internal/team-terminal/access",
-);
-const twilioConfigUrl = new URL(
-  process.env.NEURAL_LABS_TWILIO_CONFIG_URL ?? "http://control-plane:4174/internal/plugins/twilio/config",
-);
-// OpenClaw resolves environment placeholders whenever it loads configuration.
-// The always-on Gateway must therefore have a harmless value even though only
-// an isolated Team Chat agent process receives a real, short-lived capability.
-process.env.NEURAL_LABS_TEAM_CAPABILITY ||= "inactive-team-capability-not-authorized-00000000";
-const internalGatewayPassword = randomBytes(48).toString("base64url");
-
-function parsePort(value, fallback) {
-  const parsed = Number(value ?? fallback);
-  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
-    throw new Error("Workspace ports must be integers between 1 and 65535");
-  }
-  return parsed;
+async function control(endpoint, body) {
+  const response = await fetch(new URL(endpoint, controlOrigin), { method: "POST", redirect: "error",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(5000) });
+  if (!response.ok) throw new Error("Workspace authorization is unavailable"); return response.json();
 }
-
-function parsePositiveInteger(value, fallback, name) {
-  const parsed = Number(value ?? fallback);
-  if (!Number.isSafeInteger(parsed) || parsed < 1) {
-    throw new Error(`${name} must be a positive integer`);
-  }
-  return parsed;
-}
-
-function parsePublicOrigin(value) {
-  const url = new URL(value);
-  if (url.pathname !== "/" || url.search || url.hash || url.username || url.password) {
-    throw new Error("NEURAL_LABS_PUBLIC_ORIGIN must contain only scheme, host, and optional port");
-  }
-  const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
-  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
-    throw new Error("NEURAL_LABS_PUBLIC_ORIGIN must use HTTPS except for loopback development");
-  }
-  return url.origin;
-}
-
-async function seedShellProfiles() {
-  const workspaceHome = process.env.HOME || "/home/node";
-  const profiles = [
-    ["zshrc", ".zshrc"],
-    ["inputrc", ".inputrc"],
-  ];
-  for (const [sourceName, destinationName] of profiles) {
-    try {
-      await copyFile(
-        path.join("/usr/local/share/neural-labs/shell", sourceName),
-        path.join(workspaceHome, destinationName),
-        constants.COPYFILE_EXCL,
-      );
-    } catch (error) {
-      if (error?.code !== "EEXIST") throw error;
-    }
-  }
-}
-
-function runOpenClaw(args, options = {}) {
-  const result = spawnSync("openclaw", args, {
-    encoding: "utf8",
-    stdio: options.quiet ? "pipe" : "inherit",
-    timeout: 120_000,
-  });
-  if (result.error) throw result.error;
-  return result;
-}
-
-function ensureOfficialSmsPlugin() {
-  // OpenClaw rejects world-writable plugin artifacts. Docker may inherit a
-  // permissive umask; use normal package permissions for native installation.
-  const previousUmask = process.umask(0o022);
-  try {
-    const pathsResult = runOpenClaw(["config", "get", "plugins.load.paths", "--json"], { quiet: true });
-    if (pathsResult.status === 0) {
-      const paths = JSON.parse(pathsResult.stdout);
-      if (Array.isArray(paths) && paths.includes("/usr/local/lib/neural-labs/node_modules/@openclaw/sms")) {
-        const cleaned = paths.filter((entry) => entry !== "/usr/local/lib/neural-labs/node_modules/@openclaw/sms");
-        const result = runOpenClaw(["config", "set", "plugins.load.paths", JSON.stringify(cleaned)], { quiet: true });
-        if (result.status !== 0) throw new Error("Could not retire the legacy SMS plugin load path");
-      }
-    }
-    const inspected = runOpenClaw(["plugins", "inspect", "sms", "--json"], { quiet: true });
-    if (inspected.status === 0 && isOfficialSmsInstallation(JSON.parse(inspected.stdout))) return;
-    const installed = runOpenClaw(["plugins", "install", `@openclaw/sms@${openclawRelease.version}`, "--pin", "--force", "--accept-capabilities"], { quiet: true });
-    if (installed.status !== 0) throw new Error("Official SMS plugin installation failed");
-  } finally { process.umask(previousUmask); }
-}
-
-function personalSmsAgentId(userId) {
-  return `nl-${String(userId).toLowerCase().replace(/[^a-z0-9]/gu, "")}`.slice(0, 63);
-}
-
-async function fetchTwilioConfig() {
-  try {
-    const response = await fetch(twilioConfigUrl, {
-      headers: { Authorization: `Bearer ${workspaceControlToken}`, Accept: "application/json" },
-      signal: AbortSignal.timeout(5_000),
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return await response.json();
-  } catch (error) {
-    console.warn("Twilio channel configuration is unavailable; SMS remains disabled", error instanceof Error ? error.message : error);
-    return { enabled: false, revision: 0, users: [] };
-  }
-}
-
-function existingNonSmsBindings() {
-  const result = runOpenClaw(["config", "get", "bindings", "--json"], { quiet: true });
-  if (result.status !== 0 || !result.stdout?.trim()) return [];
-  try {
-    const bindings = JSON.parse(result.stdout);
-    return Array.isArray(bindings)
-      ? bindings.filter((binding) => binding?.match?.channel !== "sms")
-      : [];
-  } catch { return []; }
-}
-
-function twilioOperations(config) {
-  const users = Array.isArray(config?.users) ? config.users : [];
-  const enabled = config?.enabled === true && typeof config?.authToken === "string";
-  return [
-    { path: "plugins.entries.sms.enabled", value: enabled },
-    {
-      path: "channels.sms",
-      value: enabled ? {
-        enabled: true,
-        configWrites: false,
-        accountSid: config.accountSid,
-        authToken: { source: "env", provider: "default", id: "NEURAL_LABS_TWILIO_AUTH_TOKEN" },
-        fromNumber: config.fromNumber,
-        publicWebhookUrl: config.webhookUrl,
-        webhookPath: "/webhooks/twilio/sms",
-        dangerouslyDisableSignatureValidation: false,
-        dmPolicy: "allowlist",
-        allowFrom: users.map((user) => user.phoneNumber),
-      } : { enabled: false, configWrites: false, dmPolicy: "disabled", allowFrom: [] },
-    },
-    {
-      path: "bindings",
-      value: [
-        ...existingNonSmsBindings(),
-        ...(enabled ? users.map((user) => ({
-          agentId: personalSmsAgentId(user.userId),
-          match: { channel: "sms", accountId: "default", peer: { kind: "direct", id: user.phoneNumber } },
-        })) : []),
-      ],
-    },
-  ];
-}
-
-function configureGateway(twilioConfig) {
-  // Public traffic continues to use trusted-proxy auth. A random password,
-  // regenerated on every container start, is passed only to the Gateway child
-  // and this process's loopback role-management client. It is not persisted in
-  // config or exposed to a browser, shell, or agent-run child process.
-  runOpenClaw(["config", "unset", "gateway.auth.token"], { quiet: true });
-  runOpenClaw(["config", "unset", "gateway.auth.password"], { quiet: true });
-  runOpenClaw(["config", "unset", "gateway.controlUi.basePath"], { quiet: true });
-
-  const pluginPathsResult = runOpenClaw(["config", "get", "plugins.load.paths", "--json"], { quiet: true });
-  const pluginPaths = pluginPathsResult.status === 0 ? JSON.parse(pluginPathsResult.stdout) : [];
-  const operations = [
-    ...gatewayIsolationOperations(),
-    { path: "gateway.mode", value: "local" },
-    { path: "update.auto.enabled", value: false },
-    // Neural Labs owns personal and Team skill publication. Do not let the
-    // upstream Workshop create weekly per-agent maintenance jobs or rewrite
-    // agent-owned skill collections in the background.
-    { path: "skills.workshop.autonomous.mode", value: "off" },
-    { path: "gateway.bind", value: "lan" },
-    { path: "gateway.port", value: gatewayPort },
-    { path: "gateway.publicOrigin", value: publicOrigin },
-    { path: "gateway.trustedProxies", value: [trustedProxy] },
-    { path: "gateway.allowRealIpFallback", value: false },
-    { path: "gateway.auth.mode", value: "trusted-proxy" },
-    { path: "gateway.auth.trustedProxy.userHeader", value: "x-forwarded-user" },
-    {
-      path: "gateway.auth.trustedProxy.requiredHeaders",
-      value: ["x-forwarded-proto", "x-forwarded-host"],
-    },
-    { path: "gateway.auth.trustedProxy.allowUsers", value: [] },
-    { path: "gateway.auth.trustedProxy.allowLoopback", value: false },
-    { path: "gateway.auth.trustedProxy.deviceAutoApprove.enabled", value: true },
-    {
-      path: "gateway.auth.trustedProxy.deviceAutoApprove.scopes",
-      value: ["operator.read", "operator.write", "operator.approvals", "operator.questions"],
-    },
-    {
-      // This service identity is asserted only by the separately admin-gated
-      // Automations proxy route. The grant is connection-only and never lands
-      // in a browser device's persistent pairing record.
-      path: "gateway.auth.identityScopes",
-      value: {
-        "neural-labs-automations-admin": ["operator.read", "operator.admin"],
-      },
-    },
-    { path: "gateway.controlUi.enabled", value: false },
-    { path: "plugins.entries.codex.enabled", value: true },
-    { path: "plugins.entries.codex.config.appServer.command", value: "/usr/local/lib/neural-labs/codex-app-server/node_modules/.bin/codex" },
-    { path: "plugins.load.paths", value: [...new Set([...(Array.isArray(pluginPaths) ? pluginPaths : []), "/usr/local/lib/neural-labs/claude-plugin",
-      ...(process.env.NEURAL_LABS_AUTH_MODE === "alshival" ? ["/usr/local/lib/neural-labs/alshival-plugin"] : [])])] },
-    ...(process.env.NEURAL_LABS_AUTH_MODE === "alshival" ? [{ path: "plugins.entries.neural-labs-alshival.enabled", value: true }] : []),
-    { path: "plugins.entries.neural-labs-claude.enabled", value: true },
-    ...twilioOperations(twilioConfig),
-    ...browserConfigurationOperations(),
-    {
-      path: "mcp.servers.neural-labs-team",
-      value: {
-        transport: "streamable-http",
-        url: "http://control-plane:4174/internal/team-mcp",
-        headers: { authorization: "Bearer ${NEURAL_LABS_TEAM_CAPABILITY}" },
-      },
-    },
-    {
-      path: "mcp.servers.neural-labs-tools",
-      value: {
-        transport: "streamable-http",
-        url: "http://127.0.0.1:" + String(mcpPort) + "/mcp",
-      },
-    },
-    { path: "gateway.controlUi.allowedOrigins", value: [publicOrigin] },
-    { path: "gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback", value: false },
-    { path: "gateway.terminal.enabled", value: false },
-    { path: "gateway.roles.default", value: "unlinked" },
-    {
-      path: "gateway.roles.definitions.unlinked",
-      value: {
-        sessions: { others: "none" },
-        agents: [],
-        scopes: ["operator.read", "operator.write", "operator.approvals", "operator.questions", "operator.admin"],
-      },
-    },
-    {
-      path: "gateway.roles.definitions.maintainer",
-      value: {
-        // Private-by-default: collaboration is granted per Team Chat instead
-        // of exposing every creator's agent transcript to every developer.
-        sessions: { others: "none" },
-        agents: ["main"],
-        // A role is a ceiling, not a grant. Keeping admin in the ceiling lets
-        // the separately admin-gated service identity retain its explicit
-        // identityScope while ordinary Alshival connections remain capped below.
-        scopes: ["operator.read", "operator.write", "operator.approvals", "operator.questions", "operator.admin"],
-      },
-    },
-  ];
-  const result = runOpenClaw(["config", "set", "--batch-json", JSON.stringify(operations)]);
-  if (result.status !== 0) throw new Error(`OpenClaw configuration failed with exit code ${result.status}`);
-
-  const identityResult = runOpenClaw(["agents", "set-identity", "--agent", "main", "--name", "Alshival"]);
-  if (identityResult.status !== 0) {
-    throw new Error(`OpenClaw agent identity configuration failed with exit code ${identityResult.status}`);
-  }
-}
-
-let providerStatus = {
-  checking: true,
-  authenticated: false,
-  modelReady: false,
-  credentialSource: "unconfigured",
-};
-let providerStatusRefresh;
-
-async function refreshProviderStatus() {
-  if (providerStatusRefresh) return providerStatusRefresh;
-
-  providerStatusRefresh = (async () => {
-    const [authentication, models] = await Promise.all([
-      gatewayAdminRequest("models.authStatus", { agentId: "main" }),
-      gatewayAdminRequest("models.list", { agentId: "main", provider: "openai", preparedOnly: true }),
-    ]);
-    providerStatus = backgroundGatewayStatus(authentication, models);
-  })().catch(() => {
-    // An unavailable check is not evidence that saved credentials disappeared.
-    providerStatus = { ...providerStatus, checking: true };
-  })().finally(() => {
-    providerStatusRefresh = undefined;
-  });
-
-  return providerStatusRefresh;
-}
-
-async function refreshProviderStatusAfterLogin() {
-  if (providerStatusRefresh) await providerStatusRefresh;
-  providerStatus = { authenticated: false, modelReady: false, credentialSource: "unconfigured" };
-  // Bind the background agent to the credential created by this login, even
-  // when an expired historical profile still exists in its native store.
-  await execFileAsync("openclaw", ["models", "auth", "order", "set", "--agent", "main", "--provider", "openai", "openai:neural-labs-background"], { env: agentEnvironment(process.env), timeout: providerStatusCommandTimeoutMs });
-  await refreshProviderStatus();
-}
-
-function providerAuthenticated() {
-  return providerStatus.authenticated;
-}
-
-function openclawModelReady() {
-  return providerStatus.modelReady;
-}
-
-async function gatewayReady() {
-  try {
-    const response = await fetch(`http://127.0.0.1:${gatewayPort}/healthz`, {
-      signal: AbortSignal.timeout(1500),
-    });
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
-
-async function codeServerReady() {
-  try {
-    const response = await fetch(`${codeServerOrigin}/`, {
-      signal: AbortSignal.timeout(1500),
-    });
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
-
-const unavailableMcpStatus = () => ({
-  ready: false,
-  mode: "workspace-local",
-  endpoint: "http://127.0.0.1:" + String(mcpPort) + "/mcp",
-  transport: "streamable-http",
-  agentServerName: "neural-labs-tools",
-  agentScope: "shared-workspace",
-  publicAccess: false,
-  providers: {
-    googlePlaces: false,
-    googleGeocoding: false,
-    klipy: false,
-    pexels: false,
-  },
-  tools: [],
+const resolveActor = async actorId => (await control("/internal/terminal-actor", { actorId })).actor;
+const terminals = new WorkspaceTerminalManager({ workspaceRoot,
+  turnCredentialProvider: async actor => (await control("/internal/turn-credentials", { actorId: actor.id })).iceServers || [],
+  teamChannelAuthorizer: (actor, channelId) => control("/internal/team-terminal/access", { actorId: actor.id, channelId }),
 });
-
-async function mcpStatus() {
-  try {
-    const response = await fetch(
-      "http://127.0.0.1:" + String(mcpPort) + "/healthz",
-      { signal: AbortSignal.timeout(1500) },
-    );
-    if (!response.ok) return unavailableMcpStatus();
-    const status = await response.json();
-    return {
-      ...unavailableMcpStatus(),
-      ready: status?.status === "ok",
-      providerConfiguration: status?.providerConfiguration,
-      providers: status?.providers ?? unavailableMcpStatus().providers,
-      tools: Array.isArray(status?.tools) ? status.tools : [],
-    };
-  } catch {
-    return unavailableMcpStatus();
-  }
+const providers = new ProviderRuntime(loadProviderConfig(process.env), new URL("/internal/plugins/providers/config", controlOrigin).href, token);
+await providers.start();
+const tools = new NativeTools({ origin: `http://127.0.0.1:${toolsPort}`, createApplication: createProviderApplication, configuration: () => providers.snapshot() });
+const skills = new NativeSkills({ root: "/run/neural-labs/skills", manager: createSkillsManager({
+  personalRoot: path.join(path.dirname(workspaceRoot), ".agents", "skills"), teamRoot: path.join(workspaceRoot, "skills"),
+  libraryRoots: ["/usr/local/share/neural-labs/prospect-skills", path.join(root, "installed-skills")],
+}) });
+const runtime = new NativeRuntime({ stateRoot: root, workspaceRoot, authorize: controlPlaneAuthority({ origin: controlOrigin, token }),
+  tools, skills, terminals, spawnPty: pty.spawn, resolveActor });
+runtime.state.recoverInterrupted();
+const interactive = new NativeInteractive({ runtime, authorize: interactiveAuthority({ origin: controlOrigin, token }), resolveActor, spawnPty: pty.spawn });
+terminals.prepareProcess = input => interactive.prepareTerminal(input);
+const editors = new NativeEditors({ interactive });
+let legacyState = false;
+for (const filename of [path.join(path.dirname(workspaceRoot), ".openclaw"),
+  path.join(path.dirname(workspaceRoot), ".config", "openclaw"), "/migration/openclaw/state", "/migration/openclaw/auth"]) {
+  try { await access(filename); legacyState = true; }
+  catch (error) { if (error.code !== "ENOENT") throw error; }
 }
-
-await seedShellProfiles();
-await installTerminalGuidance(workspaceRoot);
-ensureOfficialSmsPlugin();
-let twilioRuntimeConfig = await fetchTwilioConfig();
-configureGateway(twilioRuntimeConfig);
-await migrateNativeState({ root: updateStateRoot, version: openclawRelease.version, run: runOpenClaw });
-await prepareProbation({ probation: updateProbation, run: runOpenClaw, root: updateStateRoot });
-// Fail before starting the text Gateway if a legacy audio-key fallback cannot
-// be retired. The voice service retains its server-only API environment.
-retireWorkspaceApiKey();
-// Provider discovery must never delay the Gateway listener.
-// The first check is deferred until the Gateway has started.
-const providerStatusTimer = setInterval(() => {
-  if (!updatePaused() && (providerStatus.checking || providerStatus.credentialSource !== "unconfigured")) { backgroundOperations++; void refreshProviderStatus().finally(() => backgroundOperations--); }
-}, providerStatusRefreshMs);
-providerStatusTimer.unref();
-
-const providerAuth = createProviderAuthController({
-  providerAuthenticated,
-  modelReady: openclawModelReady,
-  refreshStatus: refreshProviderStatusAfterLogin,
-  providerChecking: () => providerStatus.checking === true,
-  allowReconnect: true,
+initializeNativeInstallation(runtime.state, { legacyState });
+const preservationReady = () => nativePreservationReady(runtime.state, { legacyState });
+const maintenance = new NativeMaintenance({ runtime, probation, readiness: async () => preservationReady() });
+if (probation || !preservationReady()) await maintenance.pause();
+else if (!maintenance.gated) runtime.turns.gated = false;
+const triggers = new NativeTriggerLoop({ state: runtime.state, scheduler: runtime.scheduler, root: "/run/neural-labs/scheduler" });
+runtime.triggers = triggers;
+await triggers.start();
+const mcpServer = createServer((request, response) => { void tools.handle(request, response).catch(() => response.destroy()); });
+await new Promise((resolve, reject) => { mcpServer.once("error", reject); mcpServer.listen(toolsPort, "127.0.0.1", resolve); });
+const mcpStatus = async () => ({ ready: mcpServer.listening, mode: "workspace-local", endpoint: `http://127.0.0.1:${toolsPort}/mcp`,
+  transport: "streamable-http", agentServerName: "neural-labs", agentScope: "authenticated-execution", publicAccess: false,
+  providerConfiguration: providers.status(), providers: { googlePlaces: providers.status()["google-maps"].available,
+    googleGeocoding: providers.status()["google-maps"].available, klipy: providers.status().klipy.available, pexels: providers.status().pexels.available }, tools: [] });
+const server = createWorkspaceHttpServer({ desktopRoot: "/usr/local/share/neural-labs/desktop", workspaceRoot, publicOrigin,
+  nativeRuntime: runtime, requireSignedRequests: true, nativeEditors: editors, updateMaintenance: maintenance,
+  skillLibraryRoots: ["/usr/local/share/neural-labs/prospect-skills", path.join(root, "installed-skills")],
+  runtimeReady: async () => !stopping && triggers.status().ready, mcpStatus, apiProviderRuntime: providers, terminalManager: terminals,
+  terminalActorResolver: resolveActor, workspaceControlToken: token, codexVersion: release.codex, claudeVersion: release.claude,
+  voiceService: createVoiceService({ safetySecret: token }),
+  maxUploadBytes: Number(process.env.NEURAL_LABS_WORKSPACE_MAX_UPLOAD_BYTES || 2 * 1024 ** 3),
 });
-
-const gateway = spawn(
-  "openclaw",
-  ["gateway", "run", "--bind", "lan", "--port", String(gatewayPort)],
-  {
-    stdio: "inherit",
-    env: {
-      ...agentEnvironment(process.env),
-      ...(twilioRuntimeConfig?.enabled && twilioRuntimeConfig?.authToken
-        ? { NEURAL_LABS_TWILIO_AUTH_TOKEN: twilioRuntimeConfig.authToken }
-        : {}),
-      OPENCLAW_GATEWAY_PASSWORD: internalGatewayPassword,
-      ...(updateProbation ? { OPENCLAW_SKIP_CRON: "1", OPENCLAW_SKIP_CHANNELS: "1", OPENCLAW_SKIP_PROVIDERS: "1", OPENCLAW_SKIP_GMAIL_WATCHER: "1" } : {}),
-    },
-  },
-);
-if (!updateProbation) {
-  const initialCheck = (attempt = 0) => {
-    const timer = setTimeout(async () => {
-      if (updatePaused()) return;
-      backgroundOperations++;
-      try { await refreshProviderStatus(); }
-      finally { backgroundOperations--; }
-      if (providerStatus.checking && attempt < 3) initialCheck(attempt + 1);
-    }, Math.min(30_000, 1_000 * 4 ** attempt));
-    timer.unref();
-  };
-  initialCheck();
-}
-
-const gatewayAdminRequest = createGatewayAdminRequest({
-  url: `ws://127.0.0.1:${gatewayPort}`,
-  password: internalGatewayPassword,
-});
-const personalOpenAI = new PersonalOpenAIManager({
-  workspaceRoot,
-  stateRoot: process.env.OPENCLAW_STATE_DIR ?? "/home/node/.openclaw",
-  gatewayRequest: gatewayAdminRequest,
-});
-const teamOpenAI = new TeamOpenAI(personalOpenAI);
-const claudeAccounts = new ClaudeAccounts({ manager: personalOpenAI, team: teamOpenAI });
-const modelAccounts = new ModelAccounts({ openai: personalOpenAI, claude: claudeAccounts, team: teamOpenAI });
-await verifyCodexRuntime(process.env.NEURAL_LABS_CODEX_VERSION);
-const terminalCodex = startTerminalCodexUpdates({ baseVersion: openclawRelease.codexVersion,
-  enabled: process.env.NEURAL_LABS_CODEX_AUTO_UPDATE === "true", probation: updateProbation,
-  policy: async () => {
-    const response = await fetch("http://control-plane:4174/internal/updates/workspace", {
-      headers: { Authorization: `Bearer ${workspaceControlToken}` }, signal: AbortSignal.timeout(5000),
-    });
-    if (!response.ok) throw new Error("Update policy unavailable");
-    return response.json();
-  },
-  report: async (status) => {
-    const response = await fetch("http://control-plane:4174/internal/updates/codex", {
-      method: "POST", headers: { Authorization: `Bearer ${workspaceControlToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify(status), signal: AbortSignal.timeout(5000),
-    });
-    if (!response.ok) throw new Error("Update status unavailable");
-  },
-});
-updateMaintenance = new UpdateMaintenance({ request: gatewayAdminRequest, root: updateStateRoot,
-  probation: updateProbation, configPath: process.env.OPENCLAW_CONFIG_PATH, backgroundBusy: () => backgroundOperations > 0 || terminalCodex.busy() });
-const modelCatalog = new ModelCatalog({ gatewayRequest: gatewayAdminRequest, personalOpenAI, teamOpenAI, claudeAccounts, runtime: { name: "OpenClaw", version: openclawRuntime.version } });
-modelAccounts.catalog = modelCatalog;
-const modelPolicies = new ModelPolicies({ personalOpenAI, catalog: modelCatalog, teamOpenAI, claudeAccounts });
-const workspaceMcp = spawn(
-  process.execPath,
-  ["/usr/local/lib/neural-labs/mcp/dist/local.js"],
-  { stdio: "inherit", env: agentEnvironment(process.env) },
-);
-const codeServer = spawn(
-  "code-server",
-  [
-    "--bind-addr", `127.0.0.1:${codeServerPort}`,
-    "--auth", "none",
-    "--disable-telemetry",
-    "--disable-update-check",
-    "--user-data-dir", "/home/node/.local/share/code-server",
-    "--extensions-dir", "/home/node/.local/share/code-server/extensions",
-    "--app-name", "VS Code · Neural Labs",
-    workspaceRoot,
-  ],
-  { stdio: "inherit", env: agentEnvironment(process.env) },
-);
-
-const apiProviderRuntime = new ProviderRuntime(loadProviderConfig(process.env), process.env.NEURAL_LABS_PROVIDER_CONFIG_URL ?? "http://control-plane:4174/internal/plugins/providers/config", workspaceControlToken);
-await apiProviderRuntime.start();
-const workspaceServer = createWorkspaceHttpServer({
-  desktopRoot,
-  updateMaintenance,
-  workspaceRoot,
-  publicOrigin,
-  gatewayReady,
-  gatewayMediaOrigin: `http://127.0.0.1:${gatewayPort}`,
-  codeServerOrigin,
-  codeServerReady,
-  mcpStatus,
-  apiProviderRuntime,
-  providerAuthenticated,
-  credentialSource: () => providerStatus.credentialSource,
-  openclawModelReady,
-  providerAuth,
-  personalOpenAI,
-  claudeAccounts, modelAccounts,
-  gatewayAdminRequest,
-  modelCatalog,
-  modelPolicies,
-  teamOpenAI,
-  voiceService,
-  workspaceControlToken,
-  openclawVersion: openclawRuntime.version,
-  codexVersion: terminalCodex.version,
-  maxUploadBytes,
-  personalSkillsRoot,
-  builderDraftsRoot,
-  turnCredentialProvider: async (actor) => {
-    const response = await fetch(turnCredentialUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${workspaceControlToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ actorId: actor.id }),
-    });
-    if (!response.ok) throw new Error(`TURN credential service returned HTTP ${response.status}`);
-    const result = await response.json();
-    return Array.isArray(result?.iceServers) ? result.iceServers : [];
-  },
-  teamChannelAuthorizer: async (actor, channelId) => {
-    const response = await fetch(teamChannelAccessUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${workspaceControlToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ actorId: actor.id, channelId }),
-      signal: AbortSignal.timeout(3_000),
-    });
-    if (!response.ok) throw new Error(`Team Chat access service returned HTTP ${response.status}`);
-    return response.json();
-  },
-  terminalActorResolver: async (actorId) => {
-    const response = await fetch("http://control-plane:4174/internal/terminal-actor", {
-      method: "POST", headers: { Authorization: `Bearer ${workspaceControlToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ actorId }), signal: AbortSignal.timeout(5000),
-    });
-    if (!response.ok) return null;
-    return (await response.json()).actor;
-  },
-  runTeamAgent: async (input) => {
-    const agentId = input.modelSettings ? await modelAccounts.prepareTeamRun(input.modelSettings.model) : await modelAccounts.prepareRun(input.userId);
-    return runTeamAgent({ ...input, agentId, workspaceRoot });
-  },
-});
-
-workspaceServer.listen(statusPort, "0.0.0.0", () => {
-  console.log(`Neural Labs desktop and status listening on 0.0.0.0:${statusPort}`);
-});
-
-let personalReconcileBusy = false;
-async function reconcilePersonalAccess() {
-  if (updatePaused() || personalReconcileBusy) return;
-  personalReconcileBusy = true;
-  backgroundOperations++;
-  try {
-    for (const user of Array.isArray(twilioRuntimeConfig?.users) ? twilioRuntimeConfig.users : []) {
-      await personalOpenAI.ensureProvisioned(user.userId);
-    }
-    await personalOpenAI.restrictKnownProfiles();
-    await personalOpenAI.assignRole("neural-labs-automations-admin", "maintainer").catch(() => undefined);
-    await personalOpenAI.purgeLegacyNeuraSessions();
-  } catch (error) {
-    console.warn("Personal Alshival access reconciliation is waiting for the Gateway", error instanceof Error ? error.message : error);
-  } finally { personalReconcileBusy = false; backgroundOperations--; }
-}
-setTimeout(() => void reconcilePersonalAccess(), 2_000).unref();
-const personalAccessTimer = setInterval(() => void reconcilePersonalAccess(), 30_000);
-personalAccessTimer.unref();
-
-const twilioConfigTimer = setInterval(() => {
-  if (updatePaused()) return;
-  backgroundOperations++;
-  void (async () => {
-    const next = await fetchTwilioConfig();
-    const currentFingerprint = JSON.stringify({ revision: twilioRuntimeConfig?.revision, users: twilioRuntimeConfig?.users?.map((user) => [user.userId, user.phoneNumber]) });
-    const nextFingerprint = JSON.stringify({ revision: next?.revision, users: next?.users?.map((user) => [user.userId, user.phoneNumber]) });
-    if (currentFingerprint === nextFingerprint) return;
-    const result = runOpenClaw(["config", "set", "--batch-json", JSON.stringify(twilioOperations(next))]);
-    if (result.status === 0) {
-      twilioRuntimeConfig = next;
-      // Gateway environment secrets are immutable. Let the container's
-      // restart policy perform a clean, bounded restart after any connection
-      // or verified-member allowlist change.
-      gateway.kill("SIGTERM");
-    }
-    else console.warn("OpenClaw rejected an updated Twilio channel configuration");
-  })().catch(() => console.warn("Twilio reconciliation unavailable")).finally(() => backgroundOperations--);
-}, 30_000);
-twilioConfigTimer.unref();
-
 let stopping = false;
-function stop(signal) {
-  if (stopping) return;
-  stopping = true;
-  terminalCodex.close();
-  clearInterval(providerStatusTimer);
-  clearInterval(personalAccessTimer);
-  clearInterval(twilioConfigTimer);
-  providerAuth.cancel();
-  teamOpenAI.cancel();
-  workspaceServer.close();
-  gateway.kill(signal);
-  apiProviderRuntime.close();
-  workspaceMcp.kill(signal);
-  codeServer.kill(signal);
-  setTimeout(() => gateway.kill("SIGKILL"), 10_000).unref();
-  setTimeout(() => workspaceMcp.kill("SIGKILL"), 10_000).unref();
-  setTimeout(() => codeServer.kill("SIGKILL"), 10_000).unref();
+await new Promise((resolve, reject) => { server.once("error", reject); server.listen(statusPort, "0.0.0.0", resolve); });
+console.log(`Neural Labs native runtime listening on ${statusPort}`);
+async function stop() {
+  if (stopping) return; stopping = true;
+  runtime.turns.gated = true; runtime.scheduler.closed = true;
+  server.close(); providers.close();
+  await triggers.close(); await editors.close(); await runtime.close(); await tools.close();
+  mcpServer.close();
 }
-
-process.once("SIGINT", () => stop("SIGINT"));
-process.once("SIGTERM", () => stop("SIGTERM"));
-
-gateway.once("error", (error) => {
-  console.error("OpenClaw Gateway failed to start", error);
-  process.exitCode = 1;
-  codeServer.kill("SIGTERM");
-  workspaceMcp.kill("SIGTERM");
-  workspaceServer.close();
-});
-
-workspaceMcp.once("error", (error) => {
-  console.error("Workspace MCP failed to start", error);
-  process.exitCode = 1;
-  gateway.kill("SIGTERM");
-  codeServer.kill("SIGTERM");
-  workspaceServer.close();
-});
-
-codeServer.once("error", (error) => {
-  console.error("VS Code failed to start", error);
-  process.exitCode = 1;
-  gateway.kill("SIGTERM");
-  workspaceMcp.kill("SIGTERM");
-  workspaceServer.close();
-});
-
-workspaceMcp.once("exit", (code, signal) => {
-  if (stopping) return;
-  console.error(
-    "Workspace MCP exited unexpectedly" +
-      (signal ? " after " + signal : " with code " + String(code)),
-  );
-  gateway.kill("SIGTERM");
-  codeServer.kill("SIGTERM");
-  workspaceServer.close(() => process.exit(code ?? 1));
-});
-
-codeServer.once("exit", (code, signal) => {
-  if (stopping) return;
-  console.error(
-    "VS Code exited unexpectedly" +
-      (signal ? " after " + signal : " with code " + String(code)),
-  );
-  gateway.kill("SIGTERM");
-  workspaceMcp.kill("SIGTERM");
-  workspaceServer.close(() => process.exit(code ?? 1));
-});
-
-gateway.once("exit", (code, signal) => {
-  if (!stopping) {
-    workspaceMcp.kill("SIGTERM");
-    codeServer.kill("SIGTERM");
-  }
-  workspaceServer.close(() => {
-    if (!stopping && signal) console.error(`OpenClaw Gateway exited after ${signal}`);
-    process.exit(code ?? (stopping ? 0 : 1));
-  });
-});
+process.once("SIGINT", () => void stop());
+process.once("SIGTERM", () => void stop());

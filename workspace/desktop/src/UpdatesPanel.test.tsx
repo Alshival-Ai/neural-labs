@@ -2,8 +2,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { UpdatesPanel, nextWindow, type UpdateStatus } from "./UpdatesPanel";
 const initial: UpdateStatus = { revision: 1,
-  policy: { openclawAutomatic: false, codexAutomatic: true, days: [0], start: "03:00", end: "05:00", timezone: "America/Chicago" },
-  maintenance: false, installed: { openclawVersion: "2026.9.5", codexVersion: "0.155.1" }, available: null, codex: null,
+  policy: { runtimeAutomatic: false, days: [0], start: "03:00", end: "05:00", timezone: "America/Chicago" },
+  maintenance: false, installed: { runtimeVersion: "1.0.0", codexVersion: "0.155.1", claudeVersion: "2.1.226" }, available: null,
   worker: { connected: false, lastSeen: null, lastCheck: null, error: null }, jobs: [] };
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 describe("admin update settings", () => {
@@ -13,18 +13,18 @@ describe("admin update settings", () => {
     render(<UpdatesPanel csrfToken="synthetic-csrf" />);
     expect(await screen.findByText("Offline or not installed")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Check now" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("checkbox", { name: "Automatically install reviewed OpenClaw releases" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Automatically install reviewed Neural Labs releases" }));
     fireEvent.click(screen.getByRole("button", { name: "Save update settings" }));
     await waitFor(() => expect(fetcher.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(true));
     const init = fetcher.mock.calls.find(([, init]) => init?.method === "PUT")![1]!;
-    expect(JSON.parse(String(init.body))).toEqual({ revision: 1, policy: { ...initial.policy, openclawAutomatic: true } });
+    expect(JSON.parse(String(init.body))).toEqual({ revision: 1, policy: { ...initial.policy, runtimeAutomatic: true } });
     expect(new Headers(init.headers).get("X-CSRF-Token")).toBe("synthetic-csrf");
   });
   it("keeps unsaved edits after a revision conflict", async () => {
     vi.stubGlobal("fetch", vi.fn(async (_input: string | URL | Request, init?: RequestInit) => init?.method === "PUT"
       ? Response.json({ error: { message: "Settings changed in another window." } }, { status: 409 }) : Response.json(initial)));
     render(<UpdatesPanel csrfToken="test" />);
-    const checkbox = await screen.findByRole("checkbox", { name: "Automatically install reviewed OpenClaw releases" });
+    const checkbox = await screen.findByRole("checkbox", { name: "Automatically install reviewed Neural Labs releases" });
     fireEvent.click(checkbox); fireEvent.click(screen.getByRole("button", { name: "Save update settings" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Settings changed"); expect(checkbox).toBeChecked();
   });

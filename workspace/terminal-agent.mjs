@@ -22,7 +22,9 @@ export class TerminalAgentBridge {
 
   async mint(actor, { conversationId, channelId, desktopId } = {}) {
     if (typeof conversationId !== "string" || !conversationId || conversationId.length > 512) fail(422, "invalid_context", "A conversation is required");
+    const sessionHash = actor.sessionHash;
     actor = await this.resolveActor(actor.id);
+    if (actor && sessionHash) actor = { ...actor, sessionHash };
     if (!actor) fail(403, "terminal_access_revoked", "Workspace access was revoked");
     if (channelId && !await this.manager.authorizeTeamChannel(actor, channelId)) fail(404, "channel_not_found", "Team Chat channel not found");
     this.cleanup();
@@ -76,7 +78,7 @@ export class TerminalAgentBridge {
     if (!grant || grant.expiresAt <= this.now()) fail(403, "terminal_context_expired", "Terminal context expired; send a new message from Alshival");
     const actor = await this.resolveActor(grant.actor.id);
     if (!actor) fail(403, "terminal_access_revoked", "Workspace access was revoked");
-    grant.actor = actor;
+    grant.actor = { ...actor, ...(grant.actor.sessionHash ? { sessionHash: grant.actor.sessionHash } : {}) };
     if (grant.channelId && !await this.manager.authorizeTeamChannel(actor, grant.channelId)) fail(403, "terminal_access_revoked", "Channel access was revoked");
     return grant;
   }

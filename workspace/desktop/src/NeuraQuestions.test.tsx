@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NeuraQuestions } from "./NeuraQuestions";
-import { normalizeNeuraQuestion, type NeuraGateway } from "./openclaw";
+import { normalizeNeuraQuestion, type NativeClient } from "./nativeClient";
 import type { GatewayEvent } from "./types";
 
 afterEach(cleanup);
@@ -18,7 +18,7 @@ describe("Alshival planning questions", () => {
       resolveQuestion: vi.fn().mockRejectedValueOnce(new Error("Disconnected")).mockResolvedValue(undefined),
     };
     const notify = vi.fn();
-    render(<NeuraQuestions gateway={gateway as unknown as NeuraGateway} sessionKey="private-1" notify={notify} />);
+    render(<NeuraQuestions gateway={gateway as unknown as NativeClient} sessionKey="private-1" notify={notify} />);
     const submit = await screen.findByRole("button", { name: "Submit answers" });
     expect(submit).toBeDisabled();
     fireEvent.click(screen.getByRole("radio", { name: /Small change/ }));

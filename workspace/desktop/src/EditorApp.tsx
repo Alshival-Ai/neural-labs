@@ -143,7 +143,7 @@ Make the workspace feel **clear, fast, and alive**.
 
 ## Product intent
 
-Atlas is a shared team workspace built on OpenClaw. It should make it natural to:
+Atlas is a shared team workspace built on Neural Labs. It should make it natural to:
 
 - automate repeatable workflows;
 - share useful skills and context;

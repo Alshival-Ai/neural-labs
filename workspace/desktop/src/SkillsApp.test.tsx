@@ -15,7 +15,7 @@ describe("Skills app", () => {
     expect(instructions.getByText("SKILL.md")).toBeInTheDocument();
   });
 
-  it("organizes skills into personal, team, and OpenClaw libraries", () => {
+  it("organizes skills into personal, team, and native libraries", () => {
     render(<SkillsApp />);
 
     expect(screen.getByRole("complementary", { name: "My skill library" })).toHaveTextContent("Customer handoff");
@@ -24,8 +24,8 @@ describe("Skills app", () => {
     expect(team.getByRole("button", { name: "Release notes" })).toBeInTheDocument();
     expect(team.queryByRole("button", { name: "Customer handoff" })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /^OpenClaw/ }));
-    expect(screen.getByText("Installed OpenClaw skills")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Library/ }));
+    expect(screen.getByText("Installed skill packages")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^GitHub/ })).toBeInTheDocument();
   });
 
@@ -63,12 +63,12 @@ describe("Skills app", () => {
     expect(onShare).toHaveBeenCalledWith(expect.objectContaining({ key: "customer-handoff" }), "team");
   });
 
-  it("searches OpenClaw and keeps third-party installation admin-only", async () => {
+  it("searches the portable library and keeps third-party installation admin-only", async () => {
     const onDiscoverSearch = vi.fn();
-    render(<SkillsApp onDiscoverSearch={onDiscoverSearch} canInstallFromOpenClaw={false} />);
+    render(<SkillsApp onDiscoverSearch={onDiscoverSearch} canImportSkills={false} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /^OpenClaw/ }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Search OpenClaw skills" }), { target: { value: "data" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Library/ }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Search skill packages" }), { target: { value: "data" } });
     await waitFor(() => expect(onDiscoverSearch).toHaveBeenCalledWith("data"), { timeout: 700 });
     fireEvent.click(screen.getByRole("button", { name: "Data cleanup" }));
     expect(screen.getByRole("button", { name: "Admin install" })).toBeDisabled();

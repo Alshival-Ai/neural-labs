@@ -11,7 +11,7 @@ import {
 } from "y-protocols/awareness";
 import { WebSocketServer } from "ws";
 
-import { workspaceSkillActor } from "./skills-manager.mjs";
+import { safePackagePath, workspaceSkillActor } from "./skills-manager.mjs";
 
 export const BUILDER_SOCKET_PATH = "/workspace/builder/socket";
 export const BUILDER_SOCKET_PROTOCOL = "neural-labs-builder-v1";
@@ -80,16 +80,8 @@ function validDraftId(value) {
 
 function safeRelativePath(value, kind = "text") {
   if (typeof value !== "string") throw new BuilderError(400, "invalid_path", "A package path is required");
-  const normalized = value.replaceAll("\\", "/").replace(/^\/+/, "");
-  if (!normalized || normalized.length > 240 || path.posix.normalize(normalized) !== normalized || normalized.split("/").some((part) => part === ".." || part === "." || !part)) {
-    throw new BuilderError(400, "invalid_path", "Package paths must stay inside the skill folder");
-  }
-  if (FORBIDDEN_PATH.test(normalized)) throw new BuilderError(400, "unsafe_path", "Credential and private-state paths are not allowed in a skill package");
-  if (kind === "asset" && !normalized.startsWith("assets/")) throw new BuilderError(400, "invalid_asset_path", "Assets must be stored below assets/");
-  if (kind === "text" && normalized !== "SKILL.md" && normalized !== "agents/openai.yaml" && !/^(?:references|scripts)\//.test(normalized)) {
-    throw new BuilderError(400, "invalid_package_path", "Text files belong in SKILL.md, agents/, references/, or scripts/");
-  }
-  return normalized;
+  try { return safePackagePath(value); }
+  catch (error) { throw new BuilderError(error.status || 400, error.code || "invalid_path", error.message); }
 }
 
 function text(value, maximum = 500) {
@@ -192,6 +184,7 @@ function createDocument(kind, initial = {}) {
         if (!candidate || candidate.kind === "asset" || typeof candidate.path !== "string" || typeof candidate.content !== "string") continue;
         const filePath = safeRelativePath(candidate.path, "text");
         files.set(filePath, new Y.Text(candidate.content));
+        if (typeof candidate.executable === "boolean") doc.getMap("fileModes").set(filePath, candidate.executable);
       }
     }
     assets.set("version", 1);
@@ -275,7 +268,8 @@ function collectSkillPackage(room) {
     const contentBytes = Buffer.byteLength(content);
     if (contentBytes > maximum) throw new BuilderError(413, "file_too_large", `${filePath} is too large`);
     packageBytes += contentBytes;
-    files.push({ path: filePath, content, kind: "text" });
+    files.push({ path: filePath, content, kind: "text",
+      ...(typeof room.doc.getMap("fileModes").get(filePath) === "boolean" ? { executable: room.doc.getMap("fileModes").get(filePath) } : {}) });
   }
   if (packageBytes > MAX_PACKAGE_BYTES) throw new BuilderError(413, "package_too_large", "The draft package exceeds 100 MB");
   return files;
@@ -300,6 +294,7 @@ function collectAssetDescriptors(room) {
 }
 
 function validateSkill(room) {
+  if (room.manifest.pendingAssets?.length) throw new BuilderError(422, "incomplete_package", "Copy all supporting files before publishing this draft");
   const issues = [];
   const files = collectSkillPackage(room);
   const skill = files.find((file) => file.path === "SKILL.md");
@@ -458,6 +453,8 @@ export function createBuilderManager({ root, publishSkill }) {
       collaboratorUserIds: [],
       targetKey: text(input.targetKey, 64) || undefined,
       baseRevision: text(input.baseRevision, 128) || undefined,
+      pendingAssets: kind === "skill" && Array.isArray(input.initial?.files)
+        ? input.initial.files.filter(file => file.kind === "asset").map(file => safeRelativePath(file.path, "asset")) : [],
       createdAt: now,
       updatedAt: now,
     };
@@ -475,6 +472,7 @@ export function createBuilderManager({ root, publishSkill }) {
 
   async function duplicate(actor, id) {
     const source=await openRoom(validDraftId(id)); assertCanAccess(source.manifest,actor);
+    if (source.manifest.pendingAssets?.length) throw new BuilderError(422, "incomplete_package", "Finish copying supporting files before duplicating this draft");
     const fields={};for(const [key,value] of source.doc.getMap("fields")) fields[key]=yTextValue(value);
     const titles=new Set((await list(actor)).map(d=>d.title));const base=(fields.name||"Untitled").slice(0,65);let name=`${base} copy`,n=2;while(titles.has(name))name=`${base} copy ${n++}`;
     const created=await create(actor,{kind:source.manifest.kind,initial:{name}});
@@ -492,12 +490,13 @@ export function createBuilderManager({ root, publishSkill }) {
           if(key==='agents/openai.yaml')content=content.replace(/^(\s*display_name:\s*).*$/m,`$1${JSON.stringify(name)}`).replaceAll(`$${fields.slug}`,`$${slugForName(name)}`);
           targetFiles.set(key,new Y.Text(content));
         }
+        for(const [key,value] of source.doc.getMap("fileModes"))target.doc.getMap("fileModes").set(key,value);
         for(const [key,value] of source.doc.getMap("flags"))target.doc.getMap("flags").set(key,value);
       });
       for(const descriptor of collectAssetDescriptors(source)){
         const blob=path.join(source.directory,BLOBS_DIRECTORY,descriptor.hash);const info=await lstat(blob);
         if(!info.isFile()||info.isSymbolicLink()||info.size!==descriptor.size)throw new BuilderError(400,"invalid_asset","Draft asset is invalid");
-        await saveAsset(actor,created.id,{path:descriptor.path,data:(await readFile(blob)).toString('base64'),mimeType:descriptor.mimeType});
+        await saveAsset(actor,created.id,{path:descriptor.path,data:(await readFile(blob)).toString('base64'),mimeType:descriptor.mimeType,executable:descriptor.executable});
       }
       await persist(target);return publicManifest(target.manifest,target.doc,actor);
     }catch(error){await discard(actor,created.id);throw error;}
@@ -549,7 +548,8 @@ export function createBuilderManager({ root, publishSkill }) {
     const hash = createHash("sha256").update(data).digest("hex");
     const blobPath = path.join(room.directory, BLOBS_DIRECTORY, hash);
     if (!await exists(blobPath)) await writeFile(blobPath, data, { flag: "wx", mode: 0o640 }).catch((error) => { if (error?.code !== "EEXIST") throw error; });
-    room.doc.transact(() => room.doc.getMap("assets").set(assetPath, { hash, size: data.length, mimeType: text(input.mimeType, 160) || "application/octet-stream" }), "asset");
+    room.doc.transact(() => room.doc.getMap("assets").set(assetPath, { hash, size: data.length, mimeType: text(input.mimeType, 160) || "application/octet-stream", executable: input.executable === true }), "asset");
+    room.manifest.pendingAssets = (room.manifest.pendingAssets || []).filter(name => name !== assetPath);
     broadcast(room, { type: "asset", action: "saved", path: assetPath });
     await persist(room);
     return { path: assetPath, hash, size: data.length, mimeType: text(input.mimeType, 160) || "application/octet-stream" };
@@ -560,6 +560,7 @@ export function createBuilderManager({ root, publishSkill }) {
     assertCanAccess(room.manifest, actor);
     const assetPath = safeRelativePath(rawPath, "asset");
     room.doc.transact(() => room.doc.getMap("assets").delete(assetPath), "asset");
+    room.manifest.pendingAssets = (room.manifest.pendingAssets || []).filter(name => name !== assetPath);
     broadcast(room, { type: "asset", action: "removed", path: assetPath });
     await persist(room);
   }
@@ -595,7 +596,7 @@ export function createBuilderManager({ root, publishSkill }) {
       const blobPath = path.join(room.directory, BLOBS_DIRECTORY, descriptor.hash);
       const blobInfo = await lstat(blobPath).catch(() => undefined);
       if (!blobInfo?.isFile() || blobInfo.isSymbolicLink() || blobInfo.size !== descriptor.size) throw new BuilderError(400, "invalid_asset", `${descriptor.path} is missing or invalid`);
-      files.push({ path: descriptor.path, content: await readFile(blobPath), kind: "asset", mimeType: descriptor.mimeType });
+      files.push({ path: descriptor.path, content: await readFile(blobPath), kind: "asset", mimeType: descriptor.mimeType, executable: descriptor.executable === true });
     }
     const published = await publishSkill(actor, { fields, files }, room.manifest.targetKey);
     room.manifest.publishedAt = new Date().toISOString();

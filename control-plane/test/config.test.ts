@@ -56,8 +56,8 @@ describe("control-plane configuration", () => {
     expect(config.autoSetup).toBe(false);
     expect(config.setupDefaults.localAuthEnabled).toBe(true);
     expect(config.workspace).toMatchObject({
-      openclawVersion: "2026.8.2",
-      codexVersion: "0.152.0",
+      claudeVersion: "2.1.226",
+      codexVersion: "0.155.1",
     });
     expect(config.secureCookies).toBe(true);
   });

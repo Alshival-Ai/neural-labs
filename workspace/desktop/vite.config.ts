@@ -11,6 +11,8 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
+    // Bound test-worker memory on development hosts, including 8GB ARM64.
+    maxWorkers: 4,
     setupFiles: ["./src/test/setup.ts"],
   },
 });

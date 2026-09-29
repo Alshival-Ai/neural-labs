@@ -37,7 +37,9 @@ printf '%s\n' \
 compose_file="${repository_root}/deploy/compose/compose.yaml"
 nginx_file="${repository_root}/deploy/nginx/neural-labs.ai.conf"
 grep -q '^  workspace:$' "${compose_file}"
-grep -q 'NEURAL_LABS_BIND_ADDRESS.*WORKSPACE_PORT' "${compose_file}"
+if grep -q '18789\|OPENCLAW_IMAGE\|OPENCLAW_GATEWAY' "${compose_file}"; then
+  echo "native workspace must not expose or build a Gateway" >&2; exit 1
+fi
 grep -q 'NEURAL_LABS_BIND_ADDRESS.*WORKSPACE_DESKTOP_PORT' "${compose_file}"
 grep -q 'workspace-home:/home/node' "${compose_file}"
 grep -q 'NEURAL_LABS_WORKSPACE_CONTROL_TOKEN' "${compose_file}"
@@ -67,7 +69,7 @@ if grep -q 'auth_request' <<<"${preview_location}"; then
   exit 1
 fi
 grep -A2 'location = /mcp' "${nginx_file}" | grep -q 'return 404'
-[[ "$(grep -c 'client_max_body_size 2g' "${nginx_file}")" -ge 3 ]]
+[[ "$(grep -c 'client_max_body_size 2g' "${nginx_file}")" -ge 2 ]]
 if grep -Eq 'privileged:[[:space:]]*true|/var/run/docker.sock|/home/data-team|/root:' "${compose_file}"; then
   echo "workspace Compose configuration contains a prohibited privilege or mount" >&2
   exit 1

@@ -9,7 +9,7 @@ import secrets
 import shutil
 import subprocess
 from release import compatibility
-from updater import Host, atomic, read, run, UpdateFailure
+from updater import Host, MOUNTS, atomic, read, run, UpdateFailure
 
 CONFIG = Path('/etc/neural-labs/updater.json')
 
@@ -50,8 +50,9 @@ def prepare(repository):
     workspace = snapshot['services']['workspace']
     if workspace.get('privileged') or workspace.get('network_mode') == 'host' or workspace.get('pid') == 'host' or workspace.get('ipc') == 'host':
         raise UpdateFailure('Unsupported workspace isolation configuration')
-    if any(v['type'] != 'volume' for v in workspace['volumes']):
-        raise UpdateFailure('Only the three documented workspace volumes are supported')
+    if (any(v['type'] != 'volume' for v in workspace['volumes'])
+            or [v['target'] for v in workspace['volumes']] != MOUNTS):
+        raise UpdateFailure('Only the native workspace home volume is supported')
     atomic(root / 'base-compose.json', snapshot)
     (root / 'docker').mkdir(mode=0o700, exist_ok=True)
     config = {'stateDirectory': str(root), 'project': snapshot.get('name', 'neural-labs'),
@@ -118,7 +119,7 @@ def activate():
         host.resume()
         host.gate(False)
     run(['systemctl', 'enable', '--now', 'neural-labs-updater.service', 'neural-labs-update-proxy.service'])
-    print('Host updater activated. Enable automatic OpenClaw installation in Settings → Updates when ready.')
+    print('Host updater activated. Enable automatic Neural Labs installation in Settings → Updates when ready.')
 
 
 if __name__ == '__main__':

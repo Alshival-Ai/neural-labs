@@ -46,17 +46,12 @@ export function registerUpdateRoutes(app: Express, updates: UpdateService, optio
   }));
   app.post("/internal/updates/automatic", wrap(async (req, res) => {
     if (!updateTokenMatches(req.headers.authorization, options.workerToken)) { res.sendStatus(401); return; }
-    if (!(await updates.policy()).policy.openclawAutomatic) throw new UpdateError(409, "disabled", "Automatic updates are disabled.");
+    if (!(await updates.policy()).policy.runtimeAutomatic) throw new UpdateError(409, "disabled", "Automatic updates are disabled.");
     res.status(202).json(await updates.enqueue("automatic", null));
   }));
   app.get("/internal/updates/workspace", wrap(async (req, res) => {
     if (!updateTokenMatches(req.headers.authorization, options.workspaceToken)) { res.sendStatus(401); return; }
     res.json({ ...(await updates.policy()), ...(await updates.maintenance()) });
   }));
-  app.post("/internal/updates/codex", wrap(async (req, res) => {
-    if (!updateTokenMatches(req.headers.authorization, options.workspaceToken)) { res.sendStatus(401); return; }
-    const status = z.object({ version: z.string().regex(/^\d+\.\d+\.\d+$/), lastCheck: z.string().datetime().nullable(),
-      result: z.enum(["current", "updated", "failed", "disabled", "checking", "not-due", "busy"]), message: z.string().max(200) }).strict().parse(req.body);
-    await updates.reportCodex(status); res.json({ ok: true });
-  }));
+
 }

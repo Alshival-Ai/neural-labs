@@ -16,6 +16,7 @@ export const identity = value => {
   if (typeof value !== "string" || !/^[a-zA-Z0-9_-]{1,200}$/.test(value)) throw new Error("Invalid native identity");
   return value;
 };
+const sameConnection = (left, right) => left?.owner === right?.owner && left?.provider === right?.provider && left?.method === right?.method;
 
 // This database belongs to the container's persistent state. It is not the
 // control-plane database and contains no connector credentials.
@@ -31,7 +32,7 @@ export class NativeState {
     if (filename !== ":memory:") chmodSync(filename, 0o600);
     this.db.exec(`PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;`);
     const version = this.db.prepare("PRAGMA user_version").get().user_version;
-    if (version > 1) { this.db.close(); throw new Error("Native state was written by a newer runtime"); }
+    if (version > 5) { this.db.close(); throw new Error("Native state was written by a newer runtime"); }
     this.db.exec(`
       BEGIN IMMEDIATE;
       CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -59,6 +60,11 @@ export class NativeState {
         manual INTEGER NOT NULL CHECK(manual IN (0,1)), claimed_at INTEGER NOT NULL,
         finished_at INTEGER, result TEXT, UNIQUE(job_id,occurrence)
       );
+      CREATE TABLE IF NOT EXISTS manual_requests (
+        job_id TEXT NOT NULL REFERENCES jobs(id), request_id TEXT NOT NULL,
+        mode TEXT NOT NULL CHECK(mode IN ('force','due','if-enabled')),
+        run_id TEXT NOT NULL REFERENCES occurrences(id), PRIMARY KEY(job_id,request_id)
+      );
       CREATE TABLE IF NOT EXISTS workflow_locks (
         key TEXT PRIMARY KEY, run_id TEXT UNIQUE NOT NULL REFERENCES occurrences(id)
       );
@@ -83,9 +89,18 @@ export class NativeState {
         id INTEGER PRIMARY KEY AUTOINCREMENT, turn_id TEXT NOT NULL REFERENCES turns(id),
         type TEXT NOT NULL, payload TEXT NOT NULL
       );
-      PRAGMA user_version=1;
-      COMMIT;
+      CREATE TABLE IF NOT EXISTS conversation_profiles (
+        conversation TEXT PRIMARY KEY REFERENCES conversations(id),
+        title TEXT NOT NULL DEFAULT 'New conversation', archived INTEGER NOT NULL DEFAULT 0,
+        deleted INTEGER NOT NULL DEFAULT 0, model TEXT, updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS turn_bindings (
+        turn_id TEXT PRIMARY KEY REFERENCES turns(id), binding TEXT NOT NULL
+      );
+      INSERT OR IGNORE INTO turn_bindings SELECT t.id,c.binding FROM turns t JOIN conversations c ON c.id=t.conversation;
     `);
+    if (version < 4) this.db.exec("ALTER TABLE conversation_profiles ADD COLUMN effort TEXT");
+    this.db.exec("PRAGMA user_version=5; COMMIT;");
   }
 
   close() { this.db.close(); }
@@ -114,7 +129,7 @@ export class NativeState {
   // Authorization and credential readiness must be checked by the caller before
   // claiming. A committed claim is never automatically reused, even if spawning
   // the provider failed before a receipt could be written.
-  claim({ jobId, occurrence, actor, connection, manual = false, workflowKey = null, expectedDefinitionHash }) {
+  claim({ jobId, occurrence, actor, connection, manual = false, manualMode = "force", manualRequestId, dueOccurrence, workflowKey = null, expectedDefinitionHash }) {
     identity(jobId); identity(actor);
     if (typeof occurrence !== "string" || !occurrence || occurrence.length > 512) throw new Error("Invalid occurrence");
     if (!connection || !["codex", "claude"].includes(connection.provider) || !Number.isSafeInteger(connection.generation)
@@ -125,9 +140,25 @@ export class NativeState {
       const job = this.job(jobId);
       if (!job) throw new Error("Automation not found");
       if (expectedDefinitionHash && job.source_hash !== expectedDefinitionHash) throw new Error("Automation changed during execution authorization");
+      if (manualRequestId !== undefined) {
+        identity(manualRequestId);
+        if (!manual || !["force", "due", "if-enabled"].includes(manualMode)) throw new Error("Invalid manual run request");
+        const prior = this.db.prepare("SELECT r.mode,o.* FROM manual_requests r JOIN occurrences o ON o.id=r.run_id WHERE r.job_id=? AND r.request_id=?").get(jobId, manualRequestId);
+        if (prior) {
+          if (prior.mode !== manualMode || prior.actor !== actor || prior.connection !== canonical(connection)) throw new Error("Manual request binding conflicts");
+          return { accepted: false, previous: prior };
+        }
+        if (manualMode !== "force" && !job.enabled) throw new Error("This automation is paused");
+        if (manualMode === "due") {
+          if (job.completed || !dueOccurrence) throw new Error("This automation is not due");
+          occurrence = dueOccurrence;
+        }
+      }
       const previous = this.db.prepare("SELECT * FROM occurrences WHERE job_id=? AND occurrence=?").get(jobId, occurrence);
       if (previous) {
+        if (!manual && previous.manual) return { accepted: false, id: previous.id };
         if (previous.actor !== actor || previous.connection !== canonical(connection) || Boolean(previous.manual) !== manual) throw new Error("Occurrence binding conflicts");
+        if (manualRequestId !== undefined) this.db.prepare("INSERT INTO manual_requests VALUES(?,?,?,?)").run(jobId, manualRequestId, manualMode, previous.id);
         return { accepted: false, previous };
       }
       if (job.hold || job.classification !== "automation") throw new Error("Automation requires migration review");
@@ -139,8 +170,29 @@ export class NativeState {
       this.db.prepare(`INSERT INTO occurrences
         (id,job_id,occurrence,status,actor,connection,definition,manual,claimed_at) VALUES (?,?,?,'claimed',?,?,?,?,?)`)
         .run(id, jobId, occurrence, actor, canonical(connection), canonical(job.definition), Number(manual), this.now());
+      if (manualRequestId !== undefined) this.db.prepare("INSERT INTO manual_requests VALUES(?,?,?,?)").run(jobId, manualRequestId, manualMode, id);
       if (lock) this.db.prepare("INSERT INTO workflow_locks VALUES (?,?)").run(lock, id);
       return { accepted: true, id };
+    });
+  }
+  blockOccurrence({ jobId, occurrence, expectedDefinitionHash }) {
+    return this.transaction(() => {
+      const job = this.job(jobId);
+      if (this.metadata("scheduling") !== "enabled" || !job?.enabled || job.completed || job.hold
+          || job.classification !== "automation" || job.source_hash !== expectedDefinitionHash) throw new Error("Automation is not eligible");
+      identity(job.definition.actor);
+      const binding = job.definition.connection;
+      identity(binding?.owner);
+      if (typeof occurrence !== "string" || !occurrence || occurrence.length > 512) throw new Error("Invalid occurrence");
+      const previous = this.db.prepare("SELECT * FROM occurrences WHERE job_id=? AND occurrence=?").get(jobId, occurrence);
+      if (previous) return { accepted: false, previous };
+      const id = randomUUID(), now = this.now(), result = canonical({ code: "authorization-or-policy-unavailable" });
+      this.db.prepare(`INSERT INTO occurrences
+        (id,job_id,occurrence,status,actor,connection,definition,manual,claimed_at,finished_at,result)
+        VALUES (?,?,?,'blocked',?,?,?,0,?,?,?)`)
+        .run(id, jobId, occurrence, job.definition.actor, canonical(binding), canonical(job.definition), now, now, result);
+      this.db.prepare("UPDATE jobs SET hold='authorization-or-policy-unavailable' WHERE id=?").run(jobId);
+      return { accepted: false, id, blocked: true };
     });
   }
   startRun(id) {
@@ -156,7 +208,8 @@ export class NativeState {
       // Unknown outcomes retain their workflow lock until an operator resolves
       // them. Completing an at job must never make it eligible after restart.
       if (status !== "unknown") this.db.prepare("DELETE FROM workflow_locks WHERE run_id=?").run(id);
-      if (!row.manual && ["succeeded", "failed", "cancelled"].includes(status) && JSON.parse(row.definition).schedule?.kind === "at") {
+      const consumedSchedule = !row.manual || this.db.prepare("SELECT 1 FROM manual_requests WHERE run_id=? AND mode='due'").get(id);
+      if (consumedSchedule && ["succeeded", "failed", "cancelled"].includes(status) && JSON.parse(row.definition).schedule?.kind === "at") {
         this.db.prepare("UPDATE jobs SET completed=1 WHERE id=?").run(row.job_id);
       }
     });
@@ -185,11 +238,37 @@ export class NativeState {
         || !["subscription", "api-key"].includes(binding.method)) throw new Error("Explicit connection binding required");
     const id = randomUUID();
     this.db.prepare("INSERT INTO conversations VALUES (?,?,?,NULL,?)").run(id, actor, canonical(binding), this.now());
+    this.db.prepare("INSERT INTO conversation_profiles(conversation,updated_at) VALUES(?,?)").run(id, this.now());
     return id;
+  }
+  listConversations(actor, binding) {
+    identity(actor);
+    return this.db.prepare(`SELECT c.*,p.title,p.archived,p.model,p.effort,p.updated_at,
+      EXISTS(SELECT 1 FROM turns WHERE conversation=c.id AND status IN ('running','unknown')) AS active
+      FROM conversations c LEFT JOIN conversation_profiles p ON p.conversation=c.id
+      WHERE c.actor=? AND json_extract(c.binding,'$.owner')=? AND json_extract(c.binding,'$.provider')=?
+        AND json_extract(c.binding,'$.method')=? AND COALESCE(p.deleted,0)=0
+      ORDER BY COALESCE(p.updated_at,c.created_at) DESC LIMIT 500`)
+      .all(actor, binding.owner, binding.provider, binding.method);
+  }
+  updateConversation(id, actor, binding, patch) {
+    this.conversation(id, actor, binding);
+    if (!patch || typeof patch !== "object" || Object.keys(patch).some(key => !["title", "archived", "model", "effort", "deleted"].includes(key))) throw new Error("Invalid conversation update");
+    if (patch.title !== undefined && (typeof patch.title !== "string" || !patch.title.trim() || patch.title.length > 200)) throw new Error("Invalid conversation title");
+    if (["archived", "deleted"].some(key => patch[key] !== undefined && typeof patch[key] !== "boolean")) throw new Error("Invalid conversation state");
+    if (patch.model !== undefined && patch.model !== null && (typeof patch.model !== "string" || !patch.model || patch.model.length > 160)) throw new Error("Invalid conversation model");
+    if (patch.effort !== undefined && patch.effort !== null && !["none", "minimal", "low", "medium", "high", "xhigh", "max"].includes(patch.effort)) throw new Error("Invalid reasoning effort");
+    if (patch.deleted && this.db.prepare("SELECT 1 FROM turns WHERE conversation=? AND status IN ('running','unknown')").get(id)) throw new Error("An active or uncertain conversation cannot be deleted");
+    const prior = this.db.prepare("SELECT * FROM conversation_profiles WHERE conversation=?").get(id) || {};
+    this.db.prepare(`INSERT INTO conversation_profiles(conversation,title,archived,deleted,model,updated_at,effort) VALUES(?,?,?,?,?,?,?) ON CONFLICT(conversation) DO UPDATE SET
+      title=excluded.title,archived=excluded.archived,deleted=excluded.deleted,model=excluded.model,updated_at=excluded.updated_at,effort=excluded.effort`)
+      .run(id, patch.title ?? prior.title ?? "New conversation", Number(patch.archived ?? prior.archived ?? false),
+        Number(patch.deleted ?? prior.deleted ?? false), Object.hasOwn(patch, "model") ? patch.model : prior.model ?? null, this.now(),
+        Object.hasOwn(patch, "effort") ? patch.effort : prior.effort ?? null);
   }
   conversation(id, actor, binding) {
     const row = this.db.prepare("SELECT * FROM conversations WHERE id=? AND actor=?").get(id, actor);
-    if (!row || row.binding !== canonical(binding)) throw new Error("Conversation binding does not match the current actor and connection");
+    if (!row || !sameConnection(JSON.parse(row.binding), binding) || this.db.prepare("SELECT deleted FROM conversation_profiles WHERE conversation=?").get(id)?.deleted) throw new Error("Conversation binding does not match the current actor and connection");
     return row;
   }
   startTurn(conversation, actor, binding, requestId, input) {
@@ -200,8 +279,15 @@ export class NativeState {
         if (previous.conversation !== conversation || previous.input !== canonical(input)) throw new Error("Turn request conflicts");
         return { accepted: false, id: previous.id };
       }
+      // Credential rotation revokes old execution leases without hiding owned
+      // history or losing its native session. Rebind only after prior execution
+      // has a known outcome; immutable per-turn bindings retain the audit trail.
+      if (this.db.prepare("SELECT 1 FROM turns WHERE conversation=? AND status IN ('running','unknown')").get(conversation))
+        throw new Error("Conversation execution is active or its outcome requires review");
+      this.db.prepare("UPDATE conversations SET binding=? WHERE id=?").run(canonical(binding), conversation);
       const id = randomUUID();
       this.db.prepare("INSERT INTO turns VALUES (?,?,?,'running',?,?,NULL)").run(id, conversation, requestId, canonical(input), this.now());
+      this.db.prepare("INSERT INTO turn_bindings VALUES (?,?)").run(id, canonical(binding));
       return { accepted: true, id };
     });
   }
@@ -210,7 +296,7 @@ export class NativeState {
   }
   bindSession(conversation, actor, binding, nativeSession) {
     const row = this.conversation(conversation, actor, binding);
-    if (typeof nativeSession !== "string" || !nativeSession || nativeSession.length > 256
+    if (row.binding !== canonical(binding) || typeof nativeSession !== "string" || !nativeSession || nativeSession.length > 256
         || row.native_session && row.native_session !== nativeSession) throw new Error("Native session binding conflicts");
     this.db.prepare("UPDATE conversations SET native_session=? WHERE id=?").run(nativeSession, conversation);
   }

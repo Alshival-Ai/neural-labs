@@ -43,12 +43,14 @@ export class WorkspaceTerminalManager {
     turnCredentialProvider = async () => [],
     teamChannelAuthorizer = async () => null,
     gifProvider,
+    prepareProcess,
   } = {}) {
     if (!workspaceRoot) throw new Error("workspaceRoot is required");
     this.workspaceRoot = workspaceRoot;
     this.shell = shell;
     this.now = now;
     this.spawnPty = spawnPty;
+    this.prepareProcess = prepareProcess;
     this.turnCredentialProvider = turnCredentialProvider;
     this.teamChannelAuthorizer = teamChannelAuthorizer;
     this.gifProvider = gifProvider;
@@ -125,6 +127,7 @@ export class WorkspaceTerminalManager {
       channelName: teamChannel?.name ?? null,
       process: null,
       processFactory: input.processFactory,
+      beforeStart: typeof input.beforeStart === "function" ? input.beforeStart : undefined,
       providerSignIn: input.providerSignIn,
       access: input.access,
       cwd,
@@ -149,16 +152,33 @@ export class WorkspaceTerminalManager {
       exitSignal: null,
     };
 
+    if (this.prepareProcess && !session.processFactory) {
+      const prepared = await this.prepareProcess({ actor, scope, selection: input.selection, cwd, shell: this.shell,
+        args: command === undefined ? shellArguments(this.shell) : ["-lc", command], size,
+        environment: terminalEnvironment(this.shell, this.workspaceRoot, { actor, scope, terminalId }) });
+      session.processFactory = prepared.processFactory;
+      session.beforeStart = prepared.beforeStart;
+      session.access = prepared.access;
+    }
     this.sessions.set(session.id, session);
     this.recordInteraction(session, actor);
     if (!session.deferred) {
-      try { this.start(session); } catch (error) { this.sessions.delete(session.id); throw error; }
+      try { await this.start(session); } catch (error) { this.sessions.delete(session.id); throw error; }
     }
     return this.snapshot(actor, session);
   }
 
-  start(session) {
+  async start(session) {
+    if (session.starting) return session.starting;
     if (session.process || session.status !== "running") return;
+    const pending = this.startAuthorized(session);
+    session.starting = pending;
+    try { await pending; } finally { session.starting = null; }
+  }
+
+  async startAuthorized(session) {
+    if (session.beforeStart) await session.beforeStart();
+    if (session.status !== "running" || this.sessions.get(session.id) !== session) return;
     if (session.deferredUntil && session.deferredUntil <= this.now()) {
       this.destroy(session);
       throw new TerminalError(409, "launch_expired", "The terminal launch expired before connecting");
@@ -690,7 +710,7 @@ export function attachTerminalWebSocket(server, { manager, publicOrigin, heartbe
         return;
       }
       if (message?.type === "client-ready") {
-        try { manager.start(session); } catch { socket.close(1011, "Terminal could not start"); }
+        void manager.start(session).catch(() => socket.close(1011, "Terminal could not start"));
       }
       if (message?.type === "input") manager.input(session, connection, message.data);
       else if (message?.type === "resize") manager.resize(session, connection, message.cols, message.rows);
@@ -734,7 +754,8 @@ export function terminalActor(headers) {
   if (!id?.trim()) return null;
   const email = singleHeader(headers["x-neural-labs-email"]);
   const role = singleHeader(headers["x-neural-labs-role"]) === "admin" ? "admin" : "user";
-  return { id: id.trim(), label: actorLabel(email, id), role };
+  const sessionHash = singleHeader(headers["x-neural-labs-session"]);
+  return { id: id.trim(), label: actorLabel(email, id), role, ...(sessionHash ? { sessionHash } : {}) };
 }
 
 function terminalEnvironment(shell, workspaceRoot, { actor, scope, terminalId }) {
@@ -751,9 +772,9 @@ function terminalEnvironment(shell, workspaceRoot, { actor, scope, terminalId })
     COLORTERM: "truecolor",
     LANG: process.env.LANG || "C.UTF-8",
     HISTFILE: path.join(os.homedir(), ".local", "state", "neural-labs", "terminal-history", historyScope),
-    OPENCLAW_WORKSPACE_DIR: workspaceRoot,
+    NEURAL_LABS_WORKSPACE_ROOT: workspaceRoot,
   };
-  for (const name of ["CODEX_HOME", "OPENCLAW_HOME", "OPENCLAW_STATE_DIR", "OPENCLAW_CONFIG_PATH", "NEURAL_LABS_OPENCLAW_VERSION", "NEURAL_LABS_CODEX_VERSION", "NEURAL_LABS_CODEX_AUTO_UPDATE"]) {
+  for (const name of ["CODEX_HOME", "CLAUDE_CONFIG_DIR"]) {
     if (process.env[name]) env[name] = process.env[name];
   }
   for (const [name, value] of Object.entries(process.env)) {

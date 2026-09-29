@@ -39,10 +39,11 @@ export interface WorkspaceStatus {
   persistent: true;
   status: "ready" | "starting" | "offline";
   publicUrl: string | null;
-  openclawVersion: string;
+  runtime: "native";
+  protocol: number;
+  runtimeReady: boolean;
+  claudeVersion: string;
   codexVersion: string;
-  codexAuthenticated: boolean;
-  openclawModelReady: boolean;
 }
 
 export interface ApiErrorPayload {

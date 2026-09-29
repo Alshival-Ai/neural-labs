@@ -1,3 +1,4 @@
+import { nativeSelection } from "./nativeApi";
 export type TerminalScope = "personal" | "team";
 export type TerminalProcessStatus = "running" | "exited";
 export type TerminalVoiceMode = "muted" | "open-mic" | "push-to-talk";
@@ -98,7 +99,7 @@ export async function getTerminal(terminalId: string): Promise<TerminalDescripto
 export async function createTerminal(input: { scope: TerminalScope; title?: string; channelId?: string; cols?: number; rows?: number }): Promise<TerminalDescriptor> {
   const response = await terminalRequest<TerminalCreateResponse>("/workspace/api/terminals", {
     method: "POST",
-    body: JSON.stringify(input),
+    body: JSON.stringify({ ...input, ...(input.scope === "personal" && nativeSelection() ? { selection: nativeSelection() } : {}) }),
   });
   return response.session;
 }

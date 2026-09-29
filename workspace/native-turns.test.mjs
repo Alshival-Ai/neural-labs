@@ -25,6 +25,37 @@ function fixture(t, provider) {
 const input = [{ type: "text", text: "Fixture prompt" }];
 async function settle(turns, id) { return await turns.active.get(id)?.done; }
 
+test("credential generations preserve owned history and native sessions with immutable turn bindings", t => {
+  const state = new NativeState(":memory:"); t.after(() => state.close());
+  const original = { owner: "account", provider: "codex", method: "subscription", generation: 1 };
+  const current = { ...original, generation: 3 };
+  const conversation = state.createConversation("member", original);
+  const first = state.startTurn(conversation, "member", original, "before-rotation", input);
+  state.bindSession(conversation, "member", original, "persisted-thread");
+  state.event(first.id, "output", { text: "retained reply" });
+  assert.equal(state.listConversations("member", current).length, 1);
+  assert.equal(state.events(conversation, "member", current).length, 1);
+  assert.throws(() => state.startTurn(conversation, "member", current, "after-rotation", input), /active/);
+  state.finishTurn(first.id, "succeeded");
+  const second = state.startTurn(conversation, "member", current, "after-rotation", input);
+  assert.equal(state.conversation(conversation, "member", current).native_session, "persisted-thread");
+  assert.equal(JSON.parse(state.db.prepare("SELECT binding FROM turn_bindings WHERE turn_id=?").get(first.id).binding).generation, 1);
+  assert.equal(JSON.parse(state.db.prepare("SELECT binding FROM turn_bindings WHERE turn_id=?").get(second.id).binding).generation, 3);
+  assert.throws(() => state.events(conversation, "other-member", current), /binding/);
+  assert.throws(() => state.events(conversation, "member", { ...current, owner: "other-account" }), /binding/);
+});
+
+test("tool transport cleanup failure preserves the known turn outcome", async t => {
+  const { turns, state } = fixture(t, async () => ({ status: "succeeded" }));
+  let released = false;
+  turns.tools = { mint: async () => ({ codex: {}, release: async () => { released = true; throw new Error("transport closed"); } }) };
+  const conversation = (await turns.create("member-1")).id;
+  const turn = await turns.start("member-1", undefined, { conversation, requestId: "cleanup", input });
+  await settle(turns, turn.id);
+  assert.equal(released, true); assert.equal(turns.active.size, 0);
+  assert.equal(state.db.prepare("SELECT status FROM turns WHERE id=?").get(turn.id).status, "succeeded");
+});
+
 test("runtime reconnect replays persisted events without restarting native inference", async t => {
   let calls = 0;
   const { turns, state } = fixture(t, async context => {
@@ -46,18 +77,36 @@ test("runtime reconnect replays persisted events without restarting native infer
 test("runtime has no product-wide concurrency cap and admission drains existing work", async t => {
   let release;
   const gate = new Promise(resolve => { release = resolve; });
+  let allStarted;
+  const ready = new Promise(resolve => { allStarted = resolve; });
   let started = 0;
-  const { turns } = fixture(t, async () => { started++; await gate; return { status: "succeeded" }; });
+  const { turns } = fixture(t, async () => { if (++started === 4) allStarted(); await gate; return { status: "succeeded" }; });
   const requests = await Promise.all(Array.from({ length: 4 }, async (_, index) => {
     const selection = { owner: "member-1", provider: index % 2 ? "claude" : "codex" };
     const conversation = (await turns.create("member-1", selection)).id;
     return turns.start("member-1", selection, { conversation, requestId: `request-${index}`, input });
   }));
+  await ready;
   assert.equal(started, 4); assert.equal(turns.active.size, 4);
   const draining = turns.drain();
   await assert.rejects(turns.create("member-1"), /admission/);
   release(); await draining;
   assert.equal(turns.active.size, 0); assert.equal(requests.length, 4);
+});
+
+test("failed preparation is blocked before inference and does not lock the conversation as unknown", async t => {
+  let calls = 0;
+  const { turns, state } = fixture(t, async () => { calls++; return { status: "succeeded" }; });
+  const resolve = turns.resolveExecution;
+  turns.resolveExecution = async params => ({ ...await resolve(params), prepareLaunch: async () => { throw new Error("invalid skill package"); } });
+  const conversation = (await turns.create("member-1")).id;
+  const turn = await turns.start("member-1", undefined, { conversation, requestId: "blocked", input });
+  await settle(turns, turn.id);
+  assert.equal(calls, 0);
+  assert.equal(state.db.prepare("SELECT status FROM turns WHERE id=?").get(turn.id).status, "blocked");
+  turns.resolveExecution = resolve;
+  const retry = await turns.start("member-1", undefined, { conversation, requestId: "corrected", input });
+  await settle(turns, retry.id); assert.equal(calls, 1);
 });
 
 test("shared connections require explicit selection and retain the initiating actor", async t => {

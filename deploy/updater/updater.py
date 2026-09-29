@@ -21,7 +21,8 @@ REPOSITORY = "Alshival-Ai/neural-labs"
 WORKFLOW = REPOSITORY + "/.github/workflows/workspace-release.yml"
 IMAGE = r"ghcr\.io/alshival-ai/neural-labs-workspace@sha256:[a-f0-9]{64}"
 TERMINAL = {"succeeded", "restored", "failed", "recovery_required", "cancelled"}
-MOUNTS = ["/home/node", "/home/node/.openclaw", "/home/node/.config/openclaw"]
+MOUNTS = ["/home/node"]
+PLATFORMS = {"amd64": "linux/amd64", "arm64": "linux/arm64", "x86_64": "linux/amd64", "aarch64": "linux/arm64"}
 
 
 class UpdateFailure(Exception):
@@ -68,32 +69,33 @@ def window_seconds(policy, now=None):
 
 
 def validate_manifest(value):
-    required = {"schema", "id", "image", "sourceRevision", "openclawVersion", "codexVersion", "appServerVersion",
-                "upstreamImage", "upstreamRevision", "packages", "supportedOrigins", "protocol", "platform",
+    required = {"schema", "id", "image", "sourceRevision", "runtimeVersion", "codexVersion", "claudeVersion",
+                "baseImage", "supportedOrigins", "protocol", "platforms",
                 "manualRequired", "reason", "notesUrl", "controlPlaneRevision", "hostRevision"}
-    if not isinstance(value, dict) or set(value) != required or value["schema"] != 1 or value["protocol"] != 1:
+    if not isinstance(value, dict) or set(value) != required or type(value["schema"]) is not int or value["schema"] != 2 or type(value["protocol"]) is not int or value["protocol"] != 1:
         raise UpdateFailure("Unsupported release manifest")
     checks = [("id", r"workspace-v[0-9][A-Za-z0-9.-]{0,79}"), ("image", IMAGE),
-              ("sourceRevision", r"[a-f0-9]{40}"), ("upstreamRevision", r"[a-f0-9]{40}"),
+              ("sourceRevision", r"[a-f0-9]{40}"),
               ("controlPlaneRevision", r"[a-f0-9]{64}"), ("hostRevision", r"[a-f0-9]{64}"),
-              ("upstreamImage", r"ghcr\.io/openclaw/openclaw:[0-9.]+@sha256:[a-f0-9]{64}")]
-    checks += [(key, r"\d+\.\d+\.\d+") for key in ["openclawVersion", "codexVersion", "appServerVersion"]]
+              ("baseImage", r"node:22-bookworm-slim@sha256:[a-f0-9]{64}")]
+    checks += [(key, r"\d+\.\d+\.\d+") for key in ["runtimeVersion", "codexVersion", "claudeVersion"]]
     if any(not isinstance(value[key], str) or not re.fullmatch(pattern, value[key]) for key, pattern in checks):
         raise UpdateFailure("Invalid release identity")
     if value["notesUrl"] != f'https://github.com/{REPOSITORY}/releases/tag/{value["id"]}':
         raise UpdateFailure("Invalid release notes location")
     if (type(value["manualRequired"]) is not bool or not isinstance(value["reason"], str) or len(value["reason"]) > 300
-            or value["platform"] != "linux/amd64" or not isinstance(value["supportedOrigins"], list)
-            or not 1 <= len(value["supportedOrigins"]) <= 20
-            or any(not isinstance(v, str) or not re.fullmatch(r"\d+\.\d+\.\d+", v) for v in value["supportedOrigins"])
-            or value["packages"] != {p: value["openclawVersion"] for p in ["@openclaw/gateway-client", "@openclaw/gateway-protocol", "@openclaw/sms"]}):
+            or value["platforms"] != ["linux/amd64", "linux/arm64"] or not isinstance(value["supportedOrigins"], list)
+            or len(value["supportedOrigins"]) > 20
+            or not value["supportedOrigins"] and not value["manualRequired"]
+            or any(not isinstance(v, str) or not re.fullmatch(IMAGE, v) for v in value["supportedOrigins"])
+            or len(set(value["supportedOrigins"])) != len(value["supportedOrigins"])):
         raise UpdateFailure("Invalid release compatibility declaration")
     return value
 
 
 def summary(manifest):
-    return {key: manifest[key] for key in ["id", "image", "sourceRevision", "openclawVersion", "codexVersion",
-                                           "appServerVersion", "notesUrl", "manualRequired", "reason"]}
+    return {key: manifest[key] for key in ["id", "image", "sourceRevision", "runtimeVersion", "codexVersion",
+                                           "claudeVersion", "notesUrl", "manualRequired", "reason"]}
 
 
 def run(args, timeout=120, output=None, input_file=None):
@@ -147,23 +149,29 @@ class Host:
             raise UpdateFailure("Expected one managed workspace")
         c = json.loads(run(["docker", "inspect", containers[0]]))[0]
         volumes = {m["Destination"]: m["Name"] for m in c["Mounts"] if m["Type"] == "volume"}
-        if set(volumes) != set(MOUNTS) or len(set(volumes.values())) != 3:
+        if set(volumes) != set(MOUNTS) or any(m["Type"] not in {"volume", "tmpfs"} for m in c["Mounts"]):
             raise UpdateFailure("Workspace volume layout needs manual review")
         env = dict(item.split("=", 1) for item in c["Config"]["Env"] if "=" in item)
-        return {"image": c["Image"], "volumes": volumes, "openclawVersion": env["NEURAL_LABS_OPENCLAW_VERSION"],
-                "codexVersion": env["NEURAL_LABS_CODEX_VERSION"], "container": containers[0]}
+        versions = {key: env.get(variable, "") for key, variable in [
+            ("runtimeVersion", "NEURAL_LABS_RUNTIME_VERSION"), ("codexVersion", "NEURAL_LABS_CODEX_VERSION"),
+            ("claudeVersion", "NEURAL_LABS_CLAUDE_VERSION")]}
+        if any(not re.fullmatch(r"\d+\.\d+\.\d+", version) for version in versions.values()):
+            raise UpdateFailure("The native updater requires a completed operator migration")
+        return {"image": c["Image"], "reference": c["Config"]["Image"], "volumes": volumes,
+                **versions, "container": containers[0]}
 
     def overlay(self, deployment, probation):
-        # Only image, known version variables, three named volumes, and loopback
+        # Only image, known version variables, the native home, and loopback
         # backend ports change. Compose isolation comes from the operator snapshot.
         data = {"image": deployment["image"], "environment": {
-            "NEURAL_LABS_OPENCLAW_VERSION": deployment["openclawVersion"],
+            "NEURAL_LABS_RUNTIME_VERSION": deployment["runtimeVersion"],
             "NEURAL_LABS_CODEX_VERSION": deployment["codexVersion"],
+            "NEURAL_LABS_CLAUDE_VERSION": deployment["claudeVersion"],
             "NEURAL_LABS_UPDATE_PROBATION": "true" if probation else "false"}}
         text = "services:\n  workspace:\n"
         for key, value in data.items():
             text += "    " + key + ": " + json.dumps(value) + "\n"
-        text += '    ports: !override ["127.0.0.1:4182:18789", "127.0.0.1:4183:18790"]\n'
+        text += '    ports: !override ["127.0.0.1:4183:18790"]\n'
         text += "    volumes: !override\n"
         for i, target in enumerate(MOUNTS):
             text += f"      - type: volume\n        source: updater_volume_{i}\n        target: {target}\n"
@@ -206,11 +214,14 @@ class Host:
         run(["gh", "attestation", "verify", "oci://" + m["image"], *verification])
         installed = self.installed()
         if (m["controlPlaneRevision"] != self.config["controlPlaneRevision"] or m["hostRevision"] != self.config["hostRevision"]
-                or installed["openclawVersion"] not in m["supportedOrigins"]):
+                or installed["reference"] not in m["supportedOrigins"]):
             m = {**m, "manualRequired": True, "reason": "This release requires an operator update of the host, control plane, or migration baseline."}
         return m
 
     def prepare(self, manifest):
+        architecture = run(["docker", "info", "--format", "{{.Architecture}}"] ).strip()
+        if PLATFORMS.get(architecture) not in manifest["platforms"]:
+            raise UpdateFailure("This host architecture is not supported by the native release")
         docker_root = run(["docker", "info", "--format", "{{.DockerRootDir}}"] ).strip()
         if min(shutil.disk_usage(self.root).free, shutil.disk_usage(docker_root).free) < self.config["reserveBytes"] + 5 * 1024 ** 3:
             raise UpdateFailure("Insufficient storage to stage the reviewed image")
@@ -282,7 +293,7 @@ class Host:
             try:
                 actual = self.installed()
                 status = self.workspace.call("/internal/updates/activity")
-                if actual["volumes"] != deployment["volumes"] or actual["openclawVersion"] != deployment["openclawVersion"]:
+                if actual["volumes"] != deployment["volumes"] or any(actual[k] != deployment[k] for k in ["runtimeVersion", "codexVersion", "claudeVersion"]):
                     raise UpdateFailure("Workspace deployment identity mismatch")
                 image_id = run(["docker", "image", "inspect", "--format", "{{.Id}}", deployment["image"]]).strip()
                 if actual["image"] != image_id or status.get("probation") != probation or not status.get("idle"):
@@ -290,7 +301,7 @@ class Host:
                 health = json.loads(run(["docker", "inspect", actual["container"]]))[0]["State"].get("Health", {}).get("Status")
                 if health != "healthy":
                     raise UpdateFailure("Candidate health checks have not passed")
-                run(["docker", "exec", actual["container"], "node", "/usr/local/lib/neural-labs/update-probe.mjs"], timeout=120)
+                run(["docker", "exec", actual["container"], "node", "/usr/local/lib/neural-labs/native/update-probe.mjs"], timeout=120)
                 return
             except UpdateFailure:
                 time.sleep(5)
@@ -368,7 +379,7 @@ class Worker:
         while True:
             live = self.host.api.call("/internal/updates/worker")
             policy = live["policy"]
-            if job["kind"] == "automatic" and not policy["openclawAutomatic"]:
+            if job["kind"] == "automatic" and not policy["runtimeAutomatic"]:
                 self.finish(state, "cancelled", "Automatic updates were disabled before maintenance.")
                 return
             allowed = job["kind"] != "automatic" or window_seconds(policy) >= self.host.config["budgetSeconds"]
@@ -377,7 +388,7 @@ class Worker:
             self.phase(state, "deferred", "Deferred until the workspace is idle and enough maintenance time remains.")
             time.sleep(30)
         state["old"] = self.host.installed()
-        state["candidate"] = {"image": manifest["image"], "openclawVersion": manifest["openclawVersion"], "codexVersion": manifest["codexVersion"],
+        state["candidate"] = {"image": manifest["image"], "runtimeVersion": manifest["runtimeVersion"], "codexVersion": manifest["codexVersion"], "claudeVersion": manifest["claudeVersion"],
                               "volumes": {target: f"{self.host.config['project']}_update_{job['id'].replace('-', '')}_{i}" for i, target in enumerate(MOUNTS)}}
         self.host.update_deadline = time.monotonic() + self.host.config["budgetSeconds"]
         self.phase(state, "maintenance", "Workspace maintenance is starting.")
@@ -438,7 +449,7 @@ class Worker:
             manifest = read(self.host.root / "release.json")
         if live["job"]:
             self.execute(live["job"], manifest, live["policy"])
-        elif (manifest and not manifest["manualRequired"] and live["policy"]["openclawAutomatic"]
+        elif (manifest and not manifest["manualRequired"] and live["policy"]["runtimeAutomatic"]
                 and window_seconds(live["policy"]) >= self.host.config["budgetSeconds"]):
             if not any(j["release_id"] == manifest["id"] and j["kind"] != "check" and j["phase"] in TERMINAL - {"cancelled"} for j in live["jobs"]):
                 self.host.api.call("/internal/updates/automatic", {})
@@ -471,7 +482,7 @@ class Worker:
         self.host.api.call("/internal/updates/worker", {"error": "Update operation failed; review update history."})
 
 
-async def proxy(root, bindings=((4180, 4182), (4181, 4183))):
+async def proxy(root, bindings=((4181, 4183),)):
     """Loopback TCP forwarder preserves the host's existing trusted-proxy hop."""
     sockets = set()
     connections = set()
@@ -548,7 +559,7 @@ def main():
             while True:
                 try:
                     installed = host.installed()
-                    host.api.call("/internal/updates/worker", {"installed": {k: installed[k] for k in ["image", "openclawVersion", "codexVersion"]}})
+                    host.api.call("/internal/updates/worker", {"installed": {k: installed[k] for k in ["image", "runtimeVersion", "codexVersion", "claudeVersion"]}})
                 except Exception:
                     pass
                 time.sleep(30)

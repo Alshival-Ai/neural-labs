@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Operator/CI-only Docker rehearsal. All state is synthetic and uniquely named.
 
-Exercises the real Compose adapter, protected archives, three cloned volumes,
+Exercises the real Compose adapter, protected archives, a cloned native home,
 previous-volume restoration, and the no-rollback boundary using fault injection.
-The independent openclaw-upgrade-smoke suite verifies native runtime migrations.
+The independent native preservation and provider probes verify runtime behavior.
 """
 import argparse
 import json
@@ -22,7 +22,7 @@ POSTGRES='postgres:18.6-bookworm@sha256:1c59e2c3c818eaa0f0628f695b36e7c9e362d6b2
 SCRIPT='''
 const fs=require('fs'), http=require('http');
 if(process.env.NEURAL_LABS_UPDATE_PROBATION==='true') {
- for(const root of ['/home/node','/home/node/.openclaw','/home/node/.config/openclaw']) fs.writeFileSync(root+'/candidate-marker','candidate-only');
+ for(const root of ['/home/node']) fs.writeFileSync(root+'/candidate-marker','candidate-only');
 }
 http.createServer((req,res)=>{res.setHeader('Content-Type','application/json');res.end(JSON.stringify({protocol:1,idle:true,probation:process.env.NEURAL_LABS_UPDATE_PROBATION==='true'}));}).listen(18790,'0.0.0.0');
 '''
@@ -31,7 +31,7 @@ class TestApi:
  def __init__(self): self.phases=[]
  def call(self,path,body=None):
   if body and body.get('job'): self.phases.append(body['job']['phase'])
-  return {'policy':{'openclawAutomatic':False},'teamRuns':0,'activeRequests':0,'notificationSends':0}
+  return {'policy':{'runtimeAutomatic':False},'teamRuns':0,'activeRequests':0,'notificationSends':0}
 
 class RehearsalHost(Host):
  def __init__(self, config, failure=False):
@@ -39,7 +39,7 @@ class RehearsalHost(Host):
  def overlay(self, deployment, probation):
   super().overlay(deployment,probation)
   file=self.root/'active-compose.yaml'
-  file.write_text(file.read_text().replace('127.0.0.1:4182:18789','127.0.0.1::18789').replace('127.0.0.1:4183:18790','127.0.0.1::18790'))
+  file.write_text(file.read_text().replace('127.0.0.1:4183:18790','127.0.0.1::18790'))
  def gate(self,closed): self.closed=closed
  def pause(self): return None
  def resume(self): return None
@@ -52,6 +52,7 @@ class RehearsalHost(Host):
   if self.failure and probation and any('_update_' in name for name in deployment['volumes'].values()):
    self.failure=False
    raise UpdateFailure('Injected candidate verification failure')
+  last_error = None
   for _ in range(60):
    try:
     actual=self.installed()
@@ -62,7 +63,8 @@ class RehearsalHost(Host):
     for target in MOUNTS:
      assert run(['docker','exec',actual['container'],'cat',target+'/sentinel']).strip()=='synthetic-preserved'
     return
-   except Exception: time.sleep(1)
+   except Exception as error: last_error = error; time.sleep(1)
+  print('Synthetic verification failed:', type(last_error).__name__, str(last_error), flush=True)
   raise UpdateFailure('Synthetic candidate did not become healthy')
 
 
@@ -76,8 +78,9 @@ def rehearse(image, failure):
  config={'stateDirectory':str(directory),'project':project,'controlPlane':'http://127.0.0.1:1','workspace':'http://127.0.0.1:1',
   'workerToken':'synthetic-test-token-32-characters','workspaceToken':'synthetic-test-token-32-characters','readinessSeconds':60,'budgetSeconds':3600}
  host=RehearsalHost(config,failure)
- deployment={'image':image,'openclawVersion':'2026.9.5','codexVersion':'0.155.1','volumes':volumes}
- base={'services':{'workspace':{'image':image,'user':'0','command':['node','-e',SCRIPT], 'healthcheck':{'disable':True}},
+ passed=False
+ deployment={'image':image,'runtimeVersion':'1.0.0','codexVersion':'0.155.1','claudeVersion':'2.1.226','volumes':volumes}
+ base={'services':{'workspace':{'image':image,'user':'0','entrypoint':['node'],'command':['-e',SCRIPT], 'healthcheck':{'disable':True}},
   'postgres':{'image':POSTGRES,'environment':{'POSTGRES_PASSWORD':'synthetic-test-only','POSTGRES_DB':'neural_labs','POSTGRES_USER':'neural_labs'}}}}
  atomic(directory/'base-compose.json',base)
  try:
@@ -95,11 +98,11 @@ def rehearse(image, failure):
   host.launch(deployment,False);host.verify(deployment,False)
   worker=Worker(host)
   job={'id':str(uuid.uuid4()),'phase':'queued','kind':'install','release_id':'workspace-v0.0.1'}
-  manifest={'id':job['release_id'],'manualRequired':False,'image':image,'openclawVersion':'2026.9.5','codexVersion':'0.155.1'}
-  try: worker.execute(job,manifest,{'openclawAutomatic':False})
+  manifest={'id':job['release_id'],'manualRequired':False,'image':image,'runtimeVersion':'1.0.0','codexVersion':'0.155.1','claudeVersion':'2.1.226'}
+  try: worker.execute(job,manifest,{'runtimeAutomatic':False})
   except UpdateFailure: worker.failure()
   state=read(worker.journal);created.extend(state.get('candidate',{}).get('volumes',{}).values())
-  assert state['done'] and state['phase']==('restored' if failure else 'succeeded') and not host.closed
+  assert state['done'] and state['phase']==('restored' if failure else 'succeeded') and not host.closed, (state['phase'],host.api.phases)
   assert host.installed()['volumes']==(volumes if failure else state['candidate']['volumes'])
   for volume in volumes.values():
    # Old originals must have no candidate writes (rollback's own probation marker
@@ -108,21 +111,24 @@ def rehearse(image, failure):
    run(['docker','run','--rm','--network=none','--entrypoint=node','--mount',f'type=volume,src={volume},dst=/state,readonly',image,
     '-e',"const fs=require('fs');if(fs.readFileSync('/state/sentinel','utf8')!=='synthetic-preserved')process.exit(1);"+
     ("if(fs.existsSync('/state/candidate-marker'))process.exit(2);" if not failure else '')])
-  assert len(list((directory/'backups'/job['id']).glob('volume-*.tar')))==3
+  assert len(list((directory/'backups'/job['id']).glob('volume-*.tar')))==len(MOUNTS)
   print('Real Docker clone, deployment and '+('rollback' if failure else 'commit')+' rehearsal passed')
+  passed=True
  finally:
-  try: host.compose('down','--volumes','--remove-orphans')
+  try: host.compose('down',*(['--volumes'] if passed else []),'--remove-orphans')
   finally:
    state=read(directory/'journal.json',{})
    created.extend(state.get('candidate',{}).get('volumes',{}).values())
-   for volume in set(created):
+   for volume in set(created) if passed else []:
     if volume.startswith(project):
      try: run(['docker','volume','rm',volume])
      except UpdateFailure: pass
-   shutil.rmtree(directory)
+   if passed: shutil.rmtree(directory)
+   else: print('Retained synthetic failure evidence:',directory,flush=True)
 
 if __name__=='__main__':
- parser=argparse.ArgumentParser();parser.add_argument('--image',required=True);args=parser.parse_args()
+ parser=argparse.ArgumentParser();parser.add_argument('--image',required=True);parser.add_argument('--scenario',choices=['all','commit','restore'],default='all');args=parser.parse_args()
  if not re.fullmatch(r'(sha256:[a-f0-9]{64}|[^ ]+@sha256:[a-f0-9]{64})',args.image):parser.error('Use an immutable image')
  os.umask(0o077)
- rehearse(args.image,False);rehearse(args.image,True)
+ if args.scenario in ['all','commit']: rehearse(args.image,False)
+ if args.scenario in ['all','restore']: rehearse(args.image,True)

@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const gatewayMocks = vi.hoisted(() => ({ start: vi.fn(), setAgentId: vi.fn() }));
 
-vi.mock("./openclaw", () => ({
-  NeuraGateway: class {
+vi.mock("./nativeClient", () => ({
+  NativeClient: class {
     start() { gatewayMocks.start(); }
     setAgentId(agentId: string) { gatewayMocks.setAgentId(agentId); }
   },
@@ -23,6 +23,7 @@ vi.mock("./SkillsLiveApp", () => ({
 }));
 
 import { App } from "./App";
+import { nativeSelection } from "./nativeApi";
 import { deviceStateKey } from "./deviceState";
 
 function json(value: unknown) {
@@ -228,16 +229,16 @@ describe("desktop admin navigation", () => {
     });
   });
 
-  it("binds the validated personal agent before starting the Alshival Gateway", async () => {
+  it("starts the native client after validating the signed-in actor without Gateway provisioning", async () => {
+    localStorage.setItem("neural-labs.native-selection.user-id", JSON.stringify({ connection: "personal", model: "fixture" }));
     renderDesktop("user");
-
-    await waitFor(() => expect(gatewayMocks.setAgentId).toHaveBeenCalledWith("nl-userid"));
-    expect(gatewayMocks.start).toHaveBeenCalledOnce();
-    expect(fetch).toHaveBeenCalledWith("/api/account/model-providers/access", expect.objectContaining({ credentials: "same-origin" }));
-    expect(gatewayMocks.setAgentId.mock.invocationCallOrder[0]).toBeLessThan(gatewayMocks.start.mock.invocationCallOrder[0]);
+    await waitFor(() => expect(gatewayMocks.start).toHaveBeenCalledOnce());
+    expect(nativeSelection()).toEqual({ connection: "personal", model: "fixture" });
+    expect(gatewayMocks.setAgentId).not.toHaveBeenCalled();
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("model-providers/access"))).toBe(false);
   });
 
-  it("connects while provider discovery is unresolved", async () => {
+  it("loads the desktop without starting recurring provider discovery", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async input => {
       if (String(input) === "/api/session") return json(session("user"));
       if (String(input) === "/api/account/model-providers/access") return new Promise<Response>(() => {});
@@ -246,26 +247,25 @@ describe("desktop admin navigation", () => {
     render(<App />);
     await waitForDesktop();
     await waitFor(() => expect(gatewayMocks.start).toHaveBeenCalledOnce());
-    expect(gatewayMocks.setAgentId).toHaveBeenCalledWith("nl-userid");
-    expect(screen.queryByText("Connect your selected model account to start using Alshival.")).not.toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("model-providers/access"))).toBe(false);
   });
 
-  it("prompts disconnected users to open ChatGPT Model Provider settings", async () => {
+  it("guides an unconfigured member to native connection settings", async () => {
     renderDesktop("admin", { accountAuthenticated: false });
-
     const prompt = await screen.findByRole("button", { name: "Open model account settings in Model Provider" });
-    expect(prompt).toHaveTextContent("Connect your selected model account to start using Alshival.");
+    expect(prompt).toHaveTextContent("Select your native AI connection in Model Provider settings.");
     fireEvent.click(prompt);
-
     const settingsWindow = await screen.findByLabelText("Settings application");
-    expect(await within(settingsWindow).findByRole("heading", { name: "Model Provider" })).toBeInTheDocument();
+    expect(await within(settingsWindow).findByRole("heading", { name: "AI connections" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open model account settings in Model Provider" })).not.toBeInTheDocument();
   });
 
-  it("guides users with a paused ChatGPT connection to Model Provider", async () => {
+  it("retains an explicitly selected shared connection instead of falling back to a personal account", async () => {
+    localStorage.setItem("neural-labs.native-selection.user-id", JSON.stringify({ connection: "shared-choice", model: "saved-model" }));
     renderDesktop("user", { accountPaused: true });
-
-    expect(await screen.findByRole("button", { name: "Open model account settings in Model Provider" })).toHaveTextContent("Resume your selected model account to start using Alshival.");
+    await waitFor(() => expect(gatewayMocks.start).toHaveBeenCalledOnce());
+    expect(nativeSelection()).toEqual({ connection: "shared-choice", model: "saved-model" });
+    expect(screen.queryByRole("button", { name: "Open model account settings in Model Provider" })).not.toBeInTheDocument();
   });
 
   it("does not reopen Terminal when the saved desktop has no Terminal window", async () => {

@@ -68,12 +68,12 @@ describe("control-plane account console", () => {
       const url = String(input);
       if (url === "/api/session") return json({ authenticated: true, user: activeUser, providers: ["local"], csrfToken: "csrf-token" });
       if (url === "/api/auth/providers") return json(providers);
-      if (url === "/api/workspace") return json({ available: true, shared: true, persistent: true, status: "ready", publicUrl: "/workspace", openclawVersion: "2026.8.2", codexVersion: "0.152.0", codexAuthenticated: true, openclawModelReady: true });
+      if (url === "/api/workspace") return json({ available: true, shared: true, persistent: true, status: "ready", publicUrl: "/workspace", runtime: "native", protocol: 1, runtimeReady: true, claudeVersion: "2.1.226", codexVersion: "0.152.0", });
       return json({ error: { message: "not found" } }, 404);
     });
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Workspace" })).toBeInTheDocument();
-    expect(await screen.findByRole("link", { name: "Launch OpenClaw" })).toHaveAttribute("href", "/workspace");
+    expect(await screen.findByRole("link", { name: "Launch workspace" })).toHaveAttribute("href", "/workspace");
     expect(screen.queryByRole("link", { name: /Admin console/ })).not.toBeInTheDocument();
   });
 

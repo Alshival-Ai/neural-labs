@@ -1,146 +1,132 @@
 # Workspace updates
 
-Administrators configure OpenClaw and terminal Codex in **Settings → Updates**.
-OpenClaw follows reviewed Neural Labs workspace releases. Codex checks the stable
-official npm release daily and selects a verified installation for new launches.
-Disabling Codex updates keeps the installed version. Its OpenClaw app-server is
-separately pinned in the reviewed image and never follows terminal updates.
+Settings → Updates controls reviewed Neural Labs runtime releases. Codex and
+Claude Code are pinned together with their tested protocol adapters in
+`workspace/native/release.json`. Private Terminal and Neura use the same native
+versions. Provider executables do not update independently in production.
 
-OpenClaw defaults to manual installation. Its suggested automatic window is
-Sunday 03:00–05:00 America/Chicago. An open terminal or editor, an active chat,
-job, upload or notification defers deployment. “Install now when idle” skips the
-window, but still waits for idle. Settings show worker connectivity, installed
-and available versions, deferrals, errors, and update history. Members see a
-maintenance notice; the control plane remains available during workspace restart.
+Automatic runtime installation is opt-in. The default maintenance window is
+Sunday 03:00–05:00 America/Chicago. Active chats, automations, Terminal sessions,
+editors, uploads, and notification sends defer installation. “Install now when
+idle” bypasses the calendar window but still requires verified inactivity.
 
-## Explicit operator bootstrap
+## First native migration
 
-Requirements: Linux with systemd, Python 3.11+, Node/Docker Compose supporting
-`!override`, GitHub CLI supporting artifact attestations, and root Docker access.
-This first host adapter uses the standard project layout and ports 4174,
-4180/4181 (front), and 4182/4183 (back). It supports one linux/amd64 workspace
-with the three documented persistent volumes and the reviewed SMS ingress.
-Polling channel configurations require operator maintenance. Custom ports, mounts, or topology
-require an adapter review before installation.
+The first native release is **operator-only**. It is not an automatic replacement
+for an existing Gateway installation. `workspace/update-release-policy.json`
+currently declares no certified automatic migration baseline. The native
+implementation remains under acceptance testing; source builds are not evidence
+that an existing deployment is ready to activate.
 
-1. Run `make validate` and build the new workspace/control-plane images. Execute
-   the synthetic deployment and rollback rehearsal below before activation.
-2. From the repository, run the explicit preparation command:
+Preserve the original deployment identity, volumes, credentials, and complete
+history. Gate new work, pause the old scheduler, drain active runs, and take
+consistent recovery copies belonging to that same workspace. Inventory and import
+with `bin/native-migration.mjs`; inspect its hash and record-count report. The
+import does not activate jobs, change credentials, reset chats, or move packages
+into their live paths. Those require the reviewed operator migration procedure.
+Never treat a successful import alone as activation readiness.
 
-   ```bash
-   sudo python3 deploy/updater/install.py prepare --repository "$PWD" --confirm
-   ```
+Record chat-reset policy separately for each workspace. A pilot's reset consent
+does not apply to customer deployments. Keep notification subscriptions and
+outbox state in PostgreSQL, and do not resend historical receipts. Missing native
+credentials or incompatible execution policies retain visible job holds without
+changing their intended enabled states. Retain legacy volumes separately after
+cutover; the production native runtime mounts only its workspace home.
 
-   This generates a dedicated updater token in the private `.env`, captures a
-   protected Compose snapshot, and installs disabled root-owned service files.
-   It does not restart the workspace. The root-owned configuration is
-   `/etc/neural-labs/updater.json`; deployment descriptors, journals, archives,
-   and retained releases live in `/var/lib/neural-labs/updater`, or
-   `/var/snap/docker/common/neural-labs-updater` for Snap Docker. Preparation
-   detects this automatically; `stateDirectory` records the selected path.
-3. Rebuild/deploy the control plane and workspace through the normal operator
-   deployment process so the token and update protocol are running. Configure
-   the worker's GitHub credentials under `/etc/neural-labs/gh` and registry
-   credentials in the selected state directory's `docker/` subdirectory if the packages are private.
-   Never copy these into the workspace. The protected configuration's
-   `budgetSeconds` defaults to one hour and `reserveBytes` to 10 GiB; adjust
-   only after measuring the backup, clone, readiness and restore rehearsal.
-4. Close all terminal/editor sessions and wait for active work to finish, then:
+## Native host preparation
 
-   ```bash
-   sudo python3 /opt/neural-labs-updater/install.py activate --confirm
-   ```
+The generic updater supports Linux amd64 and ARM64 with systemd, Python 3.11+,
+Docker Compose supporting `!override`, and GitHub CLI artifact verification. Its
+standard layout uses control-plane port 4174 and desktop front/backend ports
+4181/4183. Custom topology requires a corresponding host adapter. Managed hosting
+must use its existing host worker and migration machinery.
 
-   Activation checks control-plane compatibility and workspace activity, pauses
-   work, moves backend listeners, starts the host proxy, verifies readiness,
-   and enables the two services. It is a workspace restart. Failure leaves
-   protected bootstrap state for an operator; do not remove gates blindly.
-5. Verify “Host updater: Connected” in Settings. Publish a reviewed release and
-   use “Check now”. Leave automatic OpenClaw installation off until the first
-   installation and recovery exercise has been reviewed.
+First perform the [native security preparation](../deploy/security/README.md).
+This installs separate native AppArmor and seccomp profiles without restarting
+Docker or modifying existing volumes. Do not disable host security controls to
+make a failing provider namespace probe pass.
 
-The legacy deployment CLI refuses mutations once the managed host descriptor is
-active. Status/log inspection requires root access to the descriptor. For a
-manual host/control-plane upgrade, stop the updater worker, close ingress and
-control-plane gates, take a backup, and explicitly reconcile the protected base
-Compose snapshot and compatibility fingerprints. Do not run a second Compose
-project against the retained original volumes.
+After a native installation has passed preservation and readiness:
 
-## Publishing a reviewed release
+```bash
+sudo python3 deploy/updater/install.py prepare --repository "$PWD" --confirm
+```
 
-Configure required maintainers for the GitHub environment `workspace-releases`
-and protect the `workspace-v*` tags. Review
-[`workspace/openclaw-release.json`](../workspace/openclaw-release.json) and
-[`workspace/update-release-policy.json`](../workspace/update-release-policy.json).
-The latter lists the exact baseline images whose migration and restoration must
-pass. Never claim an unsupported origin. The workflow refuses to publish if the
-environment has no required-reviewer rule.
+Preparation generates a dedicated worker token in private `.env`, captures a
+root-owned Compose descriptor, and installs inactive host services. Configuration
+is `/etc/neural-labs/updater.json`. Journals, releases, and recovery copies live
+under `/var/lib/neural-labs/updater`, or
+`/var/snap/docker/common/neural-labs-updater` for Snap Docker. Registry and GitHub
+credentials stay on the host, outside tenant containers.
 
-Push an approved `workspace-v...` tag to run the
-[release workflow](../.github/workflows/workspace-release.yml). It validates the
-repository, builds the image, rehearses migrations and restore for every listed
-origin, compares the candidate's `/app` against its exact upstream image, and
-runs the isolated deployment/rollback rehearsal. After those pass, it publishes
-an immutable image and attested `workspace-release.json`. The manifest records
-upstream/source revisions, client/protocol/SMS versions, terminal/app-server
-versions, compatibility fingerprints, architecture and supported migration
-origins. Both attestations must match the trusted repository, workflow, tag and
-commit. See [GitHub CLI's verification contract](https://cli.github.com/manual/gh_attestation_verify).
+Deploy the matching control plane and native runtime through the operator
+workflow. Once idle, activate the prepared updater:
 
-A new upstream OpenClaw release alone does not authorize an automatic update.
-Releases that require different host/control-plane code or a different migration
-baseline display “Manual upgrade required”. Registry publication, GitHub
-reviewer configuration and service activation are operator operations, not
-side effects of `make validate`.
+```bash
+sudo python3 /opt/neural-labs-updater/install.py activate --confirm
+```
+
+Activation gates work, checks activity again, moves the native listener behind
+the host proxy, verifies the selected deployment, and resumes work. Failures
+retain protected state for operator recovery. Do not bypass an active managed
+Compose descriptor with a second project or delete volumes to repair a failure.
+
+## Release identity and compatibility
+
+The native deployment manifest has schema 2. It records the exact source commit,
+immutable multi-platform image digest, native runtime/Codex/Claude versions,
+pinned Linux base, both supported architectures, and host/control-plane
+fingerprints. `supportedOrigins` contains exact reviewed workspace image digests.
+Empty origins require `manualRequired: true`. A legacy manifest is never accepted
+as a native runtime release.
+
+Generate the manifest from the committed checkout:
+
+```bash
+python3 deploy/updater/release.py --tag workspace-vVERSION \
+  --image ghcr.io/alshival-ai/neural-labs-workspace@sha256:DIGEST
+```
+
+Automatic discovery verifies attestations for both image and manifest against
+the trusted repository, release workflow, tag, and source commit. It rejects
+self-hosted signers. Do not remove these checks to make an operator-built image
+appear automatically eligible. An operator release and an attested automatic
+release are distinct publication paths. Neither `make validate` nor a source
+push publishes or activates an image.
+
+The baseline policy must stay operator-only until the actual native migration,
+provider protocols, and restoration checks pass on both architectures. Required
+release evidence includes preservation results, digests, and measured performance;
+container health alone is insufficient.
 
 ## Recovery and retention
 
-The worker holds a host lock, journals intent before deployment operations, and
-reports phases to PostgreSQL. It replays interrupted reports and reconciles
-interrupted deployments. During probation, candidate changes stay on clones.
-An unsuccessful candidate restores the previous immutable image and the three
-original volumes. The database archive is retained for disaster recovery and is
-**never** restored by the automatic worker.
+The host worker journals intent before mutation and uses unique cloned home
+volumes. It gates ingress and scheduling, checks activity twice, and starts the
+candidate in probation with execution and delivery disabled. The readiness probe
+checks native image pins, actual Codex and Claude initialization with disposable
+empty homes, runtime health, and isolation without inference or credential access.
 
-After the durable commit decision, the worker may restart the candidate before
-activation but never restore the old state automatically. Heartbeats and cron
-remain paused through this restart. Once activation admits new work, an
-interruption keeps the selected volumes and requires operator recovery; it does
-not restart a workspace that may have accepted new writes. A `recovery_required` result keeps
-both gates closed. Stop `neural-labs-updater.service` before operator recovery;
-inspect the protected `journal.json`, `active-compose.yaml`, `base-compose.json`,
-`bootstrap-deployment.json` and the matching `backups/<job-id>/deployment.json`.
-Do not switch volumes until you have established whether `committed` is true.
-Verify the chosen deployment and paused-scheduler ledger before reopening access.
-After recovery, use an explicit audited database operation to clear the gate;
-there is intentionally no browser “force reopen” button.
+Before the durable commit decision, a failure restores the prior immutable image
+and original volume. After that decision, recovery retains the selected candidate
+state. Once activation may have accepted writes, an interruption requires forward
+recovery; never restore an older database or volume over new writes. PostgreSQL
+recovery copies are never automatically restored by the worker.
 
-Backups, original volumes and terminal Codex versions are retained. Capacity
-checks include archive/clone headroom and a reserve; insufficient space blocks
-deployment. Review retention manually. No automatic pruning is implemented.
+Keep gates closed when recovery cannot be verified. Inspect `journal.json`,
+`active-compose.yaml`, `base-compose.json`, and `backups/<job-id>/deployment.json`
+before selecting a recovery path. Capacity checks include retained copies and
+reserve space. There is no automatic pruning. Local recovery copies are not NAS
+backup or restore verification.
 
-## Validation and isolated rehearsal
+## Validation
 
-`make validate` runs policy/authentication, UI, activity/quiet-mode, state-machine,
-manifest and DST tests without starting containers or changing the host.
-PostgreSQL integration tests run when `TEST_DATABASE_URL` points to an isolated
-test database. They test revision races, concurrent requests, terminal report
-replay, held releases and the irreversible commit boundary.
+`make validate` covers contracts, authentication, maintenance state transitions,
+manifest identity, DST windows, and UI. PostgreSQL integration tests require an
+isolated `TEST_DATABASE_URL`; never point them at production.
 
-The following explicit test creates only uniquely named synthetic containers
-and volumes, tests the real Docker adapter's archives/clones and rollback, and
-cleans up that synthetic state:
-
-```bash
-sudo python3 tests/updater_rehearsal.py --image sha256:REPLACE_WITH_BUILT_IMAGE_ID
-```
-
-For snap Docker, set `UPDATER_REHEARSAL_ROOT` to a non-hidden directory Docker can
-mount. The separate `bin/openclaw-upgrade-smoke BASE_DIGEST CANDIDATE_DIGEST`
-checks native migrations, credentials/ownership, transcripts, roles, and SMS
-with synthetic state. The release workflow also runs a local fake-model chat,
-checks global scheduler pause/resume and per-agent heartbeat suppression, and
-exercises the pinned Codex app-server’s public initialization/thread-list protocol
-in an empty account directory. Neither test mounts production volumes. The Docker
-adapter rehearsal uses a synthetic service to inject deterministic failures;
-it complements, rather than replaces, the native OpenClaw smoke suite.
+`tests/updater_rehearsal.py --image IMMUTABLE_IMAGE` explicitly exercises the real
+Docker clone/restore adapter using generated state and a synthetic service.
+`tests/native-container-smoke.mjs` separately checks real provider protocols,
+private editors, skills, and Chromium inside the candidate. These are distinct
+checks: synthetic adapter success does not establish native migration readiness.

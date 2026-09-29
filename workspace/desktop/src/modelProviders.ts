@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { settingsRequest } from "./settingsApi";
+import { nativeRequest, nativeSelection } from "./nativeApi";
 
 export type ProviderModel = {
   id: string;
@@ -17,14 +17,21 @@ export type ProviderCatalog = { agentId: string; defaultModel?: string | null; m
 export function useModelCatalog(scope: "account" | "admin/workspace", agentId?: string) {
   const [catalog, setCatalog] = useState<ProviderCatalog>();
   const [error, setError] = useState<string>();
+  const [selectionRevision, setSelectionRevision] = useState(0);
+  useEffect(() => {
+    const changed = () => setSelectionRevision(value => value + 1);
+    window.addEventListener("neural-labs-native-selection", changed);
+    return () => window.removeEventListener("neural-labs-native-selection", changed);
+  }, []);
   useEffect(() => {
     let active = true;
     setCatalog(undefined);
     setError(undefined);
-    void settingsRequest<ProviderCatalog>(`/api/${scope}/model-providers/catalog${agentId ? `?agentId=${encodeURIComponent(agentId)}` : ""}`)
+    const selected = nativeSelection();
+    void nativeRequest<ProviderCatalog>("models.list", {}, selected)
       .then((value) => { if (active) setCatalog(value); })
       .catch((error: unknown) => { if (active) setError(error instanceof Error ? error.message : "Models could not be loaded."); });
     return () => { active = false; };
-  }, [scope, agentId]);
+  }, [scope, agentId, selectionRevision]);
   return { catalog, error };
 }

@@ -185,3 +185,44 @@ test("admins edit installed Team packages without duplication, excluding symlink
   assert.equal(saved.ownedByCurrentUser, false);
   assert.equal((await manager.list(admin)).length, 1);
 });
+
+test("portable packages retain root documents, nested support files, bytes and executable modes", async t => {
+  const { manager, personalRoot } = await fixture(t);
+  const { stat, writeFile } = await import("node:fs/promises");
+  const original = await manager.savePackage(maya, {
+    fields: { name: "Portable", description: "Portable package", scope: "personal" },
+    files: [
+      { path: "SKILL.md", content: "---\nname: portable\n---\nUse supporting files." },
+      { path: "README.md", content: "Keep this documentation." },
+      { path: "LICENSE", content: "Synthetic license" },
+      { path: "examples/nested/input.json", content: '{"fixture":true}' },
+      { path: "fixtures/payload.bin", content: Buffer.from([0, 255, 128]), kind: "asset" },
+      { path: "bin/helper", content: "#!/bin/sh\necho fixture\n", executable: true },
+      { path: "scripts/source.sh", content: "VALUE=fixture\n", executable: false },
+    ],
+  }, undefined, { registry: "https://example.com", version: "1.0.0" });
+  const metadataPath = path.join(personalRoot, original.key, ".neural-labs.json");
+  const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
+  await writeFile(metadataPath, JSON.stringify({ ...metadata, enabled: false, retainedField: { fixture: true } }));
+  const pkg = await manager.readPackage(maya, original.key);
+  assert.equal(pkg.files.length, 7);
+  const copy = await manager.duplicate(maya, { path: original.path });
+  const copied = await manager.readPackage(maya, copy.key);
+  assert.equal(copied.files.find(f => f.path === "fixtures/payload.bin").data, Buffer.from([0, 255, 128]).toString("base64"));
+  assert.ok((await stat(path.join(path.dirname(copy.path), "bin/helper"))).mode & 0o111);
+  assert.equal((await stat(path.join(path.dirname(copy.path), "scripts/source.sh"))).mode & 0o111, 0);
+  await manager.savePackage(maya, { fields: { name: "Portable", description: "Updated", scope: "personal" },
+    files: pkg.files.map(file => ({ ...file, content: file.kind === "asset" ? Buffer.from(file.data, "base64") : file.content })) }, original.key);
+  const after = JSON.parse(await readFile(metadataPath, "utf8"));
+  assert.deepEqual(after.provenance, metadata.provenance);
+  assert.deepEqual(after.retainedField, { fixture: true });
+  assert.equal(after.enabled, false);
+});
+
+test("portable package paths reject absolute names, alternate separators and private state", async t => {
+  const { manager } = await fixture(t);
+  for (const filename of ["/SKILL.md", "references\\secret.txt", "../secret.txt", "references/../../secret.txt", ".neural-labs.json", "data/.env", "data/credentials/token", "node_modules/index.js"]) {
+    await assert.rejects(manager.savePackage(maya, { fields: { name: "Rejected", description: "Fixture", scope: "personal" },
+      files: [{ path: "SKILL.md", content: "Fixture" }, { path: filename, content: "Rejected" }] }), e => e instanceof WorkspaceSkillError);
+  }
+});

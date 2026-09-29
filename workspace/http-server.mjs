@@ -1,9 +1,6 @@
-import { ProviderDisplayCache } from "./provider-display-cache.mjs";
+import { authenticateWorkspaceRequest, authorizeWorkspaceHttpRequest } from "./native/request-auth.mjs";
 import { createImportedHistory } from "./imported-history.mjs";
-import { revokeManagedMember } from "./managed-members.mjs";
-import { trackResponseWork } from "./update-maintenance.mjs";
-import { PersonalAutomationRuns, AutomationRunError } from "./personal-automation-runs.mjs";
-import { openClaudeLoginTerminal } from "./claude-login-terminal.mjs";
+import { trackResponseWork } from "./response-work.mjs";
 import { TerminalAgentBridge, terminalContextInstructions } from "./terminal-agent.mjs";
 import { readFile } from "node:fs/promises";
 import { randomBytes, timingSafeEqual } from "node:crypto";
@@ -17,6 +14,7 @@ import { createWorkspaceFileEvents } from "./file-events.mjs";
 import { WorkspaceFileError, createFileManager } from "./file-manager.mjs";
 import { createExplorerManager } from "./explorer-manager.mjs";
 import { WorkspaceSkillError, createSkillsManager, workspaceSkillActor } from "./skills-manager.mjs";
+import { NativeSkillCatalog } from "./native/skill-catalog.mjs";
 import {
   TERMINAL_SOCKET_PATH,
   TERMINAL_SOCKET_PROTOCOL,
@@ -209,13 +207,13 @@ function parseNeuraMediaRequest(url) {
   return `/api/chat/media/outgoing/${encodeURIComponent(sessionKey)}/${match[2]}/${match[3]}?mediaTicket=${encodeURIComponent(ticket)}`;
 }
 
-async function relayNeuraMedia(response, method, upstreamOrigin, upstreamPath, gatewayMediaFetch, downloadName, rangeHeader) {
+async function relayNeuraMedia(response, method, upstreamOrigin, upstreamPath, mediaFetch, downloadName, rangeHeader) {
   if (rangeHeader !== undefined && (typeof rangeHeader !== "string" || rangeHeader.length > 128 || !/^bytes=(?:\d+-\d*|-\d+)$/.test(rangeHeader))) {
     throw new WorkspaceFileError(416, "invalid_range", "Request one byte range at a time");
   }
   let upstream;
   try {
-    upstream = await gatewayMediaFetch(new URL(upstreamPath, upstreamOrigin), {
+    upstream = await mediaFetch(new URL(upstreamPath, upstreamOrigin), {
       method,
       ...(rangeHeader ? { headers: { Range: rangeHeader } } : {}),
       redirect: "error",
@@ -417,11 +415,14 @@ function voiceApiError(response, error, method) {
 
 export function createWorkspaceHttpServer({
   desktopRoot,
+  nativeRuntime,
+  requireSignedRequests = false,
+  nativeEditors,
   workspaceRoot,
   publicOrigin,
-  gatewayReady,
-  gatewayMediaOrigin,
-  gatewayMediaFetch = fetch,
+  runtimeReady = async () => Boolean(nativeRuntime),
+  mediaOrigin,
+  mediaFetch = fetch,
   codeServerOrigin = "http://127.0.0.1:18881",
   codeServerReady = async () => true,
   mcpStatus = async () => ({
@@ -435,30 +436,21 @@ export function createWorkspaceHttpServer({
     providers: { googlePlaces: false, googleGeocoding: false, klipy: false, pexels: false },
     tools: [],
   }),
-  providerAuthenticated,
-  credentialSource = () => "unconfigured",
-  openclawModelReady,
-  providerAuth,
-  personalOpenAI,
-  claudeAccounts, modelAccounts,
-  gatewayAdminRequest,
-  modelCatalog,
-  modelPolicies,
-  teamOpenAI,
   voiceService,
   workspaceControlToken,
-  openclawVersion,
   codexVersion,
+  claudeVersion,
   maxUploadBytes,
   maxTextBytes,
   personalSkillsRoot = path.join(path.dirname(workspaceRoot), ".agents", "skills"),
   teamSkillsRoot = path.join(workspaceRoot, "skills"),
+  skillLibraryRoots = [],
+  skillCatalog = new NativeSkillCatalog(),
   skillInstructionRoots = [
     workspaceRoot,
     personalSkillsRoot,
-    path.join(path.dirname(workspaceRoot), ".openclaw", "skills"),
-    "/app/skills",
-    "/app/extensions",
+    "/usr/local/share/neural-labs/skills",
+    ...skillLibraryRoots,
   ],
   builderDraftsRoot = path.join(path.dirname(workspaceRoot), ".local", "state", "neural-labs", "builder-drafts"),
   filesStateRoot = path.join(path.dirname(workspaceRoot), ".local", "state", "neural-labs", "files"),
@@ -476,6 +468,7 @@ export function createWorkspaceHttpServer({
   const skills = createSkillsManager({
     personalRoot: personalSkillsRoot,
     teamRoot: teamSkillsRoot,
+    libraryRoots: skillLibraryRoots,
     instructionRoots: skillInstructionRoots,
   });
   const builder = createBuilderManager({
@@ -489,30 +482,22 @@ export function createWorkspaceHttpServer({
   if (apiProviderRuntime) terminals.gifProvider = apiProviderRuntime.gifProvider(() => terminals.gifSelections.clear());
   const terminalAgent = new TerminalAgentBridge({ manager: terminals, resolveActor: terminalActorResolver ?? (async () => null) });
   const previewLaunches = new Map();
-  const personalAutomationRuns = gatewayAdminRequest ? new PersonalAutomationRuns({
-    root: path.join(filesStateRoot, "automations"), request: gatewayAdminRequest, accounts: modelAccounts ?? personalOpenAI,
-  }) : undefined;
-  const providerStates = new Map();
-  const providerDisplay = new ProviderDisplayCache();
-  const observeProvider = (key, result, userId) => {
-    const state = `${result.authenticated}:${result.paused}:${result.modelReady}`;
-    if (providerStates.get(key) !== state) {
-      providerStates.set(key, state);
-      modelCatalog?.invalidate(userId);
-    }
-  };
   let activeWrites = 0;
   const handleRequest = async (request, response) => {
     const method = request.method ?? "GET";
     const url = new URL(request.url ?? "/", "http://workspace.local");
     const pathname = url.pathname;
-    if (method !== "GET" && method !== "HEAD" && /^\/internal\/(model-providers|provider-auth)(?:\/|$)/u.test(pathname)) {
-      const invalidate = () => { providerDisplay.invalidate(); modelAccounts?.accessSnapshots?.clear(); };
-      invalidate();
-      response.once("finish", invalidate);
-    }
     if (pathname.startsWith("/__alshival_app/")) {
       await proxyPublicApp(request, response, { workspaceRoot, publicOrigin, gated: () => updateMaintenance?.gated });
+      return;
+    }
+    if (pathname === "/internal/native/request") {
+      if (!validControlToken(request, workspaceControlToken)) { sendJson(response, 401, { error: { message: "Unauthorized" } }, method); return; }
+      if (method !== "POST") { sendJson(response, 405, { error: { message: "Method not allowed" } }, method); return; }
+      try {
+        if (!nativeRuntime || updateMaintenance?.gated) throw new Error("Native runtime is unavailable");
+        sendJson(response, 200, await nativeRuntime.handle(await readJsonBody(request, 2 * 1024 * 1024)), method);
+      } catch { sendJson(response, 409, { error: { message: "Native request could not be completed. Check the selected connection and workspace access." } }, method); }
       return;
     }
     if (pathname.startsWith("/internal/updates/")) {
@@ -531,62 +516,16 @@ export function createWorkspaceHttpServer({
     if (updateMaintenance?.gated && !["/healthz", "/status", "/readyz"].includes(pathname)) {
       sendJson(response, 503, { error: { message: "Workspace maintenance is in progress" } }, method); return;
     }
-    if (pathname === "/workspace/api/automations/snapshot" || pathname === "/workspace/api/automations/run") {
-      const userId = request.headers["x-forwarded-user"];
-      if (typeof userId !== "string" || !userId.trim()) { sendJson(response, 401, { error: { message: "Sign in to run automations" } }, method); return; }
-      if (!["admin", "user"].includes(request.headers["x-neural-labs-role"])) { sendJson(response, 403, { error: { message: "Workspace membership is required" } }, method); return; }
-      try {
-        if (!personalAutomationRuns) throw new AutomationRunError(503, "Automation account routing is unavailable");
-        if (pathname.endsWith("/snapshot") && method === "GET") {
-          sendJson(response, 200, await personalAutomationRuns.snapshot({ userId: userId.trim(), role: request.headers["x-neural-labs-role"] }), method);
-        } else if (pathname.endsWith("/run") && method === "POST") {
-          if (request.headers.origin !== publicOrigin) throw new AutomationRunError(403, "A same-origin request is required");
-          const body = await readJsonBody(request);
-          // Account identity comes exclusively from the authenticated proxy.
-          sendJson(response, 202, await personalAutomationRuns.run({ userId: userId.trim(), role: request.headers["x-neural-labs-role"],
-            email: typeof request.headers["x-neural-labs-email"] === "string" ? request.headers["x-neural-labs-email"] : undefined,
-          }, { jobId: body?.jobId, mode: body?.mode, requestId: body?.requestId }), method);
-        } else throw new AutomationRunError(405, "Method not allowed");
-      } catch (error) {
-        sendJson(response, error instanceof AutomationRunError ? error.status : 503,
-          { error: { message: error instanceof AutomationRunError ? error.message : "Automation scheduler unavailable" } }, method);
-      }
-      return;
-    }
     if (pathname === "/internal/alshival/revoke-member") {
       if (process.env.NEURAL_LABS_AUTH_MODE !== "alshival" || method !== "POST" || !workspaceControlToken || !validControlToken(request, workspaceControlToken)) {
         sendJson(response, 403, { error: { message: "Managed control authorization required" } }, method); return;
       }
       try {
         const body = await readJsonBody(request, 4096);
-        const result = await revokeManagedMember({ userId: body.userId, request: gatewayAdminRequest, accounts: modelAccounts, terminals });
+        const result = await nativeRuntime.revoke(body.userId);
+        for (const session of [...terminals.sessions.values()]) if (session.ownerId === body.userId) terminals.destroy(session);
         sendJson(response, 200, result, method);
       } catch { sendJson(response, 503, { error: { message: "Member revocation is pending" } }, method); }
-      return;
-    }
-    if (pathname === "/internal/model-providers/access" || pathname === "/internal/model-providers/anthropic") {
-      if (!workspaceControlToken || !validControlToken(request, workspaceControlToken)) { sendJson(response, 401, { error: { message: "Unauthorized" } }, method); return; }
-      try {
-        if (!claudeAccounts || !modelAccounts) throw new Error("Provider runtime unavailable");
-        const userId = url.searchParams.get("userId") || undefined;
-        const workload = url.searchParams.get("workload") || "background";
-        if (pathname.endsWith("/access")) {
-          if (method !== "GET" || !userId) throw new Error("Invalid access request");
-          sendJson(response, 200, await providerDisplay.get(userId, "selected", () => modelAccounts.snapshot(userId)), method);
-        } else {
-          if (!["GET", "POST"].includes(method)) throw new Error("Invalid method");
-          const body = method === "POST" ? await readJsonBody(request, 16384) : null;
-          const owner = { userId, workload };
-          if (body) providerDisplay.invalidate();
-          const result = body ? await claudeAccounts.action(owner, body.action, body.input, body.actorId) : await providerDisplay.get(userId || `workspace:${workload}`, "anthropic", () => claudeAccounts.snapshot(owner));
-          if (body) providerDisplay.invalidate();
-          if (body?.action === "connect") {
-            result.terminalId = await openClaudeLoginTerminal({ accounts: claudeAccounts, terminals, owner, attemptId: result.attemptId, actorId: body.actorId, resolveActor: terminalActorResolver });
-          }
-          if (body) modelCatalog?.invalidate(userId);
-          sendJson(response, 200, result, method);
-        }
-      } catch { sendJson(response, 409, { error: { message: "Claude operation could not complete. Refresh the connection and try again." } }, method); }
       return;
     }
     if (pathname === "/internal/plugins/providers/status" || /^\/internal\/plugins\/providers\/(google-maps|klipy|pexels)\/check$/.test(pathname)) {
@@ -606,8 +545,8 @@ export function createWorkspaceHttpServer({
     }
     if (pathname.startsWith("/internal/notifications/")) {
       if (!workspaceControlToken || !validControlToken(request, workspaceControlToken)) { sendJson(response, 401, { error: { message: "Unauthorized" } }, method); return; }
-      if (method !== "POST" || !gatewayAdminRequest) { sendJson(response, 503, { error: { message: "Notifications unavailable" } }, method); return; }
-      try { sendJson(response, 200, await personalAutomationRuns.notification(pathname.split("/").at(-1), await readJsonBody(request)), method); }
+      if (method !== "POST" || !nativeRuntime) { sendJson(response, 503, { error: { message: "Notifications unavailable" } }, method); return; }
+      try { sendJson(response, 200, await nativeRuntime.jobs.notification(pathname.split("/").at(-1), await readJsonBody(request)), method); }
       catch { sendJson(response, 503, { error: { message: "Scheduler unavailable" } }, method); }
       return;
     }
@@ -642,12 +581,6 @@ export function createWorkspaceHttpServer({
       } catch (error) { terminalApiError(response, error, method); }
       return;
     }
-    const providerRoute = pathname === "/internal/provider-auth/openai";
-    const providerStartRoute = pathname === "/internal/provider-auth/openai/start";
-    const providerProbeRoute = pathname === "/internal/provider-auth/openai/probe";
-    const providerCancelRoute = pathname === "/internal/provider-auth/openai/cancel";
-    const personalProviderMatch = pathname.match(/^\/internal\/provider-auth\/openai\/users\/([^/]+)(?:\/(start|cancel|pause|resume|disconnect|api-key))?$/u);
-    const teamAgentRoute = pathname === "/internal/neura/team-run";
     if (pathname === "/internal/model-providers/voice" || pathname === "/internal/model-providers/voice/refresh") {
       if (!voiceService?.snapshot || !workspaceControlToken || !validControlToken(request, workspaceControlToken)) {
         sendJson(response, 401, { error: { code: "unauthorized", message: "Unauthorized" } }, method);
@@ -662,69 +595,7 @@ export function createWorkspaceHttpServer({
       }
       return;
     }
-    const teamConnectionMatch = pathname.match(/^\/internal\/model-providers\/team\/connection(?:\/(start|cancel))?$/u);
-    if (teamConnectionMatch) {
-      if (!teamOpenAI || !workspaceControlToken || !validControlToken(request, workspaceControlToken)) {
-        sendJson(response, 401, { error: { code: "unauthorized", message: "Unauthorized" } }, method);
-        return;
-      }
-      const action = teamConnectionMatch[1];
-      if ((!action && method !== "GET") || (action && method !== "POST")) {
-        sendJson(response, 405, { error: { code: "method_not_allowed", message: "Method not allowed" } }, method);
-        return;
-      }
-      try {
-        if (action) providerDisplay.invalidate();
-        const result = action === "start" ? await teamOpenAI.start() : action === "cancel" ? teamOpenAI.cancel() : await providerDisplay.get("workspace:team", "openai", () => teamOpenAI.snapshot());
-        observeProvider("team", result);
-        if (action) providerDisplay.invalidate();
-        if (action) modelCatalog?.invalidate();
-        sendJson(response, action === "start" ? 202 : 200, result, method);
-      } catch {
-        sendJson(response, 503, { error: { code: "team_provider_unavailable", message: "Team Alshival connection is unavailable" } }, method);
-      }
-      return;
-    }
-    if (pathname === "/internal/model-providers/preferences") {
-      if (!modelPolicies || !workspaceControlToken || !validControlToken(request, workspaceControlToken)) {
-        sendJson(response, 401, { error: { code: "unauthorized", message: "Unauthorized" } }, method);
-        return;
-      }
-      try {
-        const userId = url.searchParams.get("userId") || undefined;
-        const workload = url.searchParams.get("workload") === "team" && !userId ? "team" : "background";
-        if (method === "GET") sendJson(response, 200, await modelPolicies.inspect(userId, workload), method);
-        else if (method === "POST") {
-          const body = await readJsonBody(request, 8192);
-          sendJson(response, 200, await modelPolicies.apply({ userId, workload, policy: body?.policy, revision: body?.revision, previous: body?.previous }), method);
-        } else {
-          response.setHeader("Allow", "GET, POST");
-          sendJson(response, 405, { error: { code: "method_not_allowed", message: "Method not allowed" } }, method);
-        }
-      } catch {
-        sendJson(response, 409, { error: { code: "model_policy_unavailable", message: "The selected model policy could not be applied. Check the connection and model capabilities." } }, method);
-      }
-      return;
-    }
-    if (pathname === "/internal/model-providers/catalog") {
-      if (!modelCatalog || !workspaceControlToken || !validControlToken(request, workspaceControlToken)) {
-        sendJson(response, 401, { error: { code: "unauthorized", message: "Unauthorized" } }, method);
-        return;
-      }
-      if (method !== "GET" && method !== "POST") {
-        response.setHeader("Allow", "GET, POST");
-        sendJson(response, 405, { error: { code: "method_not_allowed", message: "Method not allowed" } }, method);
-        return;
-      }
-      try {
-        const result = await modelCatalog.list({ userId: url.searchParams.get("userId") || undefined, agentId: url.searchParams.get("agentId") || undefined, refresh: method === "POST" });
-        sendJson(response, 200, result, method);
-      } catch {
-        sendJson(response, 503, { error: { code: "catalog_unavailable", message: "The model catalog could not be loaded. Check the provider connection and try again." } }, method);
-      }
-      return;
-    }
-    if (teamAgentRoute) {
+    if (pathname === "/internal/neura/team-run") {
       if (!runTeamAgent || !workspaceControlToken || !validControlToken(request, workspaceControlToken)) {
         sendJson(response, 401, { error: { code: "unauthorized", message: "Unauthorized" } }, method);
         return;
@@ -753,80 +624,8 @@ export function createWorkspaceHttpServer({
       }
       return;
     }
-    if (personalProviderMatch) {
-      if (!personalOpenAI || !workspaceControlToken || !validControlToken(request, workspaceControlToken)) {
-        sendJson(response, 401, { error: { code: "unauthorized", message: "Unauthorized" } }, method);
-        return;
-      }
-      let userId;
-      try {
-        userId = decodeURIComponent(personalProviderMatch[1]);
-      } catch {
-        sendJson(response, 400, { error: { code: "invalid_user", message: "Invalid user identifier" } }, method);
-        return;
-      }
-      const action = personalProviderMatch[2];
-      if ((!action && method !== "GET") || (action && method !== "POST")) {
-        response.setHeader("Allow", action ? "POST" : "GET");
-        sendJson(response, 405, { error: { code: "method_not_allowed", message: "Method not allowed" } }, method);
-        return;
-      }
-      try {
-        if (action) providerDisplay.invalidate();
-        const result = !action ? await providerDisplay.get(userId, "openai", () => personalOpenAI.snapshot(userId))
-          : action === "start" ? await personalOpenAI.start(userId)
-          : action === "api-key" ? await personalOpenAI.saveApiKey(userId, (await readJsonBody(request, 8192)).key)
-          : action === "cancel" ? await personalOpenAI.cancel(userId)
-          : action === "pause" ? await personalOpenAI.pause(userId)
-          : action === "disconnect" ? await personalOpenAI.disconnect(userId)
-          : await personalOpenAI.resume(userId);
-        observeProvider(userId, result, userId);
-        if (action) providerDisplay.invalidate();
-        if (action) modelCatalog?.invalidate(userId);
-        sendJson(response, action === "start" ? 202 : 200, result, method);
-      } catch (error) {
-        console.error("Personal OpenAI account operation failed", error instanceof Error ? error.message : error);
-        sendJson(response, 409, { error: { code: "personal_openai_unavailable", message: error instanceof Error ? error.message : "Personal OpenAI account operation failed" } }, method);
-      }
-      return;
-    }
-    if (providerRoute || providerStartRoute || providerCancelRoute || providerProbeRoute) {
-      if (!providerAuth || !workspaceControlToken || !validControlToken(request, workspaceControlToken)) {
-        sendJson(response, 401, { error: { code: "unauthorized", message: "Unauthorized" } }, method);
-        return;
-      }
-      if (providerRoute && method === "GET") {
-        sendJson(response, 200, providerAuth.snapshot(), method);
-        return;
-      }
-      if (providerProbeRoute && method === "POST") {
-        try {
-          if (!gatewayAdminRequest) throw new Error("Gateway unavailable");
-          // Operator-only diagnostic: no caller-selected owner, profile or text.
-          const result = await gatewayAdminRequest("models.probe", {
-            agentId: "main", provider: "openai", profileId: "openai:neural-labs-background", timeoutMs: 30000,
-          });
-          sendJson(response, 200, { provider: "openai", status: result.status,
-            results: result.results?.map(row => ({ status: row.status, model: row.model, latencyMs: row.latencyMs })),
-          }, method);
-        } catch { sendJson(response, 503, { error: { message: "Background connection probe could not complete" } }, method); }
-        return;
-      }
-      if (providerStartRoute && method === "POST") {
-        sendJson(response, 202, providerAuth.start(), method);
-        return;
-      }
-      if (providerCancelRoute && method === "POST") {
-        sendJson(response, 200, providerAuth.cancel(), method);
-        return;
-      }
-      response.setHeader("Allow", providerRoute ? "GET" : "POST");
-      sendJson(response, 405, { error: { code: "method_not_allowed", message: "Method not allowed" } }, method);
-      return;
-    }
-
     if (pathname === VSCODE_BASE_PATH || pathname.startsWith(`${VSCODE_BASE_PATH}/`)) {
-      proxyVsCodeHttp(request, response, { codeServerOrigin, publicOrigin });
+      await proxyVsCodeHttp(request, response, { codeServerOrigin, publicOrigin, ...(nativeEditors ? { resolveTarget: req => nativeEditors.ensure(req) } : {}) });
       return;
     }
 
@@ -845,7 +644,8 @@ export function createWorkspaceHttpServer({
         return;
       }
       try {
-        if (!await codeServerReady()) {
+        if (nativeEditors) await nativeEditors.ensure(request);
+        else if (!await codeServerReady()) {
           throw new WorkspaceFileError(503, "vscode_unavailable", "VS Code is still starting");
         }
         const body = await readJsonBody(request, 16 * 1024);
@@ -925,12 +725,12 @@ export function createWorkspaceHttpServer({
         sendJson(response, 405, { error: { code: "method_not_allowed", message: "Method not allowed" } }, method);
         return;
       }
-      if (!gatewayMediaOrigin) {
+      if (!mediaOrigin) {
         sendJson(response, 503, { error: { code: "media_unavailable", message: "Alshival media is unavailable" } }, method);
         return;
       }
       try {
-        await relayNeuraMedia(response, method, gatewayMediaOrigin, parseNeuraMediaRequest(url), gatewayMediaFetch, url.searchParams.get("download") === "1" ? url.searchParams.get("name") || "attachment" : undefined, request.headers.range);
+        await relayNeuraMedia(response, method, mediaOrigin, parseNeuraMediaRequest(url), mediaFetch, url.searchParams.get("download") === "1" ? url.searchParams.get("name") || "attachment" : undefined, request.headers.range);
       } catch (error) {
         fileApiError(response, error, method);
       }
@@ -997,7 +797,7 @@ export function createWorkspaceHttpServer({
         }
         if (pathname === "/workspace/api/terminals" && method === "POST") {
           const body = await readJsonBody(request);
-          sendJson(response, 201, { session: await terminals.create(actor, { scope: body?.scope, title: body?.title, channelId: body?.channelId, cols: body?.cols, rows: body?.rows }) }, method);
+          sendJson(response, 201, { session: await terminals.create(actor, { scope: body?.scope, title: body?.title, channelId: body?.channelId, cols: body?.cols, rows: body?.rows, selection: body?.selection }) }, method);
           return;
         }
         const gifMatch = pathname.match(/^\/workspace\/api\/terminals\/([^/]+)\/gifs$/);
@@ -1112,6 +912,19 @@ export function createWorkspaceHttpServer({
       return;
     }
 
+    if (["/workspace/api/automations", "/workspace/api/automations/history"].includes(pathname) && method === "GET") {
+      const actor = workspaceSkillActor(request.headers);
+      if (!actor) { sendJson(response, 401, { error: { message: "Authentication is required" } }, method); return; }
+      if (!nativeRuntime?.jobs) { sendJson(response, 503, { error: { message: "Native automations are unavailable" } }, method); return; }
+      try {
+        const grant = { actor: actor.userId, actorRole: actor.role };
+        const result = pathname.endsWith("/history") ? nativeRuntime.jobs.history(grant,
+          { jobId: url.searchParams.get("job"), before: url.searchParams.get("before") || "" }) : nativeRuntime.jobs.snapshot(grant);
+        sendJson(response, 200, result, method);
+      } catch { sendJson(response, 400, { error: { message: "Automation history could not be loaded" } }, method); }
+      return;
+    }
+
     if (pathname === "/workspace/api/skills" || /^\/workspace\/api\/skills\/[^/]+$/.test(pathname) || /^\/workspace\/api\/skills\/[^/]+\/scope$/.test(pathname) || /^\/workspace\/api\/skills\/[^/]+\/package$/.test(pathname)) {
       const actor = workspaceSkillActor(request.headers);
       if (!actor) {
@@ -1124,6 +937,28 @@ export function createWorkspaceHttpServer({
         return;
       }
       try {
+        if (["/workspace/api/skills/history", "/workspace/api/skills/history-detail"].includes(pathname) && method === "GET") {
+          if (!nativeRuntime?.skillHistory) throw new WorkspaceSkillError(503, "history_unavailable", "Proposal history is unavailable");
+          const result = pathname.endsWith("history-detail")
+            ? nativeRuntime.skillHistory.inspect(actor, { migration: url.searchParams.get("migration"), id: url.searchParams.get("id") })
+            : nativeRuntime.skillHistory.list(actor, { after: url.searchParams.get("after") || "" });
+          sendJson(response, 200, result, method); return;
+        }
+        if (pathname === "/workspace/api/skills/catalog-search" && method === "GET") {
+          sendJson(response, 200, await skillCatalog.search(url.searchParams.get("q") || ""), method); return;
+        }
+        if (pathname === "/workspace/api/skills/catalog-detail" && method === "GET") {
+          sendJson(response, 200, await skillCatalog.detail(url.searchParams.get("ref") || ""), method); return;
+        }
+        if (pathname === "/workspace/api/skills/import" && method === "POST") {
+          sendJson(response, 201, { skill: await skillCatalog.install(actor, await readJsonBody(request), skills) }, method); return;
+        }
+        if (pathname === "/workspace/api/skills/library" && method === "GET") {
+          const records = await skills.library(actor);
+          sendJson(response, 200, { skills: records.map(row => ({ ...row, skillKey: row.key, filePath: row.path,
+            source: "native-library", disabled: !row.enabled, eligible: row.enabled, modelVisible: true,
+          })) }, method); return;
+        }
         if (pathname === "/workspace/api/skills/duplicate" && method === "POST") { sendJson(response,201,{skill:await skills.duplicate(actor,await readJsonBody(request))},method);return; }
         if (pathname === "/workspace/api/skills/remove" && method === "DELETE") { sendJson(response,200,await skills.remove(actor,await readJsonBody(request)),method);return; }
         if (pathname === "/workspace/api/skills/instructions" && method === "GET") {
@@ -1197,7 +1032,7 @@ export function createWorkspaceHttpServer({
           file.stream().on("error", () => response.destroy()).pipe(response); return;
         }
         if (pathname === "/workspace/api/files/import-neura" && method === "POST") {
-          if (!gatewayMediaOrigin) throw new WorkspaceFileError(503, "media_unavailable", "Alshival media is unavailable");
+          if (!mediaOrigin) throw new WorkspaceFileError(503, "media_unavailable", "Alshival media is unavailable");
           const body = await readJsonBody(request);
           if (!body || typeof body.mediaUrl !== "string" || !body.mediaUrl.startsWith(NEURA_MEDIA_PREFIX)
             || typeof body.destination !== "string" || typeof body.name !== "string"
@@ -1210,7 +1045,7 @@ export function createWorkspaceHttpServer({
           response.once("close", disconnected);
           let upstream;
           try {
-            upstream = await gatewayMediaFetch(new URL(upstreamPath, gatewayMediaOrigin), {
+            upstream = await mediaFetch(new URL(upstreamPath, mediaOrigin), {
               method: "GET", redirect: "error",
               signal: AbortSignal.any([controller.signal, AbortSignal.timeout(600_000)]),
             });
@@ -1346,27 +1181,12 @@ export function createWorkspaceHttpServer({
     }
 
     if (pathname === "/status" || pathname === "/healthz") {
-      const [gatewayIsReady, codeServerIsReady, mcp] = await Promise.all([
-        gatewayReady(),
-        codeServerReady(),
-        mcpStatus(),
-      ]);
-      const mcpIsReady = mcp.ready;
-      const ready = gatewayIsReady && codeServerIsReady && mcpIsReady;
-      const providerReady = providerAuthenticated();
-      const body = JSON.stringify({
-        status: ready ? "ready" : "starting",
-        gatewayReady: gatewayIsReady,
-        codeServerReady: codeServerIsReady,
-        mcpReady: mcpIsReady,
-        mcp,
-        openclawVersion,
-        codexVersion: typeof codexVersion === "function" ? codexVersion() : codexVersion,
-        providerAuthenticated: providerReady,
-        credentialSource: credentialSource(),
-        codexAuthenticated: providerReady,
-        openclawModelReady: openclawModelReady(),
-      });
+      const [nativeReady, mcp] = await Promise.all([runtimeReady(), mcpStatus()]);
+      const ready = nativeReady && mcp.ready;
+      const body = JSON.stringify({ status: ready ? "ready" : "starting", runtime: "native", protocol: 1,
+        runtimeReady: nativeReady, mcpReady: mcp.ready, mcp, claudeVersion,
+        codeServerReady: true, editorMode: "on-demand",
+        codexVersion: typeof codexVersion === "function" ? codexVersion() : codexVersion });
       send(
         response,
         pathname === "/healthz" && !ready ? 503 : 200,
@@ -1433,6 +1253,10 @@ export function createWorkspaceHttpServer({
     send(response, 404, "Not found\n", "text/plain; charset=utf-8", method);
   };
   const server = createServer((request, response) => {
+    if (requireSignedRequests && request.url?.startsWith("/workspace")) {
+      try { authorizeWorkspaceHttpRequest(request, workspaceControlToken); }
+      catch { sendJson(response, 401, { error: { message: "Workspace authorization is required" } }, request.method ?? "GET"); return; }
+    }
     const work = () => handleRequest(request, response);
     const tracked = !["GET", "HEAD", "OPTIONS"].includes(request.method ?? "GET") && !request.url?.startsWith("/internal/updates/");
     const completed = tracked ? trackResponseWork(response, work, delta => { activeWrites += delta; }) : work();
@@ -1441,18 +1265,19 @@ export function createWorkspaceHttpServer({
       else response.destroy();
     });
   });
-  const providerRefreshTimer = setInterval(() => {
-    if (updateMaintenance?.gated) return;
-    activeWrites++;
-    void providerDisplay.refreshActive().finally(() => { activeWrites--; });
-  }, 5 * 60_000);
-  providerRefreshTimer.unref();
   // Host ingress closes existing public sockets during the gate. Reject new
   // upgrades here as well, including direct requests on the private bridge.
-  server.prependListener("upgrade", (_request, socket) => { if (updateMaintenance?.gated) socket.destroy(); });
+  server.prependListener("upgrade", (request, socket) => {
+    if (updateMaintenance?.gated) socket.destroy();
+    if (requireSignedRequests && request.url?.startsWith("/workspace")) {
+      try { authenticateWorkspaceRequest(request, workspaceControlToken); }
+      catch { socket.destroy(); }
+    }
+  });
   attachPublicAppWebSocket(server, { workspaceRoot, publicOrigin, gated: () => updateMaintenance?.gated });
   const terminalSockets = attachTerminalWebSocket(server, { manager: terminals, publicOrigin, heartbeatMs: terminalHeartbeatMs, gated: () => updateMaintenance?.gated });
-  const vsCodeSockets = attachVsCodeWebSocketBridge(server, { codeServerOrigin, publicOrigin, gated: () => updateMaintenance?.gated });
+  const vsCodeSockets = attachVsCodeWebSocketBridge(server, { codeServerOrigin, publicOrigin, gated: () => updateMaintenance?.gated,
+    ...(nativeEditors ? { resolveTarget: req => nativeEditors.ensure(req) } : {}) });
   const builderSockets = attachBuilderWebSocket(server, { manager: builder, publicOrigin, gated: () => updateMaintenance?.gated });
   if (updateMaintenance) updateMaintenance.localActivity = () => ({
     terminals: terminals.sessions.size, writes: activeWrites + builder.pendingWrites(), editors: vsCodeSockets.activeCount() + builderSockets.activeCount(),
@@ -1463,7 +1288,6 @@ export function createWorkspaceHttpServer({
   server.close = (callback) => {
     if (!closed) {
       closed = true;
-      clearInterval(providerRefreshTimer);
       fileEvents.close();
       explorer.close();
       terminalSockets.close();

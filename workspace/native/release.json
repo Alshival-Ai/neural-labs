@@ -1,0 +1,21 @@
+{
+  "version": "1.0.0",
+  "protocol": 1,
+  "baseImage": "node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5",
+  "codex": "0.155.1",
+  "claude": "2.1.226",
+  "supercronic": {
+    "version": "0.2.49",
+    "sha256": {
+      "amd64": "a53ae236602c7338aba3fbaff40bda6300eae3b9fedb8261eb06cfe3724430c1",
+      "arm64": "02aa0cb229ba09050cba6638059dadb9eedc2276632ea43d6a57a2f8c1629dd5"
+    }
+  },
+  "codeServer": {
+    "version": "4.133.0",
+    "sha256": {
+      "amd64": "a4e0f8f8c76e7de8e7424289f74e507af4c97bfe104c3e8ee272b8cc7b46c6f1",
+      "arm64": "d999d8b0256e5537f3b62e6c09f624220026e19107a04a876c0cef62d1c71147"
+    }
+  }
+}

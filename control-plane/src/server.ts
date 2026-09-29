@@ -1,3 +1,5 @@
+import { registerNativeRuntime } from "./nativeRuntime.js";
+import { workspaceAssertion } from "./workspaceAssertion.js";
 import { registerProjectTransferRoutes } from "./projectTransferRoutes.js";
 import { registerProjectRoutes } from "./projectRoutes.js";
 import { registerManagedChat } from "./managedChat.js";
@@ -162,19 +164,18 @@ const teamMessageSchema = z.object({
 const teamReadSchema = z.object({ sequence: z.number().int().min(0) });
 const workspaceRuntimeSchema = z.object({
   status: z.enum(["ready", "starting"]),
-  openclawVersion: z.string().min(1).max(64),
+  runtime: z.literal("native"),
+  protocol: z.literal(1),
+  runtimeReady: z.boolean(),
   codexVersion: z.string().min(1).max(64),
-  providerAuthenticated: z.boolean().optional(),
-  credentialSource: z.enum(["environment-api-key", "chatgpt", "stored-credential", "unconfigured"]).optional(),
-  codexAuthenticated: z.boolean(),
-  openclawModelReady: z.boolean(),
+  claudeVersion: z.string().min(1).max(64),
   mcp: z.object({
     ready: z.boolean(),
     mode: z.literal("workspace-local"),
     endpoint: z.string().url(),
     transport: z.literal("streamable-http"),
     agentServerName: z.string().min(1).max(80),
-    agentScope: z.literal("shared-workspace"),
+    agentScope: z.literal("authenticated-execution"),
     publicAccess: z.literal(false),
     providers: z.object({
       googlePlaces: z.boolean(),
@@ -341,7 +342,7 @@ export function createApplication(input: {
   );
   const webauthn = input.webauthn ?? new WebAuthnService();
   const modelPolicies = input.modelPolicies ?? new ModelProviderPolicies(database.pool, config.workspace, workspaceFetch);
-  const updates = input.updates ?? new UpdateService(database.pool, config.updates?.codexAutomatic ?? false);
+  const updates = input.updates ?? new UpdateService(database.pool);
   const notifications = new Notifications(database.pool, authConfiguration, twilio, config, workspaceFetch);
   const app = express();
   const publish = (event: CollaborationEvent) => input.onCollaborationEvent?.(event);
@@ -353,7 +354,7 @@ export function createApplication(input: {
   // Admit and count work before the asynchronous gate lookup so a cutover
   // cannot miss a request already waiting on PostgreSQL. Settings/auth remain
   // available while the workspace is stopped.
-  if (config.updates?.workerToken) app.use(async (request, response, next) => {
+  app.use(async (request, response, next) => {
     const workspaceAuth = request.path.startsWith("/internal/workspace/");
     const mutating = !["GET", "HEAD", "OPTIONS"].includes(request.method)
       && (request.path.startsWith("/api/") || request.path.startsWith("/internal/"))
@@ -555,7 +556,7 @@ export function createApplication(input: {
         endpoint: "http://127.0.0.1:8792/mcp",
         transport: "streamable-http" as const,
         agentServerName: "neural-labs-tools",
-        agentScope: "shared-workspace" as const,
+        agentScope: "authenticated-execution" as const,
         publicAccess: false as const,
         providers: {
           googlePlaces: false,
@@ -585,11 +586,12 @@ export function createApplication(input: {
         persistent: true,
         status: runtime.status,
         publicUrl,
-        openclawVersion: runtime.openclawVersion,
+        runtime: runtime.runtime,
+        protocol: runtime.protocol,
+        runtimeReady: runtime.runtimeReady,
+        claudeVersion: runtime.claudeVersion,
         codexVersion: runtime.codexVersion,
-        codexAuthenticated: runtime.providerAuthenticated ?? runtime.codexAuthenticated,
-        credentialSource: runtime.credentialSource ?? "unconfigured",
-        openclawModelReady: runtime.openclawModelReady,
+
       };
     } catch {
       return {
@@ -598,10 +600,12 @@ export function createApplication(input: {
         persistent: true,
         status: "offline" as const,
         publicUrl,
-        openclawVersion: config.workspace.openclawVersion,
+        runtime: "native",
+        protocol: 1,
+        runtimeReady: false,
+        claudeVersion: config.workspace.claudeVersion,
         codexVersion: config.workspace.codexVersion,
-        codexAuthenticated: false,
-        openclawModelReady: false,
+
       };
     }
   };
@@ -919,6 +923,7 @@ export function createApplication(input: {
     workerToken: config.updates?.workerToken, workspaceToken: config.workspace.controlToken });
   registerProjectTransferRoutes(app, database, config);
   registerProjectRoutes(app, database, config, { active: requireActiveJson, csrf: requireCsrfJson, sameOrigin });
+  registerNativeRuntime(app, database, sessions, config, { sameOrigin, active: requireActiveJson, csrf: requireCsrfJson, fetch: workspaceFetch });
   registerNotificationRoutes(app, notifications, { sameOrigin, active: requireActiveJson, admin: requireAdminJson, csrf: requireCsrfJson, token: config.workspace.controlToken });
   app.get("/api/account/phone", async (request, response) => {
     response.set("Cache-Control", "no-store");
@@ -2448,6 +2453,9 @@ export function createApplication(input: {
     response.setHeader("X-Neural-Labs-User", actor.user.id);
     response.setHeader("X-Neural-Labs-Email", actor.user.email);
     response.setHeader("X-Neural-Labs-Role", actor.user.role);
+    const assertion = workspaceAssertion(actor, config.workspace.controlToken,
+      request.get("X-Neural-Labs-Request-URI"), request.get("X-Neural-Labs-Request-Method"));
+    if (assertion) response.setHeader("X-Neural-Labs-Assertion", assertion);
     response.status(204).end();
   });
 

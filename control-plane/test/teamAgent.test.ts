@@ -53,7 +53,7 @@ describe("Team Chat personal Alshival runner", () => {
       teamAgentUrl: new URL("http://workspace/internal/neura/team-run"),
       controlToken: "workspace-control-token-at-least-thirty-two-characters",
     } } as ControlPlaneConfig;
-    const processor = new TeamAgentProcessor(store, config, vi.fn(), fetchFn, 1);
+    const processor = new TeamAgentProcessor(store, config, vi.fn(), fetchFn);
 
     processor.enqueue({ ...run, terminalContextToken: `nlt_${"a".repeat(43)}` });
     await vi.waitFor(() => expect(finishRun).toHaveBeenCalled());
@@ -63,5 +63,36 @@ describe("Team Chat personal Alshival runner", () => {
     expect(String(requestBody?.prompt)).toContain("chart.png (reports/chart.png · image/png)");
     expect(String(requestBody?.prompt)).toContain("neural_labs_post_channel_message");
     expect(saveRunActivities).toHaveBeenCalledWith(run.id, [{ kind: "plan", title: "Plan updated", state: "done" }]);
+  });
+
+  it("starts independent channels concurrently while preserving each channel's order and cancelling queued work", async () => {
+    const makeRun = (id: string, channelId: string) => ({ id, channelId, requestedBy: "member", capability: `capability-${id}` }) as TeamAgentInvocation;
+    const runs = [makeRun("first", "one"), makeRun("second", "one"), makeRun("two", "two"),
+      makeRun("three", "three"), makeRun("four", "four"), makeRun("cancelled", "one")];
+    const claimRun = vi.fn(async (id: string) => runs.find(run => run.id === id));
+    const finishRun = vi.fn(async (id: string) => ({ ...runs.find(run => run.id === id), status: "completed" }));
+    const store = {
+      claimRun, finishRun, runContext: vi.fn(async () => ({ channel: { name: "Fixture" }, trigger: { id: "trigger", body: "fixture" }, messages: [] })),
+      saveRunActivities: vi.fn(), agentPosted: vi.fn(async () => false), postAgentMessage: vi.fn(),
+    } as unknown as CollaborationStore;
+    const responses = new Map<string, () => void>();
+    const fetchFn = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      await new Promise<void>(resolve => responses.set(body.runId, resolve));
+      return new Response(JSON.stringify({ reply: "Fixture response" }));
+    });
+    const config = { workspace: { teamAgentUrl: new URL("http://workspace/internal/neura/team-run"), controlToken: "fixture" } } as ControlPlaneConfig;
+    const processor = new TeamAgentProcessor(store, config, vi.fn(), fetchFn);
+    for (const run of runs) processor.enqueue(run);
+    processor.enqueue(runs[0]!);
+    await vi.waitFor(() => expect([...responses.keys()]).toEqual(["first", "two", "three", "four"]));
+    processor.cancel("cancelled");
+    responses.get("first")!();
+    await vi.waitFor(() => expect(responses.has("second")).toBe(true));
+    expect(finishRun).toHaveBeenCalledWith("first");
+    expect(claimRun.mock.calls.map(([id]) => id)).toEqual(["first", "two", "three", "four", "second"]);
+    for (const resume of responses.values()) resume();
+    await vi.waitFor(() => expect(finishRun).toHaveBeenCalledTimes(5));
+    expect(fetchFn).toHaveBeenCalledTimes(5);
   });
 });

@@ -40,28 +40,28 @@ export function WorkspacePage() {
     <AuthShell>
       <main className="account-page">
         <header className="account-heading">
-          <div><p className="eyebrow">Shared developer environment</p><h1>Workspace</h1><p>Build together in one persistent OpenClaw environment.</p></div>
+          <div><p className="eyebrow">Shared developer environment</p><h1>Workspace</h1><p>Build together with persistent files, skills, and native AI connections.</p></div>
           <div className="button-row"><a className="button button-secondary" href="/account">Account</a><Button variant="quiet" onClick={() => void logout()}>Log out</Button></div>
         </header>
         {error ? <Notice>{error}</Notice> : null}
         {!workspace ? <LoadingScreen label="Checking workspace" /> : (
           <div className="content-grid">
             <Card className="span-7 stack workspace-hero-card">
-              <div className="card-heading"><div><p className="section-kicker">OpenClaw Gateway</p><h2>Shared agent workspace</h2></div><StatusPill status={workspace.status} /></div>
-              <p>Every approved Neural Labs user works with the same agent, files, automations, and Codex login.</p>
-              {workspace.status === "ready" && workspace.publicUrl ? <a className="button button-primary workspace-open-button" href={workspace.publicUrl}>Launch OpenClaw</a> : <Button variant="primary" onClick={() => void refresh()}>Check again</Button>}
+              <div className="card-heading"><div><p className="section-kicker">Neural Labs runtime</p><h2>Shared agent workspace</h2></div><StatusPill status={workspace.status} /></div>
+              <p>Approved members share workspace files and automations. Choose your personal Codex or Claude connection in Settings.</p>
+              {workspace.status === "ready" && workspace.publicUrl ? <a className="button button-primary workspace-open-button" href={workspace.publicUrl}>Launch workspace</a> : <Button variant="primary" onClick={() => void refresh()}>Check again</Button>}
             </Card>
             <Card className="span-5 stack">
               <div><p className="section-kicker">Runtime</p><h2>Environment details</h2></div>
               <dl className="detail-list">
-                <div><dt>OpenClaw</dt><dd className="code-value">{workspace.openclawVersion}</dd></div>
+                <div><dt>Runtime protocol</dt><dd className="code-value">{workspace.protocol}</dd></div>
                 <div><dt>Codex CLI</dt><dd className="code-value">{workspace.codexVersion}</dd></div>
-                <div><dt>Codex account</dt><dd>{workspace.codexAuthenticated ? "Signed in" : "Admin sign-in required"}</dd></div>
-                <div><dt>Agent model</dt><dd>{workspace.openclawModelReady ? "Ready" : "Provider setup required"}</dd></div>
+                <div><dt>Claude Code</dt><dd className="code-value">{workspace.claudeVersion}</dd></div>
+                <div><dt>Runtime service</dt><dd>{workspace.runtimeReady ? "Ready" : "Starting"}</dd></div>
                 <div><dt>Storage</dt><dd>{workspace.persistent ? "Persistent" : "Ephemeral"}</dd></div>
               </dl>
             </Card>
-            <div className="span-12"><Notice tone="info">This is a trusted collaborative environment. Approved users share files and agent credentials, and commands run with passwordless sudo inside the workspace container.</Notice></div>
+            <div className="span-12"><Notice tone="info">This is a collaborative environment with shared workspace files. AI credentials remain bound to the selected connection; provider processes run inside the workspace container.</Notice></div>
           </div>
         )}
       </main>

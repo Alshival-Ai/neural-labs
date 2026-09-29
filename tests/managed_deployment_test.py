@@ -49,6 +49,21 @@ class ManagedDeploymentTests(unittest.TestCase):
         for header in ("user", "email", "role", "redirect"):
             self.assertIn("$upstream_http_x_neural_labs_" + header, ingress)
 
+    def test_native_runtime_has_no_gateway_or_legacy_mounts(self):
+        compose, descriptor, ingress = render.build(self.fixture(), Path("/etc/neura/fixture"))
+        workspace = compose["services"]["workspace"]
+        self.assertEqual(descriptor["runtime_kind"], "native")
+        self.assertEqual(workspace["ports"], ["127.0.0.1:43003:18790"])
+        self.assertEqual(workspace["cap_add"], [])
+        self.assertTrue(workspace["read_only"])
+        self.assertEqual(workspace["user"], "1000:1000")
+        self.assertIn("apparmor=neural-labs-native-v1", workspace["security_opt"])
+        self.assertNotIn("openclaw", str(compose).lower())
+        self.assertNotIn("18789", str(compose))
+        self.assertNotIn("127.0.0.1:43002;", ingress)
+        self.assertIn("127.0.0.1:43003;", ingress)
+        self.assertTrue(workspace["volumes"][-1].endswith(":ro"))
+
     def test_mutable_images_and_invalid_placement_rejected(self):
         for key, value in [("hostname", "fixture.alshival.cloud; injected"), ("port", 65534), ("memory_mb", 512),
                            ("cpu", 1), ("subnet", "198.51.100.0/28"), ("storage_root", "/"), ("release", "main")]:

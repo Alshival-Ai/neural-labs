@@ -1,23 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AutomationsApp, type AutomationDraft, type AutomationJob } from "./AutomationsApp";
-import { AutomationsGateway, personalAutomationsSnapshot, runPersonalAutomation, type AutomationsSnapshot } from "./automationsGateway";
+import { NativeAutomationsClient, personalAutomationsSnapshot, runPersonalAutomation, type AutomationsSnapshot } from "./automationsApi";
 import { BuilderWorkspace } from "./BuilderWorkspace";
 import {
   builderApi, BuilderDraftConnection, hydrateBuilderDocument, readCustomSkillPackage,
   type BuilderDraft,
 } from "./builderApi";
-import { NeuraGateway } from "./openclaw";
+import { NativeClient } from "./nativeClient";
 import { SkillsApp, type ClawHubResult, type SkillRecord, type SkillsSection } from "./SkillsApp";
-import { duplicateSavedSkill, deleteSavedSkill, listCustomSkills, readSkillInstructions, setCustomSkillScope, type CustomSkill } from "./skillsApi";
+import { duplicateSavedSkill, deleteSavedSkill, importSkillPackage, listCustomSkills, readSkillInstructions, setCustomSkillScope, type CustomSkill } from "./skillsApi";
 import { mapSkillSearch, mapSkillsStatus, mergeSkillDetail, mergeSkillInstructions, type SkillsSnapshot } from "./skillsGateway";
 import { teamChatApi, type TeamDirectoryUser } from "./teamChat";
 import type { ConnectionState } from "./types";
 
 type WorkspaceUser = { id: string; displayName: string; role: "admin" | "user" };
 type Props = {
-  reader: NeuraGateway;
-  administrator?: AutomationsGateway;
+  reader: NativeClient;
+  administrator?: NativeAutomationsClient;
   canManage: boolean;
   currentUser?: WorkspaceUser;
   currentUserName?: string;
@@ -38,8 +38,8 @@ function customFallback(skill: CustomSkill, index: number): SkillRecord {
     emoji: skill.scope === "team" ? "◎" : "✦", accent: accents[index % accents.length],
     source: skill.scope === "team" ? "workspace" : "personal", scope: skill.scope,
     owner: skill.ownedByCurrentUser ? "You" : skill.ownerDisplayName, path: skill.path,
-    enabled: true, eligibility: "eligible",
-    eligibilityNote: skill.scope === "team" ? "Available to everyone in the workspace." : "Ready in your Alshival skill picker.",
+    enabled: skill.enabled !== false, eligibility: skill.enabled === false ? "disabled" : "eligible",
+    eligibilityNote: skill.enabled === false ? "This skill is disabled." : skill.scope === "team" ? "Available to everyone in the workspace." : "Ready in your Neura skill picker.",
     userInvocable: true, modelInvocable: skill.scope === "team", command: `$${skill.key}`,
     writable: skill.editable, custom: true, editable: skill.editable,
     ownedByCurrentUser: skill.ownedByCurrentUser, shared: skill.scope === "team",
@@ -56,7 +56,7 @@ export function mergeCustomSkills(gatewaySkills: SkillRecord[], customSkills: Cu
     if (!custom) return skill;
     customByKey.delete(skill.key);
     return {
-      ...skill, name: custom.name, description: custom.description,
+      ...skill, ...customFallback(custom, 0), name: custom.name, description: custom.description,
       source: custom.scope === "team" ? "workspace" as const : "personal" as const, scope: custom.scope,
       owner: custom.ownedByCurrentUser ? "You" : custom.ownerDisplayName, path: custom.path,
       command: `$${custom.key}`, modelInvocable: custom.scope === "team", writable: custom.editable,
@@ -146,12 +146,12 @@ export function SkillsLiveApp({ reader, administrator, canManage, currentUser, c
     if (refreshInFlight.current) return refreshInFlight.current;
     const request = (async () => {
       const query = hubQuery.current.trim();
-      const [status, curator, custom, search, draftResult, directoryResult] = await Promise.all([
-        reader.readSkillsStatus(), reader.readSkillsCuratorStatus().catch(() => undefined), listCustomSkills(),
+      const [status, custom, search, draftResult, directoryResult] = await Promise.all([
+        reader.readSkillsStatus(), listCustomSkills(),
         query ? reader.searchSkills(query).catch(() => undefined) : Promise.resolve(undefined),
         builderApi.list(), teamChatApi.directory().catch(() => ({ users: [] })),
       ]);
-      const next: SkillsSnapshot = { skills: mergeCustomSkills(mapSkillsStatus(status, curator, undefined), custom), proposals: [], clawHubResults: mapSkillSearch(search) };
+      const next: SkillsSnapshot = { skills: mergeCustomSkills(mapSkillsStatus(status, undefined, undefined), custom), proposals: [], clawHubResults: mapSkillSearch(search) };
       setSnapshot((current) => ({
         ...next,
         skills: next.skills.map((skill) => {
@@ -167,8 +167,9 @@ export function SkillsLiveApp({ reader, administrator, canManage, currentUser, c
         }),
       }));
       setDrafts(draftResult.drafts); setDirectory(directoryResult.users); setError(undefined);
+      connected.current = true; setConnection("connected");
       void refreshAutomations().catch(() => undefined);
-    })().catch((reason: unknown) => { const message = reason instanceof Error ? reason.message : "Skills could not be loaded."; setError(message); throw reason; })
+    })().catch((reason: unknown) => { const message = reason instanceof Error ? reason.message : "Skills could not be loaded."; connected.current = false; setConnection("error"); setError(message); throw reason; })
       .finally(() => { setLoading(false); refreshInFlight.current = undefined; });
     refreshInFlight.current = request;
     return request;
@@ -176,11 +177,12 @@ export function SkillsLiveApp({ reader, administrator, canManage, currentUser, c
 
   useEffect(() => {
     let eventTimer: number | undefined;
-    const removeStatus = reader.onStatus((state, reason) => { connected.current = state === "connected"; setConnection(state); if (state === "connected") void refresh().catch(() => undefined); if (state === "error" && reason) { setLoading(false); setError(reason); } });
+    // Library and scheduler reads require workspace membership, not an AI
+    // subscription. Missing sign-in must not hide retained jobs or drafts.
+    void refresh().catch(() => undefined);
     const removeEvents = reader.onEvent((event) => { const name = event.event.toLowerCase(); if (!name.includes("skill") && !name.includes("cron")) return; window.clearTimeout(eventTimer); eventTimer = window.setTimeout(() => void refresh().catch(() => undefined), 250); });
     const interval = window.setInterval(() => { if (connected.current) void refresh().catch(() => undefined); }, 30_000);
-    reader.start();
-    return () => { removeStatus(); removeEvents(); window.clearTimeout(eventTimer); window.clearInterval(interval); };
+    return () => { removeEvents(); window.clearTimeout(eventTimer); window.clearInterval(interval); };
   }, [reader, refresh]);
 
   useEffect(() => {
@@ -208,21 +210,21 @@ export function SkillsLiveApp({ reader, administrator, canManage, currentUser, c
   }, [notify, openDraft]);
 
   const editSkill = async (skill: SkillRecord, duplicate = false) => {
-    let skillSource: string | undefined; let openAiSource: string | undefined; let packageFiles: Array<{ path: string; kind: "text" | "asset"; content?: string; data?: string }> | undefined;
+    let skillSource: string | undefined; let openAiSource: string | undefined; let packageFiles: Array<{ path: string; kind: "text" | "asset"; content?: string; data?: string; executable?: boolean }> | undefined;
     if (skill.custom) {
-      const pkg = await readCustomSkillPackage(skill.key).catch(() => undefined);
+      const pkg = await readCustomSkillPackage(skill.key);
       skillSource = pkg?.files.find((file) => file.path === "SKILL.md")?.content;
       openAiSource = pkg?.files.find((file) => file.path === "agents/openai.yaml")?.content;
       packageFiles = pkg?.files;
     }
-    const supportingFiles = packageFiles?.filter((file) => file.kind === "text" && (!duplicate || !["SKILL.md", "agents/openai.yaml"].includes(file.path)));
-    const created = await createDraft("skill", { name: duplicate ? `${skill.name} copy` : skill.name, key: duplicate ? undefined : skill.key, description: skill.description, scope: duplicate ? "personal" : skill.scope, skillSource: duplicate ? undefined : skillSource, openAiSource: duplicate ? undefined : openAiSource, instructions: skill.instructions, files: supportingFiles }, duplicate ? undefined : skill.key, duplicate ? undefined : skill.revisions[0]?.id);
+    const supportingFiles = packageFiles?.filter((file) => !duplicate || !["SKILL.md", "agents/openai.yaml"].includes(file.path));
+    const created = await createDraft("skill", { name: duplicate ? `${skill.name} copy` : skill.name, key: duplicate ? undefined : skill.key, description: skill.description, scope: duplicate ? "personal" : skill.scope, skillSource: duplicate ? undefined : skillSource, openAiSource: duplicate ? undefined : openAiSource, instructions: skill.instructions, files: supportingFiles?.map(({ data: _data, ...file }) => file) }, duplicate ? undefined : skill.key, duplicate ? undefined : skill.revisions[0]?.id);
     if (created) {
       for (const asset of packageFiles?.filter((file) => file.kind === "asset" && "data" in file && typeof file.data === "string") ?? []) {
         try {
           const binary = atob(asset.data!);
           const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-          await builderApi.saveAsset(created.id, asset.path, new File([bytes], asset.path.split("/").at(-1) ?? "asset", { type: "application/octet-stream" }));
+          await builderApi.saveAsset(created.id, asset.path, new File([bytes], asset.path.split("/").at(-1) ?? "asset", { type: "application/octet-stream" }), asset.executable);
         } catch (reason) {
           notify?.(reason instanceof Error ? reason.message : `${asset.path} could not be copied into the draft.`);
         }
@@ -238,7 +240,7 @@ export function SkillsLiveApp({ reader, administrator, canManage, currentUser, c
   }, [loadHubDetail, reader]);
 
   const share = async (skill: SkillRecord, scope: "personal" | "team") => { await setCustomSkillScope(skill.key, scope); await refresh(); notify?.(`${skill.name} is now ${scope === "team" ? "a Team Skill" : "personal"}.`); };
-  const install = async (result: ClawHubResult) => { if (!canManage || !administrator || adminConnection !== "connected") throw new Error("An administrator must install OpenClaw skills for the team."); await administrator.installSkill(result); await refresh(); notify?.(`${result.name} was installed for the team.`); };
+  const install = async (result: ClawHubResult) => { if (!canManage) throw new Error("An administrator must import skills for the team."); await importSkillPackage(result.installRef, result.version); await refresh(); notify?.(`${result.name} was imported for the team.`); };
   const publishAutomation = async (draft: AutomationDraft, targetKey?: string) => {
     if (!administrator || adminConnection !== "connected") throw new Error("The administrator scheduler connection is not ready.");
     const existing = targetKey ? automations.jobs.find((job) => job.id === targetKey) : undefined;
@@ -247,7 +249,7 @@ export function SkillsLiveApp({ reader, administrator, canManage, currentUser, c
 
   if (activeDraft && builderConnection) return <BuilderWorkspace draft={activeDraft} connection={builderConnection} currentUser={user} directory={directory} skills={snapshot.skills} gateway={reader} onBack={() => { builderConnection.stop(); activeConnection.current = undefined; setBuilderConnection(undefined); setActiveDraft(undefined); void refresh().catch(() => undefined); }} onDraftChanged={(next) => { setActiveDraft(next); setDrafts((current) => current.map((item) => item.id === next.id ? next : item)); }} onPublished={refresh} onPublishAutomation={canManage ? publishAutomation : undefined} notify={notify} />;
 
-  return <SkillsApp currentUserId={user.id} skills={snapshot.skills} clawHubResults={snapshot.clawHubResults} drafts={drafts} initialSection={initialSection} sectionRequestId={sectionRequestId} workspaceName={workspaceName} currentUserName={user.displayName} gatewayOnline={connection === "connected"} canInstallFromOpenClaw={canManage && adminConnection === "connected"} loading={loading || connection === "connecting"} error={error} onRefresh={refresh} onSelectSkill={loadSkillInstructions} onSelectHub={loadHubDetail} onDiscoverSearch={search} onInvoke={(skill) => onComposeInNeura?.(skill.command ?? `$${skill.key}`)} onShare={share} onInstall={canManage ? install : undefined} onCreateSkill={() => void createDraft("skill")} onCreateAutomation={canManage ? () => void createDraft("automation") : undefined} onOpenDraft={(draft) => void openDraft(draft)} onEditSkill={(skill) => void editSkill(skill)} onDuplicateSkill={async(skill)=>{const result=await duplicateSavedSkill(skill.path);await refresh();return customFallback(result.skill,0);}} canDeleteSkill={skill=>Boolean(skill.ownedByCurrentUser || (canManage && ["workspace","project"].includes(skill.source) && skill.scope!=="personal"))} onDeleteSkill={async(skill)=>{await deleteSavedSkill(skill.path);await refresh();}} onDuplicateDraft={async(draft)=>{const result=await builderApi.duplicate(draft.id);await refresh();await openDraft(result.draft);}} onDeleteDraft={async(draft)=>{await builderApi.discard(draft.id);await refresh();}} automationsContent={<AutomationsApp embedded currentUserId={user.id} jobs={automations.jobs} workspaceName={workspaceName} schedulerOnline={automations.schedulerOnline} loading={connection !== "connected"} onRefresh={refreshAutomations} onCreateDraft={canManage ? () => void createDraft("automation") : undefined} onEditDraft={canManage ? (job) => void createDraft("automation", automationInitial(job), job.id, job.configRevision) : undefined} onToggle={canManage && administrator ? async (job, enabled) => { await administrator.toggle(job, enabled); await refreshAutomations(); } : undefined} onRun={async (job, mode) => { await runPersonalAutomation(job, mode); await refreshAutomations(); }} onDuplicate={canManage && administrator ? async(job)=>{const copy=await administrator.duplicate(job);await refreshAutomations();return copy;} : undefined} onDelete={canManage && administrator ? async (job) => { await administrator.remove(job); await refreshAutomations(); } : undefined} />} />;
+  return <SkillsApp currentUserId={user.id} skills={snapshot.skills} clawHubResults={snapshot.clawHubResults} drafts={drafts} initialSection={initialSection} sectionRequestId={sectionRequestId} workspaceName={workspaceName} currentUserName={user.displayName} runtimeOnline={connection === "connected"} canImportSkills={canManage} loading={loading || connection === "connecting"} error={error} onRefresh={refresh} onSelectSkill={loadSkillInstructions} onSelectHub={loadHubDetail} onDiscoverSearch={search} onInvoke={(skill) => onComposeInNeura?.(skill.command ?? `$${skill.key}`)} onShare={share} onInstall={canManage ? install : undefined} onCreateSkill={() => void createDraft("skill")} onCreateAutomation={canManage ? () => void createDraft("automation") : undefined} onOpenDraft={(draft) => void openDraft(draft)} onEditSkill={(skill) => void editSkill(skill)} onDuplicateSkill={async(skill)=>{const result=await duplicateSavedSkill(skill.path);await refresh();return customFallback(result.skill,0);}} canDeleteSkill={skill=>Boolean(skill.ownedByCurrentUser || (canManage && ["workspace","project"].includes(skill.source) && skill.scope!=="personal"))} onDeleteSkill={async(skill)=>{await deleteSavedSkill(skill.path);await refresh();}} onDuplicateDraft={async(draft)=>{const result=await builderApi.duplicate(draft.id);await refresh();await openDraft(result.draft);}} onDeleteDraft={async(draft)=>{await builderApi.discard(draft.id);await refresh();}} automationsContent={<AutomationsApp embedded currentUserId={user.id} jobs={automations.jobs} workspaceName={workspaceName} schedulerOnline={automations.schedulerOnline} loading={loading || connection === "connecting"} error={error} onRefresh={refreshAutomations} onCreateDraft={canManage ? () => void createDraft("automation") : undefined} onEditDraft={canManage ? (job) => void createDraft("automation", automationInitial(job), job.id, job.configRevision) : undefined} onToggle={canManage && administrator ? async (job, enabled) => { await administrator.toggle(job, enabled); await refreshAutomations(); } : undefined} onRun={async (job, mode) => { await runPersonalAutomation(job, mode); await refreshAutomations(); }} onDuplicate={canManage && administrator ? async(job)=>{const copy=await administrator.duplicate(job);await refreshAutomations();return copy;} : undefined} onDelete={canManage && administrator ? async (job) => { await administrator.remove(job); await refreshAutomations(); } : undefined} />} />;
 }
 
 function presenceColor(value: string) {

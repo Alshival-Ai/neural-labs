@@ -173,10 +173,10 @@ validate_port() {
 }
 
 validate_deployment_config() {
-  local origin hostname bind_address landing_port control_port workspace_port workspace_desktop_port environment_mode
+  local origin hostname bind_address landing_port control_port workspace_desktop_port environment_mode
   local auto_setup initial_admin local_enabled microsoft_enabled mcp_enabled tenant_id client_id
-  local client_secret certificate_base64 workspace_cpus workspace_memory workspace_max_upload_bytes openclaw_image
-  local openclaw_version codex_version workspace_subnet workspace_proxy_ip
+  local client_secret certificate_base64 workspace_cpus workspace_memory workspace_max_upload_bytes
+  local workspace_subnet workspace_proxy_ip
   local turn_image turn_host turn_external_ip turn_relay_ip turn_port turn_min_port turn_max_port turn_urls
   [[ -f "${compose_environment}" && ! -L "${compose_environment}" ]] ||
     die "the root .env is missing; run bin/neural-labs init"
@@ -189,7 +189,6 @@ validate_deployment_config() {
   bind_address="$(env_value NEURAL_LABS_BIND_ADDRESS || true)"
   landing_port="$(env_value LANDING_PORT || true)"
   control_port="$(env_value CONTROL_PLANE_PORT || true)"
-  workspace_port="$(env_value WORKSPACE_PORT || true)"
   workspace_desktop_port="$(env_value WORKSPACE_DESKTOP_PORT || printf '4181')"
   auto_setup="$(env_value NEURAL_LABS_AUTO_SETUP || true)"
   initial_admin="$(env_value NEURAL_LABS_INITIAL_ADMIN_EMAIL || true)"
@@ -207,33 +206,21 @@ validate_deployment_config() {
     die "NEURAL_LABS_BIND_ADDRESS must remain 127.0.0.1"
   validate_port LANDING_PORT "${landing_port}"
   validate_port CONTROL_PLANE_PORT "${control_port}"
-  validate_port WORKSPACE_PORT "${workspace_port}"
   validate_port WORKSPACE_DESKTOP_PORT "${workspace_desktop_port}"
-  [[ "${landing_port}" != "${control_port}" && "${landing_port}" != "${workspace_port}" && "${landing_port}" != "${workspace_desktop_port}" &&
-     "${control_port}" != "${workspace_port}" && "${control_port}" != "${workspace_desktop_port}" &&
-     "${workspace_port}" != "${workspace_desktop_port}" ]] ||
-    die "all published service ports must be distinct"
+  [[ "${landing_port}" != "${control_port}" && "${landing_port}" != "${workspace_desktop_port}" &&
+     "${control_port}" != "${workspace_desktop_port}" ]] || die "all published service ports must be distinct"
 
   workspace_cpus="$(env_value NEURAL_LABS_WORKSPACE_CPUS || true)"
   workspace_memory="$(env_value NEURAL_LABS_WORKSPACE_MEMORY || true)"
   workspace_max_upload_bytes="$(env_value NEURAL_LABS_WORKSPACE_MAX_UPLOAD_BYTES || printf '2147483648')"
-  openclaw_image="$(env_value NEURAL_LABS_OPENCLAW_IMAGE || true)"
-  openclaw_version="$(env_value NEURAL_LABS_OPENCLAW_VERSION || true)"
-  codex_version="$(env_value NEURAL_LABS_CODEX_VERSION || true)"
   workspace_subnet="$(env_value NEURAL_LABS_WORKSPACE_SUBNET || true)"
   workspace_proxy_ip="$(env_value NEURAL_LABS_WORKSPACE_PROXY_IP || true)"
   [[ "${workspace_cpus}" =~ ^[1-9][0-9]*([.][0-9]+)?$ ]] ||
     die "NEURAL_LABS_WORKSPACE_CPUS must be a positive CPU count"
   [[ "${workspace_memory}" =~ ^[1-9][0-9]*([kKmMgG])?$ ]] ||
-    die "NEURAL_LABS_WORKSPACE_MEMORY must be a positive Compose memory value such as 16g"
+    die "NEURAL_LABS_WORKSPACE_MEMORY must be a positive Compose memory value such as 6g"
   [[ "${workspace_max_upload_bytes}" =~ ^[1-9][0-9]*$ ]] ||
     die "NEURAL_LABS_WORKSPACE_MAX_UPLOAD_BYTES must be a positive byte count"
-  [[ "${openclaw_image}" =~ ^ghcr\.io/openclaw/openclaw:[A-Za-z0-9._-]+@sha256:[a-f0-9]{64}$ ]] ||
-    die "NEURAL_LABS_OPENCLAW_IMAGE must be an official version tag pinned by sha256 digest"
-  [[ "${openclaw_version}" =~ ^[0-9]{4}\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]] ||
-    die "NEURAL_LABS_OPENCLAW_VERSION must be an exact release version"
-  [[ "${codex_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]] ||
-    die "NEURAL_LABS_CODEX_VERSION must be an exact release version"
   [[ "${workspace_subnet}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$ ]] ||
     die "NEURAL_LABS_WORKSPACE_SUBNET must be an IPv4 CIDR"
   [[ "${workspace_proxy_ip}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
@@ -353,7 +340,7 @@ command_up() {
   require_docker
   require_command node
   validate_deployment_config
-  node "${repository_root}/bin/openclaw-release.mjs" check --env "${compose_environment}"
+  node "${repository_root}/bin/native-release.mjs" check --env "${compose_environment}"
   note "Building and starting the Neural Labs cluster"
   compose up -d --build --remove-orphans
   compose ps
@@ -401,13 +388,12 @@ wait_for_health() {
 }
 
 command_doctor() {
-  local landing_port control_port workspace_port workspace_desktop_port failure=0 running_services
+  local landing_port control_port workspace_desktop_port failure=0 running_services
   require_command curl
   require_docker
   validate_deployment_config
   landing_port="$(env_value LANDING_PORT)"
   control_port="$(env_value CONTROL_PLANE_PORT)"
-  workspace_port="$(env_value WORKSPACE_PORT)"
   workspace_desktop_port="$(env_value WORKSPACE_DESKTOP_PORT || printf '4181')"
 
   note "Compose services"
@@ -423,12 +409,11 @@ command_doctor() {
   note "Loopback health"
   health_check landing "http://127.0.0.1:${landing_port}/healthz" || failure=1
   health_check control-plane "http://127.0.0.1:${control_port}/readyz" || failure=1
-  health_check workspace-gateway "http://127.0.0.1:${workspace_port}/healthz" || failure=1
   health_check workspace-desktop "http://127.0.0.1:${workspace_desktop_port}/healthz" || failure=1
-  if compose exec -T workspace node -e "fetch('http://127.0.0.1:8792/healthz').then(async r=>{const j=await r.json();if(!r.ok||j.status!=='ok'||!j.googleConfigured||!j.klipyConfigured||!j.pexelsConfigured)process.exit(1)}).catch(()=>process.exit(1))"; then
-    echo "ok    workspace-mcp (loopback)"
+  if compose exec -T workspace node -e "fetch('http://127.0.0.1:18790/status').then(async r=>{const j=await r.json();if(!r.ok||j.runtime!=='native'||j.protocol!==1||!j.runtimeReady||!j.mcpReady)process.exit(1)}).catch(()=>process.exit(1))"; then
+    echo "ok    native runtime and authenticated workspace tools"
   else
-    echo "fail  workspace MCP or provider configuration is not healthy" >&2
+    echo "fail  native runtime or tool service is not healthy" >&2
     failure=1
   fi
 
@@ -439,10 +424,6 @@ command_doctor() {
   fi
   if compose port control-plane 4174 | grep -qv '^127\.0\.0\.1:'; then
     echo "fail  control-plane is not bound exclusively to IPv4 loopback" >&2
-    failure=1
-  fi
-  if compose port workspace 18789 | grep -qv '^127\.0\.0\.1:'; then
-    echo "fail  workspace Gateway is not bound exclusively to IPv4 loopback" >&2
     failure=1
   fi
   if compose port workspace 18790 | grep -qv '^127\.0\.0\.1:'; then
@@ -545,15 +526,15 @@ command_workspace() {
     release-check)
       require_command node
       if [[ -f "${compose_environment}" ]]; then
-        node "${repository_root}/bin/openclaw-release.mjs" check --env "${compose_environment}"
+        node "${repository_root}/bin/native-release.mjs" check --env "${compose_environment}"
       else
-        node "${repository_root}/bin/openclaw-release.mjs" check
+        node "${repository_root}/bin/native-release.mjs" check
       fi
       return
       ;;
     check-update)
       require_command node
-      node "${repository_root}/bin/openclaw-release.mjs" inspect
+      node "${repository_root}/bin/native-release.mjs" inspect
       return
       ;;
   esac
@@ -562,11 +543,9 @@ command_workspace() {
   case "${subcommand}" in
     status)
       compose ps workspace
-      compose exec -T workspace openclaw --version
       compose exec -T workspace codex --version
-      if ! compose exec -T workspace openclaw models auth list --provider openai --json; then
-        echo "OpenClaw provider status could not be read."
-      fi
+      compose exec -T workspace claude --version
+      compose exec -T workspace node -e "fetch('http://127.0.0.1:18790/status').then(r=>r.json()).then(v=>console.log(JSON.stringify(v)))"
       ;;
     logs)
       compose logs --tail=200 --follow workspace
@@ -574,14 +553,8 @@ command_workspace() {
     shell)
       compose exec workspace bash -l
       ;;
-    codex-login)
-      compose exec workspace codex login --device-auth
-      ;;
-    provider-login)
-      compose exec workspace openclaw models auth login --provider openai --device-code --set-default
-      ;;
-    openclaw-configure)
-      compose exec workspace openclaw configure
+    codex-login|claude-login|provider-login)
+      printf 'Open %s/workspace and choose Settings → Model Provider. Select the account, then Sign in in Terminal.\n' "$(env_value NEURAL_LABS_PUBLIC_ORIGIN)"
       ;;
     update)
       command_workspace_update
@@ -591,17 +564,14 @@ command_workspace() {
 Usage: bin/neural-labs workspace <command>
 
 Commands:
-  status       Show service, version, and Codex authentication status
-  logs         Follow workspace and OpenClaw logs
-  shell        Open a login shell as the shared workspace user
-  codex-login  Authenticate the shared Codex installation with device code
-  provider-login
-               Connect OpenClaw to a ChatGPT/Codex subscription with device code
-  openclaw-configure
-               Configure OpenClaw model and channel providers interactively
+  status       Show native service and provider executable versions
+  logs         Follow native workspace logs
+  shell        Open an operator maintenance shell
+  provider-login (also codex-login or claude-login)
+               Show the owner-selected native account sign-in path
   release-check
                Check reviewed pins and deployment overrides without Docker
-  check-update Discover upstream versions without changing any pins or services
+  check-update Show reviewed native component pins
   update       Check pins, build, back up, and replace only the workspace
 EOF
       ;;
@@ -614,7 +584,7 @@ command_workspace_update() {
   require_command curl
   require_command node
   validate_deployment_config
-  node "${repository_root}/bin/openclaw-release.mjs" check --env "${compose_environment}"
+  node "${repository_root}/bin/native-release.mjs" check --env "${compose_environment}"
   # Capture the running image, not whichever image a mutable build tag names.
   container_id="$(compose ps -q workspace)"
   [[ -n "${container_id}" ]] || die "workspace update requires an existing workspace; use up for a new installation"
@@ -645,7 +615,7 @@ command_workspace_update() {
       esac
     done >>"${record_directory}/rollback-images.yaml"
   chmod 0600 "${record_directory}/rollback-images.yaml"
-  cp -- "${repository_root}/workspace/openclaw-release.json" "${record_directory}/release.json"
+  cp -- "${repository_root}/workspace/native/release.json" "${record_directory}/release.json"
   printf '%s\n' "${last_backup_directory}" >"${record_directory}/backup-path.txt"
   note "Previous image recorded in ${record_directory}/rollback-images.yaml"
   echo "Image rollback alone is not a database downgrade. Review the release migration notes before restoring state."
@@ -663,7 +633,7 @@ command_update() {
   require_docker
   require_command node
   validate_deployment_config
-  node "${repository_root}/bin/openclaw-release.mjs" check --env "${compose_environment}"
+  node "${repository_root}/bin/native-release.mjs" check --env "${compose_environment}"
   note "Building candidates before interrupting running services"
   compose build
   note "Creating a pre-update backup"

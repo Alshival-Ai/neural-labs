@@ -490,4 +490,59 @@ export const migrations: Migration[] = [
     );
     CREATE TABLE project_archive (key text PRIMARY KEY,payload jsonb NOT NULL,digest text NOT NULL);`,
   },
+  {
+    version: 17,
+    sql: `CREATE TABLE native_connections (
+      id uuid PRIMARY KEY, scope text NOT NULL CHECK(scope IN ('personal','shared','team','background')),
+      user_id uuid REFERENCES users(id), provider text NOT NULL CHECK(provider IN ('codex','claude')),
+      method text NOT NULL CHECK(method IN ('subscription','api-key')),
+      label text NOT NULL, enabled boolean NOT NULL DEFAULT true, generation integer NOT NULL DEFAULT 1,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      CHECK((scope='personal') = (user_id IS NOT NULL))
+    );
+    CREATE UNIQUE INDEX native_connection_owner ON native_connections(scope,COALESCE(user_id::text,''),provider,method);
+    CREATE TABLE native_execution_leases (
+      id uuid PRIMARY KEY, actor_id uuid NOT NULL REFERENCES users(id),
+      session_hash text NOT NULL REFERENCES sessions(token_hash) ON DELETE CASCADE,
+      connection_id uuid NOT NULL REFERENCES native_connections(id), generation integer NOT NULL,
+      model text NOT NULL, purpose text NOT NULL, expires_at timestamptz NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX native_lease_expiry ON native_execution_leases(expires_at);`,
+  },
+  {
+    version: 18,
+    sql: `
+      DO $$ BEGIN
+        IF EXISTS (SELECT 1 FROM update_runtime WHERE active_job IS NOT NULL)
+          OR (EXISTS (SELECT 1 FROM update_runtime WHERE gate) AND NOT COALESCE((
+            SELECT action='updates.native_managed_operator_started'
+              AND metadata->>'release' ~ '^[a-f0-9]{40}$'
+              AND metadata->>'workspace' ~ '^[a-f0-9-]{36}$'
+              AND metadata->>'runtime' ~ '^[a-f0-9-]{36}$'
+            FROM audit_log WHERE action LIKE 'updates.%' ORDER BY id DESC LIMIT 1
+          ),false)) THEN
+          RAISE EXCEPTION 'Finish the active workspace update or recovery before native migration';
+        END IF;
+      END $$;
+      INSERT INTO audit_log(action,metadata)
+        SELECT 'updates.native_policy_migration', jsonb_build_object('revision',revision,'policy',policy)
+        FROM update_policy;
+      -- Keep the original policy readable by the retained pre-cutover control
+      -- plane. Native preferences have their own table; rollback never rewinds
+      -- the database or overwrites accepted notification/subscription records.
+      CREATE TABLE native_update_policy (
+        singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),
+        revision bigint NOT NULL DEFAULT 1, policy jsonb NOT NULL
+      );
+      INSERT INTO native_update_policy(singleton,revision,policy)
+        SELECT singleton,revision,(policy - 'openclawAutomatic' - 'codexAutomatic') ||
+          jsonb_build_object('runtimeAutomatic',COALESCE(policy->'openclawAutomatic','false'::jsonb))
+        FROM update_policy;
+      INSERT INTO audit_log(action,metadata)
+        SELECT 'updates.retained_legacy_runtime', jsonb_build_object('available',available,'installed',installed,'codex',codex)
+        FROM update_runtime WHERE available IS NOT NULL OR installed IS NOT NULL OR codex IS NOT NULL;
+      UPDATE update_runtime SET available=NULL,installed=NULL,codex=NULL,heartbeat=NULL,checked_at=NULL;
+    `,
+  },
 ];

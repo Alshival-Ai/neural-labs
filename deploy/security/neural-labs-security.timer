@@ -1,0 +1,11 @@
+[Unit]
+Description=Verify Neural Labs policy after AppArmor reloads
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=30s
+AccuracySec=5s
+Unit=neural-labs-security.service
+
+[Install]
+WantedBy=timers.target

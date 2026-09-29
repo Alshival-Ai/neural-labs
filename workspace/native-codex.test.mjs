@@ -54,6 +54,14 @@ test("resume retains the native session and rejects events for another session",
   assert.equal(rpc.calls[1].method, "thread/resume");
   assert.equal(events.length, 0);
 });
+test("Codex receives explicit native skill inputs and the selected reasoning effort", async () => {
+  const rpc = new FakeRpc(rpc => rpc.complete());
+  const input = [{ type: "text", text: "$fixture inspect" }, { type: "skill", name: "fixture", path: "/opt/neural-labs/skills/fixture/SKILL.md" }];
+  assert.equal((await runCodexTurn(context(rpc, { input, effort: "high" }))).status, "succeeded");
+  const request = rpc.calls.find(row => row.method === "turn/start").params;
+  assert.deepEqual(request.input, input); assert.equal(request.effort, "high");
+  await assert.rejects(runCodexTurn(context(null, { input: [{ ...input[1], path: "/other-owner/SKILL.md" }] })), /input/);
+});
 
 test("approval is a scoped server request and lease is checked again after user input", async () => {
   let leased = true;

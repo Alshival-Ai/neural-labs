@@ -1,0 +1,101 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { NativeState } from "./native/state.mjs";
+import { NativeJobs } from "./native/jobs.mjs";
+import { NativeMaintenance, initializeNativeInstallation, nativePreservationReady } from "./native/maintenance.mjs";
+
+const grant = { actor: "admin", actorRole: "admin", model: "fixture", binding: { provider: "codex", owner: "account", generation: 1, method: "subscription" }, policy: { sandbox: "workspace-write", approval: "on-request" } };
+const input = { id: "fixture-job", name: "Fixture", enabled: true, payload: { kind: "agentTurn", message: "fixture" }, schedule: { kind: "every", everyMs: 60000 } };
+test("fresh scheduling starts once and a probation candidate preserves its gate until activation", async t => {
+  const state = new NativeState(":memory:"); t.after(() => state.close());
+  assert.equal(initializeNativeInstallation(state), "fresh");
+  assert.equal(state.metadata("scheduling"), "enabled");
+  const runtime = { state, turns: { gated: true }, scheduler: { active: new Map(), closed: false }, accounts: {}, triggers: { refresh: async () => {} } };
+  const readiness = async () => nativePreservationReady(state);
+  const candidate = new NativeMaintenance({ runtime, probation: true, readiness });
+  await candidate.pause();
+  assert.equal(state.metadata("scheduling"), "disabled");
+  assert.equal(initializeNativeInstallation(state), "fresh");
+  assert.equal(state.metadata("scheduling"), "disabled", "Restart must not override the maintenance ledger");
+  await assert.rejects(candidate.resume(), /readiness/);
+  const selected = new NativeMaintenance({ runtime, probation: false, readiness });
+  await selected.resume();
+  assert.equal(state.metadata("scheduling"), "enabled");
+  state.setMetadata("scheduling", "disabled");
+  initializeNativeInstallation(state);
+  assert.equal(state.metadata("scheduling"), "disabled", "Saved disable is retained on restart");
+});
+test("legacy and unverified native imports never inherit fresh installation activation", async t => {
+  const state = new NativeState(":memory:"); t.after(() => state.close());
+  assert.equal(initializeNativeInstallation(state, { legacyState: true }), "unverified");
+  assert.equal(state.metadata("scheduling"), "disabled");
+  state.db.prepare("INSERT INTO migrations VALUES(?,?,?,'copying','{}')").run("a".repeat(64), "workspace", "{}");
+  assert.equal(initializeNativeInstallation(state), "unverified");
+  assert.equal(nativePreservationReady(state), false);
+  state.setMetadata("activation", "verified");
+  assert.equal(nativePreservationReady(state), false, "An incomplete preservation journal remains gated");
+  state.db.prepare("UPDATE migrations SET phase='verified'").run();
+  assert.equal(nativePreservationReady(state, { legacyState: true }), true);
+});
+test("native job mutations preserve identity, account binding and revision conflicts", async t => {
+  const state = new NativeState(":memory:"); t.after(() => state.close());
+  const jobs = new NativeJobs({ state });
+  await assert.rejects(jobs.create({ ...grant, actorRole: "user" }, input), /Administrator/);
+  const created = await jobs.create(grant, input);
+  assert.equal((await jobs.create(grant, input)).accepted, false);
+  assert.equal(state.job(input.id).definition.missedRunPolicy, "skip");
+  const saved = state.job(input.id).definition;
+  const update = { id: input.id, expectedRevision: created.configRevision, patch: { name: "Renamed" } };
+  const changed = await jobs.update({ ...grant, binding: { ...grant.binding, owner: "different" } }, update);
+  assert.deepEqual(state.job(input.id).definition.connection, saved.connection);
+  assert.equal(state.job(input.id).definition.schedule.anchorMs, saved.schedule.anchorMs);
+  await assert.rejects(jobs.update(grant, update), /changed/);
+  const publicSnapshot = jobs.snapshot({ ...grant, actor: "member", actorRole: "user" });
+  assert.equal(publicSnapshot.jobs[0].payload.message, undefined);
+  await jobs.remove(grant, { id: input.id, expectedRevision: changed.configRevision });
+  assert.equal(jobs.snapshot(grant).jobs.length, 0); assert.ok(state.job(input.id), "Deleted definition is retained for history and subscriptions");
+});
+test("native maintenance preserves activation policy and fails closed on unknown activity or scheduler failure", async t => {
+  const state = new NativeState(":memory:"); t.after(() => state.close());
+  state.setMetadata("scheduling", "enabled"); state.setMetadata("delivery", "enabled");
+  const runtime = { state, turns: { gated: false }, scheduler: { active: new Map(), closed: false }, accounts: {}, triggers: { refresh: async () => {} } };
+  const maintenance = new NativeMaintenance({ runtime, readiness: async () => true });
+  assert.equal((await maintenance.pause()).idle, true); assert.equal(state.metadata("scheduling"), "disabled");
+  assert.equal(maintenance.gated, true);
+  runtime.triggers.refresh = async () => { throw new Error("fixture failure"); };
+  await assert.rejects(maintenance.resume(), /fixture failure/);
+  assert.equal(state.metadata("scheduling"), "disabled"); assert.ok(state.metadata("maintenance"));
+  runtime.triggers.refresh = async () => {};
+  await maintenance.resume(); assert.equal(state.metadata("scheduling"), "enabled"); assert.equal(state.metadata("delivery"), "enabled");
+  assert.equal(maintenance.gated, false);
+  maintenance.localActivity = () => ({ writes: undefined });
+  await assert.rejects(maintenance.activity(), /cannot be verified/);
+});
+
+test("history pages retain all imported receipts alongside native runs without resending notifications", async t => {
+  const { canonical, digest } = await import("./native/state.mjs");
+  const state = new NativeState(":memory:", { now: () => 5000 }); t.after(() => state.close());
+  const jobs = new NativeJobs({ state }); await jobs.create(grant, input);
+  const migration = "a".repeat(64);
+  state.db.prepare("INSERT INTO migrations VALUES (?,?,?,?,?)").run(migration, "fixture", "{}", "verified", "{}");
+  for (let i = 0; i < 125; i++) {
+    const raw = { receipt_id: `receipt-${i}`, job_id: input.id, status: "error", started_at_ms: i, finished_at_ms: i + 1, error_text: "Private historical failure" };
+    state.db.prepare("INSERT INTO retained_records VALUES (?,?,?,?,?,?)").run(migration, "receipts", raw.receipt_id, canonical(raw), digest(canonical(raw)), "retained-native-history");
+  }
+  state.setMetadata("scheduling", "enabled");
+  const run = state.claim({ jobId: input.id, occurrence: "fixture", actor: grant.actor, connection: grant.binding });
+  state.startRun(run.id); state.finishRun(run.id, "succeeded", {});
+  let before = "", entries = [];
+  do { const page = jobs.history(grant, { jobId: input.id, before, limit: 17 }); entries.push(...page.entries); before = page.next; } while (before);
+  assert.equal(entries.length, 126); assert.equal(new Set(entries.map(row => row.runId)).size, 126);
+  assert.equal(entries[0].runId, run.id);
+  assert.equal(entries[1].receiptId, "receipt-124");
+  assert.equal(entries[1].raw.error_text, "Private historical failure");
+  const member = jobs.history({ actor: "member", actorRole: "user" }, { jobId: input.id });
+  assert.equal(member.entries[1].raw, undefined);
+  assert.equal(member.entries[1].summary, "Preserved run: error");
+  assert.equal(jobs.notification("runs", { after: 0 }).runs.length, 1);
+  assert.throws(() => jobs.history(grant, { jobId: input.id, before: "invalid" }), /cursor/);
+  state.db.prepare("UPDATE retained_records SET sha256=? WHERE source_key='receipt-124'").run("b".repeat(64));
+  assert.throws(() => jobs.history(grant, { jobId: input.id }), /integrity/);
+});

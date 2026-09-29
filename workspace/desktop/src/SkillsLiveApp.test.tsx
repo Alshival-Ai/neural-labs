@@ -1,9 +1,10 @@
+import { configureNativeActor, selectNativeConnection } from "./nativeApi";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { mergeCustomSkills, SkillsLiveApp } from "./SkillsLiveApp";
 import { SkillsApp } from "./SkillsApp";
-import type { NeuraGateway } from "./openclaw";
+import type { NativeClient } from "./nativeClient";
 import type { ConnectionState } from "./types";
 
 afterEach(() => {
@@ -24,7 +25,7 @@ function gatewayFixture() {
     readSkillsCuratorStatus: async () => ({ skills: [] }),
     readAutomations: async () => ({ schedulerOnline: true, jobs: [] }),
   };
-  return gateway as unknown as NeuraGateway;
+  return gateway as unknown as NativeClient;
 }
 
 describe("Skills live app", () => {
@@ -46,7 +47,8 @@ describe("Skills live app", () => {
   });
 
   it("loads and renders the real SKILL.md when an installed skill is selected", async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const operation = init?.body ? JSON.parse(String(init.body)).operation : undefined;
       const url = String(input);
       const body = url.endsWith("/workspace/api/skills") ? { skills: [] }
         : url.endsWith("/workspace/api/builder/drafts") ? { drafts: [] }
@@ -65,7 +67,7 @@ describe("Skills live app", () => {
     const gateway = gatewayFixture();
     render(<SkillsLiveApp reader={gateway} canManage={false} currentUser={{ id: "maya", displayName: "Maya", role: "user" }} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: /^OpenClaw/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Library/ }));
     fireEvent.click(await screen.findByRole("button", { name: /^Beta skill/ }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
@@ -88,27 +90,29 @@ describe("Skills live app", () => {
     }));
     render(<SkillsLiveApp reader={gatewayFixture()} canManage={false} currentUser={{ id: "maya", displayName: "Maya", role: "user" }} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: /^OpenClaw/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Library/ }));
     const instructions = within(await screen.findByRole("region", { name: "Alpha skill Markdown instructions" }));
     expect(await instructions.findByText("That Skill is outside the readable workspace skill roots")).toBeInTheDocument();
     expect(instructions.queryByText(/Loading SKILL.md/)).not.toBeInTheDocument();
   });
 });
 
-it("lets members run an automation without an administrator gateway", async () => {
-  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+it("lets members run an automation using their explicitly selected native connection", async () => {
+  configureNativeActor("maya", "fixture-csrf"); selectNativeConnection({ connection: "personal-choice", model: "fixture" });
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const operation = init?.body ? JSON.parse(String(init.body)).operation : undefined;
     const url = String(input);
     const body = url.endsWith("/workspace/api/skills") ? { skills: [] }
       : url.endsWith("/workspace/api/builder/drafts") ? { drafts: [] }
       : url.endsWith("/api/team/directory") ? { users: [] }
-      : url.endsWith("/automations/snapshot") ? { status: { enabled: true }, jobs: [{ id: "example", name: "Member task", enabled: true, schedule: { kind: "every", everyMs: 60000 }, payload: { kind: "agentTurn" }, state: {} }], entries: [] }
-      : url.endsWith("/automations/run") ? { accepted: true } : {};
+      : url.endsWith("/workspace/api/automations") ? { status: { enabled: true }, jobs: [{ id: "example", name: "Member task", enabled: true, schedule: { kind: "every", everyMs: 60000 }, payload: { kind: "agentTurn" }, state: {} }], entries: [] }
+      : operation === "jobs.run" ? { accepted: true } : {};
     return { ok: true, status: 200, json: async () => body } as Response;
   });
   vi.stubGlobal("fetch", fetchMock);
   render(<SkillsLiveApp reader={gatewayFixture()} canManage={false} currentUser={{ id: "maya", displayName: "Maya", role: "user" }} initialSection="automations" />);
   const run = await screen.findByRole("button", { name: "Run now" });
   fireEvent.click(run);
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/workspace/api/automations/run", expect.objectContaining({ method: "POST", body: expect.stringContaining('"jobId":"example"') })));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/runtime/request", expect.objectContaining({ method: "POST", body: expect.stringContaining('"job":"example"') })));
   expect(screen.queryByRole("button", { name: "Save automation" })).toBeNull();
 });

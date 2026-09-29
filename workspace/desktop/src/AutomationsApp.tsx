@@ -1,4 +1,6 @@
 import "./minimal-apps.css";
+import { settingsRequest } from "./settingsApi";
+import { mapRun } from "./automationsApi";
 import { ItemActions, type ItemAction } from "./ItemActions";
 import { AutomationSubscription } from "./notifications";
 import {
@@ -50,7 +52,7 @@ export type AutomationAccent = "cyan" | "violet" | "pink" | "coral" | "amber" | 
 export type AutomationScheduleKind = "at" | "every" | "cron" | "on-exit" | "stream";
 export type AutomationPayloadKind = "systemEvent" | "agentTurn" | "command" | "script" | "heartbeat" | "skillCollectionReview";
 export type AutomationDeliveryMode = "announce" | "webhook" | "none";
-export type AutomationRunStatus = "ok" | "error" | "skipped" | "running";
+export type AutomationRunStatus = "ok" | "error" | "skipped" | "running" | "blocked" | "unknown" | "cancelled";
 export type AutomationRunMode = "force" | "due" | "if-enabled";
 
 export type AutomationRun = {
@@ -66,6 +68,7 @@ export type AutomationRun = {
 };
 
 export type AutomationJob = {
+  nativeHistory?: boolean;
   manualRunWarning?: string;
   id: string;
   configRevision?: string;
@@ -162,7 +165,7 @@ export type AutomationsAppProps = {
   onEditDraft?: (job: AutomationJob) => void;
 };
 
-// Prototype-only records modeled after OpenClaw's current automation schema.
+// Prototype-only records modeled after Neural Labs's current automation schema.
 export const PLACEHOLDER_AUTOMATIONS: readonly AutomationJob[] = [
   {
     id: "morning-brief",
@@ -278,12 +281,12 @@ export const PLACEHOLDER_AUTOMATIONS: readonly AutomationJob[] = [
   {
     id: "skills-review",
     name: "Shared skills review",
-    description: "OpenClaw-managed review of writable workspace skills and proposed improvements.",
+    description: "Retained system review of writable workspace skills and proposed improvements.",
     accent: "mint",
     enabled: false,
     systemOwned: true,
     schedule: { kind: "every", label: "Every 7 days", detail: "System managed", expression: "7d" },
-    payload: { kind: "skillCollectionReview", label: "Skill collection review", content: "System-owned OpenClaw payload" },
+    payload: { kind: "skillCollectionReview", label: "Skill collection review", content: "Retained system payload" },
     sessionTarget: "isolated",
     wakeMode: "now",
     agent: "main",
@@ -346,6 +349,9 @@ function statusLabel(status: AutomationRunStatus): string {
   if (status === "ok") return "Succeeded";
   if (status === "error") return "Failed";
   if (status === "running") return "Running";
+  if (status === "blocked") return "Blocked";
+  if (status === "unknown") return "Outcome unknown";
+  if (status === "cancelled") return "Cancelled";
   return "Skipped";
 }
 
@@ -432,13 +438,13 @@ export function AutomationsApp({
       const matchesFilter = filter === "all"
         || (filter === "active" && job.enabled)
         || (filter === "paused" && !job.enabled)
-        || (filter === "issues" && (job.lastStatus === "error" || Boolean(job.autoDisabled)));
+        || (filter === "issues" && (["error", "blocked", "unknown"].includes(job.lastStatus) || Boolean(job.autoDisabled)));
       return matchesText && matchesFilter;
     });
   }, [filter, localJobs, query]);
 
   const activeCount = localJobs.filter((job) => job.enabled).length;
-  const issueCount = localJobs.filter((job) => job.lastStatus === "error" || job.autoDisabled).length;
+  const issueCount = localJobs.filter((job) => ["error", "blocked", "unknown"].includes(job.lastStatus) || job.autoDisabled).length;
   const runningCount = localJobs.filter((job) => job.running || job.runs[0]?.status === "running").length;
   const terminalRuns = localJobs.flatMap((job) => job.runs).filter((run) => run.status !== "running");
   const successRate = terminalRuns.length ? Math.round((terminalRuns.filter((run) => run.status === "ok").length / terminalRuns.length) * 100) : 100;
@@ -460,7 +466,7 @@ export function AutomationsApp({
       setNotice(`${job.name} ${enabled ? "enabled" : "paused"}.`);
     } catch (reason) {
       setLocalJobs((current) => current.map((item) => item.id === job.id ? job : item));
-      setNotice(reason instanceof Error ? reason.message : "OpenClaw rejected the state change.");
+      setNotice(reason instanceof Error ? reason.message : "Neural Labs rejected the state change.");
     } finally {
       setPendingAction(undefined);
     }
@@ -472,7 +478,7 @@ export function AutomationsApp({
       status: "running",
       started: "Just now",
       duration: "—",
-      summary: mode === "due" ? "Checking whether this automation is due…" : mode === "if-enabled" ? "Checking whether this automation is enabled…" : "Manual run submitted to OpenClaw.",
+      summary: mode === "due" ? "Checking whether this automation is due…" : mode === "if-enabled" ? "Checking whether this automation is enabled…" : "Manual run submitted to Neural Labs.",
       deliveryStatus: "pending",
       model: job.payload.model,
     };
@@ -485,7 +491,7 @@ export function AutomationsApp({
       setNotice(`${job.name} ${mode === "due" ? "will run only if due" : mode === "if-enabled" ? "will run only if enabled" : "started now"}.`);
     } catch (reason) {
       setLocalJobs((current) => current.map((item) => item.id === job.id ? job : item));
-      setNotice(reason instanceof Error ? reason.message : "OpenClaw rejected the run.");
+      setNotice(reason instanceof Error ? reason.message : "Neural Labs rejected the run.");
     } finally {
       setPendingAction(undefined);
     }
@@ -570,7 +576,7 @@ export function AutomationsApp({
       setComposerOpen(false);
       setMobileDetail(true);
     } catch (reason) {
-      setNotice(reason instanceof Error ? reason.message : "OpenClaw rejected the automation.");
+      setNotice(reason instanceof Error ? reason.message : "Neural Labs rejected the automation.");
     } finally {
       setPendingAction(undefined);
     }
@@ -578,12 +584,12 @@ export function AutomationsApp({
 
   const jobActions = (job: AutomationJob): ItemAction[] => [
     {label:"Open",run:()=>chooseJob(job)},
-    {label:"Edit",disabled:job.systemOwned||!(onUpdate||onEditDraft),reason:job.systemOwned?"Managed by OpenClaw":undefined,run:()=>openEdit(job)},
+    {label:"Edit",disabled:job.systemOwned||!(onUpdate||onEditDraft),reason:job.systemOwned?"Managed by Neural Labs":undefined,run:()=>openEdit(job)},
     {label:"Duplicate",disabled:job.systemOwned||!onDuplicate,run:async()=>{const id=await onDuplicate?.(job);if(id){setSelectedId(id);setFilter("all");setQuery("");setMobileDetail(true);}setNotice("Automation copied and paused.");}},
     {label:"Run now",disabled:!onRun||job.running||Boolean(pendingAction)||job.payload.kind!=="agentTurn"||Boolean(job.manualRunWarning),reason:job.payload.kind!=="agentTurn"?"Personal runs apply to AI tasks":job.manualRunWarning,run:()=>runJob(job,"force")},
     {label:job.enabled?"Pause":"Enable",disabled:!onToggle||job.systemOwned||Boolean(pendingAction),run:()=>toggleJob(job)},
     {label:"Manage subscription",run:()=>{chooseJob(job);setSubscriptionRequest({id:job.id,nonce:Date.now()});}},
-    {label:"Delete",danger:true,disabled:!onDelete||job.systemOwned||job.running,reason:job.running?"Wait for the active run to finish":job.systemOwned?"Managed by OpenClaw":undefined,confirm:"This removes the scheduled automation. Its history will no longer appear here. Generated projects and published sites remain.",run:()=>deleteJob(job)},
+    {label:"Delete",danger:true,disabled:!onDelete||job.systemOwned||job.running,reason:job.running?"Wait for the active run to finish":job.systemOwned?"Managed by Neural Labs":undefined,confirm:"This removes the scheduled automation. Its execution history remains retained. Generated projects and published sites remain.",run:()=>deleteJob(job)},
   ];
   const deleteJob = async (job: AutomationJob) => {
     if(job.systemOwned||job.running)throw new Error("This automation cannot be deleted while protected or running.");
@@ -602,7 +608,7 @@ export function AutomationsApp({
     setPendingAction("refresh");
     try {
       await onRefresh?.();
-      setNotice("Automation state refreshed from OpenClaw.");
+      setNotice("Automation state refreshed from Neural Labs.");
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : "The automation state could not be refreshed.");
     } finally {
@@ -614,7 +620,7 @@ export function AutomationsApp({
     return (
       <section className="automations-app automations-app--empty">
         {loading ? <LoaderCircle className="is-spinning" /> : error ? <TriangleAlert /> : <CalendarClock />}
-        <strong>{loading ? "Connecting to OpenClaw" : error ? "Automations are unavailable" : "No automations yet"}</strong>
+        <strong>{loading ? "Connecting to Neural Labs" : error ? "Automations are unavailable" : "No automations yet"}</strong>
         <p>{loading ? "Loading the shared scheduler and durable run history…" : error ?? `Schedule the first shared workflow for ${workspaceName}.`}</p>
         {error ? <button type="button" onClick={() => void refreshJobs()} disabled={pendingAction === "refresh"}><RefreshCw />Try again</button> : !loading && (onCreate || onCreateDraft) && <button type="button" onClick={openCreate}><Plus />New automation</button>}
         {composerOpen && <AutomationComposer draft={draft} editing={false} onChange={setDraft} onClose={() => setComposerOpen(false)} onSubmit={submitDraft} />}
@@ -626,7 +632,7 @@ export function AutomationsApp({
     <section className="automations-app" aria-label="Workspace automations">
       <header className="automations-toolbar">
         {!embedded && <div className="automations-toolbar__identity">
-          <span><CalendarClock /></span><div><strong>Automations</strong><small>OpenClaw scheduler</small></div>
+          <span><CalendarClock /></span><div><strong>Automations</strong><small>Neural Labs scheduler</small></div>
         </div>}
         <div className={`automations-scheduler${schedulerOnline ? " is-online" : " is-offline"}`}>
           <i />
@@ -658,7 +664,7 @@ export function AutomationsApp({
             {visibleJobs.map((job) => <ItemActions key={job.id} name={job.name} actions={jobActions(job)}><AutomationJobCard job={job} selected={selected.id === job.id} onSelect={() => chooseJob(job)} onRun={onRun && job.payload.kind === "agentTurn" && !job.manualRunWarning ? () => void runJob(job, "force") : undefined} /></ItemActions>)}
             {visibleJobs.length === 0 && <div className="automations-list__empty"><Search /><strong>No matching jobs</strong><span>Try another name or filter.</span></div>}
           </div>
-          <footer className="automations-list__footer"><Activity /><span>History retained by OpenClaw</span><button type="button" onClick={() => void refreshJobs()}>Refresh</button></footer>
+          <footer className="automations-list__footer"><Activity /><span>Persistent run history</span><button type="button" onClick={() => void refreshJobs()}>Refresh</button></footer>
           {libraryResize.separator}
         </aside>
 
@@ -667,7 +673,7 @@ export function AutomationsApp({
             <button type="button" className="automation-detail-header__back" aria-label="Back to automations" onClick={() => setMobileDetail(false)}><ChevronRight /></button>
             <div className={`automation-detail-header__mark is-${selected.accent}`}><AutomationIcon kind={selected.schedule.kind} /></div>
             <div className="automation-detail-header__copy">
-              <span>{selected.systemOwned ? "OpenClaw managed" : `${payloadLabel(selected.payload.kind)} · ${selected.agent}`}</span>
+              <span>{selected.systemOwned ? "Neural Labs managed" : `${payloadLabel(selected.payload.kind)} · ${selected.agent}`}</span>
               <h1>{selected.name}</h1>
               <p>{selected.description}</p>
             </div>
@@ -690,7 +696,7 @@ export function AutomationsApp({
 
           {selected.payload.kind === "agentTurn" && <p className="automation-account-note">Run now uses your selected model account. Scheduled runs use {selected.agent}.</p>}
           {selected.manualRunWarning && <div className="automation-warning" role="status">{selected.manualRunWarning}</div>}
-          {selected.autoDisabled && <div className="automation-warning"><ShieldAlert /><div><strong>Auto-disabled after {selected.autoDisabled.consecutiveErrors} failures</strong><span>OpenClaw stopped this recurring job as a safety backstop. Fix the cause, then enable it to clear the failure streak.</span></div>{onToggle && <button type="button" onClick={() => void toggleJob(selected)}>Review and enable</button>}</div>}
+          {selected.autoDisabled && <div className="automation-warning"><ShieldAlert /><div><strong>Auto-disabled after {selected.autoDisabled.consecutiveErrors} failures</strong><span>Neural Labs stopped this recurring job as a safety backstop. Fix the cause, then enable it to clear the failure streak.</span></div>{onToggle && <button type="button" onClick={() => void toggleJob(selected)}>Review and enable</button>}</div>}
 
           <nav className="automation-detail-tabs" aria-label="Automation details">
             <button type="button" aria-current={detailTab === "overview" ? "page" : undefined} onClick={() => setDetailTab("overview")}>Overview</button>
@@ -701,7 +707,7 @@ export function AutomationsApp({
             {detailTab === "overview" ? (
               <AutomationOverview job={selected} onShowRuns={() => setDetailTab("runs")} onCopy={() => void navigator.clipboard.writeText(selected.id).then(() => setNotice(`Copied ${selected.id}.`), () => setNotice("The job ID could not be copied."))} />
             ) : (
-              <AutomationRuns job={selected} expandedRunId={expandedRunId} onExpand={(run) => { setExpandedRunId((id) => id === run.id ? undefined : run.id); onInspectRun?.(selected, run); }} />
+              <AutomationRuns key={selected.id} job={selected} expandedRunId={expandedRunId} onExpand={(run) => { setExpandedRunId((id) => id === run.id ? undefined : run.id); onInspectRun?.(selected, run); }} />
             )}
           </div>
         </main>
@@ -767,7 +773,7 @@ function AutomationOverview({ job, onShowRuns, onCopy }: { job: AutomationJob; o
       </section>
 
       <details className="automation-route-card"><summary>Execution and delivery details</summary>
-        <div className="automation-card-heading"><div><span>Execution path</span><h2>From trigger to delivery</h2><p>The resolved route OpenClaw will use for the next run.</p></div><Route /></div>
+        <div className="automation-card-heading"><div><span>Execution path</span><h2>From trigger to delivery</h2><p>The resolved route Neural Labs will use for the next run.</p></div><Route /></div>
         <div className="automation-route">
           <div className={`is-${job.accent}`}><AutomationIcon kind={job.schedule.kind} /><span><small>Trigger</small><strong>{SCHEDULE_META[job.schedule.kind].label}</strong></span></div><ChevronRight />
           <div className={`is-${job.accent}`}><PayloadIcon kind={job.payload.kind} /><span><small>Payload</small><strong>{payloadLabel(job.payload.kind)}</strong></span></div><ChevronRight />
@@ -784,23 +790,50 @@ function AutomationOverview({ job, onShowRuns, onCopy }: { job: AutomationJob; o
         </div>
       </section>
 
-      <footer className="automation-metadata"><span>Job ID <code>{job.id}</code><button type="button" aria-label="Copy job ID" onClick={onCopy}><Copy /></button></span><span>{job.systemOwned ? "Managed by OpenClaw" : "Team-owned automation"}</span></footer>
+      <footer className="automation-metadata"><span>Job ID <code>{job.id}</code><button type="button" aria-label="Copy job ID" onClick={onCopy}><Copy /></button></span><span>{job.systemOwned ? "Managed by Neural Labs" : "Team-owned automation"}</span></footer>
     </div>
   );
 }
 
 function AutomationRuns({ job, expandedRunId, onExpand }: { job: AutomationJob; expandedRunId?: string; onExpand: (run: AutomationRun) => void }) {
+  const [runs, setRuns] = useState<readonly AutomationRun[]>(job.runs);
+  const [next, setNext] = useState<string | null>(null);
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let active = true;
+    setRuns(job.runs); setNext(null); setError(undefined);
+    if (job.nativeHistory) {
+      setBusy(true);
+      void settingsRequest<{ entries: Record<string, unknown>[]; next: string | null }>(`/workspace/api/automations/history?job=${encodeURIComponent(job.id)}`)
+        .then(page => { if (active) { setRuns(page.entries.map(mapRun)); setNext(page.next); } })
+        .catch(reason => { if (active) setError(reason instanceof Error ? reason.message : "History is unavailable"); })
+        .finally(() => { if (active) setBusy(false); });
+    }
+    return () => { active = false; };
+  }, [job.id, job.runs, job.nativeHistory]);
+  async function loadMore() {
+    setBusy(true); setError(undefined);
+    try {
+      const page = await settingsRequest<{ entries: Record<string, unknown>[]; next: string | null }>(`/workspace/api/automations/history?job=${encodeURIComponent(job.id)}&before=${encodeURIComponent(next || "")}`);
+      setRuns(previous => [...previous, ...page.entries.map(mapRun)]); setNext(page.next);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "History is unavailable"); }
+    finally { setBusy(false); }
+  }
   return (
     <div className="automation-runs-panel">
-      <header><div><span>Durable history</span><h2>Run history</h2><p>Inspect execution, output, delivery, and failure details for {job.name}.</p></div><button type="button"><ExternalLink />Open task history</button></header>
+      <header><div><span>Durable history</span><h2>Run history</h2><p>Inspect execution, output, delivery, and failure details for {job.name}.</p></div></header>
+      {error && <p role="alert">{error}</p>}
+      {busy && <p role="status">Loading run history…</p>}
       <div className="automation-runs-summary">
-        <div><strong>{job.runs.filter((run) => run.status === "ok").length}</strong><span>Succeeded</span></div>
-        <div><strong>{job.runs.filter((run) => run.status === "error").length}</strong><span>Failed</span></div>
-        <div><strong>{job.runs.filter((run) => run.status === "skipped").length}</strong><span>Skipped</span></div>
+        <div><strong>{runs.filter((run) => run.status === "ok").length}</strong><span>Succeeded</span></div>
+        <div><strong>{runs.filter((run) => run.status === "error").length}</strong><span>Failed</span></div>
+        <div><strong>{runs.filter((run) => run.status === "skipped").length}</strong><span>Skipped</span></div>
         <div><strong>{job.consecutiveErrors}</strong><span>Error streak</span></div>
+        <div><strong>{runs.filter(run => ["blocked", "unknown"].includes(run.status)).length}</strong><span>Needs review</span></div>
       </div>
       <div className="automation-run-list">
-        {job.runs.map((run) => (
+        {runs.map((run) => (
           <article className={`automation-run is-${run.status}${expandedRunId === run.id ? " is-expanded" : ""}`} key={run.id}>
             <button type="button" onClick={() => onExpand(run)} aria-expanded={expandedRunId === run.id}>
               <span className="automation-run__status"><i>{run.status === "running" ? <LoaderCircle /> : run.status === "ok" ? <Check /> : run.status === "error" ? <X /> : <Pause />}</i><span><strong>{statusLabel(run.status)}</strong><small>{run.started}</small></span></span>
@@ -811,8 +844,9 @@ function AutomationRuns({ job, expandedRunId, onExpand }: { job: AutomationJob; 
             {expandedRunId === run.id && <div className="automation-run__detail"><p>{run.summary}</p>{run.error && <div><TriangleAlert /><span><strong>Failure detail</strong><code>{run.error}</code></span></div>}<dl><div><dt>Run ID</dt><dd>{run.id}</dd></div><div><dt>Model</dt><dd>{run.model ?? "Not applicable"}</dd></div><div><dt>Usage</dt><dd>{run.usage ?? "Not reported"}</dd></div><div><dt>Completion</dt><dd>{run.status === "ok" ? "succeeded" : run.status === "error" ? "failed" : run.status}</dd></div></dl></div>}
           </article>
         ))}
-        {job.runs.length === 0 && <div className="automation-runs-empty"><History /><strong>No runs yet</strong><span>Run this automation to create its first history record.</span></div>}
+        {!busy && !error && runs.length === 0 && <div className="automation-runs-empty"><History /><strong>No runs yet</strong><span>Run this automation to create its first history record.</span></div>}
       </div>
+      {next && <button type="button" disabled={busy} onClick={() => void loadMore()}>Load older runs</button>}
     </div>
   );
 }
@@ -852,7 +886,7 @@ function AutomationComposer({ draft, editing, onChange, onClose, onSubmit }: Com
     <div className="automation-composer-layer">
       <button type="button" className="automation-composer__scrim" aria-label="Close automation editor" onClick={onClose} />
       <aside className="automation-composer" aria-label={editing ? "Edit automation" : "Create automation"}>
-        <header><div><span>{editing ? "Update job" : "New job"}</span><h2>{editing ? "Edit automation" : "Create automation"}</h2><p>Configure the OpenClaw scheduler in plain sight.</p></div><button type="button" aria-label="Close automation editor" onClick={onClose}><X /></button></header>
+        <header><div><span>{editing ? "Update job" : "New job"}</span><h2>{editing ? "Edit automation" : "Create automation"}</h2><p>Configure the Neural Labs scheduler in plain sight.</p></div><button type="button" aria-label="Close automation editor" onClick={onClose}><X /></button></header>
         <form onSubmit={onSubmit}>
           <section className="automation-form-section">
             <div className="automation-form-section__heading"><span>01</span><div><h3>Name the work</h3><p>Make it obvious to the next teammate what this job owns.</p></div></div>
@@ -861,7 +895,7 @@ function AutomationComposer({ draft, editing, onChange, onClose, onSubmit }: Com
           </section>
 
           <section className="automation-form-section">
-            <div className="automation-form-section__heading"><span>02</span><div><h3>Choose a trigger</h3><p>All current OpenClaw schedule families are available.</p></div></div>
+            <div className="automation-form-section__heading"><span>02</span><div><h3>Choose a trigger</h3><p>All current Neural Labs schedule families are available.</p></div></div>
             <div className="automation-choice-grid is-five" aria-label="Schedule type">
               {(Object.entries(SCHEDULE_META) as [AutomationScheduleKind, (typeof SCHEDULE_META)[AutomationScheduleKind]][]).map(([kind, meta]) => { const Icon = meta.icon; return <button type="button" key={kind} className={draft.scheduleKind === kind ? "is-selected" : ""} aria-label={`${meta.label}: ${meta.description}`} aria-pressed={draft.scheduleKind === kind} onClick={() => set("scheduleKind", kind)}><Icon /><strong>{meta.label}</strong><small>{meta.description}</small></button>; })}
             </div>
@@ -896,7 +930,7 @@ function AutomationComposer({ draft, editing, onChange, onClose, onSubmit }: Com
             <details className="automation-advanced-inline"><summary><span><Settings2 />Advanced runtime</span><ChevronDown /></summary><div className="automation-field-grid"><ModelPicker catalog={catalog} error={catalogError} model={draft.model === "Workspace default" ? "" : draft.model} effort={draft.thinking} defaultLabel="Agent default" onChange={(model, thinking) => onChange({ ...draft, model: model || "Workspace default", thinking })} /><label><span>Allowed tools</span><input value={draft.tools} onChange={(event) => set("tools", event.target.value)} placeholder="read, exec" /></label><label><span>Timeout seconds</span><input inputMode="numeric" value={draft.timeoutSeconds} onChange={(event) => set("timeoutSeconds", event.target.value)} /></label><label><span>Failure alert after</span><input inputMode="numeric" value={draft.failureAlertAfter} onChange={(event) => set("failureAlertAfter", event.target.value)} /></label></div></details>
           </section>
 
-          {dangerous && <div className="automation-code-warning"><ShieldAlert /><span><strong>Unattended execution surface</strong><small>Condition scripts, stream sources, command payloads, and scripts run without a person present. Integration must preserve OpenClaw’s operator permissions and tool-policy ceiling.</small></span></div>}
+          {dangerous && <div className="automation-code-warning"><ShieldAlert /><span><strong>Unattended execution surface</strong><small>Condition scripts, stream sources, command payloads, and scripts run without a person present. Execution uses the saved account and permissions.</small></span></div>}
 
           <footer><span><i />New jobs are enabled after creation</span><div><button type="button" onClick={onClose}>Cancel</button><button type="submit" disabled={!valid}>{editing ? "Save changes" : "Create automation"}</button></div></footer>
         </form>

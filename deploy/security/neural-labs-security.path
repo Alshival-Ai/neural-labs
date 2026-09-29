@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch regenerated Snap Docker AppArmor policy
+
+[Path]
+PathChanged=/var/lib/snapd/apparmor/profiles/snap.docker.dockerd
+Unit=neural-labs-security.service
+
+[Install]
+WantedBy=multi-user.target

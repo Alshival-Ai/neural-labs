@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import type { NeuraGateway, NeuraQuestion } from "./openclaw";
+import type { NativeClient, NeuraQuestion } from "./nativeClient";
 
-export function NeuraQuestions({ gateway, sessionKey, notify }: { gateway: NeuraGateway; sessionKey: string; notify: (message: string) => void }) {
+export function NeuraQuestions({ gateway, sessionKey, notify }: { gateway: NativeClient; sessionKey: string; notify: (message: string) => void }) {
   const [questions, setQuestions] = useState<NeuraQuestion[]>([]);
   useEffect(() => {
     let active = true;
@@ -24,7 +24,7 @@ export function NeuraQuestions({ gateway, sessionKey, notify }: { gateway: Neura
   return <>{questions.map((question) => <QuestionCard key={question.id} question={question} gateway={gateway} onResolved={() => setQuestions((current) => current.filter((row) => row.id !== question.id))} notify={notify} />)}</>;
 }
 
-function QuestionCard({ question, gateway, onResolved, notify }: { question: NeuraQuestion; gateway: NeuraGateway; onResolved: () => void; notify: (message: string) => void }) {
+function QuestionCard({ question, gateway, onResolved, notify }: { question: NeuraQuestion; gateway: NativeClient; onResolved: () => void; notify: (message: string) => void }) {
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
   const [freeText, setFreeText] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);

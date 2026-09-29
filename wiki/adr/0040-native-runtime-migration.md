@@ -55,17 +55,20 @@ retained copies do not establish NAS backup or hardware acceptance.
 
 ## Current implementation boundary
 
-The preparatory modules under `workspace/native/` provide preservation, native
-state/claims, schedule rendering, provider protocols and a gated turn coordinator.
-They are not the deployed entry point. Existing images and installations remain
-on their current runtime until API/UI, login, filesystem isolation, MCP tools,
-notification transports, native scheduler, image publication and managed cutover
-pass their release checks. The current OpenClaw manifest and ADR 0036 updater
-contract remain authoritative for existing installations.
+The candidate entry point and images now use the native service and isolated
+provider launchers. Browser requests carry short-lived signed control-plane
+assertions; lease renewal checks active membership and credential generation.
+Native calendar and interval scheduling, installed package projection, retained
+history, and explicit activation comparisons are implemented and tested.
 
-Provider initialization probes use the reviewed 0.155.1 Codex and 2.1.226 Claude
-executables with empty account homes and no network. Mocked streams verify
-permission/revocation behavior; they do not establish live model compatibility
-or performance. Native amd64/ARM64 publication, calendar/DST behavior under pinned
-Supercronic and the complete four-job workload on an 8 GB ARM64 Pi remain release
-acceptance gates. No native runtime image is approved by this ADR.
+The first managed migration clones PostgreSQL as well as filesystem state before
+any chat reset. Original update preferences stay readable by the retained control
+plane; native preferences use a separate table. A scoped operator journal permits
+schema migration while preserving the closed admission gate. See
+[Native runtime migration](../native-migration.md) for staged operator steps.
+
+Production remains on its original image while complete application integrations,
+release publication and pilot acceptance are unfinished. Protocol initialization
+and recovery rehearsal on native ARM64 do not establish real model inference or
+the representative four-job workload on an 8GB Pi. No native runtime image is
+approved for automatic migration by this ADR.

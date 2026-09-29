@@ -99,20 +99,20 @@ export const builderApi = {
   publish: (id: string) => json<{ kind: BuilderDraftKind; skill?: unknown; draft?: BuilderDraft | Record<string, unknown>; targetKey?: string; baseRevision?: string; revision?: string }>(`/workspace/api/builder/drafts/${encodeURIComponent(id)}/publish`, { method: "POST", body: "{}" }),
   finalizeAutomation: (id: string, jobId?: string, configRevision?: string) => json<{ draft: BuilderDraft }>(`/workspace/api/builder/drafts/${encodeURIComponent(id)}/automation-published`, { method: "POST", body: JSON.stringify({ jobId, configRevision }) }),
   testSnapshot: (id: string, prompt: string) => json<{ test: BuilderTestSnapshot }>(`/workspace/api/builder/drafts/${encodeURIComponent(id)}/test-snapshot`, { method: "POST", body: JSON.stringify({ prompt }) }),
-  saveAsset: async (id: string, path: string, file: File) => {
+  saveAsset: async (id: string, path: string, file: File, executable?: boolean) => {
     const dataUrl = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result ?? ""));
       reader.onerror = () => reject(reader.error ?? new Error("The asset could not be read"));
       reader.readAsDataURL(file);
     });
-    return json<{ asset: { path: string; hash: string; size: number; mimeType: string } }>(`/workspace/api/builder/drafts/${encodeURIComponent(id)}/asset`, { method: "POST", body: JSON.stringify({ path, mimeType: file.type, data: dataUrl.slice(dataUrl.indexOf(",") + 1) }) });
+    return json<{ asset: { path: string; hash: string; size: number; mimeType: string } }>(`/workspace/api/builder/drafts/${encodeURIComponent(id)}/asset`, { method: "POST", body: JSON.stringify({ path, executable, mimeType: file.type, data: dataUrl.slice(dataUrl.indexOf(",") + 1) }) });
   },
   removeAsset: (id: string, path: string) => json<{ removed: true }>(`/workspace/api/builder/drafts/${encodeURIComponent(id)}/asset?path=${encodeURIComponent(path)}`, { method: "DELETE" }),
 };
 
 export function readCustomSkillPackage(key: string) {
-  return json<{ skill: unknown; files: Array<{ path: string; kind: "text" | "asset"; content?: string; data?: string; size?: number }> }>(`/workspace/api/skills/${encodeURIComponent(key)}/package`);
+  return json<{ skill: unknown; files: Array<{ path: string; kind: "text" | "asset"; content?: string; data?: string; size?: number; executable?: boolean }> }>(`/workspace/api/skills/${encodeURIComponent(key)}/package`);
 }
 
 export type BuilderConnectionStatus = "connecting" | "connected" | "disconnected" | "error";

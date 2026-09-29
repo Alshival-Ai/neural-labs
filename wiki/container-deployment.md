@@ -18,7 +18,7 @@ sequence. This page provides the detailed host and ingress steps.
 - Nginx, working DNS, and a valid certificate for the final HTTPS hostname;
 - a repository checkout owned by the operator, not by a service container;
 - enough CPU, memory, and storage for builds, persistent data, and backups.
-  The workspace defaults to limits of 10 CPUs and 16 GiB; these are configurable
+  The workspace defaults to limits of 4 CPUs and 6 GiB; these are configurable
   ceilings, not a measured minimum for a small personal installation.
 
 Set `NEURAL_LABS_WORKSPACE_CPUS` no higher than the Docker host's available CPUs

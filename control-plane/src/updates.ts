@@ -3,14 +3,14 @@ import type { Pool } from "pg";
 import { z } from "zod";
 
 export const updatePolicySchema = z.object({
-  openclawAutomatic: z.boolean(), codexAutomatic: z.boolean(),
+  runtimeAutomatic: z.boolean(),
   days: z.array(z.number().int().min(0).max(6)).min(1).max(7).refine(v => new Set(v).size === v.length),
   start: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
   end: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
   timezone: z.string().max(100).refine(value => { try { new Intl.DateTimeFormat("en", { timeZone: value }); return true; } catch { return false; } }),
 }).strict().refine(v => v.end > v.start, "The maintenance window must end on the same day after it starts");
 export type UpdatePolicy = z.infer<typeof updatePolicySchema>;
-export const defaultUpdatePolicy: UpdatePolicy = { openclawAutomatic: false, codexAutomatic: false, days: [0], start: "03:00", end: "05:00", timezone: "America/Chicago" };
+export const defaultUpdatePolicy: UpdatePolicy = { runtimeAutomatic: false, days: [0], start: "03:00", end: "05:00", timezone: "America/Chicago" };
 export const jobPhases = ["queued", "checking", "preparing", "ready", "deferred", "maintenance", "updating", "verifying", "committing", "activating", "restoring", "succeeded", "restored", "failed", "recovery_required", "cancelled"] as const;
 export type UpdatePhase = typeof jobPhases[number];
 export const terminalPhases: readonly string[] = ["succeeded", "restored", "failed", "recovery_required", "cancelled"];
@@ -29,9 +29,9 @@ export class UpdateError extends Error { constructor(public status: number, publ
 // No browser-supplied image or command is accepted at this boundary.
 export const releaseSummarySchema = z.object({
   id: z.string().regex(/^workspace-v[0-9][A-Za-z0-9.-]{0,79}$/),
-  openclawVersion: z.string().regex(/^\d{4}\.\d+\.\d+$/),
+  runtimeVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
   codexVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
-  appServerVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
+  claudeVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
   image: z.string().regex(/^ghcr\.io\/alshival-ai\/neural-labs-workspace@sha256:[a-f0-9]{64}$/),
   sourceRevision: z.string().regex(/^[a-f0-9]{40}$/),
   notesUrl: z.string().regex(/^https:\/\/github\.com\/Alshival-Ai\/neural-labs\/releases\/tag\/workspace-v[0-9A-Za-z.-]+$/),
@@ -39,20 +39,20 @@ export const releaseSummarySchema = z.object({
 }).strict();
 export const workerReportSchema = z.object({
   available: releaseSummarySchema.nullable().optional(),
-  installed: z.object({ image: z.string().max(200), openclawVersion: z.string().max(64), codexVersion: z.string().max(64) }).strict().optional(),
+  installed: z.object({ image: z.string().max(200), runtimeVersion: z.string().max(64), codexVersion: z.string().max(64), claudeVersion: z.string().max(64) }).strict().optional(),
   error: z.string().max(300).nullable().optional(),
   job: z.object({ id: z.string().uuid(), phase: z.enum(jobPhases), message: z.string().max(300), releaseId: z.string().max(90).optional() }).strict().optional(),
 }).strict();
 
 export class UpdateService {
   activeRequests = 0;
-  constructor(private pool: Pool, private initialCodex = false) {}
+  constructor(private pool: Pool) {}
   async initialize() {
-    await this.pool.query("INSERT INTO update_policy(singleton,policy) VALUES(true,$1) ON CONFLICT DO NOTHING", [{ ...defaultUpdatePolicy, codexAutomatic: this.initialCodex }]);
+    await this.pool.query("INSERT INTO native_update_policy(singleton,policy) VALUES(true,$1) ON CONFLICT DO NOTHING", [defaultUpdatePolicy]);
   }
   async policy() {
     await this.initialize();
-    const row = (await this.pool.query("SELECT revision,policy FROM update_policy WHERE singleton")).rows[0];
+    const row = (await this.pool.query("SELECT revision,policy FROM native_update_policy WHERE singleton")).rows[0];
     return { revision: Number(row.revision), policy: updatePolicySchema.parse(row.policy) };
   }
   async save(revision: number, policy: UpdatePolicy, actor: string) {
@@ -60,7 +60,7 @@ export class UpdateService {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-      const saved = await client.query("UPDATE update_policy SET policy=$1,revision=revision+1 WHERE singleton AND revision=$2 RETURNING revision,policy", [policy, revision]);
+      const saved = await client.query("UPDATE native_update_policy SET policy=$1,revision=revision+1 WHERE singleton AND revision=$2 RETURNING revision,policy", [policy, revision]);
       if (!saved.rows.length) throw new UpdateError(409, "update_policy_conflict", "Settings changed in another window. Reload before saving.");
       await client.query("INSERT INTO audit_log(actor_user_id,action,metadata) VALUES($1,'updates.policy_saved',$2)", [actor, { revision: Number(saved.rows[0].revision), policy }]);
       await client.query("COMMIT");
@@ -78,7 +78,7 @@ export class UpdateService {
     ]);
     const r = runtime.rows[0];
     return { revision, policy, maintenance: r?.gate === true, available: r?.available ?? null, installed: r?.installed ?? null,
-      codex: r?.codex ?? null, worker: { connected: !!r?.heartbeat && Date.now() - new Date(r.heartbeat).getTime() < 180_000,
+      worker: { connected: !!r?.heartbeat && Date.now() - new Date(r.heartbeat).getTime() < 180_000,
         lastSeen: r?.heartbeat ?? null, lastCheck: r?.checked_at ?? null, error: r?.error ?? null }, jobs: history.rows };
   }
   async enqueue(kind: "check" | "install" | "automatic", actor: string | null) {
@@ -129,8 +129,8 @@ export class UpdateService {
         }
         const job = (await client.query("SELECT phase,kind FROM update_jobs WHERE id=$1 FOR UPDATE", [report.job.id])).rows[0];
         if (report.job.phase === "maintenance" && job.kind === "automatic") {
-          const saved = (await client.query("SELECT policy FROM update_policy WHERE singleton FOR SHARE")).rows[0];
-          if (!saved?.policy?.openclawAutomatic) throw new UpdateError(409, "automatic_disabled", "Automatic updates were disabled before maintenance.");
+          const saved = (await client.query("SELECT policy FROM native_update_policy WHERE singleton FOR SHARE")).rows[0];
+          if (!saved?.policy?.runtimeAutomatic) throw new UpdateError(409, "automatic_disabled", "Automatic updates were disabled before maintenance.");
         }
         if (!validUpdateTransition(job.phase, report.job.phase)) throw new UpdateError(409, "invalid_transition", "Invalid update transition.");
         await client.query("UPDATE update_jobs SET phase=$2,message=$3,updated_at=now() WHERE id=$1", [report.job.id, report.job.phase, report.job.message]);
@@ -141,5 +141,4 @@ export class UpdateService {
       await client.query("COMMIT");
     } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
   }
-  async reportCodex(status: unknown) { await this.pool.query("UPDATE update_runtime SET codex=$1 WHERE singleton", [status]); }
 }

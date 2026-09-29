@@ -1,7 +1,5 @@
 {
-  "baselineImages": {
-    "2026.9.5": "ghcr.io/openclaw/openclaw:2026.9.5@sha256:ea298b62be8955d3ef750e2004a610dd90c3a30e5f9886e5d654d78a0c573218"
-  },
-  "manualRequired": false,
-  "reason": ""
+  "baselineImages": [],
+  "manualRequired": true,
+  "reason": "The first native release requires the operator preservation and account migration procedure. No automatic upgrade baseline has been certified."
 }

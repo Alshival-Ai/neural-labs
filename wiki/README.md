@@ -13,6 +13,9 @@ Prefer to have your agent handle installation? Start with
 [AGENTS.md](../AGENTS.md) tells it how to inspect your target, deploy the whole
 instance, and guide you through account setup and verification.
 
+Existing installations must follow [Native runtime migration](native-migration.md).
+The first native upgrade remains operator-only while pilot acceptance is pending.
+
 ## 1. Prepare your host
 
 Use a Linux host with Docker Engine and the Compose plugin, Git, Bash, OpenSSL,
@@ -21,7 +24,7 @@ host, and a valid TLS certificate for that hostname. The supported setup uses
 HTTPS even for a personal instance; the deployment CLI requires a non-example
 HTTPS origin.
 
-The default workspace limit is **10 CPUs and 16 GiB RAM**, in addition to the
+The default workspace limit is **4 CPUs and 6 GiB RAM**, in addition to the
 other services and image builds. Adjust the limits in `.env` for your host;
 these defaults are not a tested minimum hardware requirement. Allow disk space
 for images, persistent files, and backups.
@@ -75,9 +78,19 @@ NEURAL_LABS_MCP_ENABLED=false
 
 Microsoft sign-in, Google Maps, KLIPY, Pexels, SMS, and Alshival voice are optional.
 You can leave their credentials blank and connect them later. Alshival text chat
-uses a personal ChatGPT account or OpenAI API key connected in Settings after login;
+uses an explicitly selected native Codex or Claude connection in Settings after login;
 the deployment's `OPENAI_API_KEY` is for audio.
 Keep `.env` out of Git and save a protected backup of it.
+
+Before starting the native image, install its separate host security profile:
+
+```bash
+sudo python3 deploy/security/install.py install
+sudo python3 deploy/security/install.py check
+```
+
+Read the [native host security guide](../deploy/security/README.md), including the
+scoped Snap Docker compatibility setup. This does not restart Docker.
 
 ## 3. Build and start
 
@@ -122,7 +135,7 @@ startup problems.
 1. Open `https://YOUR-HOSTNAME/signup` and register using the **exact email** you
    set in `NEURAL_LABS_INITIAL_ADMIN_EMAIL`. That account becomes the initial
    administrator. Other addresses wait for approval.
-2. Open `/workspace`, then **Settings → Model Provider → OpenAI**.
+2. Open `/workspace`, then **Settings → Model Provider → AI connections**.
 3. Choose **Connect ChatGPT** and finish the one-time-code sign-in, or choose
    **Use an API key** and save your personal OpenAI Platform key.
 4. Open **Alshival** from the dock, start a private conversation, and send a simple

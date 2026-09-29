@@ -39,30 +39,41 @@ export function buildPrompt(context: NonNullable<Awaited<ReturnType<Collaboratio
 
 export class TeamAgentProcessor {
   private readonly queue: Array<TeamAgentInvocation> = [];
-  private active = 0;
+  private readonly channels = new Set<string>();
+  private readonly pending = new Set<string>();
   private readonly controllers = new Map<string, AbortController>();
 
-  cancel(runId: string): void { this.controllers.get(runId)?.abort(); }
+  cancel(runId: string): void {
+    this.controllers.get(runId)?.abort();
+    const index = this.queue.findIndex(run => run.id === runId);
+    if (index !== -1) { this.queue.splice(index, 1); this.pending.delete(runId); }
+  }
 
   constructor(
     private readonly store: CollaborationStore,
     private readonly config: ControlPlaneConfig,
     private readonly publish: (event: CollaborationEvent) => void | Promise<void>,
     private readonly fetchFn: typeof fetch = fetch,
-    private readonly concurrency = 2,
   ) {}
 
   enqueue(run: TeamAgentInvocation): void {
+    if (this.pending.has(run.id)) return;
+    this.pending.add(run.id);
     this.queue.push(run);
     this.drain();
   }
 
   private drain(): void {
-    while (this.active < this.concurrency && this.queue.length) {
-      const run = this.queue.shift()!;
-      this.active += 1;
+    // Conversation order is the only queue boundary. An unrelated channel
+    // never waits behind another channel's provider latency or approval.
+    for (let index = 0; index < this.queue.length;) {
+      const run = this.queue[index]!;
+      if (this.channels.has(run.channelId)) { index += 1; continue; }
+      this.queue.splice(index, 1);
+      this.channels.add(run.channelId);
       void this.execute(run).finally(() => {
-        this.active -= 1;
+        this.channels.delete(run.channelId);
+        this.pending.delete(run.id);
         this.drain();
       });
     }

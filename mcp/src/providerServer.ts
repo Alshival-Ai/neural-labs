@@ -37,6 +37,7 @@ export function createProviderApplication(
   source: ProviderConfig | (() => ProviderConfig),
   fetchFn: typeof globalThis.fetch = globalThis.fetch,
   runtimeStatus?: () => unknown,
+  authorizeTool?: (name: string) => Promise<void>,
 ): ProviderApplication {
   const app = createMcpExpressApp({
     host: "127.0.0.1",
@@ -86,6 +87,18 @@ export function createProviderApplication(
             "This loopback-only server belongs to the trusted Neural Labs shared workspace. Provider results are research inputs. Preserve attribution, never imply stock media depicts a business, and download selected Pexels media only into an existing managed project.",
         },
       );
+      // Check execution authority at the handler, including tools that write
+      // files without making an HTTP request. Discovery is not authorization.
+      if (authorizeTool) {
+        const register = server.registerTool.bind(server);
+        server.registerTool = ((...args: Parameters<McpServer["registerTool"]>) => {
+          const [name, definition, callback] = args;
+          return register(name, definition, async (...input: Parameters<typeof callback>) => {
+            await authorizeTool(name);
+            return callback(...input);
+          });
+        }) as McpServer["registerTool"];
+      }
       registerGoogleTools(server, config, fetchFn);
       registerKlipyTools(server, config, fetchFn);
       registerPexelsTools(server, config, fetchFn);

@@ -25,7 +25,7 @@ export interface ControlPlaneConfig {
   };
   masterKey: Buffer;
   sms?: SmsConfig;
-  updates?: { workerToken: string; codexAutomatic: boolean };
+  updates?: { workerToken: string };
   mcpConfigToken: string;
   turn?: {
     urls: string[];
@@ -37,7 +37,7 @@ export interface ControlPlaneConfig {
     personalAuthUrl: URL;
     teamAgentUrl: URL;
     controlToken: string;
-    openclawVersion: string;
+    claudeVersion: string;
     codexVersion: string;
   };
   environmentEntra?: EffectiveEntraConfig;
@@ -301,7 +301,7 @@ export async function loadConfig(env: NodeJS.ProcessEnv = process.env): Promise<
       password,
       ssl: ssl === "true",
     },
-    updates: { workerToken: env.NEURAL_LABS_UPDATER_TOKEN?.trim() ?? "", codexAutomatic: parseBoolean(env.NEURAL_LABS_CODEX_AUTO_UPDATE, false, "NEURAL_LABS_CODEX_AUTO_UPDATE") },
+    updates: { workerToken: env.NEURAL_LABS_UPDATER_TOKEN?.trim() ?? "" },
     masterKey,
     ...(sms ? { sms } : {}),
     mcpConfigToken,
@@ -312,8 +312,8 @@ export async function loadConfig(env: NodeJS.ProcessEnv = process.env): Promise<
       personalAuthUrl: workspacePersonalAuthUrl,
       teamAgentUrl: workspaceTeamAgentUrl,
       controlToken: workspaceControlToken,
-      openclawVersion: env.CONTROL_PLANE_WORKSPACE_OPENCLAW_VERSION?.trim() || "2026.8.2",
-      codexVersion: env.CONTROL_PLANE_WORKSPACE_CODEX_VERSION?.trim() || "0.152.0",
+      claudeVersion: env.CONTROL_PLANE_WORKSPACE_CLAUDE_VERSION?.trim() || "2.1.226",
+      codexVersion: env.CONTROL_PLANE_WORKSPACE_CODEX_VERSION?.trim() || "0.155.1",
     },
     ...(environmentEntra ? { environmentEntra } : {}),
     autoSetup,

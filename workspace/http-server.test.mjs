@@ -7,7 +7,6 @@ import { once } from "node:events";
 import { WebSocket } from "ws";
 
 import { createWorkspaceHttpServer } from "./http-server.mjs";
-import { ClaudeAccounts } from "./claude-accounts.mjs";
 
 const mcpStatusFixture = (ready = true) => ({
   ready,
@@ -21,7 +20,7 @@ const mcpStatusFixture = (ready = true) => ({
   tools: ["google_places_search", "search_gif", "pexels_search_photos"],
 });
 
-async function fixture(ready = true, { gatewayAdminRequest, maxUploadBytes, maxTextBytes, mcpReady = true, codeServerReady = true, runTeamAgent, personalOpenAI, modelCatalog, modelPolicies, teamOpenAI, voiceService, turnCredentialProvider, teamChannelAuthorizer, terminalHeartbeatMs, gatewayMediaOrigin, gatewayMediaFetch, terminalActorResolver, gifProvider, apiProviderRuntime, claudeAccounts, modelAccounts } = {}) {
+async function fixture(ready = true, { nativeRuntime, gatewayAdminRequest, maxUploadBytes, maxTextBytes, mcpReady = true, codeServerReady = true, runTeamAgent, personalOpenAI, modelCatalog, modelPolicies, teamOpenAI, voiceService, turnCredentialProvider, teamChannelAuthorizer, terminalHeartbeatMs, mediaOrigin, mediaFetch, terminalActorResolver, gifProvider, apiProviderRuntime, claudeAccounts, modelAccounts } = {}) {
   const desktopRoot = await mkdtemp(path.join(tmpdir(), "neural-labs-desktop-test-"));
   const workspaceRoot = path.join(desktopRoot, "workspace-root");
   await mkdir(path.join(desktopRoot, "assets"));
@@ -42,11 +41,12 @@ async function fixture(ready = true, { gatewayAdminRequest, maxUploadBytes, maxT
   await writeFile(path.join(desktopRoot, "image-editor", "dist", "bundle.js"), '"use strict";');
   const server = createWorkspaceHttpServer({
     desktopRoot,
+    nativeRuntime,
     workspaceRoot,
     publicOrigin: "https://neural-labs.example.com",
-    gatewayReady: async () => ready,
-    gatewayMediaOrigin,
-    gatewayMediaFetch,
+    runtimeReady: async () => ready,
+    mediaOrigin,
+    mediaFetch,
     codeServerReady: async () => codeServerReady,
     mcpStatus: async () => mcpStatusFixture(mcpReady),
     providerAuthenticated: () => false,
@@ -86,68 +86,6 @@ async function fixture(ready = true, { gatewayAdminRequest, maxUploadBytes, maxT
     },
   };
 }
-
-test("personal automation routes authenticate the caller and ignore body account overrides", async () => {
-  const userId = "11111111-1111-1111-1111-111111111111";
-  const calls = [], owners = [];
-  const app = await fixture(true, {
-    personalOpenAI: { prepareRun: async id => { owners.push(id); return `nl-${id.replaceAll("-", "")}`; } },
-    gatewayAdminRequest: async (method, params) => {
-      calls.push({ method, params });
-      if (method === "cron.list") return { jobs: [{ id: "job", name: "Example", payload: { kind: "agentTurn", message: "Task" }, delivery: { mode: "none" } }], hasMore: false };
-      if (method === "cron.add") return { id: "child" };
-      if (method === "cron.update") return { id: "child" };
-      if (method === "cron.run") return { ok: true, queued: true };
-      return { entries: [] };
-    },
-  });
-  try {
-    const url = `${app.origin}/workspace/api/automations/run`;
-    const body = JSON.stringify({ jobId: "job", requestId: "22222222-2222-2222-2222-222222222222", userId: "someone-else", agentId: "main" });
-    const headers = { "Content-Type": "application/json", "Origin": "https://neural-labs.example.com", "X-Forwarded-User": userId, "X-Neural-Labs-Role": "admin" };
-    assert.equal((await fetch(url, { method: "POST", body })).status, 401);
-    assert.equal((await fetch(url, { method: "POST", body, headers: { ...headers, "X-Neural-Labs-Role": "guest" } })).status, 403);
-    assert.equal((await fetch(url, { method: "POST", body, headers: { ...headers, Origin: "https://other.example.com" } })).status, 403);
-    assert.equal(calls.length, 0);
-    const response = await fetch(url, { method: "POST", body, headers: { ...headers, "X-Neural-Labs-Role": "user" } });
-    assert.equal(response.status, 202);
-    const memberHeaders = { ...headers, "X-Neural-Labs-Role": "user" };
-    const snapshot = await fetch(`${app.origin}/workspace/api/automations/snapshot`, { headers: memberHeaders }).then(r => r.json());
-    assert.deepEqual(snapshot.jobs[0].payload, { kind: "agentTurn" });
-    assert.equal(snapshot.jobs[0].delivery, undefined);
-    assert.equal((await fetch(url, { method: "DELETE", headers: memberHeaders })).status, 405);
-    assert.deepEqual(owners, [userId]);
-    assert.equal(calls.find(row => row.method === "cron.add").params.agentId, `nl-${userId.replaceAll("-", "")}`);
-  } finally { await app.close(); }
-});
-
-test("protects model control routes and preserves owner/workload routing", async () => {
-  const calls = [];
-  const app = await fixture(true, {
-    modelCatalog: { invalidate: () => {}, list: async (input) => { calls.push(input); return { models: [] }; } },
-    modelPolicies: {
-      inspect: async (userId, workload) => ({ userId, workload }),
-      apply: async (input) => { calls.push(input); return { model: "openai/test" }; },
-    },
-    teamOpenAI: { snapshot: async () => ({ authenticated: false }), start: async () => ({ state: "starting" }), cancel: () => ({ state: "disconnected" }) },
-    voiceService: { snapshot: () => ({ configured: true }), configure: (input) => input, refreshCatalog: async () => ({ refreshed: true }) },
-  });
-  const headers = { Authorization: "Bearer workspace-control-token-at-least-thirty-two-characters", "Content-Type": "application/json" };
-  try {
-    for (const route of ["catalog", "preferences", "team/connection", "voice"]) {
-      assert.equal((await fetch(`${app.origin}/internal/model-providers/${route}`)).status, 401);
-      assert.equal((await fetch(`${app.origin}/internal/model-providers/${route}`, { method: "DELETE", headers })).status, 405);
-    }
-    await fetch(`${app.origin}/internal/model-providers/catalog?userId=alice`, { method: "POST", headers });
-    assert.deepEqual(calls.pop(), { userId: "alice", agentId: undefined, refresh: true });
-    const scoped = await fetch(`${app.origin}/internal/model-providers/preferences?userId=alice&workload=team`, { headers }).then((response) => response.json());
-    assert.deepEqual(scoped, { userId: "alice", workload: "background" });
-    await fetch(`${app.origin}/internal/model-providers/preferences?workload=team`, { method: "POST", headers, body: JSON.stringify({ policy: { mode: "latest" }, revision: 2 }) });
-    assert.deepEqual(calls.pop(), { userId: undefined, workload: "team", policy: { mode: "latest" }, revision: 2, previous: undefined });
-    assert.equal((await fetch(`${app.origin}/internal/model-providers/team/connection/start`, { method: "POST", headers })).status, 202);
-    assert.deepEqual(await fetch(`${app.origin}/internal/model-providers/voice/refresh`, { method: "POST", headers }).then((response) => response.json()), { refreshed: true });
-  } finally { await app.close(); }
-});
 
 test("isolates public editor assets from authenticated Files APIs and personal metadata", async () => {
   const app = await fixture();
@@ -240,8 +178,8 @@ test("relays only authenticated, ticketed Alshival media through the workspace o
   const ticket = "v1.c2Vzc2lvbi1ib3VuZC10aWNrZXQ.c2lnbmF0dXJl";
   const route = `/workspace/api/neura/media/outgoing/${encodeURIComponent("agent:nl-user:dashboard:chat")}/7ecda889-9f92-4cef-a162-5e6a56ad6abc/full?mediaTicket=${ticket}`;
   const app = await fixture(true, {
-    gatewayMediaOrigin: "http://127.0.0.1:18789",
-    gatewayMediaFetch: async (url, init) => {
+    mediaOrigin: "http://127.0.0.1:18789",
+    mediaFetch: async (url, init) => {
       requests.push({ url: String(url), method: init.method, authorization: init.headers?.authorization });
       return new Response(Buffer.from([137, 80, 78, 71]), {
         headers: { "Content-Type": "image/png", "Content-Length": "4", "Content-Disposition": "inline; filename=generated.png" },
@@ -268,8 +206,8 @@ test("relays private video byte ranges without forwarding browser credentials", 
   const requests = [];
   const route = "/workspace/api/neura/media/outgoing/chat/id/full?mediaTicket=v1.c2Vzc2lvbg.c2lnbmF0dXJl";
   const app = await fixture(true, {
-    gatewayMediaOrigin: "http://127.0.0.1:18789",
-    gatewayMediaFetch: async (_url, init) => {
+    mediaOrigin: "http://127.0.0.1:18789",
+    mediaFetch: async (_url, init) => {
       requests.push(init);
       if (init.headers.Range === "bytes=100-") return new Response(null, { status: 416, headers: { "Content-Range": "bytes */10" } });
       return new Response(init.method === "HEAD" ? null : new Uint8Array([2, 3, 4]), { status: 206, headers: { "Content-Type": "video/mp4", "Content-Length": "3", "Content-Range": "bytes 2-4/10", "Accept-Ranges": "bytes" } });
@@ -535,58 +473,6 @@ test("protects the internal Team Chat Alshival runner with the workspace control
     await app.close();
   }
 });
-
-test("protects personal OpenAI account control and routes only the selected user", async () => {
-  const calls = [];
-  const personalOpenAI = {
-    snapshot: async (userId) => { calls.push(["snapshot", userId]); return { provider: "openai", state: "disconnected", agentId: "nl-user", paused: true }; },
-    start: async (userId) => { calls.push(["start", userId]); return { provider: "openai", state: "starting", agentId: "nl-user", paused: false }; },
-    saveApiKey: async (userId, key) => { calls.push(["api-key", userId, key]); return { provider: "openai", authMethod: "api-key", state: "connected", agentId: "nl-user", authenticated: true, modelReady: true, paused: false }; },
-    cancel: async () => ({}), pause: async () => ({}), resume: async () => ({}),
-    disconnect: async (userId) => { calls.push(["disconnect", userId]); return { state: "disconnected" }; },
-  };
-  const app = await fixture(true, { personalOpenAI });
-  try {
-    const path = "/internal/provider-auth/openai/users/11111111-1111-4111-8111-111111111111";
-    assert.equal((await fetch(`${app.origin}${path}`)).status, 401);
-    const headers = { Authorization: "Bearer workspace-control-token-at-least-thirty-two-characters" };
-    assert.equal((await fetch(`${app.origin}${path}`, { headers })).status, 200);
-    assert.equal((await fetch(`${app.origin}${path}/start`, { method: "POST", headers })).status, 202);
-    assert.equal((await fetch(`${app.origin}${path}/api-key`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ key: "sk-test-personal" }) })).status, 200);
-    assert.equal((await fetch(`${app.origin}${path}/disconnect`, { method: "POST" })).status, 401);
-    assert.equal((await fetch(`${app.origin}${path}/disconnect`, { method: "POST", headers })).status, 200);
-    assert.deepEqual(calls, [
-      ["snapshot", "11111111-1111-4111-8111-111111111111"],
-      ["start", "11111111-1111-4111-8111-111111111111"],
-      ["api-key", "11111111-1111-4111-8111-111111111111", "sk-test-personal"],
-      ["disconnect", "11111111-1111-4111-8111-111111111111"],
-    ]);
-  } finally {
-    await app.close();
-  }
-});
-
-async function readServerEvent(response, eventName) {
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let content = "";
-  const timeout = setTimeout(() => reader.cancel("Timed out waiting for workspace file event"), 3_000);
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) throw new Error(`Event stream closed before ${eventName}`);
-      content += decoder.decode(value, { stream: true });
-      for (const block of content.split("\n\n")) {
-        if (!block.startsWith(`event: ${eventName}\n`)) continue;
-        const data = block.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
-        if (data) return JSON.parse(data);
-      }
-    }
-  } finally {
-    clearTimeout(timeout);
-    await reader.cancel().catch(() => undefined);
-  }
-}
 
 test("confines authenticated file operations to the shared workspace root", async () => {
   const app = await fixture();
@@ -927,23 +813,19 @@ test("rejects uploads above the configured streaming limit without leaving a fil
   }
 });
 
-test("reports gateway readiness without exposing arbitrary files", async () => {
+test("reports native runtime readiness without exposing arbitrary files", async () => {
   const app = await fixture(false);
   try {
     const health = await fetch(`${app.origin}/healthz`);
     assert.equal(health.status, 503);
     assert.deepEqual(await health.json(), {
       status: "starting",
-      gatewayReady: false,
+      runtimeReady: false,
       codeServerReady: true,
       mcpReady: true,
       mcp: mcpStatusFixture(true),
-      openclawVersion: "2026.8.2",
+      runtime: "native", protocol: 1, editorMode: "on-demand",
       codexVersion: "0.152.0",
-      providerAuthenticated: false,
-      credentialSource: "unconfigured",
-      codexAuthenticated: false,
-      openclawModelReady: false,
     });
     assert.equal((await fetch(`${app.origin}/workspace/assets/../index.html`)).status, 404);
     assert.equal((await fetch(`${app.origin}/workspace/assets/%2e%2e%2findex.html`)).status, 404);
@@ -963,162 +845,32 @@ test("holds workspace readiness while the local MCP is unavailable", async () =>
     assert.equal(health.status, 503);
     assert.deepEqual(await health.json(), {
       status: "starting",
-      gatewayReady: true,
+      runtimeReady: true,
       codeServerReady: true,
       mcpReady: false,
       mcp: mcpStatusFixture(false),
-      openclawVersion: "2026.8.2",
+      runtime: "native", protocol: 1, editorMode: "on-demand",
       codexVersion: "0.152.0",
-      providerAuthenticated: false,
-      credentialSource: "unconfigured",
-      codexAuthenticated: false,
-      openclawModelReady: false,
     });
   } finally {
     await app.close();
   }
 });
 
-test("holds workspace readiness while VS Code is starting", async () => {
+test("keeps the desktop ready while the editor is idle", async () => {
   const app = await fixture(true, { codeServerReady: false });
   try {
     const health = await fetch(`${app.origin}/healthz`);
-    assert.equal(health.status, 503);
+    assert.equal(health.status, 200);
     const payload = await health.json();
-    assert.equal(payload.status, "starting");
-    assert.equal(payload.gatewayReady, true);
-    assert.equal(payload.codeServerReady, false);
+    assert.equal(payload.status, "ready");
+    assert.equal(payload.runtimeReady, true);
+    assert.equal(payload.codeServerReady, true);
     assert.equal(payload.mcpReady, true);
   } finally {
     await app.close();
   }
 });
-
-test("protects the workspace-owned provider login controller with its internal token", async () => {
-  const app = await fixture();
-  const headers = {
-    Authorization: "Bearer workspace-control-token-at-least-thirty-two-characters",
-  };
-  try {
-    await fetch(`${app.origin}/internal/provider-auth/openai`).then(async (response) => {
-      assert.equal(response.status, 401);
-      assert.equal((await response.json()).error.code, "unauthorized");
-    });
-    await fetch(`${app.origin}/internal/provider-auth/openai`, { headers }).then(async (response) => {
-      assert.equal(response.status, 200);
-      assert.equal((await response.json()).state, "disconnected");
-    });
-    await fetch(`${app.origin}/internal/provider-auth/openai/start`, { method: "POST", headers }).then(async (response) => {
-      assert.equal(response.status, 202);
-      assert.equal((await response.json()).state, "starting");
-    });
-    assert.equal(
-      (await fetch(`${app.origin}/internal/provider-auth/openai`, { method: "POST", headers })).status,
-      405,
-    );
-  } finally {
-    await app.close();
-  }
-});
-
-const terminalUserOne = {
-  "X-Forwarded-User": "terminal-user-1",
-  "X-Neural-Labs-Email": "ada@example.com",
-  "X-Neural-Labs-Role": "user",
-};
-const terminalUserTwo = {
-  "X-Forwarded-User": "terminal-user-2",
-  "X-Neural-Labs-Email": "grace@example.com",
-  "X-Neural-Labs-Role": "user",
-};
-const terminalOutsider = {
-  "X-Forwarded-User": "terminal-user-3",
-  "X-Neural-Labs-Email": "linus@example.com",
-  "X-Neural-Labs-Role": "user",
-};
-
-function waitForSocketMessage(socket, predicate, label) {
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      cleanup();
-      reject(new Error(`Timed out waiting for terminal message: ${label}`));
-    }, 5_000);
-    const onMessage = (raw) => {
-      let message;
-      try { message = JSON.parse(raw.toString("utf8")); } catch { return; }
-      if (!predicate(message)) return;
-      cleanup();
-      resolve(message);
-    };
-    const onClose = () => {
-      cleanup();
-      reject(new Error(`Terminal socket closed while waiting for: ${label}`));
-    };
-    const cleanup = () => {
-      clearTimeout(timeout);
-      socket.off("message", onMessage);
-      socket.off("close", onClose);
-    };
-    socket.on("message", onMessage);
-    socket.on("close", onClose);
-  });
-}
-
-async function createTerminalSession(app, actor, body) {
-  const response = await fetch(`${app.origin}/workspace/api/terminals`, {
-    method: "POST",
-    headers: { ...actor, Origin: "https://neural-labs.example.com", "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  assert.equal(response.status, 201);
-  return (await response.json()).session;
-}
-
-async function issueTerminalSocketTicket(app, actor, terminalId, afterSequence = null) {
-  const response = await fetch(`${app.origin}/workspace/api/terminals/${terminalId}/ticket`, {
-    method: "POST",
-    headers: { ...actor, Origin: "https://neural-labs.example.com", "Content-Type": "application/json" },
-    body: JSON.stringify({ afterSequence }),
-  });
-  assert.equal(response.status, 200);
-  return response.json();
-}
-
-async function connectTerminalSocket(app, actor, ticket) {
-  const socket = new WebSocket(
-    `${app.origin.replace("http:", "ws:")}${ticket.path}`,
-    [ticket.protocol, `ticket.${ticket.ticket}`],
-    { origin: "https://neural-labs.example.com", headers: actor },
-  );
-  const ready = waitForSocketMessage(socket, (message) => message.type === "ready", "ready");
-  await new Promise((resolve, reject) => {
-    socket.once("open", resolve);
-    socket.once("error", reject);
-  });
-  return { socket, ready: await ready };
-}
-
-async function rejectedTerminalSocket(app, actor, ticket, origin = "https://neural-labs.example.com") {
-  const socket = new WebSocket(
-    `${app.origin.replace("http:", "ws:")}${ticket.path}`,
-    [ticket.protocol, `ticket.${ticket.ticket}`],
-    { origin, headers: actor },
-  );
-  socket.on("error", () => undefined);
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error("Timed out waiting for rejected terminal upgrade")), 3_000);
-    socket.once("unexpected-response", (_request, response) => {
-      clearTimeout(timeout);
-      response.resume();
-      resolve(response.statusCode);
-    });
-    socket.once("open", () => {
-      clearTimeout(timeout);
-      socket.close();
-      reject(new Error("Rejected terminal socket unexpectedly opened"));
-    });
-  });
-}
 
 test("keeps private PTYs alive across socket reconnects and isolates them by user", async () => {
   const app = await fixture();
@@ -1360,7 +1112,7 @@ test("imports ticketed Alshival attachments through Files with conflict handling
   const requests = [];
   const mediaUrl = "/workspace/api/neura/media/outgoing/chat/id/full?mediaTicket=v1.c2Vzc2lvbg.c2lnbmF0dXJl";
   const headers = { "X-Forwarded-User": "attachment-user", Origin: "https://neural-labs.example.com", "Content-Type": "application/json" };
-  const app = await fixture(true, { gatewayMediaOrigin: "http://127.0.0.1:18789", gatewayMediaFetch: async (url, options) => {
+  const app = await fixture(true, { mediaOrigin: "http://127.0.0.1:18789", mediaFetch: async (url, options) => {
     requests.push({ url: String(url), redirect: options.redirect }); return new Response("image bytes", { headers: { "Content-Type": "image/png" } });
   } });
   const send = (body, requestHeaders = headers) => fetch(`${app.origin}/workspace/api/files/import-neura`, { method: "POST", headers: requestHeaders, body: JSON.stringify(body) });
@@ -1391,7 +1143,7 @@ test("imports ticketed Alshival attachments through Files with conflict handling
 
 test("private media import preserves existing files on expired, oversized, or broken streams", async () => {
   let mode = "expired";
-  const app = await fixture(true, { maxUploadBytes: 4, gatewayMediaOrigin: "http://127.0.0.1:18789", gatewayMediaFetch: async () => {
+  const app = await fixture(true, { maxUploadBytes: 4, mediaOrigin: "http://127.0.0.1:18789", mediaFetch: async () => {
     if (mode === "expired") return new Response("expired", { status: 403 });
     if (mode === "large") return new Response("too many bytes");
     return new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode("abc")); controller.error(new Error("connection lost")); } }));
@@ -1414,7 +1166,7 @@ test("private media import preserves existing files on expired, oversized, or br
 test("aborting a private media import removes staging without replacing the destination", async () => {
   let started;
   const upstreamStarted = new Promise(resolve => { started = resolve; });
-  const app = await fixture(true, { gatewayMediaOrigin: "http://127.0.0.1:18789", gatewayMediaFetch: async (_url, options) => {
+  const app = await fixture(true, { mediaOrigin: "http://127.0.0.1:18789", mediaFetch: async (_url, options) => {
     started();
     return new Response(new ReadableStream({ start(controller) {
       controller.enqueue(new TextEncoder().encode("partial"));
@@ -1510,64 +1262,6 @@ test("provider runtime status and checks require the workspace token and validat
 });
 
 
-test("background live probe is operator-only and cannot select another account", async () => {
-  const calls = [];
-  const app = await fixture(true, { gatewayAdminRequest: async (method, params) => { calls.push({ method, params }); return { status: "ok", results: [{ status: "ok", model: "openai/example", private: "do not expose" }] }; } });
-  try {
-    const url = `${app.origin}/internal/provider-auth/openai/probe`;
-    assert.equal((await fetch(url, { method: "POST" })).status, 401);
-    const headers = { Authorization: "Bearer workspace-control-token-at-least-thirty-two-characters", "Content-Type": "application/json" };
-    assert.equal((await fetch(url, { headers })).status, 405);
-    const response = await fetch(url, { method: "POST", headers, body: JSON.stringify({ agentId: "other", profileId: "other" }) });
-    assert.equal(response.status, 200);
-    assert.deepEqual(calls, [{ method: "models.probe", params: {agentId: "main", provider: "openai", profileId: "openai:neural-labs-background", timeoutMs: 30000} }]);
-    assert.deepEqual(await response.json(), { provider: "openai", status: "ok", results: [{ status: "ok", model: "openai/example" }] });
-  } finally { await app.close(); }
-});
-
-
-test("Claude internal routes require the control token and keep actor, owner, and workload separate", async () => {
-  const calls = [];
-  const app = await fixture(true, { claudeAccounts: {
-    snapshot: async owner => ({ provider: "anthropic", owner }),
-    action: async (...args) => { calls.push(args); return { provider: "anthropic", authenticated: false }; },
-  }, modelAccounts: { snapshot: async userId => ({ agentId: `nl-${userId}` }) } });
-  try {
-    assert.equal((await fetch(`${app.origin}/internal/model-providers/anthropic`)).status, 401);
-    const response = await fetch(`${app.origin}/internal/model-providers/anthropic?userId=alice`, { method: "POST", headers: { Authorization: "Bearer workspace-control-token-at-least-thirty-two-characters", "Content-Type": "application/json" }, body: JSON.stringify({ action: "refresh", actorId: "actor-a", input: {} }) });
-    assert.equal(response.status, 200);
-    assert.deepEqual(calls, [[{ userId: "alice", workload: "background" }, "refresh", {}, "actor-a"]]);
-  } finally { await app.close(); }
-});
-
-test("Claude connect returns a private Terminal app session through the existing HTTP API", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "claude-http-"));
-  const child = { onData() {}, onExit(fn) { this.exit = fn; }, kill() { this.exit({ exitCode: 1 }); }, write() {}, resize() {} };
-  const accounts = new ClaudeAccounts({ manager: { stateRoot: root, ensureProvisioned: async id => ({ agentId: `nl-${id}` }) }, spawnPty: () => child });
-  const app = await fixture(true, { claudeAccounts: accounts, modelAccounts: {}, terminalActorResolver: async id => ({ id, label: id, role: "user" }) });
-  try {
-    const response = await fetch(`${app.origin}/internal/model-providers/anthropic?userId=alice`, { method: "POST", headers: { Authorization: "Bearer workspace-control-token-at-least-thirty-two-characters", "Content-Type": "application/json" }, body: JSON.stringify({ action: "connect", actorId: "alice", input: {} }) });
-    assert.equal(response.status, 200);
-    const { terminalId } = await response.json();
-    assert.match(terminalId, /^[a-f0-9-]{36}$/);
-    const url = `${app.origin}/workspace/api/terminals/${terminalId}`;
-    assert.equal((await fetch(url)).status, 401);
-    assert.equal((await fetch(url, { headers: { "X-Forwarded-User": "bob" } })).status, 404);
-    const own = await fetch(url, { headers: { "X-Forwarded-User": "alice" } });
-    assert.equal(own.status, 200);
-    const { session } = await own.json();
-    assert.equal(session.title, "Claude sign-in");
-    assert.equal(session.shell, "claude");
-    assert.equal(session.agentMode, "status-only");
-    assert.equal(session.canControlAgent, false);
-  } finally {
-    await accounts.stop("nl-alice", "alice", true);
-    await app.close();
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-
 test("embeds only the project shell on configured HTTPS origins", async () => {
   const prior = process.env.NEURAL_LABS_EMBED_ORIGINS;
   process.env.NEURAL_LABS_EMBED_ORIGINS = "https://portal.example.test,http://unsafe.test,https://bad.test/path";
@@ -1584,4 +1278,163 @@ test("embeds only the project shell on configured HTTPS origins", async () => {
     if (prior === undefined) delete process.env.NEURAL_LABS_EMBED_ORIGINS;
     else process.env.NEURAL_LABS_EMBED_ORIGINS = prior;
   }
+});
+
+async function readServerEvent(response, eventName) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let content = "";
+  const timeout = setTimeout(() => reader.cancel("Timed out waiting for workspace file event"), 3_000);
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) throw new Error(`Event stream closed before ${eventName}`);
+      content += decoder.decode(value, { stream: true });
+      for (const block of content.split("\n\n")) {
+        if (!block.startsWith(`event: ${eventName}\n`)) continue;
+        const data = block.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
+        if (data) return JSON.parse(data);
+      }
+    }
+  } finally {
+    clearTimeout(timeout);
+    await reader.cancel().catch(() => undefined);
+  }
+}
+
+
+const terminalUserOne = {
+  "X-Forwarded-User": "terminal-user-1",
+  "X-Neural-Labs-Email": "ada@example.com",
+  "X-Neural-Labs-Role": "user",
+};
+const terminalUserTwo = {
+  "X-Forwarded-User": "terminal-user-2",
+  "X-Neural-Labs-Email": "grace@example.com",
+  "X-Neural-Labs-Role": "user",
+};
+const terminalOutsider = {
+  "X-Forwarded-User": "terminal-user-3",
+  "X-Neural-Labs-Email": "linus@example.com",
+  "X-Neural-Labs-Role": "user",
+};
+
+function waitForSocketMessage(socket, predicate, label) {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error(`Timed out waiting for terminal message: ${label}`));
+    }, 5_000);
+    const onMessage = (raw) => {
+      let message;
+      try { message = JSON.parse(raw.toString("utf8")); } catch { return; }
+      if (!predicate(message)) return;
+      cleanup();
+      resolve(message);
+    };
+    const onClose = () => {
+      cleanup();
+      reject(new Error(`Terminal socket closed while waiting for: ${label}`));
+    };
+    const cleanup = () => {
+      clearTimeout(timeout);
+      socket.off("message", onMessage);
+      socket.off("close", onClose);
+    };
+    socket.on("message", onMessage);
+    socket.on("close", onClose);
+  });
+}
+
+async function createTerminalSession(app, actor, body) {
+  const response = await fetch(`${app.origin}/workspace/api/terminals`, {
+    method: "POST",
+    headers: { ...actor, Origin: "https://neural-labs.example.com", "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  assert.equal(response.status, 201);
+  return (await response.json()).session;
+}
+
+async function issueTerminalSocketTicket(app, actor, terminalId, afterSequence = null) {
+  const response = await fetch(`${app.origin}/workspace/api/terminals/${terminalId}/ticket`, {
+    method: "POST",
+    headers: { ...actor, Origin: "https://neural-labs.example.com", "Content-Type": "application/json" },
+    body: JSON.stringify({ afterSequence }),
+  });
+  assert.equal(response.status, 200);
+  return response.json();
+}
+
+async function connectTerminalSocket(app, actor, ticket) {
+  const socket = new WebSocket(
+    `${app.origin.replace("http:", "ws:")}${ticket.path}`,
+    [ticket.protocol, `ticket.${ticket.ticket}`],
+    { origin: "https://neural-labs.example.com", headers: actor },
+  );
+  const ready = waitForSocketMessage(socket, (message) => message.type === "ready", "ready");
+  await new Promise((resolve, reject) => {
+    socket.once("open", resolve);
+    socket.once("error", reject);
+  });
+  return { socket, ready: await ready };
+}
+
+async function rejectedTerminalSocket(app, actor, ticket, origin = "https://neural-labs.example.com") {
+  const socket = new WebSocket(
+    `${app.origin.replace("http:", "ws:")}${ticket.path}`,
+    [ticket.protocol, `ticket.${ticket.ticket}`],
+    { origin, headers: actor },
+  );
+  socket.on("error", () => undefined);
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("Timed out waiting for rejected terminal upgrade")), 3_000);
+    socket.once("unexpected-response", (_request, response) => {
+      clearTimeout(timeout);
+      response.resume();
+      resolve(response.statusCode);
+    });
+    socket.once("open", () => {
+      clearTimeout(timeout);
+      socket.close();
+      reject(new Error("Rejected terminal socket unexpectedly opened"));
+    });
+  });
+}
+
+test("native proposal history requires authenticated administrator access", async t => {
+  const { NativeState, canonical, digest } = await import("./native/state.mjs");
+  const { NativeSkillHistory } = await import("./native/skill-history.mjs");
+  const state = new NativeState(":memory:");
+  const migration = "a".repeat(64), payload = canonical({ title: "Fixture proposal", status: "pending" });
+  state.db.prepare("INSERT INTO migrations VALUES (?,?,?,?,?)").run(migration, "fixture", "{}", "verified", "{}");
+  state.db.prepare("INSERT INTO retained_records VALUES (?,?,?,?,?,?)").run(migration, "proposals", "fixture-proposal", payload, digest(payload), "retained-native-history");
+  const app = await fixture(true, { nativeRuntime: { skillHistory: new NativeSkillHistory(state) } });
+  t.after(async () => { await app.close(); state.close(); });
+  const endpoint = `${app.origin}/workspace/api/skills/history`;
+  assert.equal((await fetch(endpoint)).status, 401);
+  assert.equal((await fetch(endpoint, { headers: { "X-Forwarded-User": "fixture" } })).status, 403);
+  const headers = { "X-Forwarded-User": "fixture", "X-Neural-Labs-Role": "admin" };
+  const page = await (await fetch(endpoint, { headers })).json();
+  assert.equal(page.records.length, 1); assert.equal(page.records[0].title, "Fixture proposal");
+  const detail = await (await fetch(`${endpoint}-detail?migration=${migration}&id=fixture-proposal`, { headers })).json();
+  assert.equal(detail.raw.status, "pending"); assert.equal(detail.readOnly, true);
+});
+
+test("members can inspect held automations and run history before connecting an AI account", async t => {
+  const { NativeState } = await import("./native/state.mjs");
+  const { NativeJobs } = await import("./native/jobs.mjs");
+  const state = new NativeState(":memory:");
+  state.putJob({ id: "held-job", name: "Needs account", enabled: true,
+    schedule: { kind: "every", everyMs: 60000, anchorMs: 0 }, payload: { kind: "agentTurn", message: "Private definition" } }, { hold: "native-sign-in-required" });
+  const app = await fixture(true, { nativeRuntime: { jobs: new NativeJobs({ state }) } });
+  t.after(async () => { await app.close(); state.close(); });
+  const endpoint = `${app.origin}/workspace/api/automations`;
+  assert.equal((await fetch(endpoint)).status, 401);
+  const headers = { "X-Forwarded-User": "fixture-member" };
+  const snapshot = await (await fetch(endpoint, { headers })).json();
+  assert.equal(snapshot.jobs[0].hold, "native-sign-in-required");
+  assert.equal(snapshot.jobs[0].enabled, true); assert.equal(snapshot.jobs[0].payload.message, undefined);
+  const history = await (await fetch(`${endpoint}/history?job=held-job`, { headers })).json();
+  assert.deepEqual(history, { entries: [], next: null });
 });

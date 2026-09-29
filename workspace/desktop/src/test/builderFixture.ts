@@ -1,5 +1,5 @@
 import { BuilderDraftConnection, ensureCollaborativeText, type BuilderDraft } from "../builderApi";
-import type { NeuraGateway } from "../openclaw";
+import type { NativeClient } from "../nativeClient";
 
 export function builderFixture(kind: "skill" | "automation" = "skill") {
   const user = { id: "fixture", displayName: "Example", role: "admin" as const };
@@ -21,6 +21,6 @@ export function builderFixture(kind: "skill" | "automation" = "skill") {
     ensureCollaborativeText(files, "agents/openai.yaml", 'interface:\n  display_name: "Release notes"\n  short_description: "Clear release notes for your team"\n  default_prompt: "Use $release-notes to summarize this release."\npolicy:\n  allow_implicit_invocation: false\n');
   }
   const draft: BuilderDraft = { id: "fixture", kind, title: defaults.name, ownerUserId: user.id, ownerDisplayName: user.displayName, collaboratorUserIds: [], createdAt: "2026-09-01T00:00:00Z", updatedAt: "2026-09-01T00:00:00Z", canPublish: true, canManageCollaborators: true, administrator: true };
-  const gateway = { onEvent: () => () => undefined } as unknown as NeuraGateway;
+  const gateway = { onEvent: () => () => undefined } as unknown as NativeClient;
   return { connection, draft, currentUser: user, directory: [], skills: [], gateway };
 }

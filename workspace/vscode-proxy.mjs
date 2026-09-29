@@ -14,7 +14,7 @@ const responseHeaderBlocklist = new Set([
   "x-frame-options",
 ]);
 
-export function proxyVsCodeHttp(request, response, config) {
+export async function proxyVsCodeHttp(request, response, config) {
   if (!workspaceActor(request.headers)) {
     sendText(response, 401, "Authentication is required\n", request.method);
     return;
@@ -32,7 +32,12 @@ export function proxyVsCodeHttp(request, response, config) {
     return;
   }
 
-  const upstream = createUpstreamRequest(request, config, (upstreamResponse) => {
+  let target;
+  try { target = config.resolveTarget ? await config.resolveTarget(request) : {}; }
+  catch { sendText(response, 503, "VS Code is unavailable for this workspace session\n", request.method); return; }
+  const release = target.acquire?.();
+  if (release) { response.once("close", release); response.once("finish", release); }
+  const upstream = createUpstreamRequest(request, { ...config, ...target }, (upstreamResponse) => {
     response.statusCode = upstreamResponse.statusCode || 502;
     for (const [name, value] of Object.entries(upstreamResponse.headers)) {
       if (value !== undefined && !responseHeaderBlocklist.has(name.toLowerCase())) {
@@ -66,7 +71,11 @@ export function attachVsCodeWebSocketBridge(server, config) {
       return;
     }
 
-    const upstream = createUpstreamRequest(request, config);
+    void (async () => {
+    const target = config.resolveTarget ? await config.resolveTarget(request) : {};
+    if (socket.destroyed || config.gated?.()) { socket.destroy(); return; }
+    const release = target.acquire?.(); if (release) socket.once("close", release);
+    const upstream = createUpstreamRequest(request, { ...config, ...target });
     upstream.once("upgrade", (upstreamResponse, upstreamSocket, upstreamHead) => {
       sockets.add(socket);
       sockets.add(upstreamSocket);
@@ -95,6 +104,7 @@ export function attachVsCodeWebSocketBridge(server, config) {
     });
     upstream.once("error", () => rejectUpgrade(socket, 503, "Service Unavailable"));
     upstream.end();
+    })().catch(() => rejectUpgrade(socket, 503, "Service Unavailable"));
   };
 
   server.on("upgrade", onUpgrade);
@@ -129,6 +139,8 @@ function createUpstreamRequest(request, config, onResponse) {
   delete headers["x-forwarded-user"];
   delete headers["x-neural-labs-email"];
   delete headers["x-neural-labs-role"];
+  delete headers["x-neural-labs-session"];
+  delete headers["x-neural-labs-assertion"];
   // code-server compares the WebSocket Origin with Host. Retain the public
   // Host while the TCP connection itself remains pinned to loopback.
   headers.host = headers.host || new URL(config.publicOrigin).host;
@@ -136,8 +148,7 @@ function createUpstreamRequest(request, config, onResponse) {
   headers["x-forwarded-proto"] = new URL(config.publicOrigin).protocol.replace(":", "");
   headers["x-forwarded-prefix"] = VSCODE_BASE_PATH;
   return http.request({
-    hostname: target.hostname,
-    port: target.port,
+    ...(config.socketPath ? { socketPath: config.socketPath } : { hostname: target.hostname, port: target.port }),
     method: request.method,
     path: normalizeUpstreamPath(request.url, config.publicOrigin),
     headers,

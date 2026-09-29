@@ -1,6 +1,7 @@
-ARG OPENCLAW_IMAGE=ghcr.io/openclaw/openclaw:2026.9.6@sha256:0a5ff5e682e62afa19149df126aa50063bf65ef885b5c94713ce32dc0eb12e15
-# OpenClaw application files are inherited unchanged from the reviewed image.
-FROM ${OPENCLAW_IMAGE} AS desktop-build
+# Every stage uses the reviewed multi-platform Linux base. Provider processes
+# are launched only by the native broker; there is no upstream Gateway layer.
+ARG NATIVE_BASE_IMAGE=node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5
+FROM ${NATIVE_BASE_IMAGE} AS desktop-build
 
 USER root
 WORKDIR /build
@@ -14,7 +15,7 @@ COPY workspace/vendor/minipaint /vendor/minipaint
 COPY workspace/build-minipaint.mjs /build-minipaint.mjs
 RUN npm run build
 
-FROM node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS mcp-build
+FROM ${NATIVE_BASE_IMAGE} AS mcp-build
 
 WORKDIR /build
 COPY mcp/package.json mcp/package-lock.json ./
@@ -25,112 +26,41 @@ COPY mcp/test ./test
 RUN npm run validate \
     && npm prune --omit=dev
 
-FROM ${OPENCLAW_IMAGE}
-
-ARG CODEX_VERSION=0.155.1
-ARG CODE_SERVER_VERSION=4.133.0
-ARG CODE_SERVER_AMD64_SHA256=a4e0f8f8c76e7de8e7424289f74e507af4c97bfe104c3e8ee272b8cc7b46c6f1
-ARG CODE_SERVER_ARM64_SHA256=d999d8b0256e5537f3b62e6c09f624220026e19107a04a876c0cef62d1c71147
+FROM ${NATIVE_BASE_IMAGE}
 
 USER root
 WORKDIR /usr/local/lib/neural-labs
+COPY workspace/native/release.json /usr/local/lib/neural-labs/native/release.json
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
-      bash-completion \
-      build-essential \
-      ca-certificates \
-      chromium \
-      curl \
-      ffmpeg \
-      fonts-liberation \
-      fonts-noto-color-emoji \
-      fonts-noto-core \
-      imagemagick \
-      jq \
-      less \
-      openssh-client \
-      procps \
-      python3 \
-      python3-pip \
-      ripgrep \
-      rsync \
-      sudo \
-      util-linux \
-      vim-tiny \
-      webp \
-      zsh \
-      zsh-autosuggestions \
-      zsh-syntax-highlighting \
-    && npm install --global "@openai/codex@${CODEX_VERSION}" \
-    && chromium --version \
-    && ffmpeg -version \
-    && ffprobe -version \
-    && cwebp -version \
-    && identify -version \
-    && rsync --version \
-    && npm cache clean --force \
+      bash-completion bubblewrap build-essential ca-certificates chromium curl \
+      ffmpeg fonts-liberation fonts-noto-color-emoji fonts-noto-core git \
+      imagemagick jq less openssh-client procps python3 python3-pip ripgrep \
+      rsync tini util-linux vim-tiny webp zsh zsh-autosuggestions zsh-syntax-highlighting \
     && rm -rf /var/lib/apt/lists/*
 
-RUN set -eu; \
-    case "$(dpkg --print-architecture)" in \
-      amd64) code_server_arch=amd64; code_server_sha="${CODE_SERVER_AMD64_SHA256}" ;; \
-      arm64) code_server_arch=arm64; code_server_sha="${CODE_SERVER_ARM64_SHA256}" ;; \
-      *) echo "Unsupported code-server architecture: $(dpkg --print-architecture)" >&2; exit 1 ;; \
-    esac; \
-    code_server_archive="/tmp/code-server-${CODE_SERVER_VERSION}-${code_server_arch}.tar.gz"; \
-    curl --fail --location --retry 3 \
-      --output "${code_server_archive}" \
-      "https://github.com/coder/code-server/releases/download/v${CODE_SERVER_VERSION}/code-server-${CODE_SERVER_VERSION}-linux-${code_server_arch}.tar.gz"; \
-    echo "${code_server_sha}  ${code_server_archive}" | sha256sum --check --strict; \
-    tar --extract --gzip --file "${code_server_archive}" --directory /usr/local/lib; \
-    mv "/usr/local/lib/code-server-${CODE_SERVER_VERSION}-linux-${code_server_arch}" /usr/local/lib/code-server; \
-    ln -s /usr/local/lib/code-server/bin/code-server /usr/local/bin/code-server; \
-    rm -f "${code_server_archive}"
+# Pins and architecture-specific digests come from one reviewed manifest.
+# Reject unsupported architectures rather than silently running emulation.
+COPY workspace/native/install-release.sh /usr/local/lib/neural-labs/native/install-release.sh
+RUN bash /usr/local/lib/neural-labs/native/install-release.sh
 
-COPY workspace/package.json workspace/package-lock.json /usr/local/lib/neural-labs/
-RUN npm ci --omit=dev --prefix /usr/local/lib/neural-labs \
+COPY workspace/package.json workspace/package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts \
+    && npm rebuild node-pty \
     && npm cache clean --force
 
-COPY workspace/sudoers-neural-labs /etc/sudoers.d/neural-labs-workspace
-COPY workspace/start.mjs /usr/local/lib/neural-labs/start.mjs
-COPY workspace/native-state-migration.mjs /usr/local/lib/neural-labs/native-state-migration.mjs
-COPY workspace/browser-config.mjs /usr/local/lib/neural-labs/browser-config.mjs
-COPY workspace/http-server.mjs /usr/local/lib/neural-labs/http-server.mjs
-COPY workspace/builder-manager.mjs /usr/local/lib/neural-labs/builder-manager.mjs
-COPY workspace/vscode-proxy.mjs /usr/local/lib/neural-labs/vscode-proxy.mjs
-COPY workspace/file-manager.mjs /usr/local/lib/neural-labs/file-manager.mjs
-COPY workspace/explorer-manager.mjs /usr/local/lib/neural-labs/explorer-manager.mjs
-COPY workspace/skills-manager.mjs /usr/local/lib/neural-labs/skills-manager.mjs
-COPY workspace/file-events.mjs /usr/local/lib/neural-labs/file-events.mjs
-COPY workspace/provider-display-cache.mjs /usr/local/lib/neural-labs/provider-display-cache.mjs
-COPY workspace/background-provider-status.mjs /usr/local/lib/neural-labs/background-provider-status.mjs
-COPY workspace/provider-auth.mjs /usr/local/lib/neural-labs/provider-auth.mjs
-COPY workspace/personal-openai.mjs /usr/local/lib/neural-labs/personal-openai.mjs
-COPY workspace/model-catalog.mjs /usr/local/lib/neural-labs/model-catalog.mjs
-COPY workspace/codex-runtime.mjs /usr/local/lib/neural-labs/codex-runtime.mjs
-# Independently pinned app-server: it changes only in a reviewed image release.
-ARG CODEX_APP_SERVER_VERSION=0.155.1
-RUN npm install --prefix /usr/local/lib/neural-labs/codex-app-server --ignore-scripts --no-audit --no-fund "@openai/codex@${CODEX_APP_SERVER_VERSION}"
-COPY workspace/update-app-server-probe.mjs /usr/local/lib/neural-labs/update-app-server-probe.mjs
-COPY workspace/update-probe.mjs /usr/local/lib/neural-labs/update-probe.mjs
-COPY workspace/update-maintenance.mjs /usr/local/lib/neural-labs/update-maintenance.mjs
-COPY workspace/codex-updates.mjs /usr/local/lib/neural-labs/codex-updates.mjs
-COPY --chmod=0755 workspace/shell/codex /usr/local/share/neural-labs/bin/codex
-COPY workspace/openclaw-runtime.mjs workspace/openclaw-release.json /usr/local/lib/neural-labs/
-COPY workspace/gateway-isolation.mjs /usr/local/lib/neural-labs/gateway-isolation.mjs
-COPY workspace/model-policies.mjs /usr/local/lib/neural-labs/model-policies.mjs
-COPY workspace/native-config-batch.mjs /usr/local/lib/neural-labs/native-config-batch.mjs
-COPY workspace/team-openai.mjs /usr/local/lib/neural-labs/team-openai.mjs
-COPY workspace/provider-environment.mjs /usr/local/lib/neural-labs/provider-environment.mjs
-COPY workspace/team-agent.mjs /usr/local/lib/neural-labs/team-agent.mjs
-COPY workspace/managed-members.mjs /usr/local/lib/neural-labs/managed-members.mjs
-COPY workspace/alshival-plugin /usr/local/lib/neural-labs/alshival-plugin
-COPY workspace/voice.mjs /usr/local/lib/neural-labs/voice.mjs
-COPY workspace/terminal-guidance.md workspace/terminal-guidance.mjs /usr/local/lib/neural-labs/
-COPY workspace/terminal-agent.mjs /usr/local/lib/neural-labs/terminal-agent.mjs
-COPY workspace/terminal-manager.mjs /usr/local/lib/neural-labs/terminal-manager.mjs
-COPY workspace/shell /usr/local/share/neural-labs/shell
+# Copy the native entrypoint's reviewed module graph only. Historical migration
+# readers are included; old provider plugins and Gateway modules are not.
+COPY workspace/start.mjs workspace/http-server.mjs workspace/response-work.mjs \
+     workspace/builder-manager.mjs workspace/vscode-proxy.mjs \
+     workspace/file-manager.mjs workspace/explorer-manager.mjs \
+     workspace/skills-manager.mjs workspace/package-files.mjs workspace/file-events.mjs \
+     workspace/voice.mjs workspace/terminal-agent.mjs workspace/terminal-manager.mjs \
+     workspace/public-apps.mjs workspace/imported-history.mjs ./
+COPY workspace/native ./native
+COPY --chmod=0755 workspace/entrypoint.sh /usr/local/bin/neural-labs-runtime
+COPY --chown=node:node workspace/bundled-skills /usr/local/share/neural-labs/prospect-skills
 COPY --from=desktop-build /build/dist /usr/local/share/neural-labs/desktop
 COPY --chown=node:node --from=mcp-build /build/package.json /build/package-lock.json /usr/local/lib/neural-labs/mcp/
 COPY --chown=node:node --from=mcp-build /build/node_modules /usr/local/lib/neural-labs/mcp/node_modules
@@ -139,54 +69,24 @@ COPY tmp/neural-labs-spectrum-paper-wallpaper.png /usr/local/share/neural-labs/d
 COPY tmp/neural-labs-spectrum-paper-tablet.png /usr/local/share/neural-labs/desktop/assets/wallpaper-tablet.png
 COPY tmp/neural-labs-spectrum-paper-mobile.png /usr/local/share/neural-labs/desktop/assets/wallpaper-mobile.png
 
-RUN chmod 0440 /etc/sudoers.d/neural-labs-workspace \
-    && visudo --check --file=/etc/sudoers.d/neural-labs-workspace \
-    && mkdir -p \
-      /home/node/.codex \
-      /home/node/.config/openclaw \
-      /home/node/.openclaw \
-      /home/node/workspace \
-      /home/node/workspace/projects \
-    && chown -R node:node /home/node
+RUN mkdir -p /home/node/workspace/projects /home/node/.local/state/neural-labs /run/neural-labs \
+    && chown -R node:node /home/node /run/neural-labs \
+    && chmod 0700 /run/neural-labs \
+    && test ! -e /app \
+    && ! command -v openclaw \
+    && node -e 'const p=require("./package-lock.json");if(Object.keys(p.packages).some(k=>k.includes("@openclaw/")))process.exit(1)'
 
-# The terminal Codex CLI is independent of OpenClaw's upstream-managed runtime.
 ENV HOME=/home/node \
-    CODEX_HOME=/home/node/.codex \
-    OPENCLAW_HOME=/home/node \
-    OPENCLAW_STATE_DIR=/home/node/.openclaw \
-    OPENCLAW_CONFIG_PATH=/home/node/.openclaw/openclaw.json \
-    OPENCLAW_WORKSPACE_DIR=/home/node/workspace \
-    NEURAL_LABS_OPENCLAW_VERSION=2026.9.6 \
-    NEURAL_LABS_CODEX_VERSION=${CODEX_VERSION} \
-    NEURAL_LABS_CODE_SERVER_VERSION=${CODE_SERVER_VERSION}
-
-RUN node --input-type=module -e 'import { verifyOpenClawRuntime } from "/usr/local/lib/neural-labs/openclaw-runtime.mjs"; await verifyOpenClawRuntime();'
+    NEURAL_LABS_RUNTIME_VERSION=1.0.0 \
+    NEURAL_LABS_CODEX_VERSION=0.155.1 \
+    NEURAL_LABS_CLAUDE_VERSION=2.1.226 \
+    DISABLE_AUTOUPDATER=1 \
+    NEURAL_LABS_WORKSPACE_ROOT=/home/node/workspace \
+    NEURAL_LABS_NATIVE_STATE_ROOT=/home/node/.local/state/neural-labs/native
 
 USER node
 WORKDIR /home/node/workspace
-
-EXPOSE 18789 18790
-
-HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=10 \
-  CMD ["node", "/app/dist/docker-healthcheck.js"]
-
-CMD ["node", "/usr/local/lib/neural-labs/start.mjs"]
-
-COPY --chown=node:node workspace/notification-scheduler.mjs /usr/local/lib/neural-labs/notification-scheduler.mjs
-COPY --chown=node:node workspace/personal-automation-runs.mjs /usr/local/lib/neural-labs/personal-automation-runs.mjs
-COPY --chown=node:node workspace/bundled-skills /usr/local/share/neural-labs/prospect-skills
-
-# Native Claude owns login and refresh. The adapter lives outside /app.
-USER root
-ARG CLAUDE_VERSION=2.1.226
-# HOME already points at the persistent node home here. Keep this root-run
-# installation out of its npm cache so first-boot plugin installs can write it.
-RUN npm install --cache /tmp/neural-labs-claude-npm-cache --global --allow-scripts=@anthropic-ai/claude-code "@anthropic-ai/claude-code@${CLAUDE_VERSION}" \
-    && claude --version \
-    && rm -rf /tmp/neural-labs-claude-npm-cache
-COPY workspace/claude-runtime.mjs workspace/claude-accounts.mjs workspace/claude-login-terminal.mjs workspace/claude-native-key.mjs workspace/openai-native-key.mjs workspace/native-provider-order.mjs workspace/model-accounts.mjs /usr/local/lib/neural-labs/
-COPY workspace/claude-plugin /usr/local/lib/neural-labs/claude-plugin
-USER node
-COPY --chown=node:node workspace/public-apps.mjs /usr/local/lib/neural-labs/public-apps.mjs
-
-COPY workspace/imported-history.mjs workspace/import-history.mjs /usr/local/lib/neural-labs/
+EXPOSE 18790
+HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --retries=10 \
+  CMD ["node", "-e", "fetch('http://127.0.0.1:18790/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+ENTRYPOINT ["/usr/bin/tini", "-g", "--", "/usr/local/bin/neural-labs-runtime"]

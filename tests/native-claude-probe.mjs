@@ -9,7 +9,7 @@ let child;
 try {
   if (!execFileSync("claude", ["--version"], { env, cwd: root, encoding: "utf8", timeout: 10000 }).startsWith("2.1.226 ")) throw new Error("Claude release pin mismatch");
   child = spawn("claude", ["--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-    "--permission-prompt-tool", "stdio", "--permission-mode", "default", "--setting-sources", "", "--strict-mcp-config"],
+    "--permission-prompt-tool", "stdio", "--permission-mode", "default", "--effort", "high", "--setting-sources", "", "--strict-mcp-config"],
   { env, cwd: root, detached: true, stdio: ["pipe", "pipe", "pipe"] });
   child.stderr.resume();
   await new Promise((resolve, reject) => {

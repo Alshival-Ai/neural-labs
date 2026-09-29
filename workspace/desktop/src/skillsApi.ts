@@ -10,6 +10,7 @@ export type CustomSkill = {
   ownerDisplayName: string;
   ownedByCurrentUser: boolean;
   editable: boolean;
+  enabled?: boolean;
   instructions: string;
   path: string;
   createdAt: string;
@@ -77,3 +78,4 @@ export async function setCustomSkillScope(key: string, scope: CustomSkillScope):
 
 export const duplicateSavedSkill = (path: string) => requestJson<{skill: CustomSkill}>("/workspace/api/skills/duplicate", {method:"POST",body:JSON.stringify({path})});
 export const deleteSavedSkill = (path: string) => requestJson<{deleted:true}>("/workspace/api/skills/remove", {method:"DELETE",body:JSON.stringify({path})});
+export const importSkillPackage = (slug: string, version: string) => requestJson<{skill: CustomSkill}>("/workspace/api/skills/import", { method: "POST", body: JSON.stringify({ slug, version }) });

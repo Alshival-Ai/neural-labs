@@ -104,13 +104,16 @@ const EVENT_TYPES = new Map([
 // a shared queue. The caller owns its durable conversation lock and lease.
 export async function runCodexTurn({
   command = CODEX_APP_SERVER, version = CODEX_PROTOCOL_VERSION, cwd, env, model, input, nativeSession,
+  mcpConfig, effort,
   policy = { sandbox: "workspace-write", approval: "on-request" }, background = false,
   revalidate, onSession, onEvent, approve, signal, timeoutMs = 20 * 60_000, leaseCheckMs = 5000,
   executeVersion = promisify(execFile), createRpc = (...args) => new StdioRpc(...args),
 }) {
   if (!["read-only", "workspace-write"].includes(policy.sandbox) || policy.approval !== "on-request") throw new Error("Unreviewed native execution policy");
+  if (effort !== undefined && !["none", "minimal", "low", "medium", "high", "xhigh"].includes(effort)) throw new Error("Unsupported Codex reasoning effort");
   if (!path.isAbsolute(cwd) || typeof model !== "string" || !model.trim() || !Array.isArray(input)
-      || !input.length || input.some(item => !item || item.type !== "text" || typeof item.text !== "string")) throw new Error("Invalid native turn input");
+      || !input.length || input.some(item => !item || !(item.type === "text" && typeof item.text === "string"
+        || item.type === "skill" && typeof item.name === "string" && /^[a-z0-9][a-z0-9-]{0,63}$/.test(item.name) && item.path === `/opt/neural-labs/skills/${item.name}/SKILL.md`))) throw new Error("Invalid native turn input");
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || !Number.isSafeInteger(leaseCheckMs) || leaseCheckMs < 1
       || leaseCheckMs > 10000 || !/^\d+\.\d+\.\d+$/.test(version)) throw new Error("Invalid provider release or timeout");
   if (typeof revalidate !== "function" || typeof onSession !== "function" || typeof onEvent !== "function") throw new Error("Native execution requires lease and persistence callbacks");
@@ -120,7 +123,12 @@ export async function runCodexTurn({
   if (actual.stdout.trim() !== `codex-cli ${version}`) throw new Error("Native app-server does not match the reviewed pin");
   await revalidate();
   if (signal?.aborted) return { status: "cancelled" };
-  const rpc = createRpc(command, ["app-server"], { cwd, env });
+  const args = ["app-server", "-c", `forced_login_method=${JSON.stringify(env.OPENAI_API_KEY ? "api" : "chatgpt")}`];
+  if (mcpConfig) {
+    args.push("-c", `mcp_servers.neural-labs.url=${JSON.stringify(mcpConfig.url)}`,
+      "-c", `mcp_servers.neural-labs.http_headers={${Object.entries(mcpConfig.http_headers).map(([key, value]) => `${JSON.stringify(key)}=${JSON.stringify(value)}`).join(",")}}`);
+  }
+  const rpc = createRpc(command, args, { cwd, env });
   let threadId, turnId, settled = false, result, resolveDone, eventTail = Promise.resolve();
   const done = new Promise(resolve => { resolveDone = resolve; });
   const finish = value => { if (settled) return; settled = true; result = value; resolveDone(value); };
@@ -206,7 +214,7 @@ export async function runCodexTurn({
     await onSession(threadId);
     await revalidate();
     if (settled || signal?.aborted) return result || { status: "cancelled" };
-    const started = await request("turn/start", { threadId, input, model });
+    const started = await request("turn/start", { threadId, input, model, ...(effort ? { effort } : {}) });
     turnId = started?.turn?.id;
     if (typeof turnId !== "string" || !turnId) throw new Error("Native turn identity did not verify");
     return await done;

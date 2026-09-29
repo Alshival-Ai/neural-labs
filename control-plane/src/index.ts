@@ -53,26 +53,13 @@ if (process.argv[2] === "setup-reset") {
   await database.close();
   process.exitCode = reset ? 0 : 1;
 } else {
-  const updates = new UpdateService(database.pool, config.updates?.codexAutomatic ?? false);
+  const updates = new UpdateService(database.pool);
   await updates.initialize();
   const maintenance = async () => (await updates.maintenance()).maintenance;
   const collaboration = new CollaborationStore(database.pool);
   const modelPolicies = new ModelProviderPolicies(database.pool, config.workspace);
-  const reconcileModels = () => {
-    updates.activeRequests++;
-    void maintenance().then(paused => paused ? undefined : modelPolicies.reconcile())
-      .catch(() => console.warn("Model defaults reconciliation is unavailable")).finally(() => { updates.activeRequests--; });
-  };
-  const modelPolicyTimer = setInterval(reconcileModels, 3_600_000);
-  modelPolicyTimer.unref();
-  // The workspace may still be booting when the control plane becomes ready.
-  // Retry initial imports without waiting for the hourly catalog refresh.
-  const modelPolicyStartupTimers = [20_000, 60_000, 180_000].map((delay) => {
-    const timer = setTimeout(reconcileModels, delay);
-    timer.unref();
-    return timer;
-  });
-  reconcileModels();
+  // Native catalogs are initialized on explicit request or at execution start.
+  // Keep policy records for preservation, without a recurring legacy discovery loop.
   let agentProcessor: TeamAgentProcessor | undefined;
   const socketHub = new CollaborationSocketHub(collaboration, (run) => agentProcessor?.enqueue(run), maintenance, delta => { updates.activeRequests += delta; });
   const application = createApplication({
@@ -114,10 +101,8 @@ if (process.argv[2] === "setup-reset") {
   const stop = async (signal: string) => {
     if (stopping) return;
     stopping = true;
-    clearInterval(modelPolicyTimer);
     clearInterval(notificationTimer);
     clearInterval(memberTimer);
-    modelPolicyStartupTimers.forEach(clearTimeout);
     console.log(`Received ${signal}; shutting down control plane`);
     // Upgrade connections are not counted as ordinary HTTP requests, so close
     // them before waiting for the HTTP server to drain.

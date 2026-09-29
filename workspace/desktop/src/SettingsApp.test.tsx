@@ -32,10 +32,9 @@ const workspace = {
   persistent: true,
   status: "ready",
   publicUrl: "https://neural-labs.example.org/workspace",
-  openclawVersion: "2026.8.2",
+  runtime: "native", protocol: 1, runtimeReady: true, claudeVersion: "2.1.226",
   codexVersion: "0.152.0",
-  codexAuthenticated: false,
-  openclawModelReady: false,
+
 };
 
 const mcp = {
@@ -44,7 +43,7 @@ const mcp = {
   endpoint: "http://127.0.0.1:8792/mcp",
   transport: "streamable-http",
   agentServerName: "neural-labs-tools",
-  agentScope: "shared-workspace",
+  agentScope: "authenticated-execution",
   publicAccess: false,
   providers: { googlePlaces: true, googleGeocoding: true, klipy: true, pexels: true },
   tools: ["google_places_search", "google_geocode_address", "search_gif", "pexels_search_photos"],
@@ -93,10 +92,7 @@ function json(value: unknown, status = 200) {
   return new Response(JSON.stringify(value), { status, headers: { "Content-Type": "application/json" } });
 }
 
-let providerPairingStarted = false;
-
 beforeEach(() => {
-  providerPairingStarted = false;
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = String(input);
     const method = init?.method ?? "GET";
@@ -111,13 +107,6 @@ beforeEach(() => {
     if (url === "/api/plugins" && method === "GET") return json(plugins);
     if (url === "/api/admin/mcp" && method === "GET") return json(mcp);
     if (url === "/api/workspace") return json(workspace);
-    if (url === "/api/admin/workspace/provider" && method === "GET") return json(providerPairingStarted
-      ? { provider: "openai", authMethod: "chatgpt", state: "awaiting_user", authenticated: false, modelReady: false, verificationUrl: "https://auth.openai.com/codex/device", userCode: "TEST-CODE", expiresAt: "2026-09-01T12:15:00.000Z", message: null }
-      : { provider: "openai", authMethod: "chatgpt", state: "disconnected", authenticated: false, modelReady: false, verificationUrl: null, userCode: null, expiresAt: null, message: null });
-    if (url === "/api/admin/workspace/provider/connect" && method === "POST") {
-      providerPairingStarted = true;
-      return json({ provider: "openai", authMethod: "chatgpt", state: "starting", authenticated: false, modelReady: false, verificationUrl: null, userCode: null, expiresAt: null, message: null }, 202);
-    }
     if (url === "/api/admin/audit?limit=100") return json({ events: [] });
     return json({ error: { message: `Unexpected ${method} ${url}` } }, 500);
   });
@@ -186,7 +175,7 @@ describe("Settings app", () => {
     fireEvent.click(await screen.findByRole("button", { name: "View details for Neural Labs Tools" }));
     expect(await screen.findByRole("heading", { name: "Neural Labs Tools" })).toBeInTheDocument();
     expect(screen.getByText(/cannot be edited, disconnected, or removed/)).toBeInTheDocument();
-    expect(screen.getByText("Global · all members")).toBeInTheDocument();
+    expect(screen.getByText("Active authenticated execution")).toBeInTheDocument();
     expect(screen.getByText("google_geocode_address")).toBeInTheDocument();
     expect(screen.getByText("Public access").parentElement).toHaveTextContent("Disabled");
     expect(screen.queryByText("Public endpoints")).not.toBeInTheDocument();
@@ -200,14 +189,13 @@ describe("Settings app", () => {
     expect(screen.getByText(/Server URLs and credentials cannot be submitted/)).toBeInTheDocument();
   });
 
-  it("starts workspace-owned ChatGPT pairing", async () => {
+  it("reports native runtime health independently of account sign-in", async () => {
     render(<SettingsApp csrfToken="csrf-token" currentUserId={admin.id} initialSection="workspace" />);
-    fireEvent.click(await screen.findByRole("button", { name: "Connect ChatGPT account" }));
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith(
-      "/api/admin/workspace/provider/connect",
-      expect.objectContaining({ method: "POST", body: JSON.stringify({}) }),
-    ));
-    expect(await screen.findByText("TEST-CODE", { selector: "code" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Open OpenAI sign-in/ })).toHaveAttribute("href", "https://auth.openai.com/codex/device");
+    expect(await screen.findByRole("heading", { name: "Native runtime" })).toBeInTheDocument();
+    expect(screen.getByText("Claude Code")).toBeInTheDocument();
+    expect(screen.getByText("2.1.226")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh status" }));
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/workspace").length).toBe(2));
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("workspace/provider"))).toBe(false);
   });
 });

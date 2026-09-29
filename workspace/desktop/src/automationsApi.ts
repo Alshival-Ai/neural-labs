@@ -1,37 +1,21 @@
-import {
-  GatewayProtocolClient,
-  type GatewayProtocolSocketHandlers,
-} from "@openclaw/gateway-client/browser";
-import { GATEWAY_CLIENT_IDS, GATEWAY_CLIENT_MODES } from "@openclaw/gateway-protocol/client-info";
-import { PROTOCOL_VERSION } from "@openclaw/gateway-protocol/version";
-
+import { settingsRequest } from "./settingsApi";
+import { nativeRequest } from "./nativeApi";
 import type {
   AutomationAccent,
   AutomationDraft,
   AutomationJob,
   AutomationRun,
   AutomationRunMode,
+  AutomationRunStatus,
   AutomationScheduleKind,
 } from "./AutomationsApp";
 import type { ConnectionState } from "./types";
 import type { ClawHubResult, SkillProposal, SkillProposalAction, SkillProposalDraft, SkillRecord } from "./SkillsApp";
 
-const CLIENT_VERSION = "0.3.2";
-const INSTANCE_KEY = "neural-labs.automations.instance.v1";
-const SKILL_COLLECTION_REVIEW_DECLARATION_PREFIX = "skill-collection-review:";
-// This client intentionally has no browser device identity or reusable token.
-// Nginx authenticates an active Neural Labs administrator, overwrites the
-// trusted-proxy identity, and caps this connection to these exact scopes.
-export const AUTOMATIONS_CONNECTION_SCOPES = ["operator.read", "operator.admin"] as const;
 
 type RecordValue = Record<string, unknown>;
-type AutomationsConnectPlan = { scopes: string[] };
-
-export type AutomationsSnapshot = {
-  schedulerOnline: boolean;
-  jobs: AutomationJob[];
-};
-
+export type AutomationsSnapshot = { schedulerOnline: boolean; jobs: AutomationJob[] };
+const SKILL_COLLECTION_REVIEW_DECLARATION_PREFIX = "skill-collection-review:";
 function isRecord(value: unknown): value is RecordValue {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -61,254 +45,54 @@ function isSystemAutomationJob(job: RecordValue): boolean {
     || declarationKey.startsWith("heartbeat:") || declarationKey.startsWith("heartbeat-task:");
 }
 
-function instanceId(): string {
-  const existing = localStorage.getItem(INSTANCE_KEY);
-  if (existing) return existing;
-  const created = crypto.randomUUID();
-  localStorage.setItem(INSTANCE_KEY, created);
-  return created;
-}
 
-function socketUrl(): string {
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/workspace/automations/socket`;
-}
-
-function createSocket(handlers: GatewayProtocolSocketHandlers) {
-  const socket = new WebSocket(socketUrl());
-  socket.addEventListener("open", handlers.open);
-  socket.addEventListener("message", (event) => handlers.message(String(event.data)));
-  socket.addEventListener("close", (event) => handlers.close(event.code, event.reason));
-  socket.addEventListener("error", () => handlers.error(new Error("Automations Gateway connection failed")));
-  return {
-    isOpen: () => socket.readyState === WebSocket.OPEN,
-    send: (data: string) => socket.send(data),
-    close: (code?: number, reason?: string) => socket.close(code, reason),
-  };
-}
-
-// Automations is a Neural Labs protocol client, not OpenClaw's bundled Control
-// UI. Using the Control UI identity makes OpenClaw require its private build ID
-// and reject independently deployed clients after every Gateway build.
-export const AUTOMATIONS_CLIENT_INFO = {
-  id: GATEWAY_CLIENT_IDS.GATEWAY_CLIENT,
-  displayName: "Neural Labs Automations",
-  version: CLIENT_VERSION,
-  platform: "web",
-  deviceFamily: "browser",
-  timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-  mode: GATEWAY_CLIENT_MODES.UI,
-  instanceId: instanceId(),
-} as const;
-
-export class AutomationsGateway {
-  private readonly statusListeners = new Set<(state: ConnectionState, error?: string) => void>();
-  private readonly changeListeners = new Set<() => void>();
-  private readonly client: GatewayProtocolClient<AutomationsConnectPlan>;
-  private started = false;
-  private currentStatus: ConnectionState = "disconnected";
-  private currentError?: string;
-  private reauthorizeTimer?: number;
-
-  constructor() {
-    this.client = new GatewayProtocolClient({
-      createSocket,
-      createRequestId: () => crypto.randomUUID(),
-      buildConnectPlan: () => ({ scopes: [...AUTOMATIONS_CONNECTION_SCOPES] }),
-      buildConnectParams: (plan) => ({
-        minProtocol: PROTOCOL_VERSION,
-        maxProtocol: PROTOCOL_VERSION,
-        client: AUTOMATIONS_CLIENT_INFO,
-        caps: [],
-        role: "operator",
-        scopes: plan.scopes,
-        locale: navigator.language,
-        userAgent: navigator.userAgent,
-      }),
-      onHello: () => {
-        this.setStatus("connected");
-        window.clearTimeout(this.reauthorizeTimer);
-        this.reauthorizeTimer = window.setTimeout(() => this.client.closeSocket(4000, "Refreshing administrator authorization"), 5 * 60_000);
-      },
-      onConnectFailure: (error) => ({ closeCode: 4003, closeReason: "Gateway rejected the Automations connection", error, reconnectDelayMs: 4_000 }),
-      resolveClose: ({ code, connectFailure }) => ({ retry: code !== 1000, notify: true, reconnectDelayMs: connectFailure?.reconnectDelayMs, pendingError: connectFailure?.error }),
-      onClose: (context) => {
-        window.clearTimeout(this.reauthorizeTimer);
-        if (context.code !== 1000) this.setStatus("disconnected", context.connectFailure?.error.message);
-      },
-      onConnectError: (error) => this.setStatus("error", error.message),
-      onSocketFactoryError: (error) => this.setStatus("error", error.message),
-      onEvent: (event) => {
-        if (event.event === "cron" || event.event.startsWith("cron.")) {
-          for (const listener of this.changeListeners) listener();
-        }
-      },
-      handshake: { mode: "require-challenge", timeoutMs: 15_000 },
-      reconnect: { initialMs: 1_000, multiplier: 2, maxMs: 30_000 },
-    });
+export class NativeAutomationsClient {
+  private listeners = new Set<(state: ConnectionState, error?: string) => void>();
+  private changes = new Set<() => void>();
+  private active = false;
+  start() { this.active = true; for (const listener of this.listeners) listener("connected"); }
+  stop() { this.active = false; for (const listener of this.listeners) listener("disconnected"); }
+  onStatus(listener: (state: ConnectionState, error?: string) => void) { this.listeners.add(listener); listener(this.active ? "connected" : "disconnected"); return () => this.listeners.delete(listener); }
+  onChanged(listener: () => void) { this.changes.add(listener); return () => this.changes.delete(listener); }
+  private async mutate<T>(operation: string, params: RecordValue): Promise<T> {
+    const result = await nativeRequest<T>(operation, params); for (const listener of this.changes) listener(); return result;
   }
-
-  start() {
-    if (this.started) return;
-    this.started = true;
-    this.setStatus("connecting");
-    this.client.start();
-  }
-
-  stop() {
-    this.started = false;
-    window.clearTimeout(this.reauthorizeTimer);
-    this.client.stop();
-    this.setStatus("disconnected");
-  }
-
-  onStatus(listener: (state: ConnectionState, error?: string) => void) {
-    this.statusListeners.add(listener);
-    listener(this.currentStatus, this.currentError);
-    return () => this.statusListeners.delete(listener);
-  }
-
-  onChanged(listener: () => void) {
-    this.changeListeners.add(listener);
-    return () => this.changeListeners.delete(listener);
-  }
-
-  private setStatus(state: ConnectionState, error?: string) {
-    this.currentStatus = state;
-    this.currentError = error;
-    for (const listener of this.statusListeners) listener(state, error);
-  }
-
-  async snapshot(): Promise<AutomationsSnapshot> {
-    const result = await automationRequest("/workspace/api/automations/snapshot");
-    return mapAutomationsSnapshot(result.status, result, result);
-  }
-
-  create(draft: AutomationDraft) {
-    return this.client.request("cron.add", draftToGatewayParams(draft));
-  }
-
-  private async canonicalJobs(): Promise<RecordValue[]> {
-    const result:RecordValue[]=[];
-    for(let offset=0;offset<10000;offset+=200){
-      const page=await this.client.request<RecordValue>("cron.list",{includeDisabled:true,limit:200,offset});
-      const rows=Array.isArray(page.jobs)?page.jobs.filter(isRecord):[];result.push(...rows);
-      if(rows.length<200||page.hasMore===false)return result;
-    }
-    throw new Error("The scheduler returned too many jobs. Narrow the workspace inventory before copying.");
-  }
-
+  snapshot() { return personalAutomationsSnapshot(); }
+  create(draft: AutomationDraft) { return this.mutate("jobs.create", { ...draftToNativeDefinition(draft), id: crypto.randomUUID() }); }
   async duplicate(job: AutomationJob): Promise<string> {
-    const jobs=await this.canonicalJobs();
-    const original=jobs.find(row=>row.id===job.id);
-    if(!original)throw new Error("Refresh: the source automation is no longer available.");
-    const params=automationCopyParams(original,jobs.map(row=>String(row.name)));
-    const created=await this.client.request<RecordValue>("cron.add",params);
-    const id=stringValue(created.id)??(isRecord(created.job)?stringValue(created.job.id):undefined);
-    if(!id)throw new Error("Copy acceptance is unknown. Refresh before trying again.");
-    const payload=isRecord(params.payload)?params.payload:{};
-    const marker=`Use get_automation_notification_context with ${job.id}, capture currentRunId`;
-    if(typeof payload.message==='string'&&payload.message.includes(marker)) {
-      try {await this.client.request("cron.update",{id,patch:{payload:{...payload,message:payload.message.replace(marker,`Use get_automation_notification_context with ${id}, capture currentRunId`)}}});}
-      catch {throw new Error("The copy was saved paused, but its notification identity could not be updated. Refresh and edit it before enabling.");}
-    }
-    return id;
+    const snapshot = await settingsRequest<{jobs: RecordValue[]}>("/workspace/api/automations");
+    const original = snapshot.jobs.find(row => row.id === job.id);
+    if (!original) throw new Error("Refresh: the source automation is no longer available.");
+    const id = crypto.randomUUID(), copy = automationCopyParams(original, snapshot.jobs.map(row => String(row.name)));
+    const payload = isRecord(copy.payload) ? copy.payload : {};
+    const marker = `Use get_automation_notification_context with ${job.id}, capture currentRunId`;
+    if (typeof payload.message === "string") payload.message = payload.message.replace(marker, `Use get_automation_notification_context with ${id}, capture currentRunId`);
+    await this.mutate("jobs.create", { ...copy, payload, id }); return id;
   }
-
   update(job: AutomationJob, draft: AutomationDraft) {
-    const patch = draftToGatewayParams(draft, true);
-    patch.enabled = job.enabled;
-    const params: RecordValue = { id: job.id, patch };
-    if (job.configRevision) params.expectedConfigRevision = job.configRevision;
-    return this.client.request("cron.update", params);
+    const definition = draftToNativeDefinition(draft, true);
+    const patch = Object.fromEntries(Object.entries(definition).filter(([key]) => ["name", "description", "schedule", "payload", "delivery", "failureAlert"].includes(key)));
+    return this.mutate("jobs.update", { id: job.id, expectedRevision: job.configRevision, patch });
   }
-
-  toggle(job: AutomationJob, enabled: boolean) {
-    const params: RecordValue = { id: job.id, patch: { enabled } };
-    if (job.configRevision) params.expectedConfigRevision = job.configRevision;
-    return this.client.request("cron.update", params);
-  }
-
-  run(job: AutomationJob, mode: AutomationRunMode) {
-    return runPersonalAutomation(job, mode);
-  }
-
-  async remove(job: AutomationJob) {
-    const current=(await this.canonicalJobs()).find(row=>row.id===job.id);
-    if(!current)throw new Error("This automation was already removed. Refresh the list.");
-    const state=isRecord(current.state)?current.state:{};
-    if(isSystemAutomationJob(current))throw new Error("System automations cannot be deleted.");
-    if(state.runningAtMs||["running","starting"].includes(String(state.streamStatus)))throw new Error("Wait for the active run to finish before deleting this automation.");
-    return this.client.request("cron.remove", { id: job.id });
-  }
-
-  updateSkill(skill: SkillRecord, enabled: boolean) {
-    return this.client.request("skills.update", { skillKey: skill.key, enabled });
-  }
-
-  installSkill(result: ClawHubResult) {
-    return this.client.request("skills.install", {
-      agentId: "main",
-      source: "clawhub",
-      slug: result.installRef,
-      ...(result.version && result.version !== "latest" ? { version: result.version } : {}),
-    });
-  }
-
-  createSkillProposal(draft: SkillProposalDraft) {
-    const params = {
-      agentId: "main",
-      name: draft.name.trim(),
-      description: draft.description.trim(),
-      content: draft.instructions.trim(),
-      goal: draft.goal.trim(),
-      evidence: "Submitted by a Neural Labs administrator through Skill Workshop.",
-    };
-    return draft.kind === "update" && draft.target
-      ? this.client.request("skills.proposals.update", { ...params, skillName: draft.target })
-      : this.client.request("skills.proposals.create", params);
-  }
-
-  async actOnSkillProposal(proposal: SkillProposal, action: Exclude<SkillProposalAction, "request-revision">) {
-    const inspected = await this.client.request<unknown>("skills.proposals.inspect", { agentId: "main", proposalId: proposal.id });
-    const revisionHash = isRecord(inspected) ? stringValue(inspected.revisionHash) : undefined;
-    if (!revisionHash) throw new Error("OpenClaw did not return the proposal revision required for this action.");
-    const method = action === "evaluate" ? "skills.proposals.evaluate"
-      : action === "apply" ? "skills.proposals.apply"
-      : action === "reject" ? "skills.proposals.reject"
-      : "skills.proposals.quarantine";
-    return this.client.request(method, {
-      agentId: "main",
-      proposalId: proposal.id,
-      expectedRevisionHash: revisionHash,
-      correlationId: crypto.randomUUID(),
-    });
-  }
-
-  scanSkillHistory() {
-    return this.client.request("skills.proposals.historyScan", { agentId: "main", direction: "older" });
-  }
+  toggle(job: AutomationJob, enabled: boolean) { return this.mutate("jobs.update", { id: job.id, expectedRevision: job.configRevision, patch: { enabled } }); }
+  run(job: AutomationJob, mode: AutomationRunMode) { return runPersonalAutomation(job, mode); }
+  remove(job: AutomationJob) { return this.mutate("jobs.remove", { id: job.id, expectedRevision: job.configRevision }); }
 }
-
 export async function personalAutomationsSnapshot(): Promise<AutomationsSnapshot> {
-  const result = await automationRequest("/workspace/api/automations/snapshot");
-  return mapAutomationsSnapshot(result.status, result, result);
+  const result = await settingsRequest<RecordValue>("/workspace/api/automations"); return mapAutomationsSnapshot(result.status, result, result);
 }
-
 export function runPersonalAutomation(job: AutomationJob, mode: AutomationRunMode) {
-  return automationRequest("/workspace/api/automations/run", { jobId: job.id, mode, requestId: crypto.randomUUID() });
+  return nativeRequest("jobs.run", { job: job.id, mode, requestId: crypto.randomUUID() });
 }
-
+// Files and builder callers use the same authenticated browser transport.
 export async function automationRequest(url: string, body?: RecordValue): Promise<RecordValue> {
   const response = await fetch(url, { credentials: "same-origin", cache: "no-store",
-    ...(body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}),
-  });
+    ...(body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}) });
   const result: unknown = await response.json();
   if (!response.ok) throw new Error(isRecord(result) && isRecord(result.error) ? stringValue(result.error.message) ?? "Automation request failed" : "Automation request failed");
   if (!isRecord(result)) throw new Error("Invalid automation response");
   return result;
 }
-
 export function mapAutomationsSnapshot(status: unknown, listed: unknown, history: unknown, operationalOnly = false): AutomationsSnapshot {
   const jobs = isRecord(listed) && Array.isArray(listed.jobs) ? listed.jobs : Array.isArray(listed) ? listed : [];
   const entries = isRecord(history) && Array.isArray(history.entries) ? history.entries : Array.isArray(history) ? history : [];
@@ -355,16 +139,16 @@ function mapJob(job: RecordValue, runs: AutomationRun[], index: number): Automat
     : payloadKind === "agentTurn" ? stringValue(payload.message)
     : payloadKind === "command" ? JSON.stringify(Array.isArray(payload.argv) ? payload.argv : [])
     : payloadKind === "script" ? stringValue(payload.script)
-    : payloadKind === "heartbeat" ? "OpenClaw heartbeat task" : "OpenClaw skill collection review";
+    : payloadKind === "heartbeat" ? "Neural Labs heartbeat task" : "Neural Labs skill collection review";
   const streamStatus = stringValue(state.streamStatus);
   const normalizedRuns = runningAt && !runs.some((run) => run.status === "running")
-    ? [{ id: `${id}:running:${runningAt}`, status: "running" as const, started: formatDate(runningAt), duration: formatDuration(Date.now() - runningAt), summary: "OpenClaw is running this automation.", deliveryStatus: "pending" as const }, ...runs]
+    ? [{ id: `${id}:running:${runningAt}`, status: "running" as const, started: formatDate(runningAt), duration: formatDuration(Date.now() - runningAt), summary: "Neural Labs is running this automation.", deliveryStatus: "pending" as const }, ...runs]
     : runs;
   return {
     id,
     configRevision: stringValue(job.configRevision),
     name: stringValue(job.displayName) ?? stringValue(job.name) ?? "Untitled automation",
-    description: stringValue(job.description) ?? "Shared OpenClaw automation",
+    description: stringValue(job.description) ?? "Shared Neural Labs automation",
     manualRunWarning: stringValue(job.manualRunWarning),
     accent: accentFor(id),
     enabled: booleanValue(job.enabled) ?? false,
@@ -401,7 +185,7 @@ function mapJob(job: RecordValue, runs: AutomationRun[], index: number): Automat
     lastRun: lastRunAt ? formatDate(lastRunAt) : "Never",
     lastStatus,
     consecutiveErrors: numberValue(state.consecutiveErrors) ?? 0,
-    runs: normalizedRuns,
+    runs: normalizedRuns, nativeHistory: job.nativeHistory === true,
   };
 }
 
@@ -427,9 +211,9 @@ function mapSchedule(kind: AutomationScheduleKind, schedule: RecordValue, trigge
   return { kind, label: "Live event stream", detail: stringValue(schedule.mode) === "match" ? `match · ${stringValue(schedule.match) ?? ""}` : "all lines", expression: command, trigger: stringValue(schedule.match), workingDirectory: stringValue(schedule.cwd) };
 }
 
-function mapRun(run: RecordValue): AutomationRun {
+export function mapRun(run: RecordValue): AutomationRun {
   const started = numberValue(run.runAtMs) ?? numberValue(run.ts) ?? Date.now();
-  const status = statusValue(run.status) ?? "skipped";
+  const status = ["running", "claimed"].includes(String(run.status)) ? "running" : statusValue(run.status) ?? "unknown";
   const usage = isRecord(run.usage) ? numberValue(run.usage.total_tokens) : undefined;
   const rawDelivery = stringValue(run.deliveryStatus);
   return {
@@ -437,7 +221,7 @@ function mapRun(run: RecordValue): AutomationRun {
     status,
     started: formatDate(started),
     duration: numberValue(run.durationMs) === undefined ? "—" : formatDuration(numberValue(run.durationMs)!),
-    summary: stringValue(run.summary) ?? (status === "ok" ? "Automation completed." : status === "error" ? "Automation failed." : "Automation was skipped."),
+    summary: stringValue(run.summary) ?? (status === "ok" ? "Automation completed." : status === "error" ? "Automation failed." : `Automation ${status}.`),
     deliveryStatus: rawDelivery === "delivered" || rawDelivery === "not-delivered" || rawDelivery === "not-requested" || rawDelivery === "unknown" ? rawDelivery : "not-requested",
     model: [stringValue(run.provider), stringValue(run.model)].filter(Boolean).join("/") || undefined,
     usage: usage === undefined ? undefined : `${new Intl.NumberFormat().format(usage)} tokens`,
@@ -445,7 +229,7 @@ function mapRun(run: RecordValue): AutomationRun {
   };
 }
 
-export function draftToGatewayParams(draft: AutomationDraft, updating = false): RecordValue {
+export function draftToNativeDefinition(draft: AutomationDraft, updating = false): RecordValue {
   const toolsAllow = draft.tools.split(",").map((tool) => tool.trim()).filter(Boolean);
   const timeoutSeconds = optionalPositiveNumber(draft.timeoutSeconds, "Timeout");
   const schedule = scheduleFromDraft(draft);
@@ -555,7 +339,10 @@ function payloadKindValue(value: unknown): AutomationJob["payload"]["kind"] {
   return value === "systemEvent" || value === "command" || value === "script" || value === "heartbeat" || value === "skillCollectionReview" ? value : "agentTurn";
 }
 
-function statusValue(value: unknown): "ok" | "error" | "skipped" | undefined {
+function statusValue(value: unknown): Exclude<AutomationRunStatus, "running"> | undefined {
+  if (value === "succeeded") return "ok";
+  if (value === "failed") return "error";
+  if (value === "blocked" || value === "unknown" || value === "cancelled") return value;
   return value === "ok" || value === "error" || value === "skipped" ? value : undefined;
 }
 

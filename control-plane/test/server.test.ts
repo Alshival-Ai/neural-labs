@@ -66,7 +66,7 @@ const config: ControlPlaneConfig = {
     personalAuthUrl: new URL("http://workspace:18790/internal/provider-auth/openai/users"),
     teamAgentUrl: new URL("http://workspace:18790/internal/neura/team-run"),
     controlToken: "workspace-control-token-at-least-thirty-two-characters",
-    openclawVersion: "2026.8.2",
+    claudeVersion: "2.1.226",
     codexVersion: "0.152.0",
   },
   autoSetup: true,
@@ -197,18 +197,17 @@ function application(user?: UserRecord, microsoftLinked = false, collaboration?:
         }
       : {
           status: "ready",
-          openclawVersion: "2026.8.2",
+          runtime: "native", protocol: 1, runtimeReady: true, claudeVersion: "2.1.226",
           codexVersion: "0.152.0",
           providerAuthenticated: true,
-          codexAuthenticated: true,
-          openclawModelReady: true,
+
           mcp: {
             ready: true,
             mode: "workspace-local",
             endpoint: "http://127.0.0.1:8792/mcp",
             transport: "streamable-http",
             agentServerName: "neural-labs-tools",
-            agentScope: "shared-workspace",
+            agentScope: "authenticated-execution",
             publicAccess: false,
             providers: { googlePlaces: true, googleGeocoding: true, klipy: true, pexels: true },
             tools: ["google_places_search", "google_geocode_address", "search_gif", "pexels_search_photos"],
@@ -508,8 +507,7 @@ describe("control-plane JSON and role routing", () => {
       status: "ready",
       shared: true,
       persistent: true,
-      codexAuthenticated: true,
-      openclawModelReady: true,
+      runtimeReady: true, runtime: "native", protocol: 1,
       publicUrl: "https://neural-labs.example.org/workspace",
     });
   });
@@ -547,7 +545,7 @@ describe("control-plane JSON and role routing", () => {
       mode: "workspace-local",
       endpoint: "http://127.0.0.1:8792/mcp",
       agentServerName: "neural-labs-tools",
-      agentScope: "shared-workspace",
+      agentScope: "authenticated-execution",
       publicAccess: false,
       providers: { googlePlaces: true, googleGeocoding: true, klipy: true, pexels: true },
     });

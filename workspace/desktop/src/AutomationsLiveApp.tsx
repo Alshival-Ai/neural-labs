@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AutomationsApp, type AutomationDraft, type AutomationJob, type AutomationRunMode } from "./AutomationsApp";
-import { AutomationsGateway, type AutomationsSnapshot } from "./automationsGateway";
+import { NativeAutomationsClient, type AutomationsSnapshot } from "./automationsApi";
 import type { ConnectionState } from "./types";
 
 type AutomationsLiveAppProps = {
-  gateway: AutomationsGateway;
+  gateway: NativeAutomationsClient;
   notify?: (message: string) => void;
   workspaceName?: string;
 };
@@ -26,7 +26,7 @@ export function AutomationsLiveApp({ gateway, notify, workspaceName = "Workspace
         setError(undefined);
       })
       .catch((reason: unknown) => {
-        const message = reason instanceof Error ? reason.message : "OpenClaw did not return automation state.";
+        const message = reason instanceof Error ? reason.message : "The native scheduler did not return automation state.";
         setError(message);
         throw reason;
       })
@@ -71,7 +71,7 @@ export function AutomationsLiveApp({ gateway, notify, workspaceName = "Workspace
       await refresh();
       notify?.(success);
     } catch (reason) {
-      const message = reason instanceof Error ? reason.message : "OpenClaw rejected the automation change.";
+      const message = reason instanceof Error ? reason.message : "The native scheduler rejected the automation change.";
       setError(message);
       notify?.(message);
       throw reason;

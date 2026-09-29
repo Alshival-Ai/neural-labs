@@ -2,7 +2,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { NativeState } from "../workspace/native/state.mjs";
-import { exportPreservation, importPreservation } from "../workspace/native/migration.mjs";
+import { exportPreservation, importPreservation, projectPreservation, verifyProjection, activatePreservation } from "../workspace/native/migration.mjs";
 import { readLegacyScheduler } from "../workspace/native/legacy-sqlite.mjs";
 
 const [command, ...argv] = process.argv.slice(2);
@@ -44,8 +44,22 @@ try {
     try { console.log(JSON.stringify(await importPreservation({ source, destination, state,
       workspace: required("workspace"), expectedId: required("sha256") }))); }
     finally { state.close(); }
+  } else if (["project", "verify", "activate"].includes(command)) {
+    const state = new NativeState(path.resolve(required("database")));
+    try {
+      const input = { state, workspace: required("workspace"), expectedId: required("sha256") };
+      const report = command === "project"
+        ? await projectPreservation({ ...input, source: path.resolve(required("source")),
+          targets: JSON.parse(await readFile(path.resolve(required("path-map")), "utf8")) })
+         : command === "activate" ? await activatePreservation({ ...input,
+          controlPlaneRecords: JSON.parse(await readFile(path.resolve(required("control-plane-snapshot")), "utf8")),
+          chatReceipt: JSON.parse(await readFile(path.resolve(required("chat-receipt")), "utf8")),
+          ...(options["after-commit"] ? { afterCommit: JSON.parse(await readFile(path.resolve(options["after-commit"]), "utf8")) } : {}) })
+        : await verifyProjection(input);
+      console.log(JSON.stringify(report));
+    } finally { state.close(); }
   } else {
-    throw new Error("Usage: native-migration.mjs inventory --legacy-db PATH | export --config PATH --destination NEW_PATH | import --source PATH --destination PATH --database PATH --workspace ID --sha256 HASH");
+    throw new Error("Usage: native-migration.mjs inventory --legacy-db PATH | export --config PATH --destination NEW_PATH | import --source PATH --destination PATH --database PATH --workspace ID --sha256 HASH | project --source PATH --path-map JSON --database PATH --workspace ID --sha256 HASH | verify --database PATH --workspace ID --sha256 HASH");
   }
 } catch (error) {
   // JSON/parser/database errors can contain source data. Emit only our bounded

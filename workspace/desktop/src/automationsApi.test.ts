@@ -1,15 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { AutomationDraft } from "./AutomationsApp";
-import { GATEWAY_CLIENT_IDS } from "@openclaw/gateway-protocol/client-info";
 
 import {
-  AUTOMATIONS_CLIENT_INFO,
-  AUTOMATIONS_CONNECTION_SCOPES,
-  draftToGatewayParams,
+  draftToNativeDefinition,
   mapAutomationsSnapshot,
   automationRequest,
-} from "./automationsGateway";
+} from "./automationsApi";
 
 const baseDraft: AutomationDraft = {
   name: "Morning brief",
@@ -52,27 +49,20 @@ describe("OpenClaw automation request mapping", () => {
     } finally { vi.unstubAllGlobals(); }
   });
   it("explicitly clears old pins when editing back to agent defaults", () => {
-    expect(draftToGatewayParams({ ...baseDraft, model: "", thinking: "" }, true).payload)
+    expect(draftToNativeDefinition({ ...baseDraft, model: "", thinking: "" }, true).payload)
       .toMatchObject({ model: null, fallbacks: null, thinking: null });
-    expect(draftToGatewayParams({ ...baseDraft, model: "openai/gpt-6-astra", thinking: "off" }, true).payload)
+    expect(draftToNativeDefinition({ ...baseDraft, model: "openai/gpt-6-astra", thinking: "off" }, true).payload)
       .toMatchObject({ model: "openai/gpt-6-astra", fallbacks: [], thinking: "off" });
   });
   it("preserves explicit reasoning off and makes explicit model pins strict", () => {
-    const params = draftToGatewayParams({ ...baseDraft, model: "openai/gpt-6-astra", thinking: "off" });
+    const params = draftToNativeDefinition({ ...baseDraft, model: "openai/gpt-6-astra", thinking: "off" });
     expect(params.payload).toMatchObject({ model: "openai/gpt-6-astra", thinking: "off", fallbacks: [] });
-    expect(draftToGatewayParams({ ...baseDraft, thinking: "" }).payload).not.toHaveProperty("thinking");
-  });
-  it("uses the generic Gateway identity instead of impersonating OpenClaw's build-coupled Control UI", () => {
-    expect(AUTOMATIONS_CLIENT_INFO.id).toBe(GATEWAY_CLIENT_IDS.GATEWAY_CLIENT);
-    expect(AUTOMATIONS_CLIENT_INFO.id).not.toBe(GATEWAY_CLIENT_IDS.CONTROL_UI);
+    expect(draftToNativeDefinition({ ...baseDraft, thinking: "" }).payload).not.toHaveProperty("thinking");
   });
 
-  it("requests the admin route's connection-only scope without a browser pairing", () => {
-    expect(AUTOMATIONS_CONNECTION_SCOPES).toEqual(["operator.read", "operator.admin"]);
-  });
 
   it("maps a calendar agent job to the current Gateway schema", () => {
-    expect(draftToGatewayParams(baseDraft)).toEqual({
+    expect(draftToNativeDefinition(baseDraft)).toEqual({
       name: "Morning brief",
       description: "Summarize overnight work",
       enabled: true,
@@ -93,7 +83,7 @@ describe("OpenClaw automation request mapping", () => {
   });
 
   it("maps stream argv and a match expression without treating it as a condition script", () => {
-    const params = draftToGatewayParams({
+    const params = draftToNativeDefinition({
       ...baseDraft,
       scheduleKind: "stream",
       scheduleValue: '["node","scripts/events.mjs"]',
@@ -112,12 +102,12 @@ describe("OpenClaw automation request mapping", () => {
   });
 
   it("rejects ambiguous stream commands before they reach OpenClaw", () => {
-    expect(() => draftToGatewayParams({ ...baseDraft, scheduleKind: "stream", scheduleValue: "node scripts/events.mjs" }))
+    expect(() => draftToNativeDefinition({ ...baseDraft, scheduleKind: "stream", scheduleValue: "node scripts/events.mjs" }))
       .toThrow("Stream command argv must be a non-empty JSON array of strings.");
   });
 
   it("converts fixed intervals to milliseconds", () => {
-    expect(draftToGatewayParams({ ...baseDraft, scheduleKind: "every", scheduleValue: "4h" }).schedule)
+    expect(draftToNativeDefinition({ ...baseDraft, scheduleKind: "every", scheduleValue: "4h" }).schedule)
       .toEqual({ kind: "every", everyMs: 14_400_000 });
   });
 
@@ -146,7 +136,7 @@ describe("OpenClaw automation request mapping", () => {
 
 describe('saved automation copies',()=>{
  it('preserves canonical settings while dropping runtime identity and pausing',async()=>{
-  const {automationCopyParams}=await import('./automationsGateway');
+  const {automationCopyParams}=await import('./automationsApi');
   const original={id:'source',name:'Example',enabled:true,state:{runningAtMs:10},configRevision:'old',deleteAfterRun:true,schedule:{kind:'cron',expr:'0 9 * * *',tz:'America/Chicago',staggerMs:9000},payload:{kind:'agentTurn',message:'Run',lightContext:false,fallbacks:['model'],toolsAllow:[]},delivery:{mode:'none'},failureAlert:{after:3,cooldownMs:5000}};
   const copy=automationCopyParams(original,['Example copy']);expect(copy.name).toBe('Example copy 2');expect(copy.enabled).toBe(false);expect(copy.id).toBeUndefined();expect(copy.state).toBeUndefined();expect(copy.configRevision).toBeUndefined();expect(copy.payload).toEqual(original.payload);expect(copy.schedule).toEqual(original.schedule);expect(copy.failureAlert).toEqual(original.failureAlert);expect(copy.deleteAfterRun).toBe(true);
   expect(()=>automationCopyParams({payload:{kind:'heartbeat'}},[])).toThrow('System');

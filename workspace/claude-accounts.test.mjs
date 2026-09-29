@@ -120,7 +120,8 @@ test("native login links are restricted to Anthropic authorization pages", async
 
 test("the workspace image pins the same native CLI version as connection verification", async () => {
   const containerfile = await readFile(new URL("./Containerfile", import.meta.url), "utf8");
-  assert.ok(containerfile.includes(`ARG CLAUDE_VERSION=${CLAUDE_VERSION}\n`));
+  assert.equal(JSON.parse(await readFile(new URL("./native/release.json", import.meta.url), "utf8")).claude, CLAUDE_VERSION);
+  assert.ok(containerfile.includes("bash /usr/local/lib/neural-labs/native/install-release.sh"));
 });
 
 test("Claude plugin declares its backend and exposes no Anthropic bearer credential", async () => {

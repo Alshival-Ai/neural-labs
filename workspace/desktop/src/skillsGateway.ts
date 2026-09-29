@@ -45,14 +45,14 @@ function sourceFor(value: unknown): SkillSource {
   if (source === "agents-skills-project") return "project";
   if (source === "agents-skills-personal") return "personal";
   if (source === "openclaw-managed") return "managed";
-  if (source === "openclaw-bundled" || source === "openclaw-custodian") return "bundled";
+  if (source === "native-library" || source === "openclaw-bundled" || source === "openclaw-custodian") return "bundled";
   if (source === "openclaw-node") return "node";
   return "plugin";
 }
 
 function sourceOwner(source: SkillSource): string {
-  if (source === "bundled") return "OpenClaw";
-  if (source === "managed") return "Shared OpenClaw state";
+  if (source === "bundled") return "Neural Labs";
+  if (source === "managed") return "Installed packages";
   if (source === "workspace" || source === "project") return "Workspace team";
   if (source === "personal") return "Personal agent library";
   if (source === "node") return "Paired node";
@@ -74,7 +74,7 @@ function requirementsFor(row: RecordValue): SkillRequirement[] {
   add("binary", "Required binary", stringArray(required.bins), missingSet(missing, "bins"));
   add("binary", "Any available binary", stringArray(required.anyBins), missingSet(missing, "anyBins"));
   add("environment", "Environment", stringArray(required.env), missingSet(missing, "env"));
-  add("config", "OpenClaw configuration", stringArray(required.config), missingSet(missing, "config"));
+  add("config", "Skill configuration", stringArray(required.config), missingSet(missing, "config"));
   if (sourceFor(row.source) === "node") {
     result.push({ kind: "node", label: "Paired node", value: stringValue(row.node) ?? "Remote node", state: row.eligible === true ? "met" : "missing" });
   }
@@ -89,14 +89,14 @@ function eligibilityFor(row: RecordValue, source: SkillSource): SkillEligibility
 }
 
 function eligibilityNote(row: RecordValue, eligibility: SkillEligibility, requirements: SkillRequirement[]): string {
-  if (eligibility === "eligible") return "All OpenClaw requirements are available to the main agent.";
-  if (eligibility === "disabled") return "Disabled in the OpenClaw skill configuration.";
+  if (eligibility === "eligible") return "Available to native agents.";
+  if (eligibility === "disabled") return "Disabled in the skill library.";
   if (eligibility === "shadowed") return row.blockedByAgentFilter === true
     ? "The main agent allowlist does not include this skill."
     : "The configured bundled-skill allowlist excludes this skill.";
   if (eligibility === "offline") return "The node-hosted skill is unavailable while its paired node is offline.";
   const missing = requirements.filter((requirement) => requirement.state === "missing").map((requirement) => requirement.value);
-  return missing.length ? `Missing ${missing.join(", ")}.` : "One or more OpenClaw eligibility checks need attention.";
+  return missing.length ? `Missing ${missing.join(", ")}.` : "One or more skill requirements need attention.";
 }
 
 function relativeDate(value: number | string | undefined): string {
@@ -140,7 +140,7 @@ export function mapSkillsStatus(status: unknown, curator: unknown, proposals: un
       id: key,
       key,
       name: stringValue(candidate.name) ?? key,
-      description: stringValue(candidate.description) ?? "OpenClaw skill",
+      description: stringValue(candidate.description) ?? "Skill package",
       emoji: stringValue(candidate.emoji) ?? ["✦", "◎", "◇", "◌", "✺", "⌁"][index % 6],
       accent: accentFor(key),
       source,
@@ -156,7 +156,7 @@ export function mapSkillsStatus(status: unknown, curator: unknown, proposals: un
       writable: owned,
       workshopOwned: owned,
       shared: scope === "workspace" || scope === "team" || scope === "system",
-      node: source === "node" ? stringValue(candidate.node) ?? "Paired OpenClaw node" : undefined,
+      node: source === "node" ? stringValue(candidate.node) ?? "Paired node" : undefined,
       agents: [stringValue(statusRecord.agentId) ?? "main"],
       useCount: numberValue(usage?.useCount) ?? 0,
       lastUsed: usage?.lastUsedAtMs === null ? "Never" : relativeDate(numberValue(usage?.lastUsedAtMs)),
@@ -201,7 +201,7 @@ export function mapSkillProposals(payload: unknown): SkillProposal[] {
       kind: candidate.kind === "update" ? "update" : "create",
       status: status as SkillProposal["status"],
       target: stringValue(candidate.skillKey) ?? stringValue(candidate.skillName) ?? "skill",
-      author: "OpenClaw Workshop",
+      author: "Imported Workshop",
       updated: relativeDate(stringValue(candidate.updatedAt)),
       goal: stringValue(candidate.description) ?? "Open the proposal to inspect its recorded goal.",
       evidence: "Select this proposal to load its live evidence and exact revision.",
@@ -209,7 +209,7 @@ export function mapSkillProposals(payload: unknown): SkillProposal[] {
         decision: scanState === "failed" || scanState === "quarantined" ? "blocked" : scanState === "clean" ? "pass" : "warning",
         critical: scanState === "failed" ? 1 : 0,
         warnings: scanState === "pending" ? 1 : 0,
-        summary: scanState === "clean" ? "The built-in proposal scan is clean." : `OpenClaw scan state: ${scanState ?? "pending"}.`,
+        summary: scanState === "clean" ? "The built-in proposal scan is clean." : `Recorded scan state: ${scanState ?? "pending"}.`,
       },
       draftHash: "Loading…",
       supportFiles: [],
@@ -277,6 +277,7 @@ export function mapSkillSearch(payload: unknown): ClawHubResult[] {
       requirements: "Open details to inspect requirements",
       changelog: "Open details to inspect the latest release notes.",
       installOnly: candidate.installOnly === true,
+      sourceUrl: typeof candidate.sourceUrl === "string" && candidate.sourceUrl.startsWith("https://clawhub.ai/") ? candidate.sourceUrl : undefined,
     }];
   });
 }
@@ -299,8 +300,8 @@ export function mergeSkillDetail(result: ClawHubResult, payload: unknown): ClawH
     official,
     version: stringValue(latest.version) ?? result.version,
     updated: numberValue(skill.updatedAt) ? `Updated ${relativeDate(numberValue(skill.updatedAt))}` : result.updated,
-    security: official ? "passed" : result.security,
-    securityNote: official ? "Official ClawHub publisher. OpenClaw still validates the release trust envelope before install." : result.securityNote,
+    security: isRecord(payload.moderation) && payload.moderation.verdict === "clean" ? "passed" : result.security,
+    securityNote: isRecord(payload.moderation) && payload.moderation.verdict === "clean" ? "The registry reports a clean scan. Review the selected package before importing." : result.securityNote,
     tags,
     requirements: [...os.map((value) => `OS ${value}`), ...systems].join(" · ") || "No platform requirements listed",
     changelog: stringValue(latest.changelog) ?? "No changelog was published for this release.",

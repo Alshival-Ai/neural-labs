@@ -14,7 +14,7 @@ import {
   type BuilderConnectionStatus, type BuilderDraft, type BuilderDraftConnection,
   type BuilderIssue, type BuilderPresence,
 } from "./builderApi";
-import { activitiesFromGatewayEvent, eventRecord, messagesFromSessionEvent, NeuraGateway } from "./openclaw";
+import { activitiesFromGatewayEvent, eventRecord, messagesFromSessionEvent, NativeClient } from "./nativeClient";
 import type { TeamDirectoryUser } from "./teamChat";
 import type { SkillRecord } from "./SkillsApp";
 import type { NeuraApproval } from "./types";
@@ -33,7 +33,7 @@ type Props = {
   currentUser: CurrentUser;
   directory: readonly TeamDirectoryUser[];
   skills: readonly SkillRecord[];
-  gateway: NeuraGateway;
+  gateway: NativeClient;
   onBack: () => void;
   onDraftChanged: (draft: BuilderDraft) => void;
   onPublished: () => void | Promise<void>;
@@ -134,7 +134,7 @@ export function BuilderWorkspace({ draft, connection, currentUser, directory, sk
   const [selectedCollaborators, setSelectedCollaborators] = useState<string[]>(draft.collaboratorUserIds);
   const canvasRef = useRef<HTMLElement>(null);
   const [issueTarget, setIssueTarget] = useState<string>();
-  const activeTests = useRef(new Map<string, { sessionKey: string; runId?: string; subscription?: Awaited<ReturnType<NeuraGateway["subscribeSession"]>> }>());
+  const activeTests = useRef(new Map<string, { sessionKey: string; runId?: string; subscription?: Awaited<ReturnType<NativeClient["subscribeSession"]>> }>());
 
   useEffect(() => connection.onChange(() => setVersion((value) => value + 1)), [connection]);
   useEffect(() => connection.onStatus(setStatus), [connection]);

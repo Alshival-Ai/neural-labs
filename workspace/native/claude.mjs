@@ -5,13 +5,15 @@ import path from "node:path";
 
 export const CLAUDE_PROTOCOL_VERSION = "2.1.226";
 
-export function claudeArguments({ model, nativeSession, sessionId, policy, mcpConfig }) {
+export function claudeArguments({ model, nativeSession, sessionId, policy, mcpConfig, effort }) {
   if (!model || typeof model !== "string" || !/^[a-f0-9-]{36}$/i.test(nativeSession || sessionId || "")) throw new Error("Explicit Claude model and session are required");
   if (!["read-only", "workspace-write"].includes(policy?.sandbox) || policy.approval !== "on-request") throw new Error("Unreviewed Claude execution policy");
+  if (effort !== undefined && !["low", "medium", "high", "xhigh", "max"].includes(effort)) throw new Error("Unsupported Claude reasoning effort");
   return ["--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
     "--permission-prompt-tool", "stdio", "--permission-mode", "default", "--setting-sources", "", "--strict-mcp-config",
     "--tools", policy.sandbox === "read-only" ? "Read,Glob,Grep" : "default",
     ...(mcpConfig ? ["--mcp-config", mcpConfig] : []), "--model", model,
+    ...(effort ? ["--effort", effort] : []),
     ...(nativeSession ? ["--resume", nativeSession] : ["--session-id", sessionId])];
 }
 
@@ -20,7 +22,7 @@ export function claudeArguments({ model, nativeSession, sessionId, policy, mcpCo
 // never connected to a browser. The runtime mediates every permission request.
 export async function runClaudeTurn({ command = "/usr/local/bin/claude", version = CLAUDE_PROTOCOL_VERSION,
   cwd, env, model, input, nativeSession, policy = { sandbox: "workspace-write", approval: "on-request" },
-  mcpConfig, background = false, revalidate, onSession, onEvent, approve, signal,
+  mcpConfig, effort, background = false, revalidate, onSession, onEvent, approve, signal,
   timeoutMs = 20 * 60_000, leaseCheckMs = 5000, executeVersion = promisify(execFile), spawnProcess = spawn,
 }) {
   if (!path.isAbsolute(cwd) || !Array.isArray(input) || !input.length
@@ -28,7 +30,7 @@ export async function runClaudeTurn({ command = "/usr/local/bin/claude", version
       || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || !Number.isSafeInteger(leaseCheckMs) || leaseCheckMs < 1 || leaseCheckMs > 10000) throw new Error("Invalid Claude execution context");
   if (![revalidate, onSession, onEvent].every(value => typeof value === "function")) throw new Error("Claude execution requires lease and persistence callbacks");
   const sessionId = nativeSession || randomUUID();
-  const args = claudeArguments({ model, nativeSession, sessionId, policy, mcpConfig });
+  const args = claudeArguments({ model, nativeSession, sessionId, policy, mcpConfig, effort });
   if (signal?.aborted) return { status: "cancelled" };
   await revalidate();
   const actual = await executeVersion(command, ["--version"], { cwd, env, timeout: 10000, maxBuffer: 65536 });

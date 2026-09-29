@@ -14,20 +14,21 @@ from updater import Host, proxy, WORKFLOW, Worker, UpdateFailure, atomic, read, 
 
 from install import compose_environment_value, state_directory
 
-POLICY = {'openclawAutomatic': True, 'days': [0], 'start': '03:00', 'end': '05:00', 'timezone': 'America/Chicago'}
-MANIFEST = {'schema': 1, 'id': 'workspace-v2026.9.5', 'image': 'ghcr.io/alshival-ai/neural-labs-workspace@sha256:'+'a'*64,
- 'sourceRevision': 'b'*40, 'openclawVersion': '2026.9.5', 'codexVersion': '0.155.1', 'appServerVersion': '0.154.0',
- 'upstreamImage': 'ghcr.io/openclaw/openclaw:2026.9.5@sha256:'+'c'*64, 'upstreamRevision': 'd'*40,
- 'packages': {p:'2026.9.5' for p in ['@openclaw/gateway-client','@openclaw/gateway-protocol','@openclaw/sms']},
- 'supportedOrigins': ['2026.9.5'], 'protocol': 1, 'platform':'linux/amd64', 'manualRequired':False,'reason':'',
- 'notesUrl':'https://github.com/Alshival-Ai/neural-labs/releases/tag/workspace-v2026.9.5', 'controlPlaneRevision':'e'*64,'hostRevision':'f'*64}
+POLICY = {'runtimeAutomatic': True, 'days': [0], 'start': '03:00', 'end': '05:00', 'timezone': 'America/Chicago'}
+BASELINE = 'ghcr.io/alshival-ai/neural-labs-workspace@sha256:'+'0'*64
+MANIFEST = {'schema': 2, 'id': 'workspace-v1.0.1', 'image': 'ghcr.io/alshival-ai/neural-labs-workspace@sha256:'+'a'*64,
+ 'sourceRevision': 'b'*40, 'runtimeVersion': '1.0.1', 'codexVersion': '0.155.1', 'claudeVersion': '2.1.226',
+ 'baseImage': 'node:22-bookworm-slim@sha256:'+'c'*64,
+ 'supportedOrigins': [BASELINE], 'protocol': 1, 'platforms':['linux/amd64','linux/arm64'], 'manualRequired':False,'reason':'',
+ 'notesUrl':'https://github.com/Alshival-Ai/neural-labs/releases/tag/workspace-v1.0.1', 'controlPlaneRevision':'e'*64,'hostRevision':'f'*64}
+
 JOB = {'id':'11111111-1111-4111-8111-111111111111','phase':'queued','kind':'install','release_id':MANIFEST['id']}
 
 class FakeHost:
  def __init__(self, root):
   self.root=Path(root); self.config={'project':'test','budgetSeconds':3600}; self.api=self
   self.calls=[]; self.fail=None; self.idle=True; self.gated=False; self.current=self.installed(); self.phase='queued'
- def installed(self): return {'image':'sha256:'+'0'*64, 'volumes':dict(zip(MOUNTS,['original-home','original-state','original-auth'])), 'openclawVersion':'2026.9.5','codexVersion':'0.155.1'}
+ def installed(self): return {'image':'sha256:'+'0'*64, 'reference':BASELINE, 'volumes':dict(zip(MOUNTS,['original-home'])), 'runtimeVersion':'1.0.0','codexVersion':'0.155.1','claudeVersion':'2.1.226'}
  def step(self, name):
   self.calls.append(name)
   if self.fail==name: self.fail=None; raise UpdateFailure('Injected failure')
@@ -107,6 +108,10 @@ class WorkerTests(unittest.TestCase):
   self.assertTrue(read(self.worker.journal)['done'])
 
 class PolicyTests(unittest.TestCase):
+ def test_first_native_release_requires_operator_preservation(self):
+  self.assertTrue(validate_manifest({**MANIFEST, 'supportedOrigins': [], 'manualRequired': True})['manualRequired'])
+  for change in [{'schema': 1}, {'schema': True}, {'protocol': True}, {'supportedOrigins': ['2026.9.5']}, {'supportedOrigins': [BASELINE, BASELINE]}]:
+   with self.subTest(change=change), self.assertRaises(UpdateFailure): validate_manifest({**MANIFEST, **change})
  def test_window_chicago_normal_and_dst(self):
   for iso,seconds in [('2026-09-20T08:00:00+00:00',7140),('2026-09-20T09:59:30+00:00',0),('2026-03-08T08:00:00+00:00',7140),('2026-11-01T09:00:00+00:00',7140),('2026-09-21T08:00:00+00:00',0)]:
    self.assertEqual(window_seconds(POLICY,dt.datetime.fromisoformat(iso)),seconds)
@@ -115,7 +120,7 @@ class PolicyTests(unittest.TestCase):
   self.assertEqual(window_seconds(p,dt.datetime.fromisoformat('2026-11-01T06:00:00+00:00')),7140)
  def test_manifest_rejects_untrusted_origins_tags_and_commands(self):
   self.assertEqual(validate_manifest(MANIFEST),MANIFEST)
-  for change in [{'image':'ubuntu:latest'},{'sourceRevision':'main'},{'protocol':2},{'command':'echo bypass'},{'packages':{}},{'notesUrl':'https://example.org'},{'manualRequired':'false'},{'supportedOrigins':[]}]:
+  for change in [{'image':'ubuntu:latest'},{'sourceRevision':'main'},{'protocol':2},{'command':'echo bypass'},{'platforms':['linux/amd64']},{'notesUrl':'https://example.org'},{'manualRequired':'false'},{'supportedOrigins':[]}]:
    with self.subTest(change=change),self.assertRaises(UpdateFailure): validate_manifest({**MANIFEST,**change})
 
 class ProvenanceTests(unittest.TestCase):
@@ -123,7 +128,7 @@ class ProvenanceTests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as directory:
    host=Host({'stateDirectory':directory,'controlPlane':'http://127.0.0.1:1','workspace':'http://127.0.0.1:2',
     'workerToken':'w'*32,'workspaceToken':'s'*32,'controlPlaneRevision':MANIFEST['controlPlaneRevision'],'hostRevision':MANIFEST['hostRevision']})
-   host.installed=lambda:{'openclawVersion':'2026.9.5'}
+   host.installed=lambda:{'reference':BASELINE}
    calls=[]
    def command(args,**_kwargs):
     calls.append(args)
@@ -144,6 +149,35 @@ class ProvenanceTests(unittest.TestCase):
     return command(args,**kwargs)
    with patch('updater.run',side_effect=rejected),self.assertRaises(UpdateFailure): host.discover()
    self.assertFalse(any(c[:2]==['docker','pull'] for c in calls))
+
+class NativeHostTests(unittest.TestCase):
+ def setUp(self):
+  self.directory=tempfile.TemporaryDirectory(); self.addCleanup(self.directory.cleanup)
+  self.host=Host({'stateDirectory':self.directory.name,'project':'fixture','controlPlane':'http://127.0.0.1:1',
+   'workspace':'http://127.0.0.1:2','workerToken':'w'*32,'workspaceToken':'s'*32})
+  self.host.compose=lambda *args:'container'
+  self.container={'Image':'sha256:'+'0'*64, 'Config':{'Image':BASELINE,'Env':[
+   'NEURAL_LABS_RUNTIME_VERSION=1.0.0','NEURAL_LABS_CODEX_VERSION=0.155.1','NEURAL_LABS_CLAUDE_VERSION=2.1.226']},
+   'Mounts':[{'Type':'volume','Name':'home','Destination':'/home/node'}]}
+ def test_only_completed_native_home_layout_is_admitted(self):
+  with patch('updater.run',return_value=json.dumps([self.container])):
+   self.assertEqual(self.host.installed()['volumes'], {'/home/node':'home'})
+  for mount in [ {'Type':'volume','Name':'legacy','Destination':'/home/node/.openclaw'},
+                 {'Type':'bind','Source':'/private','Destination':'/other'}]:
+   c={**self.container,'Mounts':[*self.container['Mounts'],mount]}
+   with patch('updater.run',return_value=json.dumps([c])), self.assertRaises(UpdateFailure): self.host.installed()
+  c={**self.container,'Config':{**self.container['Config'],'Env':['NEURAL_LABS_OPENCLAW_VERSION=2026.9.5']}}
+  with patch('updater.run',return_value=json.dumps([c])), self.assertRaises(UpdateFailure): self.host.installed()
+ def test_overlay_preserves_single_home_and_only_native_listener(self):
+  with patch('updater.run',return_value=json.dumps([self.container])): deployment=self.host.installed()
+  self.host.overlay(deployment,True)
+  result=(self.host.root/'active-compose.yaml').read_text()
+  self.assertIn('127.0.0.1:4183:18790',result); self.assertNotIn('18789',result)
+  self.assertNotIn('openclaw',result.lower()); self.assertEqual(result.count('target: /home/node'),1)
+  self.assertIn('"NEURAL_LABS_UPDATE_PROBATION": "true"',result)
+ def test_unsupported_architecture_does_not_pull_or_mutate(self):
+  with patch('updater.run',return_value='riscv64') as command, self.assertRaises(UpdateFailure): self.host.prepare(MANIFEST)
+  self.assertEqual(command.call_count,1)
 
 class ProxyTests(unittest.IsolatedAsyncioTestCase):
  async def test_gate_closes_existing_connections_and_invalid_state_fails_closed(self):

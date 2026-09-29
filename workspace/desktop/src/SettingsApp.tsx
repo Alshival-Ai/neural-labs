@@ -1,5 +1,5 @@
+import { NativeConnectionsPanel } from "./NativeConnectionsPanel";
 import { UpdatesPanel } from "./UpdatesPanel";
-import { ClaudeProviderConnection } from "./ClaudeProviderConnection";
 import "./minimal-apps.css";
 import { PluginCardsPanel } from "./PluginCardsPanel";
 import {
@@ -41,7 +41,6 @@ import {
   type PluginCatalog,
   type UserRole,
   type UserStatus,
-  type WorkspaceProviderAuth,
   type WorkspaceStatus,
   settingsMutationHeaders,
   settingsRequest,
@@ -55,9 +54,6 @@ import {
   type PersonalizationUser,
 } from "./UserSettingsApp";
 import "./settings-app.css";
-import { ModelProviderPanel } from "./ModelProviderPanel";
-import { ModelDefaultsPanel } from "./ModelDefaultsPanel";
-import { PersonalProviderConnection } from "./PersonalProviderConnection";
 import { VoiceSettingsPanel } from "./VoiceSettingsPanel";
 import { TwilioPluginCard } from "./TwilioPluginCard";
 
@@ -101,7 +97,7 @@ const ADMIN_NAVIGATION: { id: SettingsSection; label: string; description: strin
   { id: "overview", label: "Overview", description: "Workspace health", icon: Gauge, accent: "cyan" },
   { id: "users", label: "Users", description: "People and access", icon: Users, accent: "pink" },
   { id: "authentication", label: "Authentication", description: "Login providers", icon: KeyRound, accent: "amber" },
-  { id: "workspace", label: "Workspace", description: "OpenClaw and Codex", icon: Bot, accent: "coral" },
+  { id: "workspace", label: "Workspace", description: "Codex and Claude", icon: Bot, accent: "coral" },
   { id: "updates", label: "Updates", description: "Automatic updates and recovery", icon: RefreshCw, accent: "cyan" },
   { id: "audit", label: "Audit log", description: "Security activity", icon: Activity, accent: "mint" },
   { id: "about", label: "About", description: "Versions and credits", icon: Info, accent: "amber" },
@@ -146,7 +142,6 @@ export function SettingsApp({ managed, administrator = true, workspaceStatus, cs
   const [users, setUsers] = useState<AdminUser[]>();
   const [authentication, setAuthentication] = useState<AuthenticationSettings>();
   const [workspace, setWorkspace] = useState<WorkspaceStatus>();
-  const [provider, setProvider] = useState<WorkspaceProviderAuth>();
   const [audit, setAudit] = useState<AuditEvent[]>();
   const currentNavigation = navigation.find((item) => item.id === section) ?? PERSONALIZATION_NAVIGATION;
 
@@ -174,13 +169,9 @@ export function SettingsApp({ managed, administrator = true, workspaceStatus, cs
 
   const refreshWorkspace = useCallback(async () => {
     try {
-      const [nextWorkspace, nextProvider] = await Promise.all([
-        settingsRequest<WorkspaceStatus>("/api/workspace"),
-        settingsRequest<WorkspaceProviderAuth>("/api/admin/workspace/provider"),
-      ]);
-      setWorkspace(nextWorkspace);
-      setProvider(nextProvider);
-      return nextProvider;
+      const next = await settingsRequest<WorkspaceStatus>("/api/workspace");
+      setWorkspace(next);
+      return next;
     } catch (error) {
       setNotice({ tone: "error", message: errorMessage(error, "Workspace status could not be loaded.") });
       return undefined;
@@ -204,19 +195,13 @@ export function SettingsApp({ managed, administrator = true, workspaceStatus, cs
         .then(setAuthentication)
         .catch((error: unknown) => setNotice({ tone: "error", message: errorMessage(error, "Authentication settings could not be loaded.") }));
     }
-    if (section === "workspace" && (!workspace || !provider)) void refreshWorkspace();
+    if (section === "workspace" && !workspace) void refreshWorkspace();
     if (section === "audit" && !audit) {
       void settingsRequest<{ events: AuditEvent[] }>("/api/admin/audit?limit=100")
         .then((result) => setAudit(result.events))
         .catch((error: unknown) => setNotice({ tone: "error", message: errorMessage(error, "Audit events could not be loaded.") }));
     }
-  }, [administrator, audit, authentication, provider, refreshWorkspace, section, users, workspace]);
-
-  useEffect(() => {
-    if (!administrator || section !== "workspace" || (provider?.state !== "starting" && provider?.state !== "awaiting_user")) return;
-    const interval = window.setInterval(() => void refreshWorkspace(), 2_000);
-    return () => window.clearInterval(interval);
-  }, [administrator, provider?.state, refreshWorkspace, section]);
+  }, [administrator, audit, authentication, refreshWorkspace, section, users, workspace]);
 
   const chooseSection = (next: SettingsSection) => {
     if (!allowedSections.has(next)) return;
@@ -277,12 +262,12 @@ export function SettingsApp({ managed, administrator = true, workspaceStatus, cs
           {section === "personalization" && user && <PersonalizationPanel onOpenSecurity={() => chooseSection("security")} user={user} providers={providers} csrfToken={csrfToken} initialNotice={initialNotice} fontScale={fontScale} onFontScaleChange={onFontScaleChange} onLogout={onLogout} />}
           {section === "security" && managed && <div className="settings-notice is-info"><p>Sign-in, membership, and roles are managed in Alshival.</p><a href={managed.portalUrl} target="_blank" rel="noopener noreferrer">Open Alshival workspace</a></div>}
           {section === "security" && !managed && user && <SecurityPanel onOpenSecurity={() => chooseSection("security")} user={user} providers={providers} csrfToken={csrfToken} initialNotice={initialNotice} fontScale={fontScale} onFontScaleChange={onFontScaleChange} onLogout={onLogout} />}
-          {section === "model-provider" && <ModelProviderPanel csrfToken={csrfToken} />}
+          {section === "model-provider" && <NativeConnectionsPanel csrfToken={csrfToken} administrator={administrator} />}
           {section === "plugins" && <PluginCardsPanel administrator={administrator} csrfToken={csrfToken} renderSystem={(plugin) => <SystemPluginDetails plugin={plugin} />} />}
           {administrator && section === "overview" && <OverviewPanel overview={overview} error={overviewError} onNavigate={chooseSection} onRefresh={() => void refreshOverview()} />}
           {administrator && section === "users" && <UsersPanel users={users} currentUserId={currentUserId} csrfToken={csrfToken} onUsers={setUsers} onNotice={setNotice} onMutated={refreshAfterMutation} />}
           {administrator && section === "authentication" && <AuthenticationPanel settings={authentication} csrfToken={csrfToken} onSettings={setAuthentication} onNotice={setNotice} onMutated={refreshAfterMutation} />}
-          {administrator && section === "workspace" && <WorkspacePanel workspace={workspace} provider={provider} csrfToken={csrfToken} onProvider={setProvider} onNotice={setNotice} onRefresh={() => void refreshWorkspace()} />}
+          {administrator && section === "workspace" && <WorkspacePanel workspace={workspace} csrfToken={csrfToken} onRefresh={() => void refreshWorkspace()} />}
           {administrator && section === "updates" && <UpdatesPanel csrfToken={csrfToken} />}
           {administrator && section === "audit" && <AuditPanel events={audit} />}
           {administrator && section === "about" && <AboutPanel overview={overview} />}
@@ -305,12 +290,12 @@ function OverviewPanel({ overview, error, onNavigate, onRefresh }: { overview?: 
   if (!overview) return <LoadingPanel label="Loading admin settings" />;
   return (
     <div className="settings-panel">
-      <SectionHeader eyebrow="Control plane" title="Overview" description="Identity, authentication, plugins, and the shared OpenClaw workspace at a glance." icon={Gauge} />
+      <SectionHeader eyebrow="Control plane" title="Overview" description="Identity, authentication, integrations, and the native workspace at a glance." icon={Gauge} />
       <div className="settings-overview-grid">
         <OverviewCard accent="pink" label="Pending requests" value={String(overview.counts.pending)} detail="Waiting for review" onClick={() => onNavigate("users")} />
         <OverviewCard accent="amber" label="Login providers" value={String(Number(overview.authentication.localEnabled) + Number(overview.authentication.microsoftEnabled))} detail={overview.authentication.microsoftEnabled ? "Microsoft enabled" : "Local only"} onClick={() => onNavigate("authentication")} />
         <OverviewCard accent="violet" label="Plugins" value="1 global" detail={`${overview.mcp.tools.length} tools · ${overview.mcp.ready ? "ready" : "offline"}`} onClick={() => onNavigate("plugins")} />
-        <OverviewCard accent="coral" label="Workspace" value={overview.workspace.status} detail={`OpenClaw ${overview.workspace.openclawVersion}`} onClick={() => onNavigate("workspace")} />
+        <OverviewCard accent="coral" label="Workspace" value={overview.workspace.status} detail="Codex and Claude Code" onClick={() => onNavigate("workspace")} />
       </div>
       <div className="settings-mcp-grid">
         <section className="settings-card">
@@ -326,7 +311,7 @@ function OverviewPanel({ overview, error, onNavigate, onRefresh }: { overview?: 
             <ServiceRow label="Local authentication" ready={overview.authentication.localEnabled} value={overview.authentication.localEnabled ? "Enabled" : "Disabled"} />
             <ServiceRow label="Microsoft Entra" ready={overview.authentication.microsoftEnabled} value={overview.authentication.microsoftEnabled ? "Enabled" : overview.authentication.microsoftAvailable ? "Available" : "Not configured"} />
             <ServiceRow label="Neural Labs Tools" ready={overview.mcp.ready} value={overview.mcp.ready ? "Connected" : "Offline"} />
-            <ServiceRow label="OpenClaw workspace" ready={overview.workspace.status === "ready"} value={overview.workspace.status} />
+            <ServiceRow label="Native workspace" ready={overview.workspace.status === "ready"} value={overview.workspace.status} />
           </div>
         </section>
       </div>
@@ -521,69 +506,27 @@ function SystemPluginDetails({ plugin }: { plugin: Extract<PluginCatalog["plugin
         return <section className="settings-card settings-connector-card" key={plugin.id}>
           <header><div className="settings-connector-card__mark"><PlugZap /></div><div className="settings-connector-card__identity"><span>Built in · MCP</span><h2>{plugin.name}</h2><p>{plugin.description}</p></div><div className="settings-connector-card__states"><span className="settings-locked-state"><LockKeyhole />System</span><span className={`settings-service-state${plugin.ready ? " is-ready" : ""}`}><i />{plugin.ready ? "Connected" : "Offline"}</span></div></header>
           <p className="settings-connector-lock-note"><LockKeyhole />Installed with Neural Labs. This global system plugin cannot be edited, disconnected, or removed.</p>
-          <div className="settings-mcp-grid settings-connector-details"><section><div className="settings-card__heading"><div><span>Attachment</span><h2>Shared OpenClaw agents</h2><p>Supplied to every shared agent automatically.</p></div><Bot /></div><dl className="settings-detail-list"><div><dt>Server name</dt><dd><code>{mcp.agentServerName}</code></dd></div><div><dt>Scope</dt><dd>Global · all members</dd></div><div><dt>Transport</dt><dd>{mcp.transport}</dd></div><div><dt>Internal endpoint</dt><dd><code>{mcp.endpoint}</code></dd></div><div><dt>Public access</dt><dd>Disabled</dd></div></dl></section><section><div className="settings-card__heading"><div><span>Provider readiness</span><h2>Credentials loaded</h2><p>Secret material is never returned here.</p></div><CloudCog /></div><div className="settings-system-list"><ServiceRow label="Google Places" ready={mcp.providers.googlePlaces} value={mcp.providers.googlePlaces ? "Configured" : "Missing"} /><ServiceRow label="Google Geocoding" ready={mcp.providers.googleGeocoding} value={mcp.providers.googleGeocoding ? "Configured" : "Missing"} /><ServiceRow label="KLIPY" ready={mcp.providers.klipy} value={mcp.providers.klipy ? "Configured" : "Missing"} /><ServiceRow label="Pexels" ready={mcp.providers.pexels} value={mcp.providers.pexels ? "Configured" : "Missing"} /></div></section></div>
+          <div className="settings-mcp-grid settings-connector-details"><section><div className="settings-card__heading"><div><span>Attachment</span><h2>Native AI tools</h2><p>Authorized for the active account and execution.</p></div><Bot /></div><dl className="settings-detail-list"><div><dt>Server name</dt><dd><code>{mcp.agentServerName}</code></dd></div><div><dt>Scope</dt><dd>Active authenticated execution</dd></div><div><dt>Transport</dt><dd>{mcp.transport}</dd></div><div><dt>Internal endpoint</dt><dd><code>{mcp.endpoint}</code></dd></div><div><dt>Public access</dt><dd>Disabled</dd></div></dl></section><section><div className="settings-card__heading"><div><span>Provider readiness</span><h2>Credentials loaded</h2><p>Secret material is never returned here.</p></div><CloudCog /></div><div className="settings-system-list"><ServiceRow label="Google Places" ready={mcp.providers.googlePlaces} value={mcp.providers.googlePlaces ? "Configured" : "Missing"} /><ServiceRow label="Google Geocoding" ready={mcp.providers.googleGeocoding} value={mcp.providers.googleGeocoding ? "Configured" : "Missing"} /><ServiceRow label="KLIPY" ready={mcp.providers.klipy} value={mcp.providers.klipy ? "Configured" : "Missing"} /><ServiceRow label="Pexels" ready={mcp.providers.pexels} value={mcp.providers.pexels ? "Configured" : "Missing"} /></div></section></div>
           <div className="settings-connector-tools"><div><span>Registered capabilities</span><strong>{mcp.tools.length} tools available</strong></div><div className="settings-tool-list">{mcp.tools.length ? mcp.tools.map((tool) => <code key={tool}>{tool}</code>) : <p className="settings-card-note">No provider tools are currently registered.</p>}</div></div>
         </section>;
 }
 
-function WorkspacePanel({ workspace, provider, csrfToken, onProvider, onNotice, onRefresh }: { workspace?: WorkspaceStatus; provider?: WorkspaceProviderAuth; csrfToken: string; onProvider: (provider: WorkspaceProviderAuth) => void; onNotice: NoticeSetter; onRefresh: () => void }) {
-  const [working, setWorking] = useState(false);
-  const providerBusy = provider?.state === "starting" || provider?.state === "awaiting_user";
-  const providerChecking = provider?.state === "checking_connection";
-  useEffect(() => {
-    if (!providerBusy && !providerChecking) return;
-
-    let active = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const schedule = (delay: number) => {
-      timer = setTimeout(() => void poll(), delay);
-    };
-    const poll = async () => {
-      try {
-        const next = await settingsRequest<WorkspaceProviderAuth>("/api/admin/workspace/provider");
-        if (!active) return;
-        onProvider(next);
-        if (next.state === "starting" || next.state === "awaiting_user") schedule(1_000);
-        else if (next.state === "checking_connection") schedule(5_000);
-      } catch {
-        if (active) schedule(2_000);
-      }
-    };
-
-    schedule(250);
-    return () => {
-      active = false;
-      if (timer) clearTimeout(timer);
-    };
-  }, [providerBusy, providerChecking, onProvider]);
-
-  if (!workspace || !provider) return <LoadingPanel label="Loading workspace status" />;
-  async function mutate(action: "connect" | "cancel") {
-    setWorking(true);
-    onNotice(undefined);
-    try {
-      const next = await settingsRequest<WorkspaceProviderAuth>(`/api/admin/workspace/provider/${action}`, { method: "POST", headers: settingsMutationHeaders(csrfToken), body: JSON.stringify({}) });
-      onProvider(next);
-    } catch (error) {
-      onNotice({ tone: "error", message: errorMessage(error, "OpenAI sign-in could not be updated.") });
-    } finally {
-      setWorking(false);
-    }
-  }
+function WorkspacePanel({ workspace, csrfToken, onRefresh }: { workspace?: WorkspaceStatus; csrfToken: string; onRefresh: () => void }) {
+  if (!workspace) return <LoadingPanel label="Loading workspace status" />;
   return (
     <div className="settings-panel">
-      <SectionHeader eyebrow="Developer environment" title="Workspace" description="Manage the continuously running OpenClaw environment shared by approved collaborators." icon={Bot} />
-      <div className="settings-mcp-grid">
-        <section className="settings-card"><div className="settings-card__heading"><div><span>Service state</span><h2>OpenClaw Gateway</h2><p>Runtime, model, and persistent storage status.</p></div><span className={`settings-service-state${workspace.status === "ready" ? " is-ready" : ""}`}><i />{workspace.status}</span></div><dl className="settings-detail-list"><div><dt>OpenClaw</dt><dd><code>{workspace.openclawVersion}</code></dd></div><div><dt>Codex CLI</dt><dd><code>{workspace.codexVersion}</code></dd></div><div><dt>Model credential</dt><dd>{workspace.credentialSource === "environment-api-key" ? "Environment API key configured" : workspace.credentialSource === "stored-credential" ? "Stored credential configured" : workspace.codexAuthenticated ? "ChatGPT connected" : "Not configured"}</dd></div><div><dt>Agent model</dt><dd>{workspace.openclawModelReady ? "Ready" : "Configuration required"}</dd></div><div><dt>Storage</dt><dd>{workspace.persistent ? "Persistent shared home" : "Ephemeral"}</dd></div></dl><button className="settings-button" type="button" onClick={onRefresh}><RefreshCw />Refresh status</button></section>
-        <section className="settings-card"><div className="settings-card__heading"><div><span>Model provider</span><h2>Background ChatGPT connection</h2><p>Optional subscription for Background AI. Environment API keys are reported separately above.</p></div><span className={`settings-service-state${provider.authenticated ? " is-ready" : ""}`}><i />{providerChecking ? "Checking connection" : provider.authenticated ? "Connected" : provider.state.replaceAll("_", " ")}</span></div>{provider.state === "awaiting_user" && provider.verificationUrl && provider.userCode && <div className="settings-device-code"><span>One-time code</span><code>{provider.userCode}</code><p>Open the secure OpenAI sign-in page and enter this code. Keep Settings open while Neural Labs confirms the account.</p><div><a className="settings-button is-primary" href={provider.verificationUrl} target="_blank" rel="noreferrer">Open OpenAI sign-in <ExternalLink /></a><button className="settings-button" type="button" onClick={() => void copyValue(provider.userCode!, () => onNotice({ tone: "success", message: "Device code copied." }))}>Copy code</button><button className="settings-button is-quiet" type="button" disabled={working} onClick={() => void mutate("cancel")}>Cancel</button></div>{provider.expiresAt && <small>Expires {formatDate(provider.expiresAt)}</small>}</div>}{provider.state === "starting" && <p className="settings-card-note">Requesting a device code from OpenAI…</p>}{provider.state === "connected" && <p className="settings-success-note"><Check />Background AI is connected to the workspace ChatGPT subscription.</p>}{provider.state === "error" && <p className="settings-error-note">{provider.message ?? "OpenAI sign-in did not complete."}</p>}{!providerBusy && <button className="settings-button is-primary" type="button" disabled={working} onClick={() => void mutate("connect")}>{working ? "Starting…" : provider.authenticated ? "Reconnect ChatGPT account" : provider.state === "error" ? "Try again" : "Connect ChatGPT account"}</button>}<p className="settings-trust-note">OAuth credentials stay in OpenClaw's persistent workspace volume. They are never copied into the control plane or root <code>.env</code>.</p></section>
-      </div>
-      <ClaudeProviderConnection csrfToken={csrfToken} workload="background" />
-      <ModelDefaultsPanel csrfToken={csrfToken} scope="admin/workspace" />
-      <PersonalProviderConnection csrfToken={csrfToken} team />
-      <ClaudeProviderConnection csrfToken={csrfToken} workload="team" />
-      <ModelDefaultsPanel csrfToken={csrfToken} scope="admin/workspace" workload="team" />
+      <SectionHeader eyebrow="Workspace" title="Native runtime" description="Neural Labs runs Codex and Claude with your explicitly selected connection." icon={Bot} />
+      <section className="settings-card">
+        <div className="settings-card__heading"><div><span>Service state</span><h2>Neural Labs runtime</h2></div><span className={`settings-service-state${workspace.status === "ready" ? " is-ready" : ""}`}><i />{workspace.status}</span></div>
+        <dl className="settings-detail-list">
+          <div><dt>Codex</dt><dd><code>{workspace.codexVersion}</code></dd></div>
+          <div><dt>Claude Code</dt><dd><code>{workspace.claudeVersion}</code></dd></div>
+          <div><dt>Storage</dt><dd>{workspace.persistent ? "Persistent workspace and account sessions" : "Ephemeral"}</dd></div>
+        </dl>
+        <p className="settings-card-note">Manage personal, shared, Team Neura, and background connections in Model Provider.</p>
+        <button className="settings-button" type="button" onClick={onRefresh}><RefreshCw />Refresh status</button>
+      </section>
       <VoiceSettingsPanel csrfToken={csrfToken} />
-      <p className="settings-trust-note"><ShieldCheck />All active users are trusted co-maintainers. Workspace sudo cannot access the host, Docker socket, database, or control-plane secrets.</p>
     </div>
   );
 }
@@ -607,9 +550,9 @@ function AboutPanel({ overview }: { overview?: OverviewData }) {
   return (
     <div className="settings-panel">
       <SectionHeader eyebrow="Product and runtime" title="About" description="The people, platform, and open tools behind this shared workspace." icon={Info} />
-      <section className="settings-about-hero"><div className="settings-about-hero__mark"><span>N</span></div><div><span>Neural Labs</span><h2>A colorful place to build together.</h2><p>Shared workflows, skills, files, and agent context—powered by OpenClaw and shaped for teams.</p><div><a href="https://alshival.ai" target="_blank" rel="noreferrer">Developed by Alshival.Ai <ExternalLink /></a><a href="https://github.com/Alshival-Ai/neural-labs" target="_blank" rel="noreferrer">Source code <ExternalLink /></a></div></div></section>
-      <div className="settings-about-grid"><section className="settings-card"><div className="settings-card__heading"><div><span>Versions</span><h2>Runtime stack</h2><p>Components running in this shared environment.</p></div><Gauge /></div><dl className="settings-detail-list"><div><dt>Neural Labs</dt><dd><code>v0.3.2</code></dd></div><div><dt>OpenClaw</dt><dd><code>{overview?.workspace.openclawVersion ?? "Checking"}</code></dd></div><div><dt>Codex CLI</dt><dd><code>{overview?.workspace.codexVersion ?? "Checking"}</code></dd></div><div><dt>Theme</dt><dd>Spectrum Paper</dd></div></dl></section><section className="settings-card"><div className="settings-card__heading"><div><span>System</span><h2>Service health</h2><p>Live state reported by the control plane.</p></div><ShieldCheck /></div><div className="settings-system-list"><ServiceRow label="Workspace" ready={overview?.workspace.status === "ready"} value={overview?.workspace.status ?? "Checking"} /><ServiceRow label="OpenClaw model" ready={overview?.workspace.openclawModelReady === true} value={overview?.workspace.openclawModelReady ? "Ready" : "Setup required"} /><ServiceRow label="Neural Labs Tools plugin" ready={overview?.mcp.ready === true} value={overview?.mcp.ready ? "Ready" : "Offline"} /></div></section></div>
-      <section className="settings-card settings-about-links"><a href="https://github.com/Alshival-Ai/neural-labs/tree/main/wiki" target="_blank" rel="noreferrer"><FileText /><span><strong>Documentation</strong><small>Architecture, operations, and guides</small></span><ExternalLink /></a><a href="https://github.com/Alshival-Ai/neural-labs/blob/main/wiki/adr/0003-shared-developer-workspace.md" target="_blank" rel="noreferrer"><KeyRound /><span><strong>Security notes</strong><small>Trust boundaries and shared access</small></span><ExternalLink /></a><a href="https://openclaw.ai" target="_blank" rel="noreferrer"><Bot /><span><strong>OpenClaw</strong><small>The agent runtime underneath Alshival</small></span><ExternalLink /></a></section>
+      <section className="settings-about-hero"><div className="settings-about-hero__mark"><span>N</span></div><div><span>Neural Labs</span><h2>A colorful place to build together.</h2><p>Shared workflows, skills, files, and conversations with native Codex and Claude execution.</p><div><a href="https://alshival.ai" target="_blank" rel="noreferrer">Developed by Alshival.Ai <ExternalLink /></a><a href="https://github.com/Alshival-Ai/neural-labs" target="_blank" rel="noreferrer">Source code <ExternalLink /></a></div></div></section>
+      <div className="settings-about-grid"><section className="settings-card"><div className="settings-card__heading"><div><span>Versions</span><h2>Runtime stack</h2><p>Components running in this shared environment.</p></div><Gauge /></div><dl className="settings-detail-list"><div><dt>Neural Labs</dt><dd><code>v0.3.2</code></dd></div><div><dt>Claude Code</dt><dd><code>{overview?.workspace.claudeVersion ?? "Checking"}</code></dd></div><div><dt>Codex CLI</dt><dd><code>{overview?.workspace.codexVersion ?? "Checking"}</code></dd></div><div><dt>Theme</dt><dd>Spectrum Paper</dd></div></dl></section><section className="settings-card"><div className="settings-card__heading"><div><span>System</span><h2>Service health</h2><p>Live state reported by the control plane.</p></div><ShieldCheck /></div><div className="settings-system-list"><ServiceRow label="Workspace" ready={overview?.workspace.status === "ready"} value={overview?.workspace.status ?? "Checking"} /><ServiceRow label="Native runtime" ready={overview?.workspace.runtimeReady === true} value={overview?.workspace.runtimeReady ? "Ready" : "Starting"} /><ServiceRow label="Neural Labs Tools" ready={overview?.mcp.ready === true} value={overview?.mcp.ready ? "Ready" : "Offline"} /></div></section></div>
+      <section className="settings-card settings-about-links"><a href="https://github.com/Alshival-Ai/neural-labs/tree/main/wiki" target="_blank" rel="noreferrer"><FileText /><span><strong>Documentation</strong><small>Architecture, operations, and guides</small></span><ExternalLink /></a><a href="https://github.com/Alshival-Ai/neural-labs/blob/main/wiki/adr/0003-shared-developer-workspace.md" target="_blank" rel="noreferrer"><KeyRound /><span><strong>Security notes</strong><small>Trust boundaries and shared access</small></span><ExternalLink /></a><a href="https://github.com/Alshival-Ai/neural-labs/tree/main/workspace/native" target="_blank" rel="noreferrer"><Bot /><span><strong>Native runtime</strong><small>Neural Labs execution and scheduling</small></span><ExternalLink /></a></section>
       <p className="settings-about-footer">Neural Labs · Built with care by Alshival.Ai</p>
     </div>
   );

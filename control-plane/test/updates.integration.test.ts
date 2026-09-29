@@ -10,19 +10,19 @@ const url = process.env.TEST_DATABASE_URL;
   const schema = `updates_${randomUUID().replaceAll("-", "")}`;
   let admin: Pool, pool: Pool, db: Database, updates: UpdateService, actor: string;
   const available = { id: "workspace-v2026.9.5", image: `ghcr.io/alshival-ai/neural-labs-workspace@sha256:${"a".repeat(64)}`,
-    openclawVersion: "2026.9.5", codexVersion: "0.155.1", appServerVersion: "0.154.0", sourceRevision: "b".repeat(40),
+    runtimeVersion: "1.0.0", codexVersion: "0.155.1", claudeVersion: "2.1.226", sourceRevision: "b".repeat(40),
     notesUrl: "https://github.com/Alshival-Ai/neural-labs/releases/tag/workspace-v2026.9.5", manualRequired: false, reason: "" };
   beforeAll(async () => {
     admin = new Pool({ connectionString: url }); await admin.query(`CREATE SCHEMA ${schema}`);
     pool = new Pool({ connectionString: url, options: `-c search_path=${schema}` }); db = new Database(pool); await db.migrate();
-    updates = new UpdateService(pool, true);
+    updates = new UpdateService(pool);
     actor = (await db.createLocalUser({ email: "updater@example.org", displayName: "Update test", passwordHash: "synthetic" })).id;
   });
   afterAll(async () => { await db?.close(); await admin?.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin?.end(); });
-  it("imports the environment once and rejects stale revisions with an audit trail", async () => {
-    const initial = await updates.policy(); expect(initial.policy.codexAutomatic).toBe(true); expect(initial.policy.openclawAutomatic).toBe(false);
-    await updates.save(initial.revision, { ...defaultUpdatePolicy, codexAutomatic: false }, actor);
-    expect((await new UpdateService(pool, true).policy()).policy.codexAutomatic).toBe(false);
+  it("defaults to opt-in native releases and rejects stale revisions with an audit trail", async () => {
+    const initial = await updates.policy(); expect(initial.policy.runtimeAutomatic).toBe(false);
+    await updates.save(initial.revision, { ...defaultUpdatePolicy, runtimeAutomatic: false }, actor);
+    expect((await new UpdateService(pool).policy()).policy.runtimeAutomatic).toBe(false);
     await expect(updates.save(initial.revision, initial.policy, actor)).rejects.toMatchObject({ status: 409 });
     expect((await pool.query("SELECT action FROM audit_log WHERE action='updates.policy_saved'")).rows).toHaveLength(1);
   });

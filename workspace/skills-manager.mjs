@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { readPackageFile } from "./package-files.mjs";
 
 const METADATA_FILE = ".neural-labs.json";
 const SKILL_FILE = "SKILL.md";
@@ -10,7 +11,7 @@ const MAX_INSTRUCTIONS_BYTES = 128 * 1024;
 const MAX_TEXT_FILE_BYTES = 1024 * 1024;
 const MAX_PACKAGE_FILES = 200;
 const MAX_PACKAGE_BYTES = 100 * 1024 * 1024;
-const PACKAGE_PATH = /^(?:SKILL\.md|agents\/openai\.yaml|references\/[A-Za-z0-9][A-Za-z0-9._/-]*|scripts\/[A-Za-z0-9][A-Za-z0-9._/-]*|assets\/[A-Za-z0-9][A-Za-z0-9._/-]*)$/;
+const PACKAGE_PATH = /^[A-Za-z0-9][A-Za-z0-9._ /-]*$/;
 const FORBIDDEN_PACKAGE_PATH = /(^|\/)(?:\.env(?:\.|$)|\.ssh|credentials?|secrets?|backups?|\.openclaw|\.codex)(?:\/|$)|\.(?:pem|p12|pfx|key|crt|cer|ovpn|token)$/i;
 const CREDENTIAL_PATTERNS = [
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/i,
@@ -103,6 +104,7 @@ function publicRecord(metadata, instructions, directory, actor) {
     ownerDisplayName: metadata.ownerDisplayName,
     ownedByCurrentUser: metadata.ownerUserId === actor.id,
     editable: metadata.ownerUserId === actor.id || (metadata.scope === "team" && actor.role === "admin"),
+    enabled: metadata.enabled !== false,
     instructions,
     path: path.join(directory, SKILL_FILE),
     createdAt: metadata.createdAt,
@@ -110,10 +112,10 @@ function publicRecord(metadata, instructions, directory, actor) {
   };
 }
 
-function safePackagePath(value) {
+export function safePackagePath(value) {
   if (typeof value !== "string") throw new WorkspaceSkillError(400, "invalid_package_path", "A skill package path is required");
-  const normalized = value.replaceAll("\\", "/").replace(/^\/+/, "");
-  if (!normalized || normalized.length > 240 || path.posix.normalize(normalized) !== normalized || normalized.split("/").some((part) => !part || part === "." || part === "..") || !PACKAGE_PATH.test(normalized)) {
+  const normalized = value;
+  if (!normalized || normalized.length > 240 || path.posix.normalize(normalized) !== normalized || normalized.split("/").some((part) => !part || part.startsWith(".") || ["node_modules", "__pycache__"].includes(part)) || !PACKAGE_PATH.test(normalized)) {
     throw new WorkspaceSkillError(400, "invalid_package_path", "Skill package files must stay in the supported skill directories");
   }
   if (FORBIDDEN_PACKAGE_PATH.test(normalized)) throw new WorkspaceSkillError(400, "unsafe_package_path", "Credential and private-state files are not allowed in a skill package");
@@ -137,13 +139,14 @@ async function writePackage(directory, files) {
     }
     total += content.length;
     if (total > MAX_PACKAGE_BYTES) throw new WorkspaceSkillError(413, "skill_too_large", "The skill package must be 100 MB or smaller");
-    normalized.push({ path: filePath, content, kind: candidate?.kind === "asset" ? "asset" : "text" });
+    normalized.push({ path: filePath, content, kind: candidate?.kind === "asset" ? "asset" : "text",
+      executable: typeof candidate?.executable === "boolean" ? candidate.executable : filePath.startsWith("scripts/") });
   }
   if (!normalized.some((file) => file.path === SKILL_FILE)) throw new WorkspaceSkillError(400, "invalid_skill", "SKILL.md is required");
   for (const file of normalized) {
     const destination = path.join(directory, ...file.path.split("/"));
     await mkdir(path.dirname(destination), { recursive: true, mode: 0o750 });
-    await writeFile(destination, file.content, { flag: "wx", mode: file.path.startsWith("scripts/") ? 0o750 : 0o640 });
+    await writeFile(destination, file.content, { flag: "wx", mode: file.executable ? 0o750 : 0o640 });
   }
   return normalized;
 }
@@ -156,7 +159,8 @@ async function packageFiles(directory, relative = "", strict = false, budget = {
     if(entry.isSymbolicLink()){if(strict)throw new WorkspaceSkillError(400,"invalid_skill_path","Skill copies cannot contain symbolic links");continue;}
     const child = relative ? `${relative}/${entry.name}` : entry.name;
     if (entry.isDirectory()) {
-      if (["agents", "references", "scripts", "assets"].includes(child.split("/")[0])) files.push(...await packageFiles(directory, child, strict, budget));
+      safePackagePath(child);
+      files.push(...await packageFiles(directory, child, strict, budget));
       continue;
     }
     if (!entry.isFile()) continue;
@@ -166,11 +170,13 @@ async function packageFiles(directory, relative = "", strict = false, budget = {
     if(!info.isFile()||info.isSymbolicLink())throw new WorkspaceSkillError(400,"invalid_skill_path","The skill package changed while reading");
     budget.files++;budget.bytes+=info.size;
     if(budget.files>MAX_PACKAGE_FILES||budget.bytes>MAX_PACKAGE_BYTES)throw new WorkspaceSkillError(413,"skill_too_large","Skill package exceeds the size limit");
-    const content = await readFile(source);
+    const { content, stat: fileInfo } = await readPackageFile(source, MAX_PACKAGE_BYTES - budget.bytes + info.size);
+    // Preserve non-UTF-8 files wherever a portable package places them.
+    const binary = filePath.startsWith("assets/") || !Buffer.from(content.toString("utf8"), "utf8").equals(content) || content.includes(0);
     files.push({
       path: filePath,
-      kind: filePath.startsWith("assets/") ? "asset" : "text",
-      ...(filePath.startsWith("assets/") ? { data: content.toString("base64"), size: content.length } : { content: content.toString("utf8") }),
+      kind: binary ? "asset" : "text", executable: Boolean(fileInfo.mode & 0o111),
+      ...(binary ? { data: content.toString("base64"), size: content.length } : { content: content.toString("utf8") }),
     });
   }
   return files;
@@ -184,6 +190,11 @@ async function pathExists(value) {
     if (error?.code === "ENOENT") return false;
     throw error;
   }
+}
+
+async function retainedMetadata(directory) {
+  try { return JSON.parse((await readPackageFile(path.join(directory, METADATA_FILE), MAX_TEXT_FILE_BYTES)).content.toString("utf8")); }
+  catch (error) { if (error.code === "ENOENT") return {}; throw error; }
 }
 
 function isPathInside(root, candidate) {
@@ -207,8 +218,8 @@ async function readManagedSkill(directory, actor) {
         !metadataInfo.isFile() || metadataInfo.isSymbolicLink() ||
         !skillInfo.isFile() || skillInfo.isSymbolicLink()) return undefined;
     const [metadataText, content] = await Promise.all([
-      readFile(path.join(directory, METADATA_FILE), "utf8"),
-      readFile(path.join(directory, SKILL_FILE), "utf8"),
+      readPackageFile(path.join(directory, METADATA_FILE), MAX_TEXT_FILE_BYTES).then(file => file.content.toString("utf8")),
+      readPackageFile(path.join(directory, SKILL_FILE), MAX_INSTRUCTIONS_BYTES).then(file => file.content.toString("utf8")),
     ]);
     const metadata = JSON.parse(metadataText);
     if (!metadata || metadata.schema !== "neural-labs.skill.v1" || typeof metadata.slug !== "string") return undefined;
@@ -236,7 +247,7 @@ function mapFsError(error) {
   return error;
 }
 
-export function createSkillsManager({ personalRoot, teamRoot, instructionRoots = [personalRoot, teamRoot] }) {
+export function createSkillsManager({ personalRoot, teamRoot, libraryRoots = [], instructionRoots = [personalRoot, teamRoot, ...libraryRoots] }) {
   if (!path.isAbsolute(personalRoot) || !path.isAbsolute(teamRoot) || personalRoot === teamRoot) {
     throw new Error("Skill roots must be distinct absolute paths");
   }
@@ -284,6 +295,21 @@ export function createSkillsManager({ personalRoot, teamRoot, instructionRoots =
     return [...personal, ...team].sort((left, right) => left.name.localeCompare(right.name));
   }
 
+  async function library(actor) {
+    const records = [];
+    for (const root of libraryRoots) {
+      let entries;
+      try { entries = await readdir(root, { withFileTypes: true }); }
+      catch (error) { if (error.code === "ENOENT") continue; throw error; }
+      for (const entry of entries) {
+        if (!entry.isDirectory() || entry.isSymbolicLink() || entry.name.startsWith(".")) continue;
+        const record = await readTeamSkill(path.join(root, entry.name), actor);
+        if (record) records.push({ ...record, canonicalScope: record.scope, scope: "system", editable: false, ownedByCurrentUser: false });
+      }
+    }
+    return records.sort((a, b) => a.key.localeCompare(b.key));
+  }
+
   async function save(actor, input, existingSlug) {
     const name = normalizedText(input?.name, "Name", MAX_NAME_LENGTH);
     const slug = existingSlug ? skillSlug(existingSlug) : skillSlug(name);
@@ -298,11 +324,13 @@ export function createSkillsManager({ personalRoot, teamRoot, instructionRoots =
         if (!existing.record.editable) throw new WorkspaceSkillError(403, "forbidden", "Only the owner or a Team administrator can edit this skill");
         if (scope !== existing.scope && !existing.record.ownedByCurrentUser) throw new WorkspaceSkillError(403, "forbidden", "Only the skill owner can change its scope");
         const metadata = {
+          ...await retainedMetadata(existing.directory),
           schema: "neural-labs.skill.v1",
           slug,
           name,
           description,
           scope: existing.scope,
+          enabled: existing.record.enabled,
           ownerUserId: existing.record.ownerUserId,
           ownerDisplayName: existing.record.ownerDisplayName,
           createdAt: existing.record.createdAt,
@@ -366,11 +394,13 @@ export function createSkillsManager({ personalRoot, teamRoot, instructionRoots =
       if (await pathExists(destination)) throw new WorkspaceSkillError(409, "skill_exists", "A skill with that name already exists at that scope");
       const content = await readFile(path.join(existing.directory, SKILL_FILE), "utf8");
       const metadata = {
+        ...await retainedMetadata(existing.directory),
         schema: "neural-labs.skill.v1",
         slug,
         name: existing.record.name,
         description: existing.record.description,
         scope: nextScope,
+        enabled: existing.record.enabled,
         ownerUserId: existing.record.ownerUserId,
         ownerDisplayName: existing.record.ownerDisplayName,
         createdAt: existing.record.createdAt,
@@ -418,7 +448,7 @@ export function createSkillsManager({ personalRoot, teamRoot, instructionRoots =
       if (!allowedRoots.some((root) => root && isPathInside(root, resolved))) {
         throw new WorkspaceSkillError(403, "skill_path_not_allowed", "That Skill is outside the readable workspace skill roots");
       }
-      const content = await readFile(resolved, "utf8");
+      const content = (await readPackageFile(requested, MAX_INSTRUCTIONS_BYTES)).content.toString("utf8");
       if (CREDENTIAL_PATTERNS.some((pattern) => pattern.test(content))) {
         throw new WorkspaceSkillError(403, "credential_detected", "This Skill cannot be shown because it appears to contain credential material");
       }
@@ -428,7 +458,7 @@ export function createSkillsManager({ personalRoot, teamRoot, instructionRoots =
     }
   }
 
-  async function savePackage(actor, input, existingSlug) {
+  async function savePackage(actor, input, existingSlug, provenance) {
     const fields = input?.fields && typeof input.fields === "object" ? input.fields : {};
     const name = normalizedText(fields.name || fields.displayName, "Name", MAX_NAME_LENGTH);
     const slug = existingSlug ? skillSlug(existingSlug) : skillSlug(fields.slug || name);
@@ -452,12 +482,15 @@ export function createSkillsManager({ personalRoot, teamRoot, instructionRoots =
     const temporary = path.join(root, `.neural-labs-skill-${randomUUID()}`);
     const backup = path.join(previous?.root ?? root, `.neural-labs-skill-backup-${randomUUID()}`);
     const metadata = {
+      ...(previous ? await retainedMetadata(previous.directory) : {}),
       schema: "neural-labs.skill.v1",
       slug,
       name,
       description,
       scope,
       ownerUserId: previous ? previous.record.ownerUserId : actor.id,
+      enabled: previous?.record.enabled !== false,
+      ...(provenance ? { provenance } : {}),
       ownerDisplayName: previous?.record.ownerDisplayName ?? actor.displayName,
       createdAt: previous?.record.createdAt ?? now,
       updatedAt: now,
@@ -532,7 +565,7 @@ export function createSkillsManager({ personalRoot, teamRoot, instructionRoots =
       return {deleted:true};
     });
   }
-  return { list, save, share, readPackage, readInstruction, savePackage, duplicate, remove };
+  return { list, library, save, share, readPackage, readInstruction, savePackage, duplicate, remove };
 
 }
 

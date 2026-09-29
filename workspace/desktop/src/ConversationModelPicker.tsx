@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { ModelPicker } from "./ModelPicker";
 import { useModelCatalog } from "./modelProviders";
-import type { NeuraGateway } from "./openclaw";
+import type { NativeClient } from "./nativeClient";
 import type { SessionRow } from "./types";
 import "./model-providers.css";
 
-export function ConversationModelPicker({ gateway, session }: { gateway: NeuraGateway; session: SessionRow }) {
+export function ConversationModelPicker({ gateway, session }: { gateway: NativeClient; session: SessionRow }) {
   const { catalog, error } = useModelCatalog("account");
   const [model, setModel] = useState(session.modelOverride ?? "");
   const [effort, setEffort] = useState(session.thinkingLevel ?? "");
@@ -13,9 +13,6 @@ export function ConversationModelPicker({ gateway, session }: { gateway: NeuraGa
   const [notice, setNotice] = useState<string>();
   const locked = session.active || session.visibility === "read-only" || session.sharingRole === "viewer";
   async function save() {
-    const previousProvider = session.modelOverride?.split("/")[0] ?? "openai";
-    const nextProvider = model.split("/")[0] || "openai";
-    if (previousProvider !== nextProvider && !window.confirm("Changing provider sends this conversation’s context to the selected provider. Continue?")) return;
     setBusy(true);
     setNotice(undefined);
     try {

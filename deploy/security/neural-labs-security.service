@@ -1,0 +1,12 @@
+[Unit]
+Description=Reconcile Neural Labs native container AppArmor profiles
+After=apparmor.service snapd.apparmor.service
+Before=docker.service snap.docker.dockerd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/neural-labs-security/install.py reconcile
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

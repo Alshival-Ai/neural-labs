@@ -66,6 +66,19 @@ async function config(): Promise<ProviderConfig> {
 }
 
 describe("workspace provider MCP", () => {
+  it("checks execution authorization before invoking a discovered tool", async () => {
+    const providerConfig = await config();
+    providerConfig.notificationApi = { url: new URL("http://control-plane.test/internal/notifications/send"), token: "fixture" };
+    const transport = vi.fn();
+    const authorize = vi.fn(async () => { throw new Error("Execution policy denies writes"); });
+    const application = createProviderApplication(providerConfig, transport as typeof fetch, undefined, authorize);
+    try {
+      const result = await callTool(application, "notify_workspace_user", { handle: "@member", message: "fixture" });
+      expect(authorize).toHaveBeenCalledWith("notify_workspace_user");
+      expect(transport).not.toHaveBeenCalled();
+      expect(result.result).toMatchObject({ isError: true });
+    } finally { await application.close(); }
+  });
   it("sends agent notifications only through the preference-aware notification broker", async () => {
     const providerConfig = await config();
     providerConfig.notificationApi = {

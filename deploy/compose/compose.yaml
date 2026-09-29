@@ -78,7 +78,6 @@ services:
       TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-}
       MCP_CONFIG_TOKEN: ${NEURAL_LABS_MCP_CONFIG_TOKEN}
       NEURAL_LABS_UPDATER_TOKEN: ${NEURAL_LABS_UPDATER_TOKEN:-}
-      NEURAL_LABS_CODEX_AUTO_UPDATE: ${NEURAL_LABS_CODEX_AUTO_UPDATE:-false}
       WORKSPACE_CONTROL_TOKEN: ${NEURAL_LABS_WORKSPACE_CONTROL_TOKEN}
       AZURE_TENANT_ID: ${AZURE_TENANT_ID:-}
       AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-}
@@ -90,7 +89,7 @@ services:
       CONTROL_PLANE_WORKSPACE_CONTROL_URL: http://workspace:18790/internal/provider-auth/openai
       CONTROL_PLANE_WORKSPACE_PERSONAL_AUTH_URL: http://workspace:18790/internal/provider-auth/openai/users
       CONTROL_PLANE_WORKSPACE_TEAM_AGENT_URL: http://workspace:18790/internal/neura/team-run
-      CONTROL_PLANE_WORKSPACE_OPENCLAW_VERSION: ${NEURAL_LABS_OPENCLAW_VERSION:-2026.9.6}
+      CONTROL_PLANE_WORKSPACE_CLAUDE_VERSION: 2.1.226
       CONTROL_PLANE_WORKSPACE_CODEX_VERSION: ${NEURAL_LABS_CODEX_VERSION:-0.155.1}
       CONTROL_PLANE_TURN_URLS: ${NEURAL_LABS_TURN_URLS:-}
       CONTROL_PLANE_TURN_SECRET: ${NEURAL_LABS_TURN_SECRET}
@@ -113,27 +112,17 @@ services:
     build:
       context: ../..
       dockerfile: workspace/Containerfile
-      args:
-        OPENCLAW_IMAGE: ${NEURAL_LABS_OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:2026.9.6@sha256:0a5ff5e682e62afa19149df126aa50063bf65ef885b5c94713ce32dc0eb12e15}
-        CODEX_VERSION: ${NEURAL_LABS_CODEX_VERSION:-0.155.1}
     image: ${NEURAL_LABS_WORKSPACE_IMAGE:-neural-labs-workspace:local}
     restart: unless-stopped
     environment:
       NEURAL_LABS_AUTH_MODE: ${NEURAL_LABS_AUTH_MODE:-standalone}
       NEURAL_LABS_PUBLIC_ORIGIN: ${NEURAL_LABS_PUBLIC_ORIGIN:-https://neural-labs.example.com}
       NEURAL_LABS_WORKSPACE_PROXY_IP: ${NEURAL_LABS_WORKSPACE_PROXY_IP:-172.30.42.1}
-      NEURAL_LABS_OPENCLAW_VERSION: ${NEURAL_LABS_OPENCLAW_VERSION:-2026.9.6}
-      NEURAL_LABS_CODEX_VERSION: ${NEURAL_LABS_CODEX_VERSION:-0.155.1}
-      NEURAL_LABS_CODEX_AUTO_UPDATE: ${NEURAL_LABS_CODEX_AUTO_UPDATE:-false}
       NEURAL_LABS_WORKSPACE_CONTROL_TOKEN: ${NEURAL_LABS_WORKSPACE_CONTROL_TOKEN}
       NEURAL_LABS_WORKSPACE_MAX_UPLOAD_BYTES: ${NEURAL_LABS_WORKSPACE_MAX_UPLOAD_BYTES:-2147483648}
-      OPENCLAW_GATEWAY_PORT: 18789
       NEURAL_LABS_WORKSPACE_STATUS_PORT: 18790
       NEURAL_LABS_WORKSPACE_MCP_PORT: 8792
-      NEURAL_LABS_CODE_SERVER_PORT: 18881
       NEURAL_LABS_PROJECTS_ROOT: /home/node/workspace/projects
-      MODELS_API_URL: ${MODELS_API_URL:-}
-      MODELS_API_KEY: ${MODELS_API_KEY:-}
       GOOGLE_PLACES_API_KEY: ${GOOGLE_PLACES_API_KEY:-}
       KLIPY_API_KEY: ${KLIPY_API_KEY:-}
       PEXELS_API_KEY: ${PEXELS_API_KEY:-}
@@ -143,25 +132,23 @@ services:
       NEURAL_LABS_TRANSCRIPTION_MODEL: ${NEURAL_LABS_TRANSCRIPTION_MODEL:-gpt-transcribe}
       NEURAL_LABS_TURN_CREDENTIAL_URL: http://control-plane:4174/internal/turn-credentials
       NEURAL_LABS_TEAM_CHANNEL_ACCESS_URL: http://control-plane:4174/internal/team-terminal/access
-      NEURAL_LABS_TWILIO_CONFIG_URL: http://control-plane:4174/internal/plugins/twilio/config
       NEURAL_LABS_NOTIFICATION_URL: http://control-plane:4174/internal/notifications/send
     cap_drop:
       - ALL
-    cap_add:
-      - AUDIT_WRITE
-      - CHOWN
-      - DAC_OVERRIDE
-      - FOWNER
-      - FSETID
-      - KILL
-      - NET_BIND_SERVICE
-      - SETGID
-      - SETUID
-      - SYS_CHROOT
-    cpus: ${NEURAL_LABS_WORKSPACE_CPUS:-10}
-    mem_limit: ${NEURAL_LABS_WORKSPACE_MEMORY:-16g}
+    read_only: true
+    tmpfs:
+      - /tmp:size=1g,mode=1777
+      - /run/neural-labs:size=16m,mode=0700,uid=1000,gid=1000
+    shm_size: 256m
+    security_opt:
+      - seccomp=${NEURAL_LABS_SECURITY_DIRECTORY:-/etc/neural-labs-security}/native-seccomp.json
+      - apparmor=neural-labs-native-v1
+      # Nested private proc mounts require unmasked parent proc. AppArmor
+      # retains kernel-path restrictions and the container drops ALL caps.
+      - systempaths=unconfined
+    cpus: ${NEURAL_LABS_WORKSPACE_CPUS:-4}
+    mem_limit: ${NEURAL_LABS_WORKSPACE_MEMORY:-6g}
     ports:
-      - "${NEURAL_LABS_BIND_ADDRESS:-127.0.0.1}:${WORKSPACE_PORT:-4180}:18789"
       - "${NEURAL_LABS_BIND_ADDRESS:-127.0.0.1}:${WORKSPACE_DESKTOP_PORT:-4181}:18790"
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "--show-error", "--max-time", "6", "http://127.0.0.1:18790/healthz"]
@@ -171,8 +158,6 @@ services:
       start_period: 120s
     volumes:
       - workspace-home:/home/node
-      - workspace-openclaw-state:/home/node/.openclaw
-      - workspace-openclaw-auth:/home/node/.config/openclaw
     networks:
       - workspace-ingress
 
@@ -209,8 +194,6 @@ services:
 volumes:
   postgres-data:
   workspace-home:
-  workspace-openclaw-state:
-  workspace-openclaw-auth:
 
 networks:
   landing-ingress:

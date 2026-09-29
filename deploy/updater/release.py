@@ -28,15 +28,15 @@ def compatibility(root):
 
 
 def manifest(root, tag, image):
-    release = json.loads((root / 'workspace/openclaw-release.json').read_text())
+    release = json.loads((root / 'workspace/native/release.json').read_text())
     policy = json.loads((root / 'workspace/update-release-policy.json').read_text())
     return validate_manifest({
-        'schema': 1, 'id': tag, 'image': image,
+        'schema': 2, 'id': tag, 'image': image,
         'sourceRevision': subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip(),
-        'openclawVersion': release['version'], 'codexVersion': release['codexVersion'], 'appServerVersion': release['appServerVersion'],
-        'upstreamImage': release['image'], 'upstreamRevision': release['sourceRevision'],
-        'packages': {name: release['version'] for name in release['packages']},
-        'supportedOrigins': list(policy['baselineImages']), 'protocol': 1, 'platform': 'linux/amd64',
+        'runtimeVersion': release['version'], 'codexVersion': release['codex'], 'claudeVersion': release['claude'],
+        'baseImage': release['baseImage'],
+        'supportedOrigins': list(policy['baselineImages']), 'protocol': release['protocol'],
+        'platforms': ['linux/amd64', 'linux/arm64'],
         'manualRequired': policy['manualRequired'], 'reason': policy['reason'],
         'notesUrl': f'https://github.com/{REPOSITORY}/releases/tag/{tag}', **compatibility(root),
     })

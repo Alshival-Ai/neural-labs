@@ -154,3 +154,29 @@ test("duplicated drafts preserve files and assets but reset publication and shar
  await manager.discard(owen,copy.id);assert.equal((await manager.get(maya,source.id)).draft.id,source.id);
  await assert.rejects(manager.duplicate({id:'stranger',userId:'stranger',role:'user'},source.id),e=>e.status===403);
 });
+
+test("portable draft editing preserves files and blocks publication after an interrupted asset copy", async t => {
+  const { manager, publications } = await fixture(t);
+  const draft = await manager.create(maya, { kind: "skill", initial: {
+    name: "Portable draft", description: "Keeps its complete supporting package.", files: [
+      { path: "README.md", kind: "text", content: "Package documentation" },
+      { path: "examples/nested/input.json", kind: "text", content: "{}" },
+      { path: "bin/helper", kind: "text", content: "#!/bin/sh\necho fixture\n", executable: true },
+      { path: "scripts/source.sh", kind: "text", content: "VALUE=fixture", executable: false },
+      { path: "fixtures/data.bin", kind: "asset" },
+    ],
+  } });
+  await assert.rejects(manager.publish(maya, draft.id), e => e.code === "incomplete_package");
+  assert.equal(publications.length, 0);
+  const data = Buffer.from([0, 255, 128]);
+  await manager.saveAsset(maya, draft.id, { path: "fixtures/data.bin", data: data.toString("base64") });
+  await manager.publish(maya, draft.id);
+  const files = publications[0].skillPackage.files;
+  assert.equal(files.find(f => f.path === "README.md").content, "Package documentation");
+  assert.equal(files.find(f => f.path === "bin/helper").executable, true);
+  assert.equal(files.find(f => f.path === "scripts/source.sh").executable, false);
+  assert.deepEqual(files.find(f => f.path === "fixtures/data.bin").content, data);
+  const copy = await manager.duplicate(maya, draft.id);
+  await manager.publish(maya, copy.id);
+  assert.equal(publications[1].skillPackage.files.find(f => f.path === "bin/helper").executable, true);
+});

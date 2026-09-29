@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { NativeState, canonical, digest } from "./native/state.mjs";
-import { exportPreservation, importPreservation, RECORD_CATEGORIES, TREE_CATEGORIES } from "./native/migration.mjs";
+import { exportPreservation, importPreservation, projectPreservation, verifyProjection, activatePreservation, RECORD_CATEGORIES, TREE_CATEGORIES } from "./native/migration.mjs";
 import { calendarFiles, cronExpression, dueOccurrence, NativeScheduler, occurrenceKey } from "./native/schedules.mjs";
 
 const binding = { provider: "codex", owner: "member-1", generation: 1, method: "subscription" };
@@ -22,7 +22,7 @@ function database(t, filename = ":memory:") {
   t.after(() => state.close());
   return state;
 }
-async function preservationFixture(t) {
+async function preservationFixture(t, chatResetPolicy = "reset-team-pilot") {
   const root = await temporary(t), trees = {};
   for (const category of TREE_CATEGORIES) {
     trees[category] = path.join(root, category);
@@ -51,7 +51,7 @@ async function preservationFixture(t) {
   records.notification_deliveries = [{ key: "event/user/email", value: { status: "unknown", attempts: 1 } }];
   records.notification_preferences = [{ key: "member-1", value: { session_key: "obsolete-chat", email: true } }];
   const bundle = path.join(root, "bundle"), destination = path.join(root, "retained");
-  const exported = await exportPreservation({ workspace: "workspace-1", trees, records, destination: bundle, chatResetPolicy: "reset-team-pilot" });
+  const exported = await exportPreservation({ workspace: "workspace-1", trees, records, destination: bundle, chatResetPolicy });
   return { root, trees, records, bundle, destination, exported };
 }
 
@@ -210,14 +210,15 @@ test("native conversations bind actor, provider, owner and generation; reconnect
   const conversation = state.createConversation("member-1", binding);
   const first = state.startTurn(conversation, "member-1", binding, "request-1", { text: "hello" });
   assert.equal(state.startTurn(conversation, "member-1", binding, "request-1", { text: "hello" }).accepted, false);
-  assert.throws(() => state.startTurn(conversation, "member-1", binding, "request-2", { text: "second" }), /UNIQUE/);
+  assert.throws(() => state.startTurn(conversation, "member-1", binding, "request-2", { text: "second" }), /active/);
   const other = state.createConversation("member-1", binding);
   assert.equal(state.startTurn(other, "member-1", binding, "request-3", {}).accepted, true);
   const cursor = Number(state.event(first.id, "output", { text: "reply" }));
   assert.equal(state.events(conversation, "member-1", binding, 0)[0].payload.text, "reply");
   assert.equal(state.events(conversation, "member-1", binding, cursor).length, 0);
   assert.throws(() => state.events(conversation, "member-2", binding), /binding/);
-  for (const changed of [{ ...binding, owner: "shared" }, { ...binding, generation: 2 }, { ...binding, provider: "claude" }, { ...binding, method: "api-key" }]) {
+  assert.equal(state.conversation(conversation, "member-1", { ...binding, generation: 2 }).id, conversation);
+  for (const changed of [{ ...binding, owner: "shared" }, { ...binding, provider: "claude" }, { ...binding, method: "api-key" }]) {
     assert.throws(() => state.conversation(conversation, "member-1", changed), /binding/);
   }
 });
@@ -252,4 +253,87 @@ test("calendar files use timezone groups and fixed job IDs without prompts or sh
   // Both sides of a DST fall-back have different occurrence identities. Actual
   // calendar scheduling across DST still requires the pinned Supercronic test.
   assert.notEqual(occurrenceKey("cron", Date.parse("2026-11-01T01:30:00-05:00")), occurrenceKey("cron", Date.parse("2026-11-01T01:30:00-06:00")));
+});
+
+
+test("installed migration packages preserve permissions and all records, and verification catches later writes", async t => {
+  const fixture = await preservationFixture(t), state = database(t);
+  const input = { source: fixture.bundle, destination: fixture.destination, state, workspace: "workspace-1", expectedId: fixture.exported.id };
+  await importPreservation(input);
+  const targets = {};
+  for (const category of TREE_CATEGORIES) {
+    targets[category] = path.join(fixture.root, "installed-" + category);
+    await mkdir(targets[category]);
+  }
+  const report = await projectPreservation({ ...input, targets });
+  assert.equal(report.inventory.drafts.packages, 27);
+  assert.equal(report.activationReady, false);
+  assert.equal(state.metadata("activation"), undefined);
+  assert.deepEqual(await projectPreservation({ ...input, targets }), report);
+  await writeFile(path.join(targets.teamSkills, "package-0/SKILL.md"), "new user work");
+  await assert.rejects(verifyProjection(input), /hash changed/);
+  await assert.rejects(projectPreservation({ ...input, targets }), /conflicts/);
+  assert.equal(await readFile(path.join(targets.teamSkills, "package-0/SKILL.md"), "utf8"), "new user work");
+});
+
+test("projection refuses overlapping paths and retained database tampering", async t => {
+  const fixture = await preservationFixture(t), state = database(t);
+  const input = { source: fixture.bundle, destination: fixture.destination, state, workspace: "workspace-1", expectedId: fixture.exported.id };
+  await importPreservation(input);
+  await assert.rejects(projectPreservation({ ...input, targets: { ...fixture.trees, drafts: fixture.trees.teamSkills } }), /overlap/);
+  await projectPreservation({ ...input, targets: fixture.trees });
+  state.db.prepare("UPDATE retained_records SET payload='{}' WHERE category='receipts'").run();
+  await assert.rejects(verifyProjection(input), /integrity changed/);
+});
+
+
+test("activation checks live notification preservation and explicit chat policy while keeping every job held", async t => {
+  const fixture = await preservationFixture(t), state = database(t);
+  const input = { source: fixture.bundle, destination: fixture.destination, state, workspace: "workspace-1", expectedId: fixture.exported.id };
+  await importPreservation(input);
+  await projectPreservation({ ...input, targets: fixture.trees });
+  const controlPlaneRecords = structuredClone(fixture.records);
+  controlPlaneRecords.notification_preferences[0].value.session_key = null;
+  const tables = RECORD_CATEGORIES.filter(category => category.startsWith("notification_") || category === "automation_subscriptions");
+  const notificationState = digest(canonical(Object.fromEntries(tables.map(category => [category,
+    controlPlaneRecords[category].map(row => digest(canonical(row.value))).sort()]))));
+  const chatReceipt = { migration: fixture.exported.id, workspace: "workspace-1", chatResetPolicy: "reset-team-pilot", channelsRemoved: 1, notificationState };
+  await assert.rejects(activatePreservation({ ...input, controlPlaneRecords, chatReceipt: { ...chatReceipt, workspace: "another-workspace" } }), /matching/);
+  const altered = structuredClone(controlPlaneRecords); altered.notification_deliveries[0].value.status = "pending";
+  await assert.rejects(activatePreservation({ ...input, controlPlaneRecords: altered, chatReceipt }), /comparison failed/);
+  const result = await activatePreservation({ ...input, controlPlaneRecords, chatReceipt });
+  assert.equal(result.activationReady, true); assert.equal(result.jobsHeld, 19);
+  assert.equal(state.metadata("scheduling"), "disabled"); assert.equal(state.metadata("delivery"), "disabled");
+  assert.equal(state.metadata("activation"), "verified");
+  assert.deepEqual(await activatePreservation({ ...input, controlPlaneRecords, chatReceipt }), result);
+});
+
+test("preservation rejects reactivated one-time jobs and altered classification or holds", async t => {
+  const fixture = await preservationFixture(t), state = database(t);
+  const input = { source: fixture.bundle, destination: fixture.destination, state, workspace: "workspace-1", expectedId: fixture.exported.id };
+  await importPreservation(input);
+  await projectPreservation({ ...input, targets: fixture.trees });
+  for (const [column, value, id] of [["completed", 0, "job-4"], ["classification", "automation", "job-1"], ["hold", "different-policy", "job-0"]]) {
+    const original = state.db.prepare(`SELECT ${column} AS value FROM jobs WHERE id=?`).get(id).value;
+    state.db.prepare(`UPDATE jobs SET ${column}=? WHERE id=?`).run(value, id);
+    await assert.rejects(verifyProjection(input), /automation changed/);
+    state.db.prepare(`UPDATE jobs SET ${column}=? WHERE id=?`).run(original, id);
+  }
+  assert.equal((await verifyProjection(input)).inventory.jobs, 19);
+});
+
+test("customer preservation retains chat references and only stages scheduling for host commit", async t => {
+  const fixture = await preservationFixture(t, "preserve"), state = database(t);
+  const input = { source: fixture.bundle, destination: fixture.destination, state, workspace: "workspace-1", expectedId: fixture.exported.id };
+  await importPreservation(input); await projectPreservation({ ...input, targets: fixture.trees });
+  const tables = RECORD_CATEGORIES.filter(category => category.startsWith("notification_") || category === "automation_subscriptions");
+  const notificationState = digest(canonical(Object.fromEntries(tables.map(category => [category, fixture.records[category].map(row => digest(canonical(row.value))).sort()]))));
+  const chatReceipt = { workspace: input.workspace, migration: input.expectedId, chatResetPolicy: "preserve", notificationState, channelsRemoved: 0 };
+  const afterCommit = { scheduling: "enabled", delivery: "disabled" };
+  await assert.rejects(activatePreservation({ ...input, controlPlaneRecords: fixture.records, chatReceipt: { ...chatReceipt, channelsRemoved: 1 }, afterCommit }), /matching/);
+  const result = await activatePreservation({ ...input, controlPlaneRecords: fixture.records, chatReceipt, afterCommit });
+  assert.equal(result.activationReady, true); assert.equal(result.jobsHeld, 19);
+  assert.equal(state.metadata("scheduling"), "disabled");
+  assert.deepEqual(JSON.parse(state.metadata("maintenance")), afterCommit);
+  await assert.rejects(activatePreservation({ ...input, controlPlaneRecords: fixture.records, chatReceipt }), /evidence changed/);
 });

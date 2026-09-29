@@ -49,8 +49,11 @@ def build(registration, destination):
             raise ValueError(f"Missing persistent {key}")
     if not re.fullmatch(r"[a-fA-F0-9]{64}", cfg.get("master_key", "")):
         raise ValueError("Master key must be 32 random bytes encoded as hexadecimal")
+    database_name = cfg.get("database_name", "neural_labs")
+    if database_name != "neural_labs" and database_name != "neural_labs_native_" + cfg["release"][:20]:
+        raise ValueError("Native migration database must match the reviewed release")
     public = "https://" + hostname
-    release = json.loads((Path(__file__).resolve().parents[2] / "workspace/openclaw-release.json").read_text())
+    release = json.loads((Path(__file__).resolve().parents[2] / "workspace/native/release.json").read_text())
     labels = {"ai.alshival.workspace": workspace, "ai.alshival.runtime": runtime, "ai.alshival.instance": instance}
     common = {"restart": "no", "labels": labels, "cap_drop": ["ALL"], "pids_limit": 256}
     health = lambda endpoint: {"test": ["CMD", "node", "-e", f"fetch('{endpoint}').then(r=>{{if(!r.ok)process.exit(1)}}).catch(()=>process.exit(1))"],
@@ -68,25 +71,28 @@ def build(registration, destination):
             "environment": {"CONTROL_PLANE_HOST": "0.0.0.0", "CONTROL_PLANE_PORT": "4174", "CONTROL_PLANE_PUBLIC_ORIGIN": public,
                 "NEURAL_LABS_AUTH_MODE": "alshival", "NEURAL_LABS_PORTAL_ORIGIN": "https://alshival.ai",
                 "NEURAL_LABS_PORTAL_WORKSPACE": workspace, "NEURAL_LABS_PORTAL_INSTANCE": instance, "NEURAL_LABS_PORTAL_SECRET": cfg["portal_secret"],
-                "PGHOST": "postgres", "PGPORT": "5432", "PGDATABASE": "neural_labs", "PGUSER": "neural_labs", "PGPASSWORD": cfg["database_password"],
+                "PGHOST": "postgres", "PGPORT": "5432", "PGDATABASE": database_name, "PGUSER": "neural_labs", "PGPASSWORD": cfg["database_password"],
                 "CONTROL_PLANE_MASTER_KEY": cfg["master_key"], "MCP_CONFIG_TOKEN": cfg["mcp_token"], "WORKSPACE_CONTROL_TOKEN": cfg["control_token"],
                 "CONTROL_PLANE_WORKSPACE_STATUS_URL": "http://workspace:18790/status", "CONTROL_PLANE_WORKSPACE_CONTROL_URL": "http://workspace:18790/internal/provider-auth/openai",
                 "CONTROL_PLANE_WORKSPACE_PERSONAL_AUTH_URL": "http://workspace:18790/internal/provider-auth/openai/users",
                 "CONTROL_PLANE_WORKSPACE_TEAM_AGENT_URL": "http://workspace:18790/internal/neura/team-run",
-                "CONTROL_PLANE_WORKSPACE_OPENCLAW_VERSION": release["version"], "CONTROL_PLANE_WORKSPACE_CODEX_VERSION": release["codexVersion"]}},
+                "CONTROL_PLANE_WORKSPACE_CLAUDE_VERSION": release["claude"], "CONTROL_PLANE_WORKSPACE_CODEX_VERSION": release["codex"]}},
         "workspace": {**common, "container_name": "neura-" + runtime, "image": images["workspace"], "mem_limit": f"{memory - 1024}m", "cpus": cpu - 1,
-            "networks": ["workspace"], "ports": [f"127.0.0.1:{port + 2}:18789", f"127.0.0.1:{port + 3}:18790"],
-            "cap_add": ["AUDIT_WRITE", "CHOWN", "DAC_OVERRIDE", "FOWNER", "FSETID", "KILL", "NET_BIND_SERVICE", "SETGID", "SETUID", "SYS_CHROOT"],
-            "volumes": [f"{root}/neural-labs/home:/home/node", f"{root}/neural-labs/state:/home/node/.openclaw",
-                        f"{root}/neural-labs/auth:/home/node/.config/openclaw", f"{root}/{documents}:/home/node/workspace",
-                        f"{root}/{documents}:/workspace", f"{root}/state/ssh:/state/ssh"],
+            "networks": ["workspace"], "ports": [f"127.0.0.1:{port + 3}:18790"],
+            "cap_add": [], "read_only": True, "user": "1000:1000",
+            "tmpfs": ["/tmp:size=1g,mode=1777", "/run/neural-labs:size=16m,mode=0700,uid=1000,gid=1000"],
+            "shm_size": "256m", "security_opt": ["seccomp=/etc/neural-labs-security/native-seccomp.json",
+                "apparmor=neural-labs-native-v1", "systempaths=unconfined"],
+            "volumes": [f"{root}/neural-labs/home:/home/node", f"{root}/{documents}:/home/node/workspace",
+                        f"{root}/{documents}:/workspace", f"{root}/state/ssh:/state/ssh:ro"],
             "healthcheck": {"test": ["CMD", "curl", "--fail", "--silent", "--max-time", "6", "http://127.0.0.1:18790/healthz"],
                             "interval": "15s", "timeout": "8s", "retries": 12, "start_period": "120s"},
             "environment": {"NEURAL_LABS_AUTH_MODE": "alshival", "NEURAL_LABS_PUBLIC_ORIGIN": public, "NEURAL_LABS_WORKSPACE_PROXY_IP": str(network.network_address + 1),
                 "NEURAL_LABS_APP_DOMAIN": hostname,
                 "NEURAL_LABS_EMBED_ORIGINS": "https://alshival.ai",
-                "NEURAL_LABS_WORKSPACE_CONTROL_TOKEN": cfg["control_token"], "OPENCLAW_GATEWAY_PORT": "18789",
-                "NEURAL_LABS_OPENCLAW_VERSION": release["version"], "NEURAL_LABS_CODEX_VERSION": release["codexVersion"],
+                "NEURAL_LABS_WORKSPACE_CONTROL_TOKEN": cfg["control_token"],
+                "NEURAL_LABS_RUNTIME_VERSION": release["version"], "NEURAL_LABS_CODEX_VERSION": release["codex"],
+                "NEURAL_LABS_CLAUDE_VERSION": release["claude"],
                 "NEURAL_LABS_WORKSPACE_STATUS_PORT": "18790", "NEURAL_LABS_PROJECTS_ROOT": "/home/node/workspace/projects",
                 "NEURAL_LABS_TURN_CREDENTIAL_URL": "http://control-plane:4174/internal/turn-credentials",
                 "NEURAL_LABS_TEAM_CHANNEL_ACCESS_URL": "http://control-plane:4174/internal/team-terminal/access",
@@ -104,7 +110,7 @@ def build(registration, destination):
     compose = {"services": services, "networks": {"database": {"internal": True}, "workspace": {
         "driver_opts": {"com.docker.network.bridge.name": "nl" + runtime.replace("-", "")[:10]},
         "ipam": {"config": [{"subnet": str(network), "gateway": str(network.network_address + 1)}]}}}}
-    descriptor = {"runtime": runtime, "workspace": workspace, "instance": instance, "slot": slot,
+    descriptor = {"runtime_kind": "native", "runtime_protocol": 1, "runtime": runtime, "workspace": workspace, "instance": instance, "slot": slot,
         "release": cfg["release"], "compose": str(destination / "compose.json"), "services": list(services),
         "hostname": hostname, "port": port, "storage_root": str(root), "documents_name": documents, "subnet": str(network), "cpu": cpu, "memory_mb": memory}
     return compose, descriptor, ingress(hostname, runtime, port)
