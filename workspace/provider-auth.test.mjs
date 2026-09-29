@@ -177,3 +177,11 @@ test("background reconnect can replace a saved credential without reporting the 
   assert.equal(controller.snapshot().state, "awaiting_user");
   controller.cancel();
 });
+test('a pending display check is not reported as disconnected', () => {
+  let checking = true;
+  const controller = createProviderAuthController({providerAuthenticated:()=>false,modelReady:()=>false,providerChecking:()=>checking});
+  assert.equal(controller.snapshot().state,'checking_connection');
+  assert.equal(controller.snapshot().authenticated,false);
+  checking=false;
+  assert.equal(controller.snapshot().state,'disconnected');
+});

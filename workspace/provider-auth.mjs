@@ -64,6 +64,7 @@ function publicMessage(value) {
 
 export function createProviderAuthController({
   providerAuthenticated,
+  providerChecking = () => false,
   modelReady,
   refreshStatus,
   spawnLogin = spawnBackgroundLogin,
@@ -115,6 +116,7 @@ export function createProviderAuthController({
       provider: "openai",
       authMethod: "chatgpt",
       ...state,
+      ...(!child && safeBoolean(providerChecking) ? { state: "checking_connection" } : {}),
       authenticated: authenticated && !child,
       modelReady: ready && !child,
     };

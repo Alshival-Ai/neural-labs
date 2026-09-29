@@ -139,6 +139,7 @@ test("Claude preserves supported effort exactly and rejects unsupported override
   for (const effort of ['low','medium','high','xhigh','max']) assert.deepEqual(backend.resolveExecutionArgs({baseArgs:['-p'],thinkingLevel:effort}), ['-p','--effort',effort]);
   for (const effort of ['off','minimal','ultra','unknown']) assert.throws(() => backend.resolveExecutionArgs({baseArgs:[],thinkingLevel:effort}), /does not support/);
   assert.deepEqual(backend.resolveExecutionArgs({baseArgs:['-p']}), ['-p']);
+  assert.deepEqual(backend.resolveExecutionArgs({baseArgs:['-p'],thinkingLevel:'adaptive'}), ['-p']);
 });
 test("version validation is reused while authorization is freshly checked", async t => {
   const f = await fixture(t);

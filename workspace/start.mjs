@@ -321,6 +321,7 @@ function configureGateway(twilioConfig) {
 }
 
 let providerStatus = {
+  checking: true,
   authenticated: false,
   modelReady: false,
   credentialSource: "unconfigured",
@@ -443,6 +444,7 @@ const providerAuth = createProviderAuthController({
   providerAuthenticated,
   modelReady: openclawModelReady,
   refreshStatus: refreshProviderStatusAfterLogin,
+  providerChecking: () => providerStatus.checking === true,
   allowReconnect: true,
 });
 

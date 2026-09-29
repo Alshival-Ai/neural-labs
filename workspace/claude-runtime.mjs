@@ -70,7 +70,9 @@ export function parseClaudeEvent(line) {
 export const CLAUDE_EFFORTS = Object.freeze(["low", "medium", "high", "xhigh", "max"]);
 export function claudeEffortArgs(context) {
   const effort = context.thinkingLevel;
-  if (effort === undefined || effort === null || effort === "") return context.baseArgs;
+  // OpenClaw uses adaptive for the model default. Let Claude choose its own
+  // default instead of silently replacing it with a fixed effort.
+  if (effort === undefined || effort === null || effort === "" || effort === "adaptive") return context.baseArgs;
   if (!CLAUDE_EFFORTS.includes(effort)) throw new Error("This Claude runtime does not support the selected reasoning effort");
   return [...context.baseArgs, "--effort", effort];
 }

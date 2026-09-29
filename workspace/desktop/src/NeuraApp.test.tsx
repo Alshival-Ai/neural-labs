@@ -973,7 +973,7 @@ it("automatically requests recent terminal context without a selector", async ()
   await waitFor(() => expect(gateway.calls).toContain(`history:${session.key}`));
   expect(screen.queryByRole("combobox", { name: "Terminal context" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Remove terminal context" })).not.toBeInTheDocument();
-  const composer = screen.getByPlaceholderText("Message Alshival…");
+  const composer = await screen.findByPlaceholderText("Message Alshival…");
   await waitFor(() => expect(composer).toBeEnabled());
   fireEvent.change(composer, { target: { value: "Why did this fail?" } });
   fireEvent.click(screen.getByRole("button", { name: "Send message" }));

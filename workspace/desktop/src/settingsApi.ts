@@ -105,7 +105,7 @@ export type WorkspaceStatus = {
 export type WorkspaceProviderAuth = {
   provider: "openai";
   authMethod: "chatgpt";
-  state: "disconnected" | "starting" | "awaiting_user" | "connected" | "error";
+  state: "disconnected" | "checking_connection" | "starting" | "awaiting_user" | "connected" | "error";
   authenticated: boolean;
   modelReady: boolean;
   verificationUrl: string | null;
