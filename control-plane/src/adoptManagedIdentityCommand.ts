@@ -13,7 +13,7 @@ const info = await stat(mappingPath);
 if (!info.isFile() || info.mode & 0o077) throw new Error("Mapping must be a private file (0600)");
 const mapping = adoptionSchema.parse(JSON.parse(await readFile(mappingPath, "utf8")));
 const config = await loadConfig();
-if (!config.managed) throw new Error("Configure the target managed authority before adoption");
+if (!config.managed || !config.publicOrigin) throw new Error("Configure the target managed authority before adoption");
 const members = z.object({ members: z.array(z.object({ subject: z.string(), role: z.enum(["admin", "user"]) })),
   generation: z.number().int().positive() }).parse(await portalExchange(config, "members", {
   subjects: mapping.users.map(row => row.subject),
@@ -22,5 +22,6 @@ if (mapping.users.some(row => !members.members.some(member => member.subject ===
   throw new Error("Every mapped subject must currently belong to the target portal workspace");
 const database = new Database(createPool(config));
 try {
-  console.log(JSON.stringify(await adoptManagedIdentity(database, config.managed, mapping, flag === "--confirm")));
+  console.log(JSON.stringify(await adoptManagedIdentity(database,
+    { ...config.managed, publicOrigin: config.publicOrigin.origin }, mapping, flag === "--confirm")));
 } finally { await database.close(); }

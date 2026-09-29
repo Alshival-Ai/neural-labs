@@ -20,6 +20,17 @@ async function secretFiles() {
 }
 
 describe("control-plane configuration", () => {
+  it("allows a separate HTTPS SMS callback origin during a desktop domain migration", async () => {
+    const base = { CONTROL_PLANE_MASTER_KEY: Buffer.alloc(32, 7).toString("base64"),
+      MCP_CONFIG_TOKEN: "mcp-config-token-at-least-thirty-two-characters",
+      WORKSPACE_CONTROL_TOKEN: "workspace-control-token-at-least-thirty-two-characters", PGPASSWORD: "test",
+      CONTROL_PLANE_PUBLIC_ORIGIN: "https://portal.example.com" };
+    expect((await loadConfig(base)).smsWebhookOrigin).toBeUndefined();
+    const config = await loadConfig({ ...base, CONTROL_PLANE_SMS_WEBHOOK_ORIGIN: "https://old.example.com" });
+    expect(config.smsWebhookOrigin?.origin).toBe("https://old.example.com");
+    expect(config.publicOrigin?.origin).toBe("https://portal.example.com");
+    await expect(loadConfig({ ...base, CONTROL_PLANE_SMS_WEBHOOK_ORIGIN: "http://localhost" })).rejects.toThrow("HTTPS");
+  });
   it("enables SMS only with a complete, valid server-side Twilio configuration", async () => {
     const base = { CONTROL_PLANE_MASTER_KEY: Buffer.alloc(32, 7).toString("base64"), MCP_CONFIG_TOKEN: "mcp-config-token-at-least-thirty-two-characters", WORKSPACE_CONTROL_TOKEN: "workspace-control-token-at-least-thirty-two-characters", PGPASSWORD: "test" };
     expect((await loadConfig(base)).sms).toBeUndefined();

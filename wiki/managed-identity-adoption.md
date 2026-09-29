@@ -31,8 +31,9 @@ node dist/adoptManagedIdentityCommand.js /private/identity-map.json --confirm
 ```
 
 The first invocation validates and rolls back. The second binds the authority,
-inserts explicit identity mappings and invalidates old browser sessions in one
-transaction. It never rewrites user UUIDs or credentials. A second confirmed
+inserts explicit identity mappings, updates the instance's public origin, disables
+local/Microsoft sign-in and invalidates old browser sessions in one transaction.
+It never rewrites user UUIDs or credentials. A second confirmed
 adoption is refused. No HTTP endpoint exposes this operation.
 
 Start the upgraded managed control plane and verify portal handoff, session
@@ -41,6 +42,12 @@ history authors and background scheduling. Disable or redirect the installation'
 old authentication entrypoints. Ordinary startup still refuses an unreviewed
 authority change. Never restore old database state after accepting new writes;
 follow the operator recovery boundary for the whole deployment.
+
+For an existing SMS integration, set `CONTROL_PLANE_SMS_WEBHOOK_ORIGIN` to the old
+HTTPS origin (private managed registration: `sms_webhook_origin`) and retain its
+signed `/webhooks/twilio/sms` ingress. This preserves the provider callback and
+signature URL while browser login and desktop move to the new origin. Do not
+redirect provider webhook POSTs through login or forward them as browser traffic.
 
 The private managed renderer accepts an operator-selected DNS hostname. The
 portal must independently authorize the exact origin/workspace binding. When

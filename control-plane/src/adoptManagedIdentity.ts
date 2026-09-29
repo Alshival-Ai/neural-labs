@@ -11,8 +11,11 @@ export const adoptionSchema = z.object({
 }).strict();
 
 /** Caller must stop ingress/control plane and retain a database recovery copy. */
-export async function adoptManagedIdentity(database: Database, config: ManagedConfig,
+export async function adoptManagedIdentity(database: Database, config: ManagedConfig & { publicOrigin: string },
   input: unknown, confirm = false): Promise<{ users: number; committed: boolean }> {
+  const origin = new URL(config.publicOrigin);
+  if (origin.protocol !== "https:" || origin.origin !== config.publicOrigin)
+    throw new Error("Adoption requires the exact target HTTPS origin");
   const mapping = adoptionSchema.parse(input).users;
   if (new Set(mapping.map(row => row.userId)).size !== mapping.length
       || new Set(mapping.map(row => row.subject)).size !== mapping.length)
@@ -21,7 +24,7 @@ export async function adoptManagedIdentity(database: Database, config: ManagedCo
   try {
     await client.query("BEGIN");
     await client.query("SELECT pg_advisory_xact_lock(67209381)");
-    await client.query("LOCK TABLE users, managed_identities, deployment_identity, sessions IN EXCLUSIVE MODE");
+    await client.query("LOCK TABLE users, managed_identities, deployment_identity, sessions, instance_config IN EXCLUSIVE MODE");
     const binding = (await client.query("SELECT binding FROM deployment_identity WHERE singleton")).rows[0]?.binding;
     if (!binding || binding.mode !== "standalone" || Object.keys(binding).length !== 1)
       throw new Error("Only a bound standalone database can be adopted");
@@ -35,6 +38,9 @@ export async function adoptManagedIdentity(database: Database, config: ManagedCo
       "INSERT INTO managed_identities(user_id,issuer,workspace,subject) VALUES($1,$2,$3,$4)",
       [row.userId, config.portalOrigin, config.workspace, row.subject]);
     await client.query("DELETE FROM sessions");
+    await client.query(`UPDATE instance_config SET public_origin=$1, local_auth_enabled=false,
+      microsoft_auth_enabled=false, config_version=config_version+1, updated_at=now() WHERE singleton_id=1`,
+    [origin.origin]);
     await client.query("UPDATE deployment_identity SET binding=$1 WHERE singleton", [{
       mode: "alshival", issuer: config.portalOrigin, workspace: config.workspace, instance: config.instance,
     }]);

@@ -14,6 +14,7 @@ export interface ControlPlaneConfig {
   host: string;
   port: number;
   publicOrigin?: URL;
+  smsWebhookOrigin?: URL;
   database: {
     host: string;
     port: number;
@@ -201,6 +202,9 @@ export async function loadConfig(env: NodeJS.ProcessEnv = process.env): Promise<
 
   const publicOriginValue = env.CONTROL_PLANE_PUBLIC_ORIGIN?.trim();
   const publicOrigin = publicOriginValue ? parsePublicOrigin(publicOriginValue) : undefined;
+  const smsWebhookOrigin = env.CONTROL_PLANE_SMS_WEBHOOK_ORIGIN?.trim()
+    ? parsePublicOrigin(env.CONTROL_PLANE_SMS_WEBHOOK_ORIGIN.trim()) : undefined;
+  if (smsWebhookOrigin && smsWebhookOrigin.protocol !== "https:") throw new Error("SMS webhook origin requires HTTPS");
   const password =
     (await readOptionalFile(env, "PGPASSWORD_FILE")) ?? env.PGPASSWORD?.trim();
   if (!password) throw new Error("PGPASSWORD_FILE or PGPASSWORD is required");
@@ -288,6 +292,7 @@ export async function loadConfig(env: NodeJS.ProcessEnv = process.env): Promise<
     host: env.CONTROL_PLANE_HOST?.trim() || "127.0.0.1",
     port: parsePort(env.CONTROL_PLANE_PORT, 4174, "CONTROL_PLANE_PORT"),
     ...(publicOrigin ? { publicOrigin } : {}),
+    ...(smsWebhookOrigin ? { smsWebhookOrigin } : {}),
     database: {
       host: env.PGHOST?.trim() || "127.0.0.1",
       port: parsePort(env.PGPORT, 5432, "PGPORT"),

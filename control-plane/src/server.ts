@@ -537,7 +537,7 @@ export function createApplication(input: {
   const twilioWebhookUrl = async () => {
     const stored = await database.getInstanceConfig();
     const origin = authConfiguration.effectivePublicOrigin(stored);
-    return new URL("/webhooks/twilio/sms", origin?.origin ?? config.publicOrigin?.origin ?? "https://neural-labs.example.com").toString();
+    return new URL("/webhooks/twilio/sms", config.smsWebhookOrigin?.origin ?? origin?.origin ?? config.publicOrigin?.origin ?? "https://neural-labs.example.com").toString();
   };
 
   const mcpData = async () => {

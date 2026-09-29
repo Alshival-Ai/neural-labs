@@ -52,17 +52,19 @@ integration("managed identity database boundary", () => {
     const actor = { subject: "123", email: "local@example.com", display_name: "Existing", role: "admin" as const,
       workspace: managed.workspace, instance: managed.instance, origin: config.publicOrigin!.origin,
       generation: 3, expires_at: new Date(Date.now() + 3600000).toISOString(), token: "g".repeat(43) };
-    expect(await adoptManagedIdentity(database, managed, mapping)).toEqual({ users: 1, committed: false });
+    expect(await adoptManagedIdentity(database, { ...managed, publicOrigin: config.publicOrigin!.origin }, mapping)).toEqual({ users: 1, committed: false });
     await bindAuthenticationMode(database, standalone);
     expect((await database.pool.query("SELECT count(*)::int AS n FROM managed_identities")).rows[0].n).toBe(0);
-    await expect(adoptManagedIdentity(database, managed, { users: [{ ...mapping.users[0], expectedEmail: "other@example.com" }] }, true)).rejects.toThrow("every existing user");
-    await expect(adoptManagedIdentity(database, managed, { users: [...mapping.users, ...mapping.users] }, true)).rejects.toThrow("one-to-one");
+    await expect(adoptManagedIdentity(database, { ...managed, publicOrigin: config.publicOrigin!.origin }, { users: [{ ...mapping.users[0], expectedEmail: "other@example.com" }] }, true)).rejects.toThrow("every existing user");
+    await expect(adoptManagedIdentity(database, { ...managed, publicOrigin: config.publicOrigin!.origin }, { users: [...mapping.users, ...mapping.users] }, true)).rejects.toThrow("one-to-one");
     await database.createSession({ tokenHash: "old-session", csrfHash: "old-csrf", userId: id,
       idleExpiresAt: new Date(Date.now() + 3600000), absoluteExpiresAt: new Date(Date.now() + 3600000) });
-    expect(await adoptManagedIdentity(database, managed, mapping, true)).toEqual({ users: 1, committed: true });
+    expect(await adoptManagedIdentity(database, { ...managed, publicOrigin: config.publicOrigin!.origin }, mapping, true)).toEqual({ users: 1, committed: true });
     await bindAuthenticationMode(database, config);
     await expect(bindAuthenticationMode(database, standalone)).rejects.toThrow();
     expect((await database.pool.query("SELECT count(*)::int AS n FROM sessions")).rows[0].n).toBe(0);
+    expect((await database.pool.query("SELECT public_origin,local_auth_enabled,microsoft_auth_enabled FROM instance_config")).rows[0])
+      .toEqual({ public_origin: config.publicOrigin!.origin, local_auth_enabled: false, microsoft_auth_enabled: false });
     expect(await resolveManagedUserId(database, managed, actor.subject)).toBe(id);
     expect(await syncManagedUser(database, managed, actor)).toBe(id);
     expect((await database.pool.query("SELECT count(*)::int AS n FROM users")).rows[0].n).toBe(1);

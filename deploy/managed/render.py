@@ -94,6 +94,13 @@ def build(registration, destination):
     }
     if cfg.get("turn"):
         services["control-plane"]["environment"].update({"CONTROL_PLANE_TURN_URLS": cfg["turn"]["urls"], "CONTROL_PLANE_TURN_SECRET": cfg["turn"]["secret"]})
+    if cfg.get("sms_webhook_origin"):
+        from urllib.parse import urlsplit
+        callback = urlsplit(cfg["sms_webhook_origin"])
+        if (callback.scheme != "https" or not callback.hostname or callback.username or callback.password
+                or callback.path not in {"", "/"} or callback.query or callback.fragment):
+            raise ValueError("Use an HTTPS SMS callback origin")
+        services["control-plane"]["environment"]["CONTROL_PLANE_SMS_WEBHOOK_ORIGIN"] = cfg["sms_webhook_origin"]
     compose = {"services": services, "networks": {"database": {"internal": True}, "workspace": {
         "driver_opts": {"com.docker.network.bridge.name": "nl" + runtime.replace("-", "")[:10]},
         "ipam": {"config": [{"subnet": str(network), "gateway": str(network.network_address + 1)}]}}}}
