@@ -138,3 +138,11 @@ test("disconnect removes both saved billing methods from the owned store", async
   assert.deepEqual(calls, ["openai:nl-alice", "openai:nl-alice-api"]);
   assert.equal(profiles.size, 0);
 });
+
+test('provider discovery timeouts do not report missing credentials', async () => {
+  const {manager,account} = fixture();
+  manager.readSelectedMethod = async () => 'chatgpt';
+  manager.openclawJson = async () => {throw Error('provider timeout');};
+  await assert.rejects(manager.refresh(account), /provider timeout/);
+  assert.equal(account.authenticated,true);
+});

@@ -67,6 +67,13 @@ export function parseClaudeEvent(line) {
     usage: { input: row.usage?.input_tokens, output: row.usage?.output_tokens, cacheRead: row.usage?.cache_read_input_tokens, cacheWrite: row.usage?.cache_creation_input_tokens } };
   return null;
 }
+export const CLAUDE_EFFORTS = Object.freeze(["low", "medium", "high", "xhigh", "max"]);
+export function claudeEffortArgs(context) {
+  const effort = context.thinkingLevel;
+  if (effort === undefined || effort === null || effort === "") return context.baseArgs;
+  if (!CLAUDE_EFFORTS.includes(effort)) throw new Error("This Claude runtime does not support the selected reasoning effort");
+  return [...context.baseArgs, "--effort", effort];
+}
 export function buildClaudeBackend(options = {}) {
   // All tools use the Gateway MCP bridge and its existing authorization. No
   // second, unsupervised native tool execution surface is introduced.
@@ -75,6 +82,6 @@ export function buildClaudeBackend(options = {}) {
     runtimeArtifact: { kind: "bundled-package-tree", packageName: "@anthropic-ai/claude-code", entrypoint: "command", nativeExecutableNames: ["claude"] },
     config: { command: "claude", args, resumeArgs: [...args, "--resume", "{sessionId}"], output: "jsonl", input: "stdin", modelArg: "--model", sessionArgs: ["--session-id", "{sessionId}"], sessionMode: "always", sessionIdFields: ["session_id"], systemPromptFileArg: "--append-system-prompt-file", systemPromptWhen: "always", serialize: true },
     prepareExecution: context => prepareClaudeExecution(context, options),
-    resolveExecutionArgs: context => [...context.baseArgs, "--effort", ["minimal", "low"].includes(context.thinkingLevel) ? "low" : ["high", "xhigh", "max"].includes(context.thinkingLevel) ? context.thinkingLevel : "medium"],
+    resolveExecutionArgs: claudeEffortArgs,
     parseJsonlEvent: parseClaudeEvent };
 }

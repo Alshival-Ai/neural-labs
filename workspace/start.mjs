@@ -2,7 +2,7 @@ import { UpdateMaintenance, prepareProbation } from "./update-maintenance.mjs";
 import { migrateNativeState } from "./native-state-migration.mjs";
 import { ClaudeAccounts } from "./claude-accounts.mjs";
 import { ModelAccounts } from "./model-accounts.mjs";
-import { backgroundProviderStatus } from "/usr/local/lib/neural-labs/background-provider-status.mjs";
+import { backgroundGatewayStatus } from "/usr/local/lib/neural-labs/background-provider-status.mjs";
 import { ProviderRuntime } from "/usr/local/lib/neural-labs/mcp/dist/providerRuntime.js";
 import { loadProviderConfig } from "/usr/local/lib/neural-labs/mcp/dist/providerConfig.js";
 import { installTerminalGuidance } from "/usr/local/lib/neural-labs/terminal-guidance.mjs";
@@ -53,7 +53,7 @@ const maxUploadBytes = parsePositiveInteger(
   "NEURAL_LABS_WORKSPACE_MAX_UPLOAD_BYTES",
 );
 const execFileAsync = promisify(execFile);
-const providerStatusRefreshMs = 15_000;
+const providerStatusRefreshMs = 5 * 60_000;
 const providerStatusCommandTimeoutMs = 120_000;
 const workspaceControlToken = process.env.NEURAL_LABS_WORKSPACE_CONTROL_TOKEN?.trim();
 if (!workspaceControlToken || workspaceControlToken.length < 32) {
@@ -327,28 +327,18 @@ let providerStatus = {
 };
 let providerStatusRefresh;
 
-async function openclawJson(args) {
-  const { stdout } = await execFileAsync("openclaw", args, {
-    encoding: "utf8",
-    env: agentEnvironment(process.env),
-    timeout: providerStatusCommandTimeoutMs,
-    maxBuffer: 1024 * 1024,
-  });
-  return JSON.parse(stdout);
-}
-
 async function refreshProviderStatus() {
   if (providerStatusRefresh) return providerStatusRefresh;
 
   providerStatusRefresh = (async () => {
-    const [authentication, models] = await Promise.allSettled([
-      openclawJson(["models", "auth", "list", "--agent", "main", "--provider", "openai", "--json"]),
-      openclawJson(["models", "status", "--agent", "main", "--json"]),
+    const [authentication, models] = await Promise.all([
+      gatewayAdminRequest("models.authStatus", { agentId: "main" }),
+      gatewayAdminRequest("models.list", { agentId: "main", provider: "openai", preparedOnly: true }),
     ]);
-    const authenticationStatus =
-      authentication.status === "fulfilled" ? authentication.value : null;
-    const modelStatus = models.status === "fulfilled" ? models.value : null;
-    providerStatus = backgroundProviderStatus(authenticationStatus, modelStatus);
+    providerStatus = backgroundGatewayStatus(authentication, models);
+  })().catch(() => {
+    // An unavailable check is not evidence that saved credentials disappeared.
+    providerStatus = { ...providerStatus, checking: true };
   })().finally(() => {
     providerStatusRefresh = undefined;
   });
@@ -442,9 +432,10 @@ await prepareProbation({ probation: updateProbation, run: runOpenClaw, root: upd
 // Fail before starting the text Gateway if a legacy audio-key fallback cannot
 // be retired. The voice service retains its server-only API environment.
 retireWorkspaceApiKey();
-if (!updateProbation) await refreshProviderStatus();
+// Provider discovery must never delay the Gateway listener.
+// The first check is deferred until the Gateway has started.
 const providerStatusTimer = setInterval(() => {
-  if (!updatePaused()) { backgroundOperations++; void refreshProviderStatus().finally(() => backgroundOperations--); }
+  if (!updatePaused() && (providerStatus.checking || providerStatus.credentialSource !== "unconfigured")) { backgroundOperations++; void refreshProviderStatus().finally(() => backgroundOperations--); }
 }, providerStatusRefreshMs);
 providerStatusTimer.unref();
 
@@ -470,6 +461,20 @@ const gateway = spawn(
     },
   },
 );
+if (!updateProbation) {
+  const initialCheck = (attempt = 0) => {
+    const timer = setTimeout(async () => {
+      if (updatePaused()) return;
+      backgroundOperations++;
+      try { await refreshProviderStatus(); }
+      finally { backgroundOperations--; }
+      if (providerStatus.checking && attempt < 3) initialCheck(attempt + 1);
+    }, Math.min(30_000, 1_000 * 4 ** attempt));
+    timer.unref();
+  };
+  initialCheck();
+}
+
 const gatewayAdminRequest = createGatewayAdminRequest({
   url: `ws://127.0.0.1:${gatewayPort}`,
   password: internalGatewayPassword,

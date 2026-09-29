@@ -281,7 +281,7 @@ it("removes native media marker lines only when backed by attachment metadata", 
 
 it("sends plans through the published unmodified chat schema", async () => {
   const request = vi.fn().mockResolvedValue({ runId: "r" });
-  const gateway = Object.assign(Object.create(NeuraGateway.prototype), { client: { request }, agentId: "main" }) as NeuraGateway;
+  const gateway = Object.assign(Object.create(NeuraGateway.prototype), { client: { request }, agentId: "main", responseTimings: new Map() }) as NeuraGateway;
   await gateway.send({ key: "agent:main:neura:test", sessionId: "s", title: "Test", updatedAt: 0, archived: false, active: false, visibility: "draft" },
     "Please implement the following plan:\n\nInspect the data.", [], "steer", { idempotencyKey: "retry-key" });
   expect(request).toHaveBeenCalledOnce();

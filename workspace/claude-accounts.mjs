@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdir, writeFile, rename, readdir } from "node:fs/promises";
+import { mkdir, writeFile, rename, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
@@ -11,6 +11,8 @@ const executeDefault = promisify(execFile);
 export class ClaudeAccounts {
   constructor({ manager, team, execute = executeDefault, spawnPty = pty.spawn, saveKey = saveNativeKey, now = Date.now }) {
     this.manager = manager; this.team = team; this.execute = execute; this.spawnPty = spawnPty; this.saveKey = saveKey; this.now = now;
+    this.configuration = undefined;
+    this.versionCheck = undefined;
     this.nativeChecks = new Map(); this.errors = new Map(); this.logins = new Map(); this.tails = new Map();
   }
   async owner({ userId, workload = "background" }) {
@@ -43,11 +45,29 @@ export class ClaudeAccounts {
   async probeNativeStatus(id, state) {
     try {
       const options = { env: claudeEnvironment(this.home(id, state)), timeout: 15_000, maxBuffer: 128 * 1024, encoding: "utf8" };
-      const version = await this.execute("claude", ["--version"], options);
-      if (!version.stdout.startsWith(`${CLAUDE_VERSION} `) && version.stdout.trim() !== CLAUDE_VERSION) return false;
+      this.versionCheck ??= this.execute("claude", ["--version"], options).then(version => {
+        if (!version.stdout.startsWith(`${CLAUDE_VERSION} `) && version.stdout.trim() !== CLAUDE_VERSION) throw new Error("Claude runtime version mismatch");
+      }).catch(error => { this.versionCheck = undefined; throw error; });
+      await this.versionCheck;
       const result = JSON.parse((await this.execute("claude", ["auth", "status", "--json"], options)).stdout);
       return result.loggedIn === true && ["claude.ai", "oauth"].includes(result.authMethod);
-    } catch { return false; }
+    } catch (error) {
+      // Native auth status may exit nonzero for an explicitly signed-out user.
+      // A timeout or malformed response is unknown, never disconnected.
+      try { if (JSON.parse(error.stdout).loggedIn === false) return false; } catch {}
+      throw new Error("Claude connection status is temporarily unavailable");
+    }
+  }
+  async configuredAgents() {
+    const configPath = process.env.OPENCLAW_CONFIG_PATH || path.join(this.manager.stateRoot, "openclaw.json");
+    const info = await stat(configPath).catch(() => null);
+    const revision = info && `${info.ino}:${info.size}:${info.mtimeMs}:${info.ctimeMs}`;
+    if (!revision) return this.manager.openclawJson(["config", "get", "agents", "--json"]);
+    if (this.configuration?.revision === revision) return this.configuration.promise;
+    const entry = { revision, promise: this.manager.openclawJson(["config", "get", "agents", "--json"]) };
+    this.configuration = entry;
+    try { return await entry.promise; }
+    catch (error) { if (this.configuration === entry) this.configuration = undefined; throw error; }
   }
   async snapshot(owner) {
     const id = await this.owner(owner); const state = await this.state(id); const login = this.logins.get(id);
@@ -57,7 +77,7 @@ export class ClaudeAccounts {
       const auth = await this.manager.openclawJson(["models", "auth", "list", "--agent", id, "--provider", "anthropic", "--json"]).catch(() => null);
       authenticated = auth?.authStatePath?.replaceAll("\\", "/").endsWith(`/agents/${id}/agent/openclaw-agent.sqlite`) && auth.profiles?.some(row => row.id === `anthropic:neural-labs-${id}` && row.provider === "anthropic" && row.type === "api_key") || false;
     }
-    const agents = authenticated ? await this.manager.openclawJson(["config", "get", "agents", "--json"]).catch(() => null) : null;
+    const agents = authenticated ? await this.configuredAgents() : null;
     const current = await this.state(id);
     if (current.generation !== state.generation || current.paused !== state.paused || current.method !== state.method) return this.snapshot(owner);
     const routed = Object.values(agents?.entries?.[id]?.models ?? {}).some(row => row?.agentRuntime?.id === "neural-labs-claude");

@@ -5,6 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { WebSocket } from "ws";
+import { CLAUDE_VERSION } from "./claude-runtime.mjs";
 import { ClaudeAccounts } from "./claude-accounts.mjs";
 import { openClaudeLoginTerminal } from "./claude-login-terminal.mjs";
 import { WorkspaceTerminalManager, attachTerminalWebSocket, TERMINAL_SOCKET_PATH, TERMINAL_SOCKET_PROTOCOL } from "./terminal-manager.mjs";
@@ -24,7 +25,7 @@ async function fixture(t) {
     spawnPty: (_command, _args, options) => {
       const child = { options, writes: [], sizes: [], onData(fn) { this.output = fn; }, onExit(fn) { this.exit = fn; }, write(data) { this.writes.push(data); }, resize(cols, rows) { this.sizes.push([cols, rows]); }, kill() { this.exit({ exitCode: 1 }); } };
       children.push(child); return child;
-    }, execute: async () => { throw new Error("No native credentials in this test"); },
+    }, execute: async (_command, args) => ({ stdout: args[0] === "--version" ? CLAUDE_VERSION : JSON.stringify({ loggedIn: false }) }),
   });
   const terminals = new WorkspaceTerminalManager({ workspaceRoot: root, spawnPty: () => { throw new Error("Must not spawn a shell for sign-in"); } });
   const resolveActor = async id => actors.get(id);

@@ -228,13 +228,26 @@ describe("desktop admin navigation", () => {
     });
   });
 
-  it("provisions the personal agent before starting the Alshival Gateway", async () => {
+  it("binds the validated personal agent before starting the Alshival Gateway", async () => {
     renderDesktop("user");
 
     await waitFor(() => expect(gatewayMocks.setAgentId).toHaveBeenCalledWith("nl-userid"));
     expect(gatewayMocks.start).toHaveBeenCalledOnce();
     expect(fetch).toHaveBeenCalledWith("/api/account/model-providers/access", expect.objectContaining({ credentials: "same-origin" }));
     expect(gatewayMocks.setAgentId.mock.invocationCallOrder[0]).toBeLessThan(gatewayMocks.start.mock.invocationCallOrder[0]);
+  });
+
+  it("connects while provider discovery is unresolved", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async input => {
+      if (String(input) === "/api/session") return json(session("user"));
+      if (String(input) === "/api/account/model-providers/access") return new Promise<Response>(() => {});
+      return json({ status: "ready" });
+    });
+    render(<App />);
+    await waitForDesktop();
+    await waitFor(() => expect(gatewayMocks.start).toHaveBeenCalledOnce());
+    expect(gatewayMocks.setAgentId).toHaveBeenCalledWith("nl-userid");
+    expect(screen.queryByText("Connect your selected model account to start using Alshival.")).not.toBeInTheDocument();
   });
 
   it("prompts disconnected users to open ChatGPT Model Provider settings", async () => {

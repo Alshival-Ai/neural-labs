@@ -225,3 +225,16 @@ test("skipping unused OpenAI status does not expose workspace-only provider cred
   });
   assert.deepEqual((await catalog.list({ userId: "alice" })).models, []);
 });
+
+test('Claude pickers intersect model capabilities with pinned native effort values', async () => {
+  const catalog = new ModelCatalog({
+    gatewayRequest: async () => ({models:[{id:'claude-test',provider:'anthropic',available:true,
+      agentRuntime:{id:'neural-labs-claude'}, thinkingDefault:'adaptive',
+      thinkingLevels:['off','minimal','low','medium','adaptive','high','ultra'].map(id=>({id,label:id}))}]}),
+    personalOpenAI:{ensureProvisioned:async()=>({agentId:'nl-alice'}),snapshot:async()=>({authenticated:false})},
+    claudeAccounts:{snapshot:async()=>({modelReady:true})},
+  });
+  const row = (await catalog.list({userId:'alice'})).models[0];
+  assert.deepEqual(row.efforts.map(row=>row.id), ['low','medium','high']);
+  assert.equal(row.defaultEffort,null);
+});

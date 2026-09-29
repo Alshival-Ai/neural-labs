@@ -134,3 +134,38 @@ test("Claude plugin declares its backend and exposes no Anthropic bearer credent
   assert.equal(provider.id, buildClaudeBackend().id);
   assert.equal(provider.resolveSyntheticAuth({ provider: provider.id }).apiKey, CLAUDE_NATIVE_MARKER);
 });
+test("Claude preserves supported effort exactly and rejects unsupported overrides", () => {
+  const backend = buildClaudeBackend();
+  for (const effort of ['low','medium','high','xhigh','max']) assert.deepEqual(backend.resolveExecutionArgs({baseArgs:['-p'],thinkingLevel:effort}), ['-p','--effort',effort]);
+  for (const effort of ['off','minimal','ultra','unknown']) assert.throws(() => backend.resolveExecutionArgs({baseArgs:[],thinkingLevel:effort}), /does not support/);
+  assert.deepEqual(backend.resolveExecutionArgs({baseArgs:['-p']}), ['-p']);
+});
+test("version validation is reused while authorization is freshly checked", async t => {
+  const f = await fixture(t);
+  await f.accounts.owner({userId:'alice'});
+  await f.accounts.persist('nl-alice',{generation:1,method:'subscription',paused:false});
+  f.authenticated.add(f.accounts.home('nl-alice',{generation:1}));
+  assert.equal((await f.accounts.snapshot({userId:'alice'})).authenticated,true);
+  f.authenticated.clear();
+  assert.equal((await f.accounts.snapshot({userId:'alice'})).authenticated,false);
+  assert.equal(f.calls.filter(([,args]) => args[0] === '--version').length,1);
+  assert.equal(f.calls.filter(([,args]) => args[0] === 'auth').length,2);
+});
+test("native timeout is unavailable rather than disconnected", async t => {
+  const f = await fixture(t);
+  await f.accounts.owner({userId:'alice'});
+  await f.accounts.persist('nl-alice',{generation:1,method:'subscription',paused:false});
+  f.accounts.execute = async () => { throw new Error('timeout'); };
+  await assert.rejects(f.accounts.snapshot({userId:'alice'}), /temporarily unavailable/);
+});
+test("configuration discovery is cached until the config file changes", async t => {
+  const f = await fixture(t); let calls = 0;
+  f.accounts.manager.openclawJson = async () => { calls++; return {entries:{}}; };
+  const config = path.join(f.root,'openclaw.json');
+  await writeFile(config,'{}');
+  await Promise.all([f.accounts.configuredAgents(), f.accounts.configuredAgents()]);
+  assert.equal(calls,1);
+  await writeFile(config,'{"changed":true}');
+  await f.accounts.configuredAgents();
+  assert.equal(calls,2);
+});

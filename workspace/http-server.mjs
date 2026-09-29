@@ -1,3 +1,4 @@
+import { ProviderDisplayCache } from "./provider-display-cache.mjs";
 import { createImportedHistory } from "./imported-history.mjs";
 import { revokeManagedMember } from "./managed-members.mjs";
 import { trackResponseWork } from "./update-maintenance.mjs";
@@ -492,6 +493,7 @@ export function createWorkspaceHttpServer({
     root: path.join(filesStateRoot, "automations"), request: gatewayAdminRequest, accounts: modelAccounts ?? personalOpenAI,
   }) : undefined;
   const providerStates = new Map();
+  const providerDisplay = new ProviderDisplayCache();
   const observeProvider = (key, result, userId) => {
     const state = `${result.authenticated}:${result.paused}:${result.modelReady}`;
     if (providerStates.get(key) !== state) {
@@ -504,6 +506,11 @@ export function createWorkspaceHttpServer({
     const method = request.method ?? "GET";
     const url = new URL(request.url ?? "/", "http://workspace.local");
     const pathname = url.pathname;
+    if (method !== "GET" && method !== "HEAD" && /^\/internal\/(model-providers|provider-auth)(?:\/|$)/u.test(pathname)) {
+      const invalidate = () => { providerDisplay.invalidate(); modelAccounts?.accessSnapshots?.clear(); };
+      invalidate();
+      response.once("finish", invalidate);
+    }
     if (pathname.startsWith("/__alshival_app/")) {
       await proxyPublicApp(request, response, { workspaceRoot, publicOrigin, gated: () => updateMaintenance?.gated });
       return;
@@ -565,12 +572,14 @@ export function createWorkspaceHttpServer({
         const workload = url.searchParams.get("workload") || "background";
         if (pathname.endsWith("/access")) {
           if (method !== "GET" || !userId) throw new Error("Invalid access request");
-          sendJson(response, 200, await modelAccounts.snapshot(userId), method);
+          sendJson(response, 200, await providerDisplay.get(userId, "selected", () => modelAccounts.snapshot(userId)), method);
         } else {
           if (!["GET", "POST"].includes(method)) throw new Error("Invalid method");
           const body = method === "POST" ? await readJsonBody(request, 16384) : null;
           const owner = { userId, workload };
-          const result = body ? await claudeAccounts.action(owner, body.action, body.input, body.actorId) : await claudeAccounts.snapshot(owner);
+          if (body) providerDisplay.invalidate();
+          const result = body ? await claudeAccounts.action(owner, body.action, body.input, body.actorId) : await providerDisplay.get(userId || `workspace:${workload}`, "anthropic", () => claudeAccounts.snapshot(owner));
+          if (body) providerDisplay.invalidate();
           if (body?.action === "connect") {
             result.terminalId = await openClaudeLoginTerminal({ accounts: claudeAccounts, terminals, owner, attemptId: result.attemptId, actorId: body.actorId, resolveActor: terminalActorResolver });
           }
@@ -665,8 +674,10 @@ export function createWorkspaceHttpServer({
         return;
       }
       try {
-        const result = action === "start" ? await teamOpenAI.start() : action === "cancel" ? teamOpenAI.cancel() : await teamOpenAI.snapshot();
+        if (action) providerDisplay.invalidate();
+        const result = action === "start" ? await teamOpenAI.start() : action === "cancel" ? teamOpenAI.cancel() : await providerDisplay.get("workspace:team", "openai", () => teamOpenAI.snapshot());
         observeProvider("team", result);
+        if (action) providerDisplay.invalidate();
         if (action) modelCatalog?.invalidate();
         sendJson(response, action === "start" ? 202 : 200, result, method);
       } catch {
@@ -761,7 +772,8 @@ export function createWorkspaceHttpServer({
         return;
       }
       try {
-        const result = !action ? await personalOpenAI.snapshot(userId)
+        if (action) providerDisplay.invalidate();
+        const result = !action ? await providerDisplay.get(userId, "openai", () => personalOpenAI.snapshot(userId))
           : action === "start" ? await personalOpenAI.start(userId)
           : action === "api-key" ? await personalOpenAI.saveApiKey(userId, (await readJsonBody(request, 8192)).key)
           : action === "cancel" ? await personalOpenAI.cancel(userId)
@@ -769,6 +781,7 @@ export function createWorkspaceHttpServer({
           : action === "disconnect" ? await personalOpenAI.disconnect(userId)
           : await personalOpenAI.resume(userId);
         observeProvider(userId, result, userId);
+        if (action) providerDisplay.invalidate();
         if (action) modelCatalog?.invalidate(userId);
         sendJson(response, action === "start" ? 202 : 200, result, method);
       } catch (error) {
@@ -1428,6 +1441,12 @@ export function createWorkspaceHttpServer({
       else response.destroy();
     });
   });
+  const providerRefreshTimer = setInterval(() => {
+    if (updateMaintenance?.gated) return;
+    activeWrites++;
+    void providerDisplay.refreshActive().finally(() => { activeWrites--; });
+  }, 5 * 60_000);
+  providerRefreshTimer.unref();
   // Host ingress closes existing public sockets during the gate. Reject new
   // upgrades here as well, including direct requests on the private bridge.
   server.prependListener("upgrade", (_request, socket) => { if (updateMaintenance?.gated) socket.destroy(); });
@@ -1444,6 +1463,7 @@ export function createWorkspaceHttpServer({
   server.close = (callback) => {
     if (!closed) {
       closed = true;
+      clearInterval(providerRefreshTimer);
       fileEvents.close();
       explorer.close();
       terminalSockets.close();

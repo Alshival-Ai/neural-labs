@@ -22,3 +22,16 @@ test('only a usable effective profile belonging to this store establishes readin
   assert.equal(backgroundProviderStatus(authentication,broken).modelReady,false);
   assert.equal(backgroundProviderStatus(null,null).authenticated,false);
 });
+
+test('Gateway background checks require the background owner profile and an available OpenAI model', async () => {
+  const { backgroundGatewayStatus } = await import('./background-provider-status.mjs');
+  const auth = {providers:[{provider:'openai',status:'ok',profiles:[{profileId:'openai:neural-labs-background',type:'oauth',status:'ok'}]}]};
+  const catalog = {models:[{provider:'openai',available:true}]};
+  assert.equal(backgroundGatewayStatus(auth,catalog).modelReady,true);
+  auth.providers[0].profiles[0].profileId='openai:someone-else';
+  assert.equal(backgroundGatewayStatus(auth,catalog).authenticated,false);
+  auth.providers[0].profiles[0].profileId='openai:neural-labs-background';
+  auth.providers[0].profiles[0].status='expired';
+  assert.equal(backgroundGatewayStatus(auth,catalog).authenticated,false);
+  assert.equal(backgroundGatewayStatus({unavailable:true},catalog).modelReady,false);
+});

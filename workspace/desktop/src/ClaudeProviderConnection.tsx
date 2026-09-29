@@ -19,14 +19,18 @@ export function ClaudeProviderConnection({ csrfToken, workload, onStatusChange }
   const headers = () => settingsMutationHeaders(csrfToken);
   useEffect(() => {
     let active = true;
+    let pending = false;
     const refresh = async () => {
+      if (pending) return;
+      pending = true;
       const generation = mutationGeneration.current;
       try {
         const next = await settingsRequest<ClaudeConnection>(base + suffix);
         if (active && generation === mutationGeneration.current) { setStatus(next); callback.current?.(next); if (next.state !== "awaiting_user") setAttempt(undefined); }
       } catch { if (active && generation === mutationGeneration.current) setError("Claude connection could not be checked."); }
+      finally { pending = false; }
     };
-    void refresh(); const timer = window.setInterval(() => void refresh(), 15000);
+    void refresh(); const timer = window.setInterval(() => void refresh(), attempt ? 15_000 : 5 * 60_000);
     return () => { active = false; window.clearInterval(timer); };
   }, [base, suffix, attempt]);
   async function action(name: string) {

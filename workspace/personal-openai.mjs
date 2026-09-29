@@ -115,13 +115,6 @@ function personalOrderState(payload, account) {
     payload.order[0] === (account.authMethod === "api-key" ? account.keyProfileId : account.profileId);
 }
 
-function modelState(payload) {
-  return Array.isArray(payload?.auth?.missingProvidersInUse) &&
-    payload.auth.missingProvidersInUse.length === 0 &&
-    Array.isArray(payload?.auth?.modelRouteIssues) &&
-    payload.auth.modelRouteIssues.length === 0;
-}
-
 function gatewayModelState(payload, account) {
   if (payload?.unavailable) return false;
   const provider = Array.isArray(payload?.providers)
@@ -268,7 +261,7 @@ export class PersonalOpenAIManager {
     account.authMethod = await this.readSelectedMethod(account);
     const authentication = await this.openclawJson([
       "models", "auth", "list", "--agent", account.agentId, "--provider", "openai", "--json",
-    ]).catch(() => undefined);
+    ]);
     const hasPersonalCredential = authenticationState(authentication, account);
     account.authenticated = false;
     account.modelReady = false;
@@ -294,11 +287,6 @@ export class PersonalOpenAIManager {
     }
 
     account.authenticated = true;
-    const models = await this.openclawJson([
-      "models", "status", "--agent", account.agentId, "--json",
-    ]).catch(() => undefined);
-    if (!modelState(models) && !this.otherProviderReady) return;
-
     let runtime = await this.gatewayRequest("models.authStatus", {
       agentId: account.agentId,
     }).catch(() => undefined);
@@ -312,9 +300,11 @@ export class PersonalOpenAIManager {
           agentId: account.agentId,
           refresh: true,
         });
-      }).catch(() => undefined);
+      });
     }
+    if (runtime?.unavailable) throw new Error("OpenAI connection status is temporarily unavailable");
     account.modelReady = gatewayModelState(runtime, account);
+    account.authenticated = account.modelReady;
   }
 
   async findProfile(userId) {

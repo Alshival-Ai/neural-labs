@@ -1,3 +1,4 @@
+import { CLAUDE_EFFORTS } from "./claude-runtime.mjs";
 // Public, credential-free catalog shared by every Neural Labs model picker.
 // Availability and reasoning options come from the selected agent's runtime,
 // not from an API model list that may describe a different subscription.
@@ -113,7 +114,9 @@ export class ModelCatalog {
           // Native CLI login is private to this owner. Gateway's ambient auth
           // probe cannot attest it; only supplement missing-auth catalog rows.
           const nativeRows = publicModelCatalog(await claudeModelCatalog(this.gatewayRequest, agentId))
-            .filter(row => row.provider === "anthropic");
+            .filter(row => row.provider === "anthropic")
+            .map(row => ({ ...row, efforts: row.efforts.filter(level => CLAUDE_EFFORTS.includes(level.id)),
+              defaultEffort: CLAUDE_EFFORTS.includes(row.defaultEffort) ? row.defaultEffort : null }));
           models = models.filter(row => row.provider !== "anthropic").concat(nativeRows.map(row => ({ ...row,
             available: claude.modelReady && (row.available || row.unavailableReason === "missing-auth"),
             unavailableReason: !claude.modelReady ? "Connect or resume this Claude connection" : row.unavailableReason === "missing-auth" ? null : row.unavailableReason,

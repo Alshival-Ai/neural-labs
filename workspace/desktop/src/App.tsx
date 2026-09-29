@@ -1,3 +1,4 @@
+import { timing } from "./timings";
 import { ProjectsApp } from "./ProjectsApp";
 import { UpdateNotice } from "./UpdateNotice";
 import { recordTerminalFocus, terminalAgentRequest } from "./terminalAgentApi";
@@ -283,6 +284,7 @@ export function App() {
     let runtimeRequestPending = false;
     let neuraBootstrapPending = false;
     let connectionToastShown = false;
+    let bootstrapFailures = 0;
     let expectedNeuraAgentId: string | undefined;
     let neuraBootstrapTimer: number | undefined;
     const refreshRuntime = async () => {
@@ -302,12 +304,12 @@ export function App() {
       window.clearTimeout(neuraBootstrapTimer);
       neuraBootstrapTimer = undefined;
       neuraBootstrapPending = true;
+      const providerStarted = performance.now();
       try {
         const account = await fetchJson<PersonalModelBootstrap>("/api/account/model-providers/access");
         if (account.agentId !== expectedNeuraAgentId) throw new Error("The personal Alshival agent does not match this session");
         if (!stopped) {
-          gateway.setAgentId(account.agentId);
-          gateway.start();
+          bootstrapFailures = 0;
           if ((!account.authenticated || account.paused) && !connectionToastShown) {
             connectionToastShown = true;
             notify(account.authenticated
@@ -316,8 +318,9 @@ export function App() {
           }
         }
       } catch {
-        if (!stopped) neuraBootstrapTimer = window.setTimeout(() => void bootstrapNeura(), 4_000);
+        if (!stopped && bootstrapFailures++ < 3) neuraBootstrapTimer = window.setTimeout(() => void bootstrapNeura(), Math.min(30_000, 4_000 * 2 ** bootstrapFailures));
       } finally {
+        timing("provider-check", providerStarted);
         neuraBootstrapPending = false;
       }
     };
@@ -328,10 +331,17 @@ export function App() {
       }
     };
 
+    const sessionStarted = performance.now();
     void fetchJson<Session>("/api/session").then((payload) => {
+      timing("session-load", sessionStarted);
       if (!payload.authenticated) window.location.assign("/login?error=Please+log+in");
       else {
+        if (stopped) return;
         expectedNeuraAgentId = payload.neura?.agentId;
+        if (expectedNeuraAgentId) {
+          gateway.setAgentId(expectedNeuraAgentId);
+          gateway.start();
+        }
         void bootstrapNeura();
         const userId = payload.user?.id;
         if (userId) {
@@ -349,6 +359,7 @@ export function App() {
       }
     }).catch(() => window.location.assign("/login?error=Please+log+in"));
     void refreshRuntime();
+    const providerInterval = window.setInterval(() => void bootstrapNeura(), 5 * 60_000);
     const runtimeInterval = window.setInterval(() => void refreshRuntime(), 10_000);
     window.addEventListener("online", refreshRuntimeWhenAvailable);
     document.addEventListener("visibilitychange", refreshRuntimeWhenAvailable);
@@ -356,6 +367,7 @@ export function App() {
       stopped = true;
       window.clearTimeout(neuraBootstrapTimer);
       window.clearInterval(runtimeInterval);
+      window.clearInterval(providerInterval);
       window.removeEventListener("online", refreshRuntimeWhenAvailable);
       document.removeEventListener("visibilitychange", refreshRuntimeWhenAvailable);
     };

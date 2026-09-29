@@ -1,3 +1,4 @@
+import { timing } from "./timings";
 import { stripTerminalContext, terminalMessageContext } from "./terminalAgentApi";
 import { projectGeneratedMedia, workspacePathFromMessageReference } from "./neuraMedia";
 import {
@@ -169,6 +170,8 @@ const clientInfo = {
 } as const;
 
 export class NeuraGateway {
+  private handshakeStarted = 0;
+  private responseTimings = new Map<string, number>();
   private readonly lifecycle = new GatewayBrowserDeviceAuthLifecycle({ loadIdentity, tokenStore });
   private readonly statusListeners = new Set<(state: ConnectionState, error?: string) => void>();
   private readonly eventListeners = new Set<(event: GatewayEvent) => void>();
@@ -181,7 +184,7 @@ export class NeuraGateway {
 
   constructor() {
     this.client = new GatewayProtocolClient({
-      createSocket,
+      createSocket: handlers => { this.handshakeStarted = performance.now(); return createSocket(handlers); },
       createRequestId: () => crypto.randomUUID(),
       buildConnectPlan: ({ nonce, challengeTs }) =>
         this.lifecycle.buildPlan({
@@ -210,7 +213,7 @@ export class NeuraGateway {
         userAgent: navigator.userAgent,
       }),
       onConnectHello: (hello, context) => void this.lifecycle.acceptHello(hello, context.plan),
-      onHello: () => this.setStatus("connected"),
+      onHello: () => { timing("gateway-handshake", this.handshakeStarted); this.setStatus("connected"); },
       onConnectFailure: (error) => ({
         closeCode: 4003,
         closeReason: "Gateway rejected the Alshival connection",
@@ -230,6 +233,11 @@ export class NeuraGateway {
       onConnectError: (error) => this.setStatus("error", error.message),
       onSocketFactoryError: (error) => this.setStatus("error", error.message),
       onEvent: (event) => {
+        const payload = event.payload as { runId?: string; sessionKey?: string; state?: string } | undefined;
+        if (event.event === "chat" && payload?.sessionKey && ["delta", "final"].includes(payload.state ?? "")) {
+          const started = this.responseTimings.get(payload.sessionKey);
+          if (started !== undefined) { timing("first-response", started); this.responseTimings.delete(payload.sessionKey); }
+        }
         const normalized = { event: event.event, payload: event.payload };
         for (const listener of this.eventListeners) listener(normalized);
       },
@@ -470,7 +478,9 @@ export class NeuraGateway {
     queueMode: "steer" | "followup",
     options: { idempotencyKey?: string; terminalContext?: boolean } = {},
   ) {
-    return this.client.request<{ runId: string }>("chat.send", {
+    const started = performance.now();
+    this.responseTimings.set(session.key, started);
+    const result = await this.client.request<{ runId: string }>("chat.send", {
       sessionKey: session.key,
       sessionId: session.sessionId,
       agentId: this.requireAgentId(),
@@ -479,6 +489,9 @@ export class NeuraGateway {
       queueMode,
       idempotencyKey: options.idempotencyKey ?? crypto.randomUUID(),
     });
+    timing("run-submission", started);
+    for (const [key, since] of this.responseTimings) if (performance.now() - since > 300_000) this.responseTimings.delete(key);
+    return result;
   }
 
   async listQuestions(sessionKey: string): Promise<NeuraQuestion[]> {

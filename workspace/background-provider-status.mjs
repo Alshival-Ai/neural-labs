@@ -15,3 +15,16 @@ export function backgroundProviderStatus(authentication, models) {
   const credentialSource = modelCredentialSource(authentication, models);
   return { credentialSource, authenticated, modelReady: routesReady && (authenticated || credentialSource === "environment-api-key") };
 }
+
+// Supported Gateway APIs avoid spawning the CLI (and its separate local status
+// handshake). This check belongs only to the background owner, main.
+export function backgroundGatewayStatus(authentication, catalog) {
+  const provider = authentication?.providers?.find(row => row.provider === "openai");
+  const authenticated = !authentication?.unavailable && ["ok", "expiring"].includes(provider?.status)
+    && provider.profiles?.some(row => row.profileId === "openai:neural-labs-background"
+      && row.type === "oauth" && ["ok", "expiring"].includes(row.status)) === true;
+  const modelReady = !authentication?.unavailable && ["ok", "expiring"].includes(provider?.status)
+    && catalog?.models?.some(row => row.provider === "openai" && row.available === true) === true;
+  return { authenticated, modelReady,
+    credentialSource: authenticated ? "chatgpt" : provider?.profiles?.length ? "stored-credential" : modelReady ? "environment-api-key" : "unconfigured", checking: false };
+}

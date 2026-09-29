@@ -116,7 +116,7 @@ export function ModelProviderPanel({ csrfToken }: { csrfToken: string }) {
           <article className="settings-card provider-card">
             <button type="button" className="provider-card-main" aria-label="Configure Claude" disabled={busy || confirm} onClick={() => setDetail("claude")}>
               <span className="provider-card-icon is-claude"><Sparkles aria-hidden="true" /></span><ArrowUpRight className="provider-card-arrow" aria-hidden="true" />
-              <strong>Claude</strong><span className="provider-card-description">Connect with Anthropic</span><span className="provider-card-status">{claude?.authenticated ? claude.paused ? "Connected · paused" : "Connected" : claude?.state === "awaiting_user" ? "Sign-in in progress" : "Not connected"}</span>
+              <strong>Claude</strong><span className="provider-card-description">Connect with Anthropic</span><span className="provider-card-status">{!claude ? "Checking connection…" : claude.authenticated ? claude.paused ? "Connected · paused" : "Connected" : claude?.state === "awaiting_user" ? "Sign-in in progress" : "Not connected"}</span>
             </button>
             <button type="button" className="settings-button" onClick={() => setDetail("claude")}>Set up Claude</button>
           </article>
