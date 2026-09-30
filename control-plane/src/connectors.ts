@@ -52,12 +52,12 @@ export class Connectors {
   }
   async finishOAuth(provider:MailProvider,state:string,code:string) {
     const saved=(await this.db.pool.query("DELETE FROM connector_oauth_states WHERE state_hash=$1 AND provider=$2 AND expires_at>now() RETURNING *",[hash(state),provider])).rows[0];
-    if(!saved)throw new ConnectorError(400,"This connection request expired. Start again in Connectors.");
+    if(!saved)throw new ConnectorError(400,"This connection request expired. Start again in Settings → Plugins.");
     if(await this.maintenance())throw new ConnectorError(503,"Workspace maintenance is in progress. Connect again afterwards.");
     const actor=await this.sessions.actorByTokenHash(saved.session_hash);
     if(!actor||actor.user.id!==saved.actor_id||actor.user.role!=="admin")throw new ConnectorError(403,"Administrator access is no longer available.");
     const {verifier}=this.cipher.decrypt<{verifier:string}>(saved.verifier);
-    if(!code)throw new ConnectorError(400,"Mailbox connection was cancelled. Start again in Connectors.");
+    if(!code)throw new ConnectorError(400,"Mailbox connection was cancelled. Start again in Settings → Plugins.");
     const token=await this.mail.token(provider,await this.app(provider),{grant_type:"authorization_code",code,redirect_uri:saved.redirect_uri,code_verifier:verifier});
     const address=await this.mail.profile(provider,token);const initial=await this.mail.poll(provider,token,null);
     const updated=await this.db.pool.query(`UPDATE connector_settings SET mailbox_provider=$1,mailbox_address=$2,mailbox_secret=$3,mailbox_cursor=$4,

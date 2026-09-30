@@ -1,4 +1,3 @@
-import { ConnectorsPanel } from "./ConnectorsPanel";
 import { NativeConnectionsPanel } from "./NativeConnectionsPanel";
 import { UpdatesPanel } from "./UpdatesPanel";
 import "./minimal-apps.css";
@@ -56,7 +55,6 @@ import {
 } from "./UserSettingsApp";
 import "./settings-app.css";
 import { VoiceSettingsPanel } from "./VoiceSettingsPanel";
-import { TwilioPluginCard } from "./TwilioPluginCard";
 
 export type SettingsSection = "personalization" | "security" | "model-provider" | "connectors" | "plugins" | "overview" | "users" | "authentication" | "workspace" | "updates" | "audit" | "about";
 
@@ -84,7 +82,7 @@ function settingsDeviceState(storageNamespace: string | undefined, storageArea: 
   const stored = readDeviceState(storageNamespace, storageArea);
   if (!stored || typeof stored !== "object") return { section: fallback };
   const storedSection = (stored as Record<string, unknown>).section;
-  const section = storedSection === "mcp" ? "plugins" : storedSection;
+  const section = (storedSection === "mcp" || storedSection === "connectors") ? "plugins" : storedSection;
   return { section: allowed.has(section as SettingsSection) ? section as SettingsSection : fallback };
 }
 
@@ -92,9 +90,8 @@ const PERSONALIZATION_NAVIGATION = { id: "personalization", label: "Personalizat
 const SECURITY_NAVIGATION = { id: "security", label: "Security", description: "Sign-in and verified phone", icon: ShieldCheck, accent: "amber" } satisfies { id: SettingsSection; label: string; description: string; icon: LucideIcon; accent: string };
 const MODEL_PROVIDER_NAVIGATION = { id: "model-provider", label: "Model Provider", description: "Your agent connection", icon: Bot, accent: "coral" } satisfies { id: SettingsSection; label: string; description: string; icon: LucideIcon; accent: string };
 
-const CONNECTORS_NAVIGATION = { id: "connectors", label: "Connectors", description: "Agent mailbox and SMS", icon: PlugZap, accent: "cyan" } satisfies { id: SettingsSection; label: string; description: string; icon: LucideIcon; accent: string };
 
-const PLUGINS_NAVIGATION = { id: "plugins", label: "Plugins", description: "Private and global tools", icon: PlugZap, accent: "violet" } satisfies { id: SettingsSection; label: string; description: string; icon: LucideIcon; accent: string };
+const PLUGINS_NAVIGATION = { id: "plugins", label: "Plugins", description: "Services, messaging and tools", icon: PlugZap, accent: "violet" } satisfies { id: SettingsSection; label: string; description: string; icon: LucideIcon; accent: string };
 
 const ADMIN_NAVIGATION: { id: SettingsSection; label: string; description: string; icon: LucideIcon; accent: string }[] = [
   { id: "overview", label: "Overview", description: "Workspace health", icon: Gauge, accent: "cyan" },
@@ -131,7 +128,8 @@ function initials(value: string): string {
 }
 
 export function SettingsApp({ managed, administrator = true, workspaceStatus, csrfToken, currentUserId, user, providers = [], initialNotice, initialSection, sectionRequest, fontScale = 100, onFontScaleChange = () => undefined, onLogout = () => undefined, storageNamespace, storageArea = "settings" }: SettingsAppProps) {
-  const navigation = (administrator ? [PERSONALIZATION_NAVIGATION, SECURITY_NAVIGATION, MODEL_PROVIDER_NAVIGATION, CONNECTORS_NAVIGATION, PLUGINS_NAVIGATION, ...ADMIN_NAVIGATION] : [PERSONALIZATION_NAVIGATION, SECURITY_NAVIGATION, MODEL_PROVIDER_NAVIGATION, CONNECTORS_NAVIGATION, PLUGINS_NAVIGATION]).filter(item => !managed || !["users", "authentication", "updates", "overview"].includes(item.id));
+  if (initialSection === "connectors") initialSection = "plugins";
+  const navigation = (administrator ? [PERSONALIZATION_NAVIGATION, SECURITY_NAVIGATION, MODEL_PROVIDER_NAVIGATION, PLUGINS_NAVIGATION, ...ADMIN_NAVIGATION] : [PERSONALIZATION_NAVIGATION, SECURITY_NAVIGATION, MODEL_PROVIDER_NAVIGATION, PLUGINS_NAVIGATION]).filter(item => !managed || !["users", "authentication", "updates", "overview"].includes(item.id));
   const allowedSections = new Set(navigation.map((item) => item.id));
   const fallbackSection: SettingsSection = administrator && !managed ? "overview" : "personalization";
   const [initialUiState] = useState(() => initialSection && allowedSections.has(initialSection)
@@ -153,8 +151,10 @@ export function SettingsApp({ managed, administrator = true, workspaceStatus, cs
   }, [section, storageArea, storageNamespace]);
 
   useEffect(() => {
-    if (!sectionRequest || !allowedSections.has(sectionRequest.section)) return;
-    setSection(sectionRequest.section);
+    if (!sectionRequest) return;
+    const requested = sectionRequest.section === "connectors" ? "plugins" : sectionRequest.section;
+    if (!allowedSections.has(requested)) return;
+    setSection(requested);
     setMobileNavigation(false);
   }, [sectionRequest?.id, sectionRequest?.section]);
 
@@ -235,7 +235,7 @@ export function SettingsApp({ managed, administrator = true, workspaceStatus, cs
             </button>
           ))}
           <span>Workspace</span>
-          {[CONNECTORS_NAVIGATION, PLUGINS_NAVIGATION].map(({ id, label, description, icon: Icon, accent }) => (
+          {[PLUGINS_NAVIGATION].map(({ id, label, description, icon: Icon, accent }) => (
             <button type="button" className={`is-${accent}${section === id ? " is-active" : ""}`} aria-current={section === id ? "page" : undefined} key={id} onClick={() => chooseSection(id)}>
               <i><Icon /></i><span><strong>{label}</strong><small>{description}</small></span><ChevronRight />
             </button>
@@ -256,7 +256,7 @@ export function SettingsApp({ managed, administrator = true, workspaceStatus, cs
         <header className="settings-toolbar">
           <button type="button" className="settings-icon-button settings-toolbar__menu" aria-label="Open settings navigation" onClick={() => setMobileNavigation(true)}><Menu /></button>
           <div><span>Settings</span><ChevronRight /><strong>{currentNavigation.label}</strong></div>
-          <span className="settings-toolbar__scope">{ADMIN_NAVIGATION.some((item) => item.id === section) ? <ShieldCheck /> : <UserRound />}{ADMIN_NAVIGATION.some((item) => item.id === section) ? "Administrator" : ["plugins", "connectors"].includes(section) ? "Workspace" : "Personal"}</span>
+          <span className="settings-toolbar__scope">{ADMIN_NAVIGATION.some((item) => item.id === section) ? <ShieldCheck /> : <UserRound />}{ADMIN_NAVIGATION.some((item) => item.id === section) ? "Administrator" : section === "plugins" ? "Workspace" : "Personal"}</span>
         </header>
 
         <div className="settings-feedback">{notice && <div className={`settings-notice is-${notice.tone}`} role={notice.tone === "error" ? "alert" : "status"}><span>{notice.message}</span><button type="button" aria-label="Dismiss message" onClick={() => setNotice(undefined)}><X /></button></div>}</div>
@@ -266,7 +266,6 @@ export function SettingsApp({ managed, administrator = true, workspaceStatus, cs
           {section === "security" && managed && <div className="settings-notice is-info"><p>Sign-in, membership, and roles are managed in Alshival.</p><a href={managed.portalUrl} target="_blank" rel="noopener noreferrer">Open Alshival workspace</a></div>}
           {section === "security" && !managed && user && <SecurityPanel onOpenSecurity={() => chooseSection("security")} user={user} providers={providers} csrfToken={csrfToken} initialNotice={initialNotice} fontScale={fontScale} onFontScaleChange={onFontScaleChange} onLogout={onLogout} />}
           {section === "model-provider" && <NativeConnectionsPanel csrfToken={csrfToken} administrator={administrator} />}
-          {section === "connectors" && <ConnectorsPanel administrator={administrator} csrfToken={csrfToken} />}
           {section === "plugins" && <PluginCardsPanel administrator={administrator} csrfToken={csrfToken} renderSystem={(plugin) => <SystemPluginDetails plugin={plugin} />} />}
           {administrator && section === "overview" && <OverviewPanel overview={overview} error={overviewError} onNavigate={chooseSection} onRefresh={() => void refreshOverview()} />}
           {administrator && section === "users" && <UsersPanel users={users} currentUserId={currentUserId} csrfToken={csrfToken} onUsers={setUsers} onNotice={setNotice} onMutated={refreshAfterMutation} />}

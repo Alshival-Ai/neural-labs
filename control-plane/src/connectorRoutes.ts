@@ -25,7 +25,7 @@ export function registerConnectorRoutes(app:Express,service:Connectors,options:{
   app.get("/api/connectors/oauth/:provider/callback",wrap(async(r,s)=>{
     const provider=z.enum(["gmail","outlook"]).parse(r.params.provider);const state=z.string().min(20).max(200).parse(r.query.state);
     await service.finishOAuth(provider,state,z.string().max(4000).parse(r.query.code||""));
-    s.type("html").send('<!doctype html><html><meta name="viewport" content="width=device-width"><title>Mailbox connected</title><body><h1>Mailbox connected</h1><p>You can close this tab and return to Settings → Connectors.</p></body></html>');
+    s.type("html").send('<!doctype html><html><meta name="viewport" content="width=device-width"><title>Mailbox connected</title><body><h1>Mailbox connected</h1><p>You can close this tab and return to Settings → Plugins.</p></body></html>');
   }));
   app.put("/api/admin/connectors/:channel/enabled",options.sameOrigin,wrap(async(r,s)=>{if(!await admin(r,s))return;await service.pause(z.enum(["email","sms"]).parse(r.params.channel),z.object({enabled:z.boolean()}).parse(r.body).enabled);s.json(await service.status(true));}));
   app.delete("/api/admin/connectors/mailbox",options.sameOrigin,wrap(async(r,s)=>{if(!await admin(r,s))return;await service.disconnectMailbox();s.json(await service.status(true));}));

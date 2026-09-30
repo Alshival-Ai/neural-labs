@@ -137,7 +137,7 @@ export class Notifications {
 
   async emailConfig() {return (await this.pool.query("SELECT sender_id,sender_address,email_enabled FROM notification_config WHERE singleton=true")).rows[0];}
   async saveEmailConfig(_input: {senderId:string;senderAddress:string;enabled:boolean}) {
-    throw new NotificationError(410,"legacy_sender_retired","Configure a workspace mailbox in Settings → Connectors.");
+    throw new NotificationError(410,"legacy_sender_retired","Configure a workspace mailbox in Settings → Plugins.");
   }
 
   async canDeliver(eventId: string, userId: string, channel: string) {

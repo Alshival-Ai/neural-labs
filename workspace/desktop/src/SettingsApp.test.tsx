@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SettingsApp } from "./SettingsApp";
+import { deviceStateKey } from "./deviceState";
 
 const admin = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -198,4 +199,23 @@ describe("Settings app", () => {
     await waitFor(() => expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === "/api/workspace").length).toBe(2));
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("workspace/provider"))).toBe(false);
   });
+});
+
+it("redirects old Connectors selections to Plugins with no duplicate navigation", async () => {
+  const { rerender } = render(<SettingsApp administrator={false} csrfToken="fixture" currentUserId={admin.id} initialSection="connectors" />);
+  expect(await screen.findByRole("heading", { name: "Plugins" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /^Connectors/ })).not.toBeInTheDocument();
+  expect(screen.getAllByRole("button", { name: /^Plugins/ })).toHaveLength(1);
+  rerender(<SettingsApp administrator={false} csrfToken="fixture" currentUserId={admin.id} sectionRequest={{ id: "old-link", section: "connectors" }} />);
+  expect(screen.getByRole("heading", { name: "Plugins" })).toBeInTheDocument();
+});
+
+it("migrates a stored Connectors tab to Plugins", async () => {
+  const key = deviceStateKey("plugins-migration-fixture", "settings");
+  localStorage.setItem(key, JSON.stringify({ section: "connectors" }));
+  try {
+    render(<SettingsApp administrator={false} csrfToken="fixture" currentUserId={admin.id} storageNamespace="plugins-migration-fixture" />);
+    expect(await screen.findByRole("heading", { name: "Plugins" })).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem(key)!)).toEqual({ section: "plugins" });
+  } finally { localStorage.removeItem(key); }
 });

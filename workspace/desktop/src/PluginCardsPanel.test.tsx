@@ -69,3 +69,39 @@ describe("plugin setup cards", () => {
     expect(await screen.findByText("No private plugins yet.")).toBeInTheDocument();
   });
 });
+
+describe("consolidated messaging plugins", () => {
+  it("opens Gmail, Twilio and shared messaging settings from a single plugin list", async () => {
+    const status = { mailbox: { provider: "gmail", address: "fixture@example.org", connected: true, paused: false, lastSync: null, error: null },
+      sms: { id: "twilio", type: "channel", name: "Twilio SMS/MMS", description: "Workspace SMS", scope: "global", ownership: "workspace", editable: true,
+        configured: true, ready: true, enabled: true, fromNumber: "+15551234567", webhookUrl: "https://example.org/webhooks/twilio/sms", statusCallbackUrl: "https://example.org/webhooks/twilio/sms/status" },
+      selection: null, providers: [{ provider: "gmail", available: true, callbackUrl: "https://example.org/callback" }, { provider: "outlook", available: false, callbackUrl: "https://example.org/outlook" }] };
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async input => {
+      switch (String(input)) {
+        case "/api/plugins": return Response.json({ plugins: [provider, status.sms] });
+        case "/api/connectors": return Response.json(status);
+        case "/api/connectors/preferences": return Response.json({ emailEnabled: false, emailVerified: true, smsEnabled: false, smsVerified: true, smsOptedOut: false });
+        case "/api/runtime/connections": return Response.json({ connections: [] });
+        default: throw new Error("Unexpected request");
+      }
+    });
+    render(<PluginCardsPanel administrator csrfToken="fixture" renderSystem={() => null} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Manage Gmail" }));
+    expect(await screen.findByText("fixture@example.org")).toBeInTheDocument();
+    expect(screen.getAllByLabelText("Client secret")).toHaveLength(1);
+    expect(screen.queryByLabelText("Auth token")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "All plugins" }));
+    expect(await screen.findAllByRole("button", { name: "Manage Twilio SMS/MMS" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Manage Twilio SMS/MMS" }));
+    expect(await screen.findByRole("button", { name: "Configure webhooks" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Check setup" })).toBeInTheDocument();
+    expect(screen.getAllByLabelText("Auth token")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "All plugins" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Messaging settings" }));
+    expect(await screen.findByRole("heading", { name: "Workspace agent" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Email conversations and updates")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Send test message" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Auth token")).not.toBeInTheDocument();
+    expect(fetch.mock.calls.some(([url]) => String(url).endsWith("/test"))).toBe(false);
+  });
+});

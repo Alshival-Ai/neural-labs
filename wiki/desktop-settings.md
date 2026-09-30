@@ -98,9 +98,9 @@ their own connection, depending on the provider.
 
 ## Plugins and SMS
 
-The shared Twilio connection is managed in **Settings → Connectors**, alongside
+The shared Twilio connection is managed in **Settings → Plugins**, alongside
 Gmail and Outlook. Inbound text messages use the designated workspace native AI
-connection and a private conversation per member. See [Connectors](connectors.md).
+connection and a private conversation per member. See [Messaging plugins](connectors.md).
 The legacy Plugins card remains available for existing phone-verification setup;
 both views use the same encrypted Twilio connection. MMS is not supported by the
 native conversation connector.
@@ -179,8 +179,10 @@ Nginx authenticates `/workspace` with the control-plane subrequest before
 serving the desktop. The same session cookie is then used for the same-origin
 Settings API calls.
 
-## Workspace mailboxes and SMS connectors
+## Workspace messaging plugins
 
-Use **Settings → Connectors** for the workspace Gmail or Outlook mailbox,
-Twilio number, designated workspace AI connection, and your messaging opt-ins.
-See [Email and SMS connectors](connectors.md) for provider setup and verification.
+Use **Settings → Plugins** for the workspace Gmail or Outlook mailbox,
+and Twilio number. Open **Messaging settings** on that page for the designated
+workspace AI connection, messaging opt-ins, verification and test sends. The
+previous Connectors navigation entry redirects to Plugins.
+See [Email and SMS plugins](connectors.md) for provider setup and verification.

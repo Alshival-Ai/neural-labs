@@ -1,7 +1,7 @@
 import { ArrowLeft, ArrowUpRight, Check, CloudCog, Image, KeyRound, LockKeyhole, MapPin, MessageSquareText, PlugZap, Plus, Server, ShieldCheck, Sparkles, UserRound, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { settingsMutationHeaders, settingsRequest, type ApiProviderPlugin, type PluginCatalog } from "./settingsApi";
-import { TwilioPluginCard } from "./TwilioPluginCard";
+import { ConnectorsPanel, MailboxPluginCards, type MessagingView } from "./ConnectorsPanel";
 import "./model-providers.css";
 import "./plugin-cards.css";
 
@@ -43,7 +43,10 @@ export function PluginCardsPanel({ administrator, csrfToken, renderSystem }: { a
   return <div className="settings-panel plugin-cards-panel">
     {error && <p role="alert" className="settings-error-note">{error}<button className="settings-button" type="button" onClick={() => void refresh()}>Retry plugins</button></p>}
     {!catalog && !error && <p role="status">Loading plugins…</p>}
-    {detail === "add" ? <>
+    {detail && ["gmail", "outlook", "twilio", "messaging"].includes(detail) ? <>
+      <button className="settings-back-button" type="button" onClick={back}><ArrowLeft />All plugins</button>
+      <ConnectorsPanel key={detail} view={detail as MessagingView} administrator={administrator} csrfToken={csrfToken} />
+    </> : detail === "add" ? <>
       <button className="settings-back-button" type="button" onClick={back}><ArrowLeft />All plugins</button>
       {heading("Add a plugin", "Future connections for your agents or the workspace.")}
       <div className="settings-plugin-scope-picker" aria-label="Plugin scope">
@@ -53,12 +56,12 @@ export function PluginCardsPanel({ administrator, csrfToken, renderSystem }: { a
       <section className="settings-card settings-connector-choice"><Server /><div><h2>MCP server</h2><p>Remote server installation is in development.</p></div><span className="settings-connector-planned">In development</span></section>
       <p className="settings-trust-note"><ShieldCheck />This installation flow is a product preview. Server URLs and credentials cannot be submitted here.</p>
     </> : selected ? <>
-      {selected.type === "channel" ? <TwilioPluginCard key={selected.id} initial={selected} csrfToken={csrfToken} detailOnly onBack={back} onStatus={update} /> : <>
+      {selected.type !== "channel" && <>
         <button className="settings-back-button" type="button" onClick={back}><ArrowLeft />All plugins</button>
         {selected.type === "api-provider" ? <ProviderDetail key={selected.id} plugin={selected} csrfToken={csrfToken} onStatus={update} /> : renderSystem(selected)}
       </>}
     </> : catalog && <>
-      <div className="settings-connectors-heading">{heading("Plugins", "Connect services and tools for your workspace.")}<button type="button" className="settings-button is-primary" onClick={() => setDetail("add")}><Plus />Add plugin</button></div>
+      <div className="settings-connectors-heading">{heading("Plugins", "Connect services, messaging and tools for your workspace.")}<button type="button" className="settings-button" onClick={() => setDetail("messaging")}>Messaging settings</button><button type="button" className="settings-button is-primary" onClick={() => setDetail("add")}><Plus />Add plugin</button></div>
       <div className="settings-plugin-tabs" role="tablist" aria-label="Plugin scope">{(["all", "private", "global"] as const).map((value) => <button type="button" role="tab" aria-selected={scope === value} className={scope === value ? "is-active" : ""} key={value} onClick={() => setScope(value)}>{value === "all" ? "All" : value === "private" ? "Private" : "Global"}</button>)}</div>
       <div className="provider-card-grid plugin-card-grid">{catalog.plugins.filter((plugin) => scope === "all" || scope === plugin.scope).map((plugin) => <article className="settings-card provider-card" key={plugin.id}>
         <button className="provider-card-main" type="button" aria-label={`${plugin.editable ? plugin.type !== "mcp" && !plugin.configured ? "Set up" : "Manage" : "View details for"} ${plugin.name}`} onClick={() => setDetail(plugin.id)}>
@@ -67,9 +70,8 @@ export function PluginCardsPanel({ administrator, csrfToken, renderSystem }: { a
           <span className="plugin-card-scope">{plugin.scope === "global" ? "Workspace" : "Private"}{plugin.ownership === "system" ? " · System plugin" : !plugin.editable ? " · Administrator managed" : ""}</span>
           <span className="plugin-card-action">{plugin.editable ? plugin.type !== "mcp" && !plugin.configured ? "Set up" : "Manage" : "View details"}</span>
         </button>
-      </article>)}</div>
+      </article>)}{scope !== "private" && <MailboxPluginCards administrator={administrator} onSelect={setDetail} />}</div>
       {(scope === "private" || scope === "all") && !catalog.plugins.some((plugin) => plugin.scope === "private") && <section className="settings-plugin-empty"><UserRound /><div><h2>Your plugins</h2><p>No private plugins yet.</p><button className="settings-button" type="button" onClick={() => { setNewScope("private"); setDetail("add"); }}>Add your first private plugin</button></div></section>}
-      {scope === "global" && !catalog.plugins.some((plugin) => plugin.scope === "global") && <p role="status">No workspace plugins available.</p>}
     </>}
   </div>;
 }

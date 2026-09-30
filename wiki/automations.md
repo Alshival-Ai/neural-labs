@@ -139,7 +139,7 @@ replying starts a turn with the visible results as context.
 
 SMS needs a verified phone, administrator-configured Twilio, and your SMS opt-in.
 Email uses the workspace Gmail or Outlook connector. Verify your address and
-opt into email in Settings → Connectors, then enable email notifications.
+opt into email in Settings → Plugins, then enable email notifications.
 SMS also requires the connector opt-in. The former Microsoft application-mail
 sender is retired: saved settings are retained, but are not a fallback transport.
 See [Settings](desktop-settings.md) for configuration. Provider acceptance does

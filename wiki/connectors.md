@@ -1,15 +1,22 @@
-# Email and SMS connectors
+# Email and SMS plugins
 
-**Settings → Connectors** gives the workspace agent one existing Gmail or
+**Settings → Plugins** gives the workspace agent one existing Gmail or
 Outlook mailbox and one existing Twilio number. Administrators configure the
 connections. Each member verifies their address/phone and chooses whether to
 receive conversations and proactive updates. Only active, verified, opted-in
 workspace members can participate. Outside recipients are not supported.
 
+Open the **Gmail**, **Outlook**, or **Twilio** card in Plugins to configure that
+service. **Messaging settings** holds the shared reply model, your email/SMS
+verification and opt-ins, and administrator connection tests. There is one Twilio
+setup flow, including number selection, webhook configuration and setup checks.
+Saved Connectors navigation entries open Plugins. Existing credentials, OAuth
+callback URLs, message history and API routes are preserved.
+
 ## Connect the workspace agent
 
 1. Connect a workspace account in **Settings → Model Provider**.
-2. In **Connectors → Workspace agent**, choose that connection, load models,
+2. In **Plugins → Messaging settings → Workspace agent**, choose that connection, load models,
    choose a model, and select **Use for messaging**.
 3. Configure email and/or SMS below. Incoming messages use this workspace
    connection even when everyone is signed out. Personal accounts are not used
@@ -29,7 +36,7 @@ The installation operator first creates a Google OAuth web application:
    are controlled by Google.
 4. Save the client ID and client secret under **OAuth application setup**.
 5. Select **Connect**, sign in to the mailbox account in the new tab, and grant
-   access. Return to Connectors to see the connected address.
+   access. Return to Plugins to see the connected address.
 
 Provider reference: [Google web-server OAuth](https://developers.google.com/identity/protocols/oauth2/web-server).
 
@@ -87,7 +94,7 @@ billing, sender registration, and account restrictions still apply.
 - Select **Verify my email**, enter the emailed code, then enable email
   conversations and updates.
 - Verify your phone in **Settings → Security**, enable **Agent SMS updates** in
-  Personalization, then enable SMS conversations in Connectors.
+  Personalization, then enable SMS conversations in Plugins → Messaging settings.
 - Text STOP to opt out of SMS. START removes the provider opt-out; the member's
   own channel preference must still be enabled. Unknown senders are ignored.
 - **Alshival → Email & SMS** shows only the current member's messages and delivery
@@ -129,7 +136,7 @@ an owner-triggered test; fixture tests do not establish live provider readiness.
 ## Automation notifications
 
 Automation subscriptions use the same workspace mailbox and SMS number. Configure
-the connector, verify your address/phone, enable the channel in Connectors, and
+the connector, verify your address/phone, enable the channel in Plugins → Messaging settings, and
 choose your notification preferences and automation subscriptions. Old Microsoft
 application-mail sender settings are retained for reference but no longer send.
 There is no SMTP or legacy sender fallback. Notification handoff uses a durable

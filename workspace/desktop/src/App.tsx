@@ -93,13 +93,13 @@ function storedPreviewFile(value: unknown): WorkspacePreviewFile | undefined {
   return { name: raw.name, path: raw.path, mimeType: raw.mimeType, size: raw.size };
 }
 
-function settingsLaunch(): { open: boolean; section: "security" | "personalization"; notice?: { tone: "success" | "error"; message: string } } {
+function settingsLaunch(): { open: boolean; section: "security" | "personalization" | "plugins"; notice?: { tone: "success" | "error"; message: string } } {
   const parameters = new URLSearchParams(window.location.search);
   const success = parameters.get("success")?.slice(0, 240);
   const error = parameters.get("error")?.slice(0, 240);
   return {
-    open: ["personalization", "security"].includes(parameters.get("settings") ?? "") || parameters.get("user-settings") === "1",
-    section: parameters.get("settings") === "security" ? "security" as const : "personalization" as const,
+    open: ["personalization", "security", "plugins", "connectors"].includes(parameters.get("settings") ?? "") || parameters.get("user-settings") === "1",
+    section: ["plugins", "connectors"].includes(parameters.get("settings") || "") ? "plugins" as const : parameters.get("settings") === "security" ? "security" as const : "personalization" as const,
     ...(success ? { notice: { tone: "success" as const, message: success } } : error ? { notice: { tone: "error" as const, message: error } } : {}),
   };
 }

@@ -3,7 +3,7 @@
 - Status: Accepted
 - Supersedes the OpenClaw ingress design in ADR 0024
 
-Settings → Connectors owns a single Gmail/Outlook mailbox and Twilio number per
+Settings → Plugins owns a single Gmail/Outlook mailbox and Twilio number per
 workspace. The control plane owns encrypted provider credentials, OAuth state,
 verified recipient resolution, durable message admission, and an outbox. Native
 Codex/Claude execute messages using an explicitly selected workspace account.
