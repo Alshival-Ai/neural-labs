@@ -12,6 +12,7 @@ import { ProjectGraph, edgeInput } from "./projectGraph.js";
 
 const hash = (token: string) => createHash("sha256").update(token).digest("hex");
 const scopesSchema = z.array(z.enum(["project:read", "project:write", "project:sync"])).min(1).max(3);
+const syncAuthority = (actor: ProjectActor) => internalAccess(actor) && (actor.projectPlan ?? actor.role === "admin");
 export async function authorizeProjectMember(database: Database, config: ControlPlaneConfig, userId: string, external = true): Promise<ProjectActor & { authorizationGeneration?: number }> {
   const user = await database.getUser(userId);
   if (!user || user.status !== "active") throw new ProjectError(403, "member_inactive", "Active membership is required.");
@@ -53,6 +54,8 @@ export function registerProjectRoutes(app: Express, database: Database, config: 
       if (!(key.scopes as string[]).includes(scope)) throw new ProjectError(403, "scope_required", "This credential does not permit this operation.");
       const actor = await authorizeProjectMember(database, config, key.user_id);
       if (key.authority_generation !== (actor.authorizationGeneration ?? 0)) throw new ProjectError(401, "generation_changed", "Reconnect after the environment generation changed.");
+      if ((key.scopes as string[]).includes("project:sync") && !syncAuthority(actor))
+        throw new ProjectError(403, "sync_admin_required", "Workspace project management is required.");
       return { ...actor, projectSync: (key.scopes as string[]).includes("project:sync") };
     }
     const actor = await options.active(req, res);
@@ -83,7 +86,7 @@ export function registerProjectRoutes(app: Express, database: Database, config: 
   }));
   app.get("/api/projects/sync/snapshot", wrap(async (req, res) => {
     const actor = await authenticate(req, res, "project:sync"); if (!actor) return;
-    if (!internalAccess(actor)) throw new ProjectError(403, "sync_admin_required", "Workspace administration is required.");
+    if (!syncAuthority(actor)) throw new ProjectError(403, "sync_admin_required", "Workspace project management is required.");
     const after = z.string().max(36).parse(req.query.after ?? "");
     const items = await store.list(actor, after);
     res.json({ revision: await store.revision(), items, next: items.length === 100 ? items.at(-1)!.id : null,
@@ -123,8 +126,8 @@ export function registerProjectRoutes(app: Express, database: Database, config: 
     const actor = await options.active(req, res); if (!actor || !options.csrf(req, res, actor)) return;
     const input = z.object({ name: z.string().trim().min(1).max(100), scopes: scopesSchema, days: z.number().int().min(1).max(90).default(30) }).strict().parse(req.body);
     const current = await authorizeProjectMember(database, config, actor.user.id);
-    if (input.scopes.includes("project:sync") && !internalAccess(current))
-      throw new ProjectError(403, "sync_admin_required", "Workspace administration is required to create a sync credential.");
+    if (input.scopes.includes("project:sync") && !syncAuthority(current))
+      throw new ProjectError(403, "sync_admin_required", "Workspace project management is required to create a sync credential.");
     const token = `nlp_${randomBytes(32).toString("base64url")}`;
     const id = randomUUID();
     await database.pool.query("INSERT INTO project_api_keys(id,token_hash,user_id,name,scopes,expires_at,authority_generation) VALUES($1,$2,$3,$4,$5,now()+($6 * interval '1 day'),$7)", [id, hash(token), actor.user.id, input.name, JSON.stringify(input.scopes), input.days, current.authorizationGeneration ?? 0]);

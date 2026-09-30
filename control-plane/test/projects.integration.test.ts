@@ -144,6 +144,30 @@ const url = process.env.TEST_DATABASE_URL;
     await pool.query("UPDATE project_api_keys SET revoked_at=now() WHERE id=$1", [created.body.id]);
     expect((await request(app).get("/api/projects/items").auth(token, { type: "bearer" })).status).toBe(401);
   });
+  it("reserves sync credentials for current project administrators", async () => {
+    const app = express(); app.use(express.json());
+    registerProjectRoutes(app, database, {} as ControlPlaneConfig, {
+      active: async (req, res) => {
+        if (req.get("x-fixture-session") === "member") return { user: member } as SessionActor;
+        if (req.get("x-fixture-session") === "owner") return { user: owner } as SessionActor;
+        res.sendStatus(401); return undefined;
+      },
+      csrf: req => req.get("x-fixture-csrf") === "valid", sameOrigin: (_req, _res, next) => next(),
+    });
+    const input = { name: "Mirror", scopes: ["project:read", "project:write", "project:sync"] };
+    expect((await request(app).post("/api/projects/keys").set("x-fixture-session", "member")
+      .set("x-fixture-csrf", "valid").send(input)).status).toBe(403);
+    await pool.query("UPDATE users SET role='admin' WHERE id=$1", [owner.id]);
+    try {
+      const created = await request(app).post("/api/projects/keys").set("x-fixture-session", "owner")
+        .set("x-fixture-csrf", "valid").send(input);
+      expect(created.status).toBe(201);
+      const token = created.body.token;
+      expect((await request(app).get("/api/projects/sync/snapshot").auth(token, { type: "bearer" })).status).toBe(200);
+      await pool.query("UPDATE users SET role='user' WHERE id=$1", [owner.id]);
+      expect((await request(app).get("/api/projects/sync/snapshot").auth(token, { type: "bearer" })).status).toBe(403);
+    } finally { await pool.query("UPDATE users SET role='user' WHERE id=$1", [owner.id]); }
+  });
   it("does not treat managed customer owners as internal staff", async () => {
     const staff = { ...owner, projectInternal: true };
     const customer = { ...owner, projectInternal: false };

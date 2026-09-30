@@ -23,6 +23,8 @@ provisioning policy. Optional managed identity uses the existing identity adapte
 standalone deployments retain local identity. External credentials are hashed,
 user-bound, scoped, revocable and expire in at most 90 days. They do not authorize
 access to any other deployment. HTTP requests and WebSockets recheck membership.
+The optional sync scope is issued only to a current project administrator (or a
+managed portal project manager) and loses authority when that role is revoked.
 
 ## Delivery status
 
