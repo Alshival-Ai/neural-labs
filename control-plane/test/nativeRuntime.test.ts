@@ -21,7 +21,8 @@ describe("native execution authority", () => {
     await expect(f.authority.issue(f.actor, { connection: "connection", model: "fixture" }, "turns.start")).rejects.toThrow("unavailable");
     f.connection.scope = "shared"; f.connection.user_id = "";
     await expect(f.authority.issue(f.actor, { connection: "connection", model: "fixture" }, "turns.start")).resolves.toMatch(/^[a-f0-9-]{36}$/);
-    await expect(f.authority.issue(f.actor, { connection: "connection", model: "fixture" }, "account.login")).rejects.toThrow("unavailable");
+    for (const operation of ["account.login", "account.submit", "account.cancel", "account.verify"])
+      await expect(f.authority.issue(f.actor, { connection: "connection", model: "fixture" }, operation)).rejects.toThrow("unavailable");
     await expect(f.authority.issue(f.actor, { connection: "connection", model: "fixture" }, "account.status")).resolves.toBeTruthy();
   });
   it("rechecks the originating session and credential generation on every lease renewal", async () => {

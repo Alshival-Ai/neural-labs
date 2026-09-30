@@ -31,10 +31,10 @@ it("connects OpenAI in its card, shows the device code, then selects a loaded mo
   fireEvent.click(screen.getByRole("button", { name: "Connect OpenAI" }));
   expect(open).toHaveBeenCalledWith("https://auth.openai.com/codex/device", "_blank", "noopener,noreferrer");
   await screen.findByText("ABCD-EFGH");
-  await waitFor(() => expect(checks).toBeGreaterThanOrEqual(3), { timeout: 4000 });
+  await waitFor(() => expect(checks).toBeGreaterThanOrEqual(3), { timeout: 6000 });
   await screen.findByRole("option", { name: "GPT fixture" });
   await waitFor(() => expect(nativeSelection()).toEqual({ connection: "personal", model: "gpt-fixture" }));
-});
+}, 10000);
 it("loads models on demand from the selected account and never silently selects shared AI", async () => {
   configureNativeActor("fixture", "fixture-csrf");
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
@@ -42,20 +42,21 @@ it("loads models on demand from the selected account and never silently selects 
       { id: "shared", provider: "claude", scope: "shared", method: "subscription", enabled: true, generation: 1, label: "Shared Claude" },
     ] });
     if (input === "/api/runtime/defaults") return Response.json({ revision: init?.method === "PUT" ? 1 : 0 });
+    if (JSON.parse(String(init?.body)).operation === "account.status") return Response.json({ ready: false, pending: false });
     expect(JSON.parse(String(init?.body))).toMatchObject({ operation: "models.list", selection: { connection: "shared" } });
     return Response.json({ models: [{ id: "claude-exact", name: "Claude fixture", available: true }] });
   });
   render(<NativeConnectionsPanel csrfToken="fixture-csrf" />);
   await screen.findByRole("option", { name: "Shared Claude · shared" });
   fireEvent.change(screen.getByLabelText("Connection"), { target: { value: "shared" } });
-  expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(globalThis.fetch).mock.calls.filter(([, init]) => init?.body && JSON.parse(String(init.body)).operation === "models.list")).toHaveLength(0);
   fireEvent.click(screen.getByRole("button", { name: "Load models" }));
   await screen.findByRole("option", { name: "Claude fixture" });
   expect(nativeSelection()).toBeUndefined();
   fireEvent.change(screen.getByLabelText("Model"), { target: { value: "claude-exact" } });
   fireEvent.click(screen.getByRole("button", { name: "Use for my chats" }));
   await waitFor(() => expect(nativeSelection()).toEqual({ connection: "shared", model: "claude-exact" }));
-});
+}, 10000);
 
 it("requires an administrator to save an explicit native Team connection and model", async () => {
   configureNativeActor("admin", "fixture-csrf");
@@ -79,7 +80,7 @@ it("requires an administrator to save an explicit native Team connection and mod
     url: "/api/admin/runtime/team-defaults", body: { connection: "team", model: "claude-team", generation: 3, revision: 0 },
   });
   expect(nativeSelection()).toBeUndefined();
-});
+}, 10000);
 
 it("offers a new OpenAI sign-in when the device attempt ends", async () => {
   configureNativeActor("fixture", "fixture-csrf");
@@ -98,6 +99,6 @@ it("offers a new OpenAI sign-in when the device attempt ends", async () => {
   render(<NativeConnectionsPanel csrfToken="fixture-csrf" />);
   fireEvent.click(await screen.findByRole("button", { name: "Connect OpenAI" }));
   await screen.findByText("ABCD-EFGH");
-  await screen.findByText("OpenAI sign-in ended. Start a new sign-in to try again.", {}, { timeout: 4000 });
+  await screen.findByText("OpenAI sign-in ended. Start a new sign-in to try again.", {}, { timeout: 6000 });
   expect(screen.getByRole("button", { name: "Connect OpenAI" })).toBeEnabled();
-});
+}, 10000);

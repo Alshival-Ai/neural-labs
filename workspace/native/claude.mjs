@@ -1,3 +1,4 @@
+import { providerFailure } from "./provider-errors.mjs";
 import { spawn, execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
@@ -39,7 +40,7 @@ export async function runClaudeTurn({ command = "/usr/local/bin/claude", version
   if (signal?.aborted) return { status: "cancelled" };
   let lastOutputValidation = Date.now();
   const child = spawnProcess(command, args, { cwd, env, detached: true, stdio: ["pipe", "pipe", "pipe"] });
-  let resolveDone, settled = false, buffer = "", eventTail = Promise.resolve(), initialized = false;
+  let resolveDone, settled = false, buffer = "", eventTail = Promise.resolve(), initialized = false, failureCode;
   const done = new Promise(resolve => { resolveDone = resolve; });
   const finish = outcome => { if (settled) return; settled = true; resolveDone(outcome); };
   const send = message => { if (!settled) child.stdin.write(JSON.stringify(message) + "\n"); };
@@ -100,6 +101,7 @@ export async function runClaudeTurn({ command = "/usr/local/bin/claude", version
         return;
       }
       if (!initialized) return;
+      failureCode ||= providerFailure(row);
       if (row.session_id && row.session_id !== sessionId) throw new Error("Claude session identity mismatch");
       const textDelta = row.type === "stream_event" && row.event?.type === "content_block_delta" && row.event.delta?.type === "text_delta";
       // The lease timer and control requests keep checking authority. Avoid a
@@ -115,7 +117,7 @@ export async function runClaudeTurn({ command = "/usr/local/bin/claude", version
         await onEvent(row.type === "tool_progress" ? "tool-output" : "item-completed", row);
       } else if (row.type === "result") {
         await onEvent("result", row);
-        finish({ status: row.is_error ? "failed" : "succeeded", nativeSession: sessionId });
+        finish({ status: row.is_error ? "failed" : "succeeded", ...(row.is_error && failureCode ? { code: failureCode } : {}), nativeSession: sessionId });
       }
     }).catch(() => { interrupt(); finish({ status: "unknown", code: "event-or-protocol-failed" }); });
   }

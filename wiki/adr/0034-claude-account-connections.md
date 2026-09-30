@@ -89,3 +89,6 @@ credentials or policy state automatically.
 References: [Claude authentication](https://code.claude.com/docs/en/authentication),
 [OpenClaw CLI backend plugins](https://docs.openclaw.ai/plugins/cli-backend-plugins),
 [Hosted Claude Code](https://code.claude.com/docs/en/legal-and-compliance).
+
+The native card flow supersedes the Terminal-only interaction described here.
+See [ADR 0042](0042-guided-anthropic-sign-in.md).

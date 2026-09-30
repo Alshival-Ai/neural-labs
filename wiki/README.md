@@ -139,7 +139,8 @@ startup problems.
 3. Choose **Connect OpenAI**. A new tab opens for ChatGPT sign-in; enter the
    one-time code shown in the card. When sign-in finishes, available models load
    and the default model is selected for your chats. The **Anthropic** card
-   offers Claude sign-in through a private Terminal.
+   offers [guided Claude sign-in](anthropic-connection.md): paste its returned code
+   into the card; models load and a tiny request checks the connection.
 4. Open **Alshival** from the dock, start a private conversation, and send a simple
    request, such as “Help me plan my first project.” A reply confirms that your
    personal agent can use its account.

@@ -42,3 +42,5 @@
 - [Maintainer reference](maintainer-reference.md)
 
 - [Native runtime migration](native-migration.md): preservation, probation and recovery.
+
+- [Connect Anthropic](anthropic-connection.md): guided sign-in and reconnect.

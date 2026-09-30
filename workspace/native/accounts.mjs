@@ -1,3 +1,4 @@
+import { ClaudeSignIn } from "./claude-sign-in.mjs";
 import { EventEmitter } from "node:events";
 import { watch } from "node:fs";
 import { providerEnvironment, CODEX_APP_SERVER } from "./codex.mjs";
@@ -21,9 +22,10 @@ export function nativeAccountEnvironment(provider, method = "subscription") {
 }
 
 export class NativeAccounts extends EventEmitter {
-  constructor({ terminals, spawnPty, resolveActor }) {
+  constructor({ terminals, spawnPty, resolveActor, state, verify, catalog }) {
     super(); this.terminals = terminals; this.spawnPty = spawnPty; this.resolveActor = resolveActor;
     this.logins = new Map(); this.watchers = new Map();
+    this.claude = new ClaudeSignIn({ spawnPty, state, verify, catalog, environment: () => nativeAccountEnvironment("claude") });
   }
   watch(connection, homeRoot) {
     if (this.watchers.has(connection)) return;
@@ -36,6 +38,13 @@ export class NativeAccounts extends EventEmitter {
   async status(grant, launch) {
     if (grant.binding.method !== "subscription") return { ready: false, reason: "api-key-not-configured" };
     const provider = grant.binding.provider;
+    if (provider === "claude") {
+      const signIn = await this.claude.status(grant), health = this.claude.health(grant);
+      if (signIn && ['starting','awaiting-code','connecting','loading-models','verifying','busy'].includes(signIn.stage))
+        return { ready: false, pending: true, signIn };
+      if (health && health.stage !== 'ready') return { ready: false, pending: false, reason: health.error || 'native-sign-in-required', ...(signIn ? { signIn } : {}) };
+      if (health?.stage === 'ready') return { ready: true, pending: false, verified: true, model: health.model, ...(signIn ? { signIn } : {}) };
+    }
     let ready = false;
     try {
       const result = await launch.exec(provider === "codex" ? CODEX_APP_SERVER : "/usr/local/bin/claude",
@@ -62,6 +71,7 @@ export class NativeAccounts extends EventEmitter {
     return openAIDeviceCode(output);
   }
   async login(grant, launch) {
+    if (grant.binding.provider === "claude") return this.claude.login(grant, launch);
     if (!this.terminals || !this.spawnPty || !this.resolveActor) throw new Error("Private native sign-in terminal is unavailable");
     if (grant.binding.method !== "subscription") throw new Error("This connection does not use native subscription sign-in");
     const prior = this.logins.get(grant.connection);
@@ -105,7 +115,8 @@ export class NativeAccounts extends EventEmitter {
       return { terminalId: await entry.terminal };
     } catch (error) { this.logins.delete(grant.connection); throw error; }
   }
-  async cancel(grant) {
+  async cancel(grant, params) {
+    if (grant.binding.provider === "claude") return this.claude.cancel(grant, params);
     const entry = this.logins.get(grant.connection);
     if (!entry) return { cancelled: false };
     if (entry.actor !== grant.actor) throw new Error("Another administrator is connecting this account");
@@ -115,5 +126,5 @@ export class NativeAccounts extends EventEmitter {
     const closed = await this.terminals.close(actor, await entry.terminal);
     return { cancelled: closed };
   }
-  close() { for (const watchers of this.watchers.values()) for (const watcher of watchers) watcher.close(); this.watchers.clear(); }
+  close() { this.claude.close(); for (const watchers of this.watchers.values()) for (const watcher of watchers) watcher.close(); this.watchers.clear(); }
 }

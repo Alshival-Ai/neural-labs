@@ -42,3 +42,12 @@ export async function nativeRequest<T>(operation: string, params: Record<string,
     body: JSON.stringify({ operation, selection, params }), signal });
 }
 export type NativeEvent = { id: number; turn_id: string; type: string; payload: Record<string, unknown> };
+
+let reconnectTarget: { connection?: string; team: boolean } | undefined;
+export function requestAnthropicReconnect(team = false) {
+  reconnectTarget = { connection: team ? undefined : nativeSelection()?.connection, team };
+  window.dispatchEvent(new CustomEvent('neural-labs-reconnect-anthropic'));
+}
+export function takeAnthropicReconnect() {
+  const target = reconnectTarget; reconnectTarget = undefined; return target;
+}

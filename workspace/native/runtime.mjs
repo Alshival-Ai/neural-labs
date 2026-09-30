@@ -1,6 +1,8 @@
+import { providerFailure } from "./provider-errors.mjs";
+import { nativeAccountEnvironment } from "./accounts.mjs";
 import { NativeScheduler } from "./schedules.mjs";
 import { NativeJobs, validateJob } from "./jobs.mjs";
-import { realpath, stat } from "node:fs/promises";
+import { mkdtemp, rm, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { canonical, identity, NativeState } from "./state.mjs";
 import { NativeTurns } from "./turns.mjs";
@@ -33,7 +35,25 @@ export class NativeRuntime {
     this.skills = skills;
     this.state = state || new NativeState(path.join(stateRoot, "runtime.sqlite"));
     this.skillHistory = new NativeSkillHistory(this.state);
-    this.accounts = accounts || new NativeAccounts({ terminals, spawnPty, resolveActor });
+    this.accounts = accounts || new NativeAccounts({ terminals, spawnPty, resolveActor, state: this.state,
+      catalog: grant => nativeModelCatalog(grant, { ready: true }),
+      verify: async (grant, model, signal) => {
+        const empty = await mkdtemp('/tmp/neural-labs-account-check-');
+        try {
+          const launch = await this.launcher({ workspaceRoot: empty, homeRoot: path.join(this.root, 'accounts', grant.connection), readOnly: true });
+          await grant.revalidate();
+          const options = { env: { ...nativeAccountEnvironment('claude'), CLAUDE_CODE_MAX_OUTPUT_TOKENS: '128' }, timeout: 60000, maxBuffer: 262144, signal };
+          let result;
+          try { result = await launch.exec('/usr/local/bin/claude', ['--print', '--output-format', 'json', '--tools', '',
+            '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--setting-sources', '', '--disable-slash-commands',
+            '--no-session-persistence', '--max-turns', '1', '--model', model, '--effort', 'low',
+            '--system-prompt', 'Reply only OK. Do not use tools.', 'Reply only OK.'], options); }
+          catch (error) { result = { stdout: error.stdout || '', failed: true }; }
+          await grant.revalidate();
+          let row; try { row = JSON.parse(result.stdout); } catch { return { code: 'provider-unavailable' }; }
+          return { code: providerFailure(row) || (result.failed || row.is_error || row.type !== 'result' || !row.result ? 'provider-unavailable' : null) };
+        } finally { await rm(empty, { recursive: true, force: true }); }
+      } });
     this.executionGrants = new Map();
     this.teamExecutions = new Map();
     this.jobs = new NativeJobs({ state: this.state, changed: async () => this.triggers?.refresh(),
@@ -48,7 +68,7 @@ export class NativeRuntime {
           await actorGrant.revalidate(); await grant.revalidate();
         };
       } });
-    this.turns = new NativeTurns({ state: this.state, providers, tools,
+    this.turns = new NativeTurns({ state: this.state, providers, tools, onFailure: (grant, code) => this.accounts.claude?.failure(grant, code),
       resolveExecution: ({ actor, selection, purpose }) => this.execution(actor, selection, purpose) });
     this.scheduler = new NativeScheduler({ state: this.state,
       authorize: async ({ job, actor, connection, manual }) => {
@@ -124,7 +144,8 @@ export class NativeRuntime {
     };
     if (["turn-start", "scheduled-run"].includes(purpose)) {
       const status = await this.accounts.status(grant, launch);
-      if (!status.ready) throw new Error("The selected account requires native sign-in");
+      if (!status.ready) throw Object.assign(new Error("The selected account requires native sign-in"), {
+        code: status.reason === "authentication-required" ? (grant.scope === 'personal' ? 'anthropic_reconnect' : 'anthropic_admin_reconnect') : 'native_sign_in_required' });
     }
     return grant;
   }
@@ -164,7 +185,9 @@ export class NativeRuntime {
       this.teamExecutions.set(run, { actor, selection, turn: turn.id, grant });
       if (signal?.aborted) abort();
       const outcome = await this.turns.active.get(turn.id)?.done;
-      if (outcome?.status !== "succeeded") throw new Error("Team Chat native turn did not complete");
+      if (outcome?.status !== "succeeded") throw Object.assign(new Error(outcome?.code === 'authentication-required'
+        ? 'An administrator needs to reconnect this Anthropic account in Settings → Model Provider.' : 'Team Chat native turn did not complete'),
+        { code: outcome?.code === 'authentication-required' ? 'team_connection_required' : 'native_turn_failed' });
       await grant.revalidate();
       const events = this.state.events(conversation, actor, grant.binding, 0);
       const reply = events.filter(event => event.type === "output" && typeof event.payload?.text === "string")
@@ -273,11 +296,17 @@ export class NativeRuntime {
       }
       return { events, cursor: events.at(-1)?.id ?? params.after ?? 0 };
     }
-    if (["account.status", "account.refresh", "account.login", "account.cancel"].includes(operation)) {
+    if (["account.status", "account.refresh", "account.login", "account.cancel", "account.submit", "account.verify"].includes(operation)) {
       if (this.turns.gated) throw new Error("Native runtime admission is closed");
       const grant = await this.execution(actor, lease, operation);
+      if (['account.login','account.cancel','account.submit','account.verify'].includes(operation)
+          && grant.scope !== 'personal' && grant.actorRole !== 'admin') throw new Error('Only an administrator can reconnect this account.');
+      if (operation === 'account.submit' || operation === 'account.verify') {
+        if (grant.binding.provider !== 'claude') throw new Error('This operation requires Anthropic.');
+        return operation === 'account.submit' ? this.accounts.claude.submit(grant, params) : this.accounts.claude.retry(grant, params);
+      }
       return operation === "account.login" ? this.accounts.login(grant, grant.launch)
-        : operation === "account.cancel" ? this.accounts.cancel(grant) : this.accounts.status(grant, grant.launch);
+        : operation === "account.cancel" ? this.accounts.cancel(grant, params) : this.accounts.status(grant, grant.launch);
     }
     throw new Error("Unsupported native runtime operation");
   }

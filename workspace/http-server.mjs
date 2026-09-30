@@ -498,7 +498,12 @@ export function createWorkspaceHttpServer({
       try {
         if (!nativeRuntime || updateMaintenance?.gated) throw new Error("Native runtime is unavailable");
         sendJson(response, 200, await nativeRuntime.handle(await readJsonBody(request, 2 * 1024 * 1024)), method);
-      } catch { sendJson(response, 409, { error: { message: "Native request could not be completed. Check the selected connection and workspace access." } }, method); }
+      } catch (error) {
+        const safe = { anthropic_reconnect: 'Your Anthropic connection needs to be renewed. Reconnect in Settings → Model Provider.',
+          anthropic_admin_reconnect: 'An administrator needs to reconnect this Anthropic account.',
+          native_sign_in_required: 'Connect your selected account in Settings → Model Provider.' };
+        sendJson(response, 409, { error: { message: safe[error?.code] || "Native request could not be completed. Check the selected connection and workspace access." } }, method);
+      }
       return;
     }
     if (pathname.startsWith("/internal/updates/")) {

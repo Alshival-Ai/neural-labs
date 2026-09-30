@@ -659,6 +659,17 @@ export function App() {
     setToast(undefined);
   }, [notify, windows]);
 
+  useEffect(() => {
+    const settings = () => openPersonalizationSettings();
+    const chat = () => revealApp("neura");
+    window.addEventListener("neural-labs-reconnect-anthropic", settings);
+    window.addEventListener("neural-labs-open-chat", chat);
+    return () => {
+      window.removeEventListener("neural-labs-reconnect-anthropic", settings);
+      window.removeEventListener("neural-labs-open-chat", chat);
+    };
+  }, [openPersonalizationSettings, revealApp]);
+
   const openWindows = windows.filter((window) => window.visibility === "open").sort((left, right) => left.order - right.order);
   // Live socket-backed apps remain mounted while minimized so their session,
   // transcript, scroll position, and embedded browser state survive restore.

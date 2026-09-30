@@ -113,3 +113,13 @@ test("Claude delegates only the managed browser permission to its action broker"
   assert.equal(result.status, 'succeeded');
   assert.deepEqual(child.sent.find(row => row.type === 'control_response').response.response.updatedInput, { action: 'snapshot' });
 });
+
+test('Claude authentication failures become stable actionable outcomes', async () => {
+  const child = new FakeClaude((row, child) => {
+    if (row.type !== 'user') return;
+    child.output({ type: 'assistant', error: 'authentication_failed', session_id: row.session_id });
+    child.output({ type: 'result', session_id: row.session_id, is_error: true, result: 'Failed to authenticate. API Error: 401 OAuth access token has been revoked.' });
+  });
+  const result = await runClaudeTurn(context(child));
+  assert.equal(result.status, 'failed'); assert.equal(result.code, 'authentication-required');
+});

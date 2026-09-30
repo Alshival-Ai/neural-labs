@@ -15,7 +15,7 @@ const selectionSchema = z.object({ connection: z.string().uuid(), model: z.strin
 const defaultSchema = selectionSchema.extend({ generation: z.number().int().positive(), revision: z.number().int().nonnegative() }).strict();
 const operationSchema = z.object({
   operation: z.enum(["conversations.list", "conversations.create", "conversations.update", "conversations.delete",
-    "jobs.snapshot", "jobs.create", "jobs.update", "jobs.remove", "jobs.review", "jobs.run", "turns.start", "turns.cancel", "events.read", "approvals.resolve", "models.list", "account.status", "account.login", "account.refresh", "account.cancel"]),
+    "jobs.snapshot", "jobs.create", "jobs.update", "jobs.remove", "jobs.review", "jobs.run", "turns.start", "turns.cancel", "events.read", "approvals.resolve", "models.list", "account.status", "account.login", "account.refresh", "account.cancel", "account.submit", "account.verify"]),
   selection: selectionSchema,
   params: z.record(z.string(), z.unknown()).default({}),
 }).strict();
@@ -33,7 +33,7 @@ export class NativeExecutionAuthority {
     const configuration = (purpose.startsWith("account.") || ["models.list", "jobs.create", "jobs.update", "jobs.remove", "jobs.review", "jobs.snapshot"].includes(purpose))
       && actor.user.role === "admin" && row?.scope !== "personal";
     if (actor.user.status !== "active" || !row || !(own || shared || configuration)
-        || purpose === "account.login" && !own && actor.user.role !== "admin") {
+        || ["account.login", "account.submit", "account.verify", "account.cancel"].includes(purpose) && !own && actor.user.role !== "admin") {
       throw new NativeAccessError(403, "The selected connection is unavailable to this account");
     }
     if (!row.enabled) throw new NativeAccessError(409, "The selected connection is paused");

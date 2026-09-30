@@ -55,3 +55,18 @@ describe("native browser transport", () => {
   });
 
 });
+
+describe('Anthropic authentication errors', () => {
+  it('projects the existing revoked-token result into actionable history without displaying provider internals', async () => {
+    configure();
+    const events = [
+      { id: 1, turn_id: 'failed', type: 'turn-started', payload: { input: [{ type: 'text', text: 'Hello' }] } },
+      { id: 2, turn_id: 'failed', type: 'item-completed', payload: { error: 'authentication_failed', message: { secret: 'never display this' } } },
+      { id: 3, turn_id: 'failed', type: 'turn-completed', payload: { status: 'failed' } },
+    ];
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ events, cursor: 3 }), { status: 200 }));
+    const history = await new NativeClient().loadHistory('conversation');
+    expect(history[1].text).toContain('Your Anthropic connection needs to be renewed');
+    expect(JSON.stringify(history)).not.toContain('never display this');
+  });
+});

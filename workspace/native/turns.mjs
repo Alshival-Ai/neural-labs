@@ -9,11 +9,11 @@ import { runClaudeTurn } from "./claude.mjs";
 // it must check live membership, shared-account opt-in, credential generation,
 // model/provider binding and a separately authorized background execution lease.
 export class NativeTurns extends EventEmitter {
-  constructor({ state, resolveExecution, tools, providers = { codex: runCodexTurn, claude: runClaudeTurn } }) {
+  constructor({ state, resolveExecution, tools, onFailure, providers = { codex: runCodexTurn, claude: runClaudeTurn } }) {
     super();
     if (typeof resolveExecution !== "function") throw new Error("Native runtime requires an execution authorizer");
     this.state = state; this.resolveExecution = resolveExecution; this.providers = providers;
-    this.tools = tools;
+    this.tools = tools; this.onFailure = onFailure;
     this.active = new Map(); this.approvals = new Map(); this.gated = true;
   }
   async context(actor, selection, purpose) {
@@ -104,6 +104,7 @@ export class NativeTurns extends EventEmitter {
         try { await prepared?.release(); } catch {}
       }
       try {
+        if (outcome.code) { this.onFailure?.(grant, outcome.code); if (grant.scope) outcome.connectionScope = grant.scope; }
         this.state.transaction(() => {
           this.state.finishTurn(claimed.id, outcome.status);
           this.state.event(claimed.id, "turn-completed", outcome);

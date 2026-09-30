@@ -1,3 +1,5 @@
+import { requestAnthropicReconnect } from "./nativeApi";
+import { ANTHROPIC_RECONNECT, ANTHROPIC_ADMIN_RECONNECT } from "./nativeErrors";
 import "./minimal-apps.css";
 import { NotificationMessages, notificationRequest, type NotificationEntry, type NotificationPreferences } from "./notifications";
 import { captureTerminalContext } from "./terminalAgentApi";
@@ -1909,7 +1911,7 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
           }}>{loadingOlderMessages ? "Loading…" : "Load older messages"}</button>}
           {!selectedChannel && connection === "error" && <div className="connection-error"><strong>Alshival is unavailable</strong><p>{connectionError ?? "The Gateway connection could not be established."} If this is your first visit, connect your selected model account in Settings → Model Provider.</p></div>}
           {selectedChannel && teamConnection === "error" && <div className="connection-error"><strong>Team Chat is reconnecting</strong><p>Messages remain safely stored. Live updates will resume automatically.</p></div>}
-          {selectedChannel && teamAgentError && <div className="connection-error"><strong>Alshival could not join this turn</strong><p>{teamAgentError}</p></div>}
+          {selectedChannel && teamAgentError && <div className="connection-error"><strong>Alshival could not join this turn</strong><p>{teamAgentError}</p>{currentUser.role === "admin" && /reconnect|sign-in|connection/.test(teamAgentError) && <button className="settings-button" onClick={() => requestAnthropicReconnect(true)}>Open Model Provider</button>}</div>}
           {!selected && !selectedChannel && connection === "connected" && (
             <div className="neura-welcome">
               <div className="neura-orb">A</div>
@@ -1941,7 +1943,16 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
                     return <a href={target} target="_blank" rel="noreferrer" title={preview ? "Open website preview" : undefined}>{children}</a>;
                   },
                   img: ({ src, alt }) => <img className="message-markdown-image" src={message.role === "assistant" ? resolveNeuraMessageImage(src) : src} alt={alt ?? "Shared image"} loading="lazy" />,
-                }}>{message.text}</ReactMarkdown>
+                }}>{message.text === ANTHROPIC_RECONNECT && selectedChannel && currentUser.role !== 'admin'
+                  ? 'An administrator needs to reconnect this Anthropic account.' : message.text}</ReactMarkdown>
+                {[ANTHROPIC_RECONNECT, ANTHROPIC_ADMIN_RECONNECT].includes(message.text) && ((message.text !== ANTHROPIC_ADMIN_RECONNECT && !selectedChannel) || currentUser.role === 'admin') && <div className="settings-actions">
+                  <button className="settings-button" onClick={() => requestAnthropicReconnect(Boolean(selectedChannel))}>Reconnect Anthropic</button>
+                  {!selectedChannel && <button className="settings-button" onClick={() => {
+                    const index = messages.findIndex(row => row.id === message.id);
+                    const original = messages.slice(0, index).reverse().find(row => row.role === 'user');
+                    if (original) { restoreComposer(original.text, []); notify(original.attachments?.length ? 'Message text restored. Reattach files and send after reconnecting.' : 'Message restored to the composer. Send it after reconnecting.'); }
+                  }}>Retry message</button>}
+                </div>}
                 {message.activities && message.activities.length > 0 && <NeuraActivityTimeline activities={message.activities} />}
                 {message.proposedPlan && message.id === latestPlan?.id && <button type="button" className="implement-plan-button" disabled={modeLocked} onClick={() => void implementPlan(message)}>Implement plan</button>}
                 {message.pending && <span className="typing-cursor" aria-label="Alshival is responding" />}

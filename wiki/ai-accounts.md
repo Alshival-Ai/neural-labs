@@ -30,10 +30,10 @@ connections**.
 ## Connect Claude
 
 Open **Settings → Model Provider → Anthropic**, then **Connect Anthropic**. This
-opens a private Claude sign-in session in the Terminal app. Complete the browser
-steps, then paste the returned code into Terminal and press Enter. The card
-checks sign-in status and loads available models after completion. Alshival
-cannot access this sign-in session.
+opens Anthropic in a new tab. Complete sign-in, paste the returned code into the
+card, and choose **Connect**. Models load automatically and one tiny Claude
+request verifies access before the card reports readiness. No Terminal is needed.
+See [Connect Anthropic](anthropic-connection.md) for reconnect and retry guidance.
 
 This flow needs no additional public DNS, OAuth callback registration, or inbound
 port. The CLI and browser need outbound access to Anthropic. Claude keeps the

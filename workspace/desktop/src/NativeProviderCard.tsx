@@ -1,144 +1,152 @@
-import { useContext, useEffect, useRef, useState } from "react";
-import { TerminalLaunchContext } from "./TerminalLaunchContext";
+import { useEffect, useRef, useState } from "react";
 import { nativeRequest, nativeSelection, type NativeConnection, type NativeSelection } from "./nativeApi";
 import type { ProviderCatalog } from "./modelProviders";
 
-type Provider = NativeConnection["provider"];
-type AccountStatus = { ready: boolean; pending?: boolean; signIn?: { verificationUrl: string; userCode: string } };
+type SignIn = { attemptId?: string; stage?: string; expiresAt?: number; verificationUrl?: string; userCode?: string; error?: string; model?: string };
+type AccountStatus = { ready: boolean; pending?: boolean; reason?: string; model?: string; signIn?: SignIn };
+const ACTIVE = ["starting", "awaiting-code", "connecting", "loading-models", "verifying"];
 const OPENAI_DEVICE_URL = "https://auth.openai.com/codex/device";
-
-export function NativeProviderCard({ provider, connection, ensureConnection, onSelect }: {
-  provider: Provider; connection?: NativeConnection; ensureConnection: (provider: Provider) => Promise<NativeConnection>;
+const messages: Record<string, string> = {
+  "authentication-required": "Your Anthropic connection needs to be renewed. Reconnect to continue.",
+  "usage-limit": "Your account has reached a usage limit. Try checking again when usage is available.",
+  "model-unavailable": "This model is unavailable for your account. Try checking again later.",
+  "provider-unavailable": "We couldn't check the connection right now. Try checking again.",
+  "sign-in-failed": "Anthropic couldn't complete sign-in. Start again to get a new code.",
+};
+export function NativeProviderCard({ provider, connection, ensureConnection, onSelect, autoActivate = true, canManage = true, onModel }: {
+  provider: NativeConnection["provider"]; connection?: NativeConnection;
+  ensureConnection: (provider: NativeConnection["provider"]) => Promise<NativeConnection>;
   onSelect: (selection: NativeSelection, generation: number) => Promise<void>;
+  autoActivate?: boolean; canManage?: boolean; onModel?: (model: string) => void;
 }) {
-  const launchTerminal = useContext(TerminalLaunchContext);
   const [status, setStatus] = useState<AccountStatus>();
   const [catalog, setCatalog] = useState<ProviderCatalog>();
   const [model, setModel] = useState("");
-  const [connecting, setConnecting] = useState(false);
+  const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string>();
-  const autoSelect = useRef(false);
-  const loadingModels = useRef(false);
-  const connectionId = connection?.id;
+  const [connecting, setConnecting] = useState(false);
+  const starting = useRef(false);
+  const autoSelect = useRef(false), checking = useRef(false), loading = useRef(false);
+  const targetRef = useRef(connection); targetRef.current = connection || targetRef.current;
+  const popup = useRef<Window | null>(null), openedUrl = useRef<string | undefined>(undefined);
   const name = provider === "codex" ? "OpenAI" : "Anthropic";
+  const id = connection?.id, signIn = status?.signIn;
+  const reconnect = status?.reason === "authentication-required" || signIn?.error === "authentication-required";
+  const pending = connecting || Boolean(status?.pending);
+  const stage = signIn?.stage;
+  const retryVerification = (stage === "failed" || !stage) && ["usage-limit", "model-unavailable", "provider-unavailable"].includes(signIn?.error || status?.reason || "");
 
-  async function loadModels(id: string, activate = autoSelect.current) {
-    if (loadingModels.current) return;
-    loadingModels.current = true;
+  function showAuthorization(next?: SignIn) {
+    if (!next?.verificationUrl || next.verificationUrl === openedUrl.current) return;
+    const url = new URL(next.verificationUrl);
+    const allowed = provider === "codex" ? url.href === OPENAI_DEVICE_URL
+      : url.protocol === "https:" && ["claude.ai", "claude.com", "platform.claude.com"].includes(url.hostname)
+        && (url.pathname === "/oauth/authorize" || url.hostname === "claude.com" && url.pathname === "/cai/oauth/authorize") && !url.username && !url.password && !url.port;
+    if (!allowed) return;
+    openedUrl.current = next.verificationUrl;
+    if (popup.current && !popup.current.closed) { popup.current.location.replace(url.href); popup.current = null; }
+  }
+  async function loadModels(target: NativeConnection, preferredModel?: string) {
+    if (loading.current) return; loading.current = true;
     try {
-      const result = await nativeRequest<ProviderCatalog>("models.list", {}, { connection: id, model: "catalog" });
+      const result = await nativeRequest<ProviderCatalog>("models.list", {}, { connection: target.id, model: "catalog" });
+      if (targetRef.current?.id !== target.id) return;
       setCatalog(result);
       const saved = nativeSelection();
-      const preferred = saved?.connection === id && result.models.some(row => row.id === saved.model && row.available)
-        ? saved.model : result.models.find(row => row.id === result.defaultModel && row.available)?.id
-          || result.models.find(row => row.available)?.id || "";
-      setModel(preferred);
-      if (activate && preferred) {
-        await onSelect({ connection: id, model: preferred }, connection?.generation || 1);
+      const preferred = [saved?.connection === target.id ? saved.model : "", preferredModel, result.defaultModel,
+        result.models.find(row => row.available)?.id].find(value => value && result.models.some(row => row.id === value && row.available)) || "";
+      setModel(preferred); onModel?.(preferred);
+      if (!preferred) { setNotice("No available models were returned. Try loading models again."); return; }
+      if (autoSelect.current && autoActivate) await onSelect({ connection: target.id, model: preferred }, target.generation);
+      if (autoSelect.current) setNotice(autoActivate ? `${name} is ready for your chats.` : "Connection verified. Choose where to use it below.");
+      autoSelect.current = false;
+    } finally { loading.current = false; }
+  }
+  async function check(target: NativeConnection) {
+    if (checking.current) return; checking.current = true;
+    try {
+      const next = await nativeRequest<AccountStatus>("account.status", {}, { connection: target.id, model: "account-setup" });
+      if (targetRef.current?.id !== target.id) return;
+      setStatus(next); showAuthorization(next.signIn);
+      setConnecting(Boolean(next.pending && next.signIn?.stage !== "busy"));
+      if (next.ready && (!catalog || autoSelect.current)) await loadModels(target, next.model || next.signIn?.model);
+      if (!next.pending && !next.ready) {
+        if (provider === "codex" && autoSelect.current) setNotice("OpenAI sign-in ended. Start a new sign-in to try again.");
         autoSelect.current = false;
-        setNotice(`${name} is ready for your chats. You can change the model below.`);
-      } else if (!preferred) setNotice("No available models were returned. Check your account and reload models.");
-    } catch (error) { setNotice(error instanceof Error ? error.message : "Models could not be loaded."); }
-    finally { loadingModels.current = false; }
+      }
+    } catch (error) { setNotice(error instanceof Error ? error.message : "Connection could not be checked."); }
+    finally { checking.current = false; }
   }
-
-  async function check(id: string) {
-    const next = await nativeRequest<AccountStatus>("account.status", {}, { connection: id, model: "account-setup" });
-    setStatus(next);
-    if (next.ready) {
-      setConnecting(false);
-      if (!catalog) await loadModels(id);
-    } else if (next.pending === false) {
-      setConnecting(false); autoSelect.current = false;
-      setNotice(`${name} sign-in ended. Start a new sign-in to try again.`);
-    }
-  }
-
   useEffect(() => {
-    setStatus(undefined); setCatalog(undefined); setModel(""); setNotice(undefined);
-    if (!connectionId || !connection?.enabled) return;
-    let active = true;
-    void nativeRequest<AccountStatus>("account.status", {}, { connection: connectionId, model: "account-setup" })
-      .then(async next => {
-        if (!active) return;
-        setStatus(next);
-        if (next.pending) { autoSelect.current = true; setConnecting(true); }
-        if (next.ready) await loadModels(connectionId, false);
-      }).catch(error => { if (active) setNotice(error instanceof Error ? error.message : "Connection could not be checked."); });
-    return () => { active = false; };
-  }, [connectionId, connection?.enabled]);
-
+    if (starting.current) return;
+    setStatus(undefined); setCatalog(undefined); setCode(""); setModel(""); setNotice(undefined); setConnecting(false);
+    if (!connecting) autoSelect.current = false;
+    if (connection?.enabled) void check(connection);
+  }, [id, connection?.enabled]);
+  useEffect(() => () => { popup.current?.close(); popup.current = null; }, []);
   useEffect(() => {
-    if (!connecting || !connectionId) return;
-    const timer = window.setInterval(() => void check(connectionId).catch(error => {
-      setNotice(error instanceof Error ? error.message : "Sign-in could not be checked.");
-    }), 2000);
+    if (!pending || !connection) return;
+    if (stage !== "busy") autoSelect.current = true;
+    const timer = window.setInterval(() => void check(connection), 2000);
     return () => window.clearInterval(timer);
-  }, [connecting, connectionId, catalog]);
-
+  }, [pending, id, stage, catalog]);
   async function start() {
-    setBusy(true); setNotice(undefined);
-    if (provider === "codex") {
-      // The tab opens from the click so browser popup blockers do not interrupt sign-in.
-      try { window.open(OPENAI_DEVICE_URL, "_blank", "noopener,noreferrer"); } catch { /* The link remains in the card. */ }
-    }
+    starting.current = true; setBusy(true); setCode(""); setNotice(undefined); openedUrl.current = undefined;
+    // Reserve the tab during the user's click; later navigation uses only the
+    // validated CLI URL. No authorization data is stored in this tab.
+    try { popup.current = provider === "codex" ? window.open(OPENAI_DEVICE_URL, "_blank", "noopener,noreferrer") : window.open("about:blank", "_blank"); if (popup.current) popup.current.opener = null; } catch { popup.current = null; }
     try {
-      const target = connection || await ensureConnection(provider);
-      if (!target.enabled) throw new Error("Resume this connection in Advanced connections before signing in.");
-      autoSelect.current = true;
-      const result = await nativeRequest<{ terminalId: string }>("account.login", {}, { connection: target.id, model: "account-setup" });
-      setConnecting(true);
-      if (provider === "claude") {
-        await launchTerminal(result.terminalId);
-        setNotice("Complete Anthropic sign-in in the private Terminal. Paste Anthropic's returned code there.");
-      } else setNotice("Enter the one-time code below on the OpenAI sign-in tab.");
-      await check(target.id);
-    } catch (error) { autoSelect.current = false; setNotice(error instanceof Error ? error.message : "Sign-in could not start."); }
+      const target = connection || await ensureConnection(provider); targetRef.current = target;
+      const saved = nativeSelection();
+      const result = await nativeRequest<SignIn>("account.login", {}, { connection: target.id, model: saved?.connection === target.id ? saved.model : "account-setup" });
+      autoSelect.current = true; setConnecting(true); setCatalog(undefined);
+      setStatus({ ready: false, pending: true, signIn: result });
+      if (provider === "codex" && popup.current) { popup.current.location.replace(OPENAI_DEVICE_URL); popup.current = null; }
+      showAuthorization(result); await check(target);
+    } catch (error) { popup.current?.close(); popup.current = null; setConnecting(false); setNotice(error instanceof Error ? error.message : "Sign-in could not start."); }
+    finally { starting.current = false; setBusy(false); }
+  }
+  async function action(operation: "account.submit" | "account.cancel" | "account.verify") {
+    if (!connection) return; setBusy(true); setNotice(undefined);
+    const submitted = code; setCode("");
+    try {
+      const result = await nativeRequest<SignIn>(operation, { attemptId: signIn?.attemptId, ...(operation === "account.submit" ? { code: submitted } : {}) }, { connection: connection.id, model: "account-setup" });
+      if (operation === "account.cancel") { popup.current?.close(); popup.current = null; setConnecting(false); setNotice("Sign-in cancelled."); }
+      else { autoSelect.current = true; setStatus({ ready: false, pending: ACTIVE.includes(result.stage || ""), signIn: result }); }
+      await check(connection);
+    } catch (error) { setNotice(error instanceof Error ? error.message : "Sign-in could not be completed."); }
     finally { setBusy(false); }
   }
-
-  async function cancel() {
-    if (!connectionId) return;
-    setBusy(true);
-    try {
-      await nativeRequest("account.cancel", {}, { connection: connectionId, model: "account-setup" });
-      setConnecting(false); setStatus(undefined); autoSelect.current = false; setNotice("Sign-in cancelled.");
-    } catch (error) { setNotice(error instanceof Error ? error.message : "Sign-in could not be cancelled."); }
-    finally { setBusy(false); }
-  }
-
-  const selected = nativeSelection();
-  const active = selected?.connection === connectionId && selected?.model === model;
+  const selected = nativeSelection(), active = selected?.connection === id && selected?.model === model;
+  const progress: Record<string, string> = { starting: "Preparing sign-in…", "awaiting-code": "Waiting for your sign-in code", connecting: "Connecting…", "loading-models": "Loading models…", verifying: "Checking connection…", busy: "Another administrator is connecting this account", expired: "Sign-in expired. Start again.", cancelled: "Sign-in cancelled." };
+  const error = messages[signIn?.error || status?.reason || ""];
   return <section className={`settings-card native-provider-card native-provider-card--${provider}`} aria-label={`${name} model provider`}>
-    <div className="settings-card__heading"><div><span>Model provider</span><h2>{name}</h2>
-      <p>{provider === "codex" ? "Connect your ChatGPT account with a one-time code. Your models load as soon as sign-in finishes." : "Connect your Claude account. Anthropic gives you a code to paste into the private sign-in Terminal."}</p></div></div>
-    <p className="native-provider-status" role="status">{connection && !connection.enabled ? "Paused" : status?.ready ? active ? "Connected · ready for chats" : "Connected · choose a model" : connecting ? "Waiting for sign-in" : connection ? "Not connected" : "No connection yet"}</p>
-    {!status?.ready && <div className="native-provider-steps">
-      <p><strong>1.</strong> {provider === "codex" ? "Open OpenAI sign-in in a new tab." : "Start Anthropic sign-in in a private Terminal."}</p>
-      {provider === "codex" && status?.signIn?.userCode && <p className="native-provider-code"><strong>2. One-time code</strong><code>{status.signIn.userCode}</code>
-        <button className="settings-button" type="button" onClick={() => {
-          if (!navigator.clipboard?.writeText) { setNotice("Copy the code shown above."); return; }
-          void navigator.clipboard.writeText(status.signIn!.userCode).catch(() => setNotice("Copy the code shown above."));
-        }}>Copy code</button></p>}
-      <p><strong>{provider === "codex" ? "3." : "2."}</strong> Models load automatically after sign-in. Your provider's default available model is selected for chats.</p>
-    </div>}
-    <div className="settings-actions">
-      {!status?.ready && <button className="settings-button is-primary" type="button" disabled={busy || connection?.enabled === false} onClick={() => void start()}>{busy ? "Starting…" : connecting ? "Continue sign-in" : `Connect ${name}`}</button>}
-      {provider === "codex" && connecting && <a className="settings-button" href={status?.signIn?.verificationUrl || OPENAI_DEVICE_URL} target="_blank" rel="noreferrer">Open OpenAI sign-in</a>}
-      {connecting && <button className="settings-button" type="button" disabled={busy} onClick={() => void cancel()}>Cancel sign-in</button>}
-    </div>
+    <div className="settings-card__heading"><div><span>{connection && connection.scope !== "personal" ? connection.label : "Model provider"}</span><h2>{name}</h2>
+      <p>{provider === "claude" ? "Sign in to your Claude account, then paste the code here. We'll load your models and send a tiny test request to check the connection." : "Connect your ChatGPT account with a one-time code. Models load automatically."}</p></div></div>
+    <p role="status">{connection?.enabled === false ? "Paused" : status?.ready ? active ? "Connected · ready for chats" : "Connected" : reconnect ? "Reconnect required" : progress[stage || ""] || (pending ? "Waiting for sign-in" : "Not connected")}</p>
+    {error && <p role="alert">{error}</p>}
+    {!canManage && <p>An administrator needs to reconnect this account.</p>}
+    {canManage && !status?.ready && (!pending || provider === "codex") && !retryVerification && <button className="settings-button is-primary" disabled={busy || connection?.enabled === false} onClick={() => void start()}>{reconnect ? "Reconnect Anthropic" : stage === "expired" || stage === "failed" || stage === "cancelled" ? "Start again" : `Connect ${name}`}</button>}
+    {pending && signIn?.verificationUrl && <a className="settings-button" href={openedUrl.current === signIn.verificationUrl ? signIn.verificationUrl : undefined} target="_blank" rel="noreferrer">Open {name}</a>}
+    {provider === "codex" && pending && signIn?.userCode && <p>Enter this one-time code on OpenAI: <code>{signIn.userCode}</code><button className="settings-button" onClick={() => {
+      if (!navigator.clipboard?.writeText) { setNotice("Copy the code shown above."); return; }
+      void navigator.clipboard.writeText(signIn.userCode!).catch(() => setNotice("Copy the code shown above."));
+    }}>Copy code</button></p>}
+    {provider === "claude" && stage === "awaiting-code" && canManage && <form onSubmit={event => { event.preventDefault(); void action("account.submit"); }}>
+      <label>Paste the code from Anthropic<input type="password" autoComplete="off" spellCheck={false} maxLength={4096} value={code} onChange={event => setCode(event.target.value)} autoFocus /></label>
+      <button className="settings-button is-primary" disabled={busy || !code.trim()}>Connect</button>
+    </form>}
+    {canManage && pending && stage !== "busy" && <button className="settings-button" disabled={busy} onClick={() => void action("account.cancel")}>Cancel sign-in</button>}
+    {retryVerification && canManage && <button className="settings-button is-primary" disabled={busy} onClick={() => void action("account.verify")}>Check again</button>}
     {status?.ready && <div className="native-provider-ready"><label>{name} model<select value={model} disabled={!catalog || busy} onChange={event => {
-      const value = event.target.value; setModel(value);
-      if (connectionId && value) void onSelect({ connection: connectionId, model: value }, connection?.generation || 1)
-        .then(() => setNotice(`${name} model selected for your chats.`))
-        .catch(error => setNotice(error instanceof Error ? error.message : "The model could not be selected."));
+      setModel(event.target.value); onModel?.(event.target.value); if (connection && autoActivate) void onSelect({ connection: connection.id, model: event.target.value }, connection.generation).catch(() => setNotice("Model selection could not be saved. Try again."));
     }}><option value="">Choose a model</option>{catalog?.models.map(row => <option key={row.id} value={row.id} disabled={!row.available}>{row.name}</option>)}</select></label>
-      {!active && model && connectionId && <button className="settings-button is-primary" type="button" onClick={() => void onSelect({ connection: connectionId, model }, connection?.generation || 1)
-        .then(() => setNotice(`${name} is ready for your chats.`))
-        .catch(error => setNotice(error instanceof Error ? error.message : "The model could not be selected."))}>Use for my chats</button>}
-      <button className="settings-button" type="button" disabled={busy} onClick={() => connectionId && void loadModels(connectionId, false)}>Reload models</button>
+      {autoActivate && !active && model && connection && <button className="settings-button" onClick={() => void onSelect({ connection: connection.id, model }, connection.generation).catch(() => setNotice("The model selection could not be saved. Try again."))}>Use for my chats</button>}
+      {autoActivate && active && <button className="settings-button is-primary" onClick={() => window.dispatchEvent(new CustomEvent("neural-labs-open-chat"))}>Open Alshival</button>}
+      <details><summary>Connection options</summary><button className="settings-button" onClick={() => connection && void loadModels(connection).catch(() => setNotice("Models could not be loaded. Try again."))}>Reload models</button>
+        {canManage && <button className="settings-button" onClick={() => void start()}>Reconnect {name}</button>}</details>
     </div>}
-    {notice && <p className="settings-card-note" role="status">{notice}</p>}
+    {notice && <p role="status">{notice}</p>}
   </section>;
 }
