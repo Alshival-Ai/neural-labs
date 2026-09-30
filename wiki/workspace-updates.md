@@ -147,3 +147,6 @@ Docker clone/restore adapter using generated state and a synthetic service.
 `tests/native-container-smoke.mjs` separately checks real provider protocols,
 private editors, skills, and Chromium inside the candidate. These are distinct
 checks: synthetic adapter success does not establish native migration readiness.
+The container smoke check also invokes the packaged, operator-only file-history
+entrypoint against generated files, verifying native workspace-root configuration,
+idempotent import, and preservation of newer working copies.

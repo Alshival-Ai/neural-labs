@@ -5,5 +5,5 @@ for await (const chunk of process.stdin) {
   data += chunk;
   if (Buffer.byteLength(data) > 16 * 1024 * 1024) throw new Error("Manifest too large");
 }
-const history = createImportedHistory({ root: process.env.OPENCLAW_WORKSPACE_DIR ?? "/home/node/workspace" });
+const history = createImportedHistory({ root: process.env.NEURAL_LABS_WORKSPACE_ROOT ?? process.env.OPENCLAW_WORKSPACE_DIR ?? "/home/node/workspace" });
 console.log(JSON.stringify(await history.import(JSON.parse(data))));

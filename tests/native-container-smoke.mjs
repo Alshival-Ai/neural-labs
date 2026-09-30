@@ -1,7 +1,9 @@
 // Operator-only image acceptance with generated state. No account sign-in,
 // provider inference, external delivery, production mounts, or host changes.
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 const base = "/usr/local/lib/neural-labs/native";
 const { createNativeLauncher, prepareNativeHome, NATIVE_HOME, NATIVE_WORKSPACE } = await import(`${base}/launcher.mjs`);
@@ -22,6 +24,25 @@ const launch = await createNativeLauncher({ workspaceRoot, homeRoot, extraReadOn
 const env = providerEnvironment({ provider: "codex", home: NATIVE_HOME, credentialHome: `${NATIVE_HOME}/.codex`, method: "subscription" });
 let rpc, editors;
 try {
+  const original = "Synthetic original file version", current = "Synthetic newer working copy";
+  const checksum = createHash("sha256").update(original).digest("hex");
+  await mkdir(path.join(workspaceRoot, ".alshival-import"));
+  await writeFile(path.join(workspaceRoot, ".alshival-import", checksum), original);
+  await writeFile(path.join(workspaceRoot, "history-check.txt"), current);
+  const history = { format: 1, workspace: randomUUID(), files: [{ id: randomUUID(), path: "history-check.txt",
+    versions: [{ id: randomUUID(), version: 1, name: "history-check.txt", size: Buffer.byteLength(original),
+      sha256: checksum, created_at: "2026-01-01T00:00:00Z" }] }], folders: [] };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const result = execFileSync(process.execPath, [`${base}/../import-history.mjs`], {
+      input: JSON.stringify(history), encoding: "utf8", timeout: 10000,
+      env: { PATH: "/usr/local/bin:/usr/bin:/bin", NEURAL_LABS_WORKSPACE_ROOT: workspaceRoot },
+    });
+    assert.equal(JSON.parse(result).imported, true);
+  }
+  assert.equal(await readFile(path.join(workspaceRoot, "history-check.txt"), "utf8"), current);
+  assert.equal(await readFile(path.join(root, ".local/state/neural-labs/files/history", checksum), "utf8"), original);
+  console.log("Packaged history entrypoint, native workspace binding, verified import, retry, and working-copy preservation passed");
+
   await launch.probe();
   rpc = new StdioRpc(CODEX_APP_SERVER, ["app-server", "-c", 'forced_login_method="chatgpt"',
     "-c", 'mcp_servers.neural-labs.url="http://127.0.0.1:8792/mcp"',
