@@ -98,6 +98,17 @@ appear automatically eligible. An operator release and an attested automatic
 release are distinct publication paths. Neither `make validate` nor a source
 push publishes or activates an image.
 
+The reviewed `workspace-v*` release workflow builds workspace and control-plane
+images natively on Linux amd64 and ARM64 runners. Each workspace candidate must
+initialize its pinned Codex app-server and Claude Code structured stream using
+disposable empty account homes, without inference or tenant credentials. The
+workflow merges only the two tested image digests, checks the published platform
+indexes, rehearses the updater against generated state, and attaches the native
+manifest and control-plane image digest to the GitHub release. The protected
+`workspace-releases` environment requires a configured maintainer reviewer.
+Creating a release tag is a separate publication step after the remaining
+product and operator gates pass.
+
 The baseline policy must stay operator-only until the actual native migration,
 provider protocols, and restoration checks pass on both architectures. Required
 release evidence includes preservation results, digests, and measured performance;

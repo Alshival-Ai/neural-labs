@@ -1,4 +1,4 @@
-name: Reviewed workspace release
+name: Reviewed native workspace release
 on:
   push:
     tags: ['workspace-v*']
@@ -7,11 +7,104 @@ permissions:
 concurrency:
   group: reviewed-workspace-release
   cancel-in-progress: false
+
 jobs:
-  release:
+  review:
+    runs-on: ubuntu-24.04
+    environment: workspace-releases
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require main ancestry and configured maintainer approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor HEAD origin/main
+          gh api repos/Alshival-Ai/neural-labs/environments/workspace-releases > /tmp/release-environment.json
+          python3 - <<'PY'
+          import json
+          config = json.load(open('/tmp/release-environment.json'))
+          assert any(rule['type'] == 'required_reviewers' and rule.get('reviewers') for rule in config.get('protection_rules', [])), 'Configure required reviewers before publishing releases'
+          PY
+
+  build:
+    needs: review
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { architecture: amd64, node_architecture: x64, platform: linux/amd64, runner: ubuntu-24.04 }
+          - { architecture: arm64, node_architecture: arm64, platform: linux/arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '26'
+      - name: Validate on the native architecture
+        run: |
+          for package in console control-plane mcp workspace workspace/desktop; do npm --prefix "$package" ci; done
+          make validate
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Build, probe, and push architecture-specific candidates
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          ARCHITECTURE: ${{ matrix.architecture }}
+          NODE_ARCHITECTURE: ${{ matrix.node_architecture }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          workspace="ghcr.io/alshival-ai/neural-labs-workspace:candidate-${SOURCE_SHA}-${ARCHITECTURE}"
+          control="ghcr.io/alshival-ai/neural-labs-control-plane:candidate-${SOURCE_SHA}-${ARCHITECTURE}"
+          docker buildx build --platform "$PLATFORM" --load -f workspace/Containerfile -t "$workspace" .
+          docker buildx build --platform "$PLATFORM" --load -f control-plane/Containerfile -t "$control" .
+          docker run --rm --network none --read-only --user node --tmpfs /tmp:rw,nosuid,nodev,size=128m,mode=1777 \
+            --entrypoint node --mount "type=bind,src=${PWD}/tests/native-release-protocol-probe.mjs,dst=/probe.mjs,readonly" \
+            --env "EXPECTED_ARCH=${NODE_ARCHITECTURE}" "$workspace" /probe.mjs
+          docker run --rm --network none --read-only --user node --tmpfs /tmp:rw,nosuid,nodev,size=128m,mode=1777 \
+            --entrypoint node --mount "type=bind,src=${PWD}/tests/native-claude-probe.mjs,dst=/probe.mjs,readonly" "$workspace" /probe.mjs
+          docker run --rm --network none --read-only --entrypoint node \
+            --env "EXPECTED_ARCH=${NODE_ARCHITECTURE}" "$control" -e "if(process.arch!==process.env.EXPECTED_ARCH)process.exit(1)"
+          docker push "$workspace"
+          docker push "$control"
+          WORKSPACE_REF="$(docker image inspect --format '{{index .RepoDigests 0}}' "$workspace")" \
+          CONTROL_REF="$(docker image inspect --format '{{index .RepoDigests 0}}' "$control")" python3 - <<'PY'
+          import json, os, re
+          values = {'source': os.environ['SOURCE_SHA'], 'architecture': os.environ['ARCHITECTURE'],
+                    'platform': os.environ['PLATFORM'], 'workspace': os.environ['WORKSPACE_REF'],
+                    'controlPlane': os.environ['CONTROL_REF']}
+          assert re.fullmatch(r'ghcr\.io/alshival-ai/neural-labs-workspace@sha256:[a-f0-9]{64}', values['workspace'])
+          assert re.fullmatch(r'ghcr\.io/alshival-ai/neural-labs-control-plane@sha256:[a-f0-9]{64}', values['controlPlane'])
+          with open('candidate-' + values['architecture'] + '.json', 'w') as output: json.dump(values, output)
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: candidate-${{ matrix.architecture }}
+          path: candidate-${{ matrix.architecture }}.json
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 90
-    environment: workspace-releases
     permissions:
       contents: write
       actions: read
@@ -22,71 +115,71 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Require configured maintainer approval
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api repos/Alshival-Ai/neural-labs/environments/workspace-releases > /tmp/release-environment.json
-          python3 - <<'PY'
-          import json
-          config = json.load(open('/tmp/release-environment.json'))
-          assert any(rule['type'] == 'required_reviewers' and rule.get('reviewers') for rule in config['protection_rules']), 'Configure required reviewers before publishing releases'
-          PY
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          node-version: '26'
-      - name: Install validation dependencies
-        run: |
-          for package in console control-plane mcp workspace workspace/desktop; do npm --prefix "$package" ci; done
-      - name: Validate repository
-        run: make validate
+          pattern: candidate-*
+          path: release-candidates
+          merge-multiple: true
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
-        with:
-          context: .
-          file: workspace/Containerfile
-          platforms: linux/amd64
-          load: true
-          tags: ghcr.io/alshival-ai/neural-labs-workspace:${{ github.ref_name }}
-      - name: Rehearse migrations and restore for every supported origin
+      - name: Merge exact candidates and verify both platforms
+        id: indexes
         env:
+          SOURCE_SHA: ${{ github.sha }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          candidate="$(docker image inspect --format '{{.Id}}' "ghcr.io/alshival-ai/neural-labs-workspace:${RELEASE_TAG}")"
-          python3 -c 'import json; print("\n".join(json.load(open("workspace/update-release-policy.json"))["baselineImages"].values()))' > /tmp/baselines.txt
-          while IFS= read -r baseline; do
-            docker pull "$baseline"
-            bin/openclaw-upgrade-smoke "$baseline" "$candidate"
-          done < /tmp/baselines.txt
-          upstream="$(node -p 'require("./workspace/openclaw-release.json").image')"
-          docker pull "$upstream"
-          bin/openclaw-compare-image "$upstream" "$candidate"
-          python3 tests/updater_rehearsal.py --image "$candidate"
-          docker run --rm --network none --read-only --user node --tmpfs /tmp:rw,nosuid,nodev,size=128m \
-            --entrypoint node "$candidate" --input-type=module -e 'import {verifyAppServer} from "/usr/local/lib/neural-labs/update-app-server-probe.mjs"; import {openclawRelease} from "/usr/local/lib/neural-labs/openclaw-runtime.mjs"; await verifyAppServer(openclawRelease.appServerVersion);'
-
-          docker run --rm --network none --read-only --user node --tmpfs /tmp:rw,nosuid,nodev,size=512m \
-            --mount "type=bind,src=${PWD}/tests/openclaw-update-maintenance-smoke.mjs,dst=/probe.mjs,readonly" \
-            --entrypoint node "$candidate" /probe.mjs
-      - name: Publish immutable candidate and manifest
-        id: publish
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, pathlib, re
+          paths = sorted(pathlib.Path('release-candidates').glob('candidate-*.json'))
+          assert len(paths) == 2, 'Both native architectures must pass'
+          rows = [json.loads(path.read_text()) for path in paths]
+          assert {row['architecture'] for row in rows} == {'amd64', 'arm64'}
+          assert all(row['source'] == os.environ['SOURCE_SHA'] and row['platform'] == 'linux/' + row['architecture'] for row in rows)
+          for field, image in [('workspace', 'workspace'), ('controlPlane', 'control-plane')]:
+              assert all(re.fullmatch(r'ghcr\.io/alshival-ai/neural-labs-' + image + r'@sha256:[a-f0-9]{64}', row[field]) for row in rows)
+              pathlib.Path(field + '-refs.txt').write_text('\n'.join(row[field] for row in rows) + '\n')
+          PY
+          mapfile -t workspace_refs < workspace-refs.txt
+          mapfile -t control_refs < controlPlane-refs.txt
+          docker buildx imagetools create --tag "ghcr.io/alshival-ai/neural-labs-workspace:${RELEASE_TAG}" \
+            --metadata-file workspace-index.json "${workspace_refs[@]}"
+          docker buildx imagetools create --tag "ghcr.io/alshival-ai/neural-labs-control-plane:${RELEASE_TAG}" \
+            --metadata-file control-index.json "${control_refs[@]}"
+          python3 - <<'PY'
+          import json, pathlib, re, subprocess
+          for name, image in [('workspace', 'workspace'), ('control', 'control-plane')]:
+              digest = json.loads(pathlib.Path(name + '-index.json').read_text())['containerimage.descriptor']['digest']
+              assert re.fullmatch(r'sha256:[a-f0-9]{64}', digest)
+              reference = 'ghcr.io/alshival-ai/neural-labs-' + image + '@' + digest
+              index = json.loads(subprocess.check_output(['docker', 'buildx', 'imagetools', 'inspect', '--raw', reference]))
+              platforms = {item['platform']['os'] + '/' + item['platform']['architecture'] for item in index['manifests']}
+              assert platforms == {'linux/amd64', 'linux/arm64'}, platforms
+              pathlib.Path(name + '-image.txt').write_text(reference + '\n')
+          PY
+          workspace_ref="$(cat workspace-image.txt)"
+          control_ref="$(cat control-image.txt)"
+          echo "workspace_digest=${workspace_ref##*@}" >> "$GITHUB_OUTPUT"
+          echo "control_digest=${control_ref##*@}" >> "$GITHUB_OUTPUT"
+      - name: Rehearse native updater with synthetic state
+        run: python3 tests/updater_rehearsal.py --image "$(cat workspace-image.txt)"
+      - name: Build reviewed release manifest
         env:
           RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          image="ghcr.io/alshival-ai/neural-labs-workspace:${RELEASE_TAG}"
-          docker push "$image"
-          immutable="$(docker image inspect --format '{{index .RepoDigests 0}}' "$image")"
-          python3 deploy/updater/release.py --tag "$RELEASE_TAG" --image "$immutable" > workspace-release.json
-          echo "digest=${immutable##*@}" >> "$GITHUB_OUTPUT"
+        run: python3 deploy/updater/release.py --tag "$RELEASE_TAG" --image "$(cat workspace-image.txt)" > workspace-release.json
       - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
         with:
           subject-name: ghcr.io/alshival-ai/neural-labs-workspace
-          subject-digest: ${{ steps.publish.outputs.digest }}
+          subject-digest: ${{ steps.indexes.outputs.workspace_digest }}
+          push-to-registry: true
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
+        with:
+          subject-name: ghcr.io/alshival-ai/neural-labs-control-plane
+          subject-digest: ${{ steps.indexes.outputs.control_digest }}
           push-to-registry: true
       - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
         with:
@@ -95,4 +188,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release create "$RELEASE_TAG" workspace-release.json --repo Alshival-Ai/neural-labs --verify-tag --generate-notes
+        run: gh release create "$RELEASE_TAG" workspace-release.json control-image.txt --repo Alshival-Ai/neural-labs --verify-tag --generate-notes
