@@ -1,12 +1,12 @@
 # Run and manage automations
 
-Automations runs repeatable work through OpenClaw's scheduler. Open it from the
+Automations runs repeatable work through the Neural Labs native scheduler and Codex or Claude Code. Open it from the
 dock shortcut or **Skills → Automations**. The workspace must stay running for
 scheduled jobs to execute; your browser can be closed.
 
 ## Run an existing AI task
 
-1. Connect your personal ChatGPT account in **Settings → Model Provider**.
+1. Connect your AI account in **Settings → Model Provider**.
 2. Open Automations and select a job.
 3. Review its schedule and current state, then use its Run action if available.
 4. Watch the job's status and run history for completion or failure.
@@ -16,16 +16,16 @@ tasks. A manual run uses the account of the person pressing Run. Missing,
 paused, or unavailable personal connections block submission. It does not
 change the original job's schedule or assigned account.
 
-Scheduled runs use the job's configured agent. Jobs assigned to `main` need the
-administrator's background ChatGPT connection. The shared audio API key does
-not fund text tasks. See [AI accounts and models](ai-accounts.md).
+Scheduled runs use the job’s saved connection and model, with background access
+checked at execution time. New jobs save the administrator’s selected connection
+and model. Editing preserves that binding; there is no personal-account fallback. See [AI accounts and models](ai-accounts.md).
 
 System-event, system-owned, command, and script jobs do not gain personal AI
 execution through this action. A job with an incompatible execution policy is
 also rejected. If a submission's outcome is uncertain, inspect its state before
 retrying; the adapter blocks another manual run while acceptance is unresolved.
-A scheduled run and a manual run can overlap, so workflows that modify the same
-resources need their own coordination.
+New jobs forbid overlapping executions by default. Workflow locks also coordinate
+jobs configured to modify the same resources. Unknown outcomes retain their locks.
 
 ## Create or change a schedule
 
@@ -34,11 +34,10 @@ automations. Members' ability to run an existing AI task does not grant these
 scheduler-management permissions.
 
 1. In Skills, choose **+ Automation**.
-2. Name the job and choose its trigger: one-time, interval, cron, process-exit,
-   or stream.
+2. Name the job and choose its trigger: one-time, interval, or cron.
 3. Configure the action. **Run a skill** starts an AI task with `$skill-name`
-   and an optional prompt. Select the assigned agent and any model settings
-   deliberately; those determine scheduled execution.
+   and an optional prompt. Select your AI connection and model in Model Provider before creating the job.
+   That connection must be authorized for background execution.
 4. Review and validate the draft, then publish it. Check the saved job's enabled
    state and schedule before relying on unattended execution.
 
@@ -50,14 +49,17 @@ Useful form conventions:
 - Intervals accept durations such as `30m`, `4h`, and `1d`.
 - Choose the intended timezone for a one-time or cron schedule. ISO timestamps
   with explicit offsets can also identify one-time runs.
-- Stream commands use JSON argv arrays, such as `["node","scripts/events.mjs"]`.
-- Command payloads accept argv arrays or shell text; shell text executes through
-  `/bin/sh -lc` inside the workspace.
-- `Workspace default` leaves model selection to the assigned OpenClaw agent.
+- Actions are agent instructions or a skill invocation.
+- Each run gets its own session. Results remain in run history.
+- Use **Subscribe** for result/failure notifications. Failure thresholds, direct
+  channel/webhook delivery, process/stream triggers, conditions, pacing, custom
+  tool allowlists, shared sessions, and staggering are not yet supported.
+- Existing drafts retain unsupported values and show a validation error before
+  publication. Imported jobs with these policies remain held for review.
 
-Commands, scripts, conditions, and streams execute unattended code. Review the
-job's access and outputs before enabling it. OpenClaw validates the saved
-schema and execution policy.
+Agent instructions can execute workspace commands under the saved execution
+policy. Review the job’s access and outputs before enabling unattended work.
+The native runtime validates policy again on create, edit, review, and admission.
 
 ## Status, history, and item actions
 
@@ -103,16 +105,13 @@ phone numbers or email addresses.
 
 ## Operator and maintainer reference
 
-OpenClaw owns the durable scheduler and native run history. Neural Labs adds
-notification subscriptions/outbox state in PostgreSQL and manual-execution
-tracking in the persistent workspace. Back up both using
+Neural Labs owns the durable SQLite scheduler and run history. Notification
+subscriptions and the outbox live in PostgreSQL. Back up both using
 [Backup and restore](backup-restore.md).
 
-Member listing and manual runs use authenticated same-origin HTTP routes.
-Administrator scheduler controls use `/workspace/automations/socket`, which
-Nginx gates with the control plane's active-administrator check. The ordinary
-Alshival socket does not grant scheduler administration. Apply changed Nginx
-routes through the explicit [ingress steps](container-deployment.md#enable-https-ingress).
+Member listing and administrator mutations use authenticated HTTP routes.
+Administrator roles, revision checks, member authority and connection generation
+are enforced by the native runtime. The former automations WebSocket is retired.
 
 Design history: [administrator ingress](adr/0005-admin-gated-automations-ingress.md),
 [notifications](adr/0030-automation-notification-subscriptions.md), and

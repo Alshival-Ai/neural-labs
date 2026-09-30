@@ -79,29 +79,29 @@ export function BuilderForms({ draft, skills, value, setValue, setSkillValue, in
       </Section>
     </> : <>
       <Section title="What to run" description="Choose the task this automation carries out." icon={Bot} accent="violet">
-        {select("payloadKind", "Action", [["skill", "Use a skill"], ["agentTurn", "Ask an agent"], ["systemEvent", "Send a system event"], ["command", "Run a command"], ["script", "Run a script"]])}
+        {select("payloadKind", "Action", [["skill", "Use a skill"], ["agentTurn", "Ask an agent"]])}
         {action === "skill" ? <>{select("skillKey", "Skill", [["", "Choose a skill"], ...skills.map(item => [item.key, `${item.name} · $${item.key}`] as const)])}{text("skillPrompt", "Task for this skill", "Additional instructions to include after the shortcut.", { rows: 5 })}</> : text("payload", action === "command" ? "Command" : action === "script" ? "Script" : action === "systemEvent" ? "Event message" : "Instructions for the agent", undefined, { rows: 7, code: action === "command" || action === "script" })}
-        {input("agent", "Scheduled run agent", "Scheduled runs use this agent. Run now uses your selected model account.")}
+        <p className="is-wide">New jobs save your selected AI connection and model. Editing preserves the saved account. Scheduled execution requires background access; Run now uses your selected account.</p>
       </Section>
       <Section title="When to run" description="Set the trigger and timing." icon={CalendarClock} accent="amber">
-        {select("scheduleKind", "Schedule type", [["cron", "Recurring schedule (cron)"], ["every", "Repeat at an interval"], ["at", "Once at a date and time"], ["on-exit", "When a command exits"], ["stream", "When a stream matches"]])}
+        {select("scheduleKind", "Schedule type", [["cron", "Recurring schedule (cron)"], ["every", "Repeat at an interval"], ["at", "Once at a date and time"]])}
         {input("scheduleValue", ...(scheduleLabels[schedule] ?? ["Schedule", "Enter the schedule definition."]))}
         {(schedule === "cron" || schedule === "at") && input("timezone", "Timezone", "Use an IANA timezone, such as America/Chicago or UTC.")}
         {schedule === "stream" && input("triggerScript", "Match expression", "Optional expression to match stream events.")}
         {(schedule === "stream" || schedule === "on-exit" || action === "command" || action === "script") && input("workingDirectory", "Working directory")}
       </Section>
-      <Section title="Delivery" description="Choose where completed results are sent." icon={Send} accent="mint">
-        {select("deliveryMode", "Send results", [["none", "Keep in run history"], ["announce", "Announce to a channel"], ["webhook", "Send to a webhook"]])}
+      <Section title="Delivery" description="Results remain in run history. Use Subscribe for result and failure notifications." icon={Send} accent="mint">
+        {select("deliveryMode", "Send results", [["none", "Keep in run history"]])}
         {value("deliveryMode") === "announce" && input("channel", "Channel")}
         {value("deliveryMode") !== "none" && input("target", value("deliveryMode") === "webhook" ? "Webhook URL" : "Delivery target")}
       </Section>
-      <Section title="Advanced" description="Execution settings, timing controls, and failure handling." icon={Settings2} accent="pink" collapsible>
-        {(schedule === "cron" || schedule === "every") && <>{text("triggerScript", "Run condition", "Optional condition script.", { code: true })}{input("pacingMin", "Minimum pacing", "For example, 15m.")}{input("pacingMax", "Maximum pacing", "For example, 4h.")}</>}
-        {schedule === "cron" && checkbox("Exact schedule", "Disable automatic staggering.", exact, onExact)}
-        {select("sessionTarget", "Session", [["isolated", "Isolated session"], ["main", "Main session"], ["current", "Current session"]])}
-        {select("wakeMode", "Wake mode", [["now", "Immediately"], ["next-heartbeat", "Next heartbeat"]])}
-        {input("model", "Model")}{select("thinking", "Thinking", [["off", "Off"], ["low", "Low"], ["medium", "Medium"], ["high", "High"]])}
-        {input("tools", "Allowed tools")}{input("timeoutSeconds", "Timeout (seconds)")}{input("failureAlertAfter", "Alert after failures")}
+      <Section title="Advanced" description="Execution settings. Existing unsupported policies remain visible for review." icon={Settings2} accent="pink" collapsible>
+        {(value("triggerScript") || value("pacingMin") || value("pacingMax")) && <>{text("triggerScript", "Run condition", "Optional condition script.", { code: true })}{input("pacingMin", "Minimum pacing", "For example, 15m.")}{input("pacingMax", "Maximum pacing", "For example, 4h.")}</>}
+
+        {select("sessionTarget", "Session", [["isolated", "Isolated session"]])}
+        {select("wakeMode", "Wake mode", [["now", "Immediately"]])}
+        {select("thinking", "Thinking", [["", "Provider default"], ["low", "Low"], ["medium", "Medium"], ["high", "High"]])}
+        {value("tools") && input("tools", "Allowed tools", "Not yet supported. Clear to use the native execution policy.")}{input("timeoutSeconds", "Timeout (seconds)")}{value("failureAlertAfter") && input("failureAlertAfter", "Alert after failures", "Not yet supported. Clear and use Subscribe for failure notifications.")}
       </Section>
     </>}
     <p className="builder-publish-note">Draft changes save automatically while connected. {skill ? "Publish when the skill is ready to use." : "Publishing updates the shared scheduler and requires an administrator."}</p>

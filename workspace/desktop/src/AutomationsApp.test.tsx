@@ -41,20 +41,20 @@ describe("Automations app prototype", () => {
     expect(onRun).toHaveBeenCalledWith(expect.objectContaining({ id: "morning-brief" }), "if-enabled");
   });
 
-  it("creates a stream-triggered automation through the integration seam", () => {
+  it("creates a supported calendar automation without unsupported default policies", () => {
     const onCreate = vi.fn();
     render(<AutomationsApp onCreate={onCreate} />);
 
     fireEvent.click(screen.getByRole("button", { name: "New automation" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Incident event stream" } });
-    fireEvent.click(screen.getByRole("button", { name: "Stream: Live lines" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Stream command argv" }), { target: { value: '["node","scripts/incidents.mjs"]' } });
+    expect(screen.queryByRole("button", { name: "Stream: Live lines" })).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole("textbox", { name: "Agent instruction" }), { target: { value: "Triage matching incident events." } });
     fireEvent.click(screen.getByRole("button", { name: "Create automation" }));
 
     expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({
       name: "Incident event stream",
-      scheduleKind: "stream",
+      scheduleKind: "cron",
+      tools: "", failureAlertAfter: "", deliveryMode: "none",
       payloadKind: "agentTurn",
     }));
   });

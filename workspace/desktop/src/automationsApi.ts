@@ -147,6 +147,7 @@ function mapJob(job: RecordValue, runs: AutomationRun[], index: number): Automat
   return {
     id,
     configRevision: stringValue(job.configRevision),
+    failureAlertAfter: isRecord(job.failureAlert) ? numberValue(job.failureAlert.after) : undefined,
     reviewable: job.reviewable === true,
     completed: job.completed === true,
     reviewPolicy: { sandbox: isRecord(job.executionPolicy) ? stringValue(job.executionPolicy.sandbox) : undefined,

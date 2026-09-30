@@ -49,9 +49,8 @@ describe("Sectioned builder", () => {
     fireEvent.change(screen.getByLabelText("Repeat interval"), { target: { value: "2h" } });
     fireEvent.change(screen.getByLabelText("Action", { exact: true }), { target: { value: "skill" } });
     expect(screen.queryByLabelText("Instructions for the agent")).not.toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("Send results"), { target: { value: "webhook" } });
-    fireEvent.change(screen.getByLabelText("Webhook URL"), { target: { value: "https://example.org/results" } });
-    fireEvent.change(screen.getByLabelText("Send results"), { target: { value: "none" } });
+    expect(screen.queryByRole("option", {name: "Send to a webhook"})).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", {name: "When a stream matches"})).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "preview" }));
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     fireEvent.change(screen.getByLabelText("Action", { exact: true }), { target: { value: "agentTurn" } });
@@ -59,7 +58,7 @@ describe("Sectioned builder", () => {
     const field = (key: string) => connection.doc.getMap("fields").get(key)?.toString();
     expect(field("timezone")).toBe("America/Chicago");
     expect(field("pacingMin")).toBe("15m");
-    expect(field("target")).toBe("https://example.org/results");
+
     expect(screen.getByLabelText("Repeat interval")).toHaveValue("2h");
   });
 

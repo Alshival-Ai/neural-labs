@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { AutomationDraft } from "./AutomationsApp";
+import { EMPTY_DRAFT, type AutomationDraft } from "./AutomationsApp";
+import { execFileSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
+import path from "node:path";
+function validateJob(definition: unknown) {
+  const module = pathToFileURL(path.resolve(process.cwd(), "../native/jobs.mjs")).href;
+  execFileSync(process.execPath, ["--input-type=module", "-e", `import {validateJob} from ${JSON.stringify(module)}; import {readFileSync} from "node:fs"; validateJob(JSON.parse(readFileSync(0,"utf8")));`], {input:JSON.stringify(definition),stdio:["pipe","pipe","pipe"]});
+}
 
 import {
   draftToNativeDefinition,
@@ -35,6 +42,13 @@ const baseDraft: AutomationDraft = {
 };
 
 describe("Native automation request mapping", () => {
+  it("admits the editor defaults for all supported native schedules", () => {
+    for (const [scheduleKind, scheduleValue] of [["cron", "0 9 * * 1-5"], ["every", "30m"], ["at", "2030-01-01T09:00:00Z"]] as const) {
+      const definition = draftToNativeDefinition({ ...EMPTY_DRAFT, name: "Fixture", payload: "Summarize workspace changes", scheduleKind, scheduleValue });
+      const schedule = definition.schedule as Record<string, unknown>;
+      expect(() => validateJob({ ...definition, id: "fixture", actor: "admin", model: "fixture", connection: {owner:"account",provider:"codex",method:"subscription",generation:1}, schedule:{...schedule,...(scheduleKind === "every" ? {anchorMs:0} : {})}, missedRunPolicy:"skip",overlap:"forbid",executionPolicy:{sandbox:"workspace-write",approval:"on-request"} })).not.toThrow();
+    }
+  });
   it("publishes proposal templates paused with enforced read-only execution", () => {
     const definition = draftToNativeDefinition({ ...baseDraft, startPaused: "true", proposalOnly: "true", tools: "", failureAlertAfter: "" });
     expect(definition.enabled).toBe(false);

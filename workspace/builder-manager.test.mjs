@@ -180,3 +180,19 @@ test("portable draft editing preserves files and blocks publication after an int
   await manager.publish(maya, copy.id);
   assert.equal(publications[1].skillPackage.files.find(f => f.path === "bin/helper").executable, true);
 });
+
+test("native automation builder defaults publish and unsupported policies stay reviewable", async t => {
+  const { manager } = await fixture(t);
+  const initial = { name: "Native task", payload: "Summarize workspace changes" };
+  const supported = await manager.create(admin, { kind: "automation", initial });
+  assert.deepEqual((await manager.validate(admin, supported.id)).issues, []);
+  const result = await manager.publish(admin, supported.id);
+  assert.equal(result.draft.failureAlertAfter, "");
+  assert.equal(result.draft.tools, "");
+  assert.equal(result.draft.deliveryMode, "none");
+  for (const policy of [{ failureAlertAfter: "3" }, { scheduleKind: "stream" }, { deliveryMode: "webhook" }, { tools: "read" }]) {
+    const draft = await manager.create(admin, { kind: "automation", initial: { ...initial, ...policy } });
+    assert.ok((await manager.validate(admin, draft.id)).issues.some(i => i.code === "unsupported_native_policy"));
+    await assert.rejects(manager.publish(admin, draft.id), /Not yet supported/);
+  }
+});

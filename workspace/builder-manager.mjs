@@ -50,7 +50,7 @@ const AUTOMATION_DEFAULTS = {
   thinking: "low",
   tools: "",
   timeoutSeconds: "600",
-  failureAlertAfter: "3",
+  failureAlertAfter: "",
 };
 
 const FORBIDDEN_PATH = /(^|\/)(?:\.env(?:\.|$)|\.ssh|credentials?|secrets?|backups?|\.openclaw|\.codex)(?:\/|$)|\.(?:pem|p12|pfx|key|crt|cer|ovpn|token)$/i;
@@ -344,6 +344,16 @@ function validateAutomation(room) {
   if (!draft.name.trim()) issues.push(issue("error", "missing_name", "Name is required"));
   if (!draft.scheduleValue.trim()) issues.push(issue("error", "missing_schedule", "A schedule value is required"));
   if (!draft.payload.trim()) issues.push(issue("error", "missing_action", "An automation action is required"));
+  const unsupported = [];
+  if (!["cron", "every", "at"].includes(draft.scheduleKind)) unsupported.push("process/stream triggers");
+  if (draft.payloadKind !== "agentTurn") unsupported.push("non-agent actions");
+  if (draft.sessionTarget !== "isolated") unsupported.push("shared sessions");
+  if (draft.wakeMode !== "now") unsupported.push("heartbeat wake mode");
+  if (draft.deliveryMode !== "none") unsupported.push("direct channel/webhook delivery");
+  for (const [field, label] of [["failureAlertAfter", "failure thresholds"], ["tools", "tool allowlists"], ["triggerScript", "conditions"], ["pacingMin", "pacing"], ["pacingMax", "pacing"]]) {
+    if (draft[field]?.trim()) unsupported.push(label);
+  }
+  if (unsupported.length) issues.push(issue("error", "unsupported_native_policy", `Not yet supported: ${[...new Set(unsupported)].join(", ")}. Saved draft values are retained for review.`));
   if (SECRET_PATTERNS.some((pattern) => pattern.test(JSON.stringify(draft)))) issues.push(issue("error", "credential_detected", "Remove credentials from the automation draft"));
   return { draft, issues };
 }

@@ -46,8 +46,6 @@ import remarkGfm from "remark-gfm";
 
 import "./automations-app.css";
 import { TitleTooltip, useLibraryResize } from "./LibraryInteractions";
-import { ModelPicker } from "./ModelPicker";
-import { useModelCatalog } from "./modelProviders";
 
 export type AutomationAccent = "cyan" | "violet" | "pink" | "coral" | "amber" | "mint";
 export type AutomationScheduleKind = "at" | "every" | "cron" | "on-exit" | "stream";
@@ -120,6 +118,7 @@ export type AutomationJob = {
   lastRun: string;
   lastStatus: Exclude<AutomationRunStatus, "running">;
   consecutiveErrors: number;
+  failureAlertAfter?: number;
   runs: readonly AutomationRun[];
 };
 
@@ -307,13 +306,13 @@ export const PLACEHOLDER_AUTOMATIONS: readonly AutomationJob[] = [
   },
 ];
 
-const EMPTY_DRAFT: AutomationDraft = {
+export const EMPTY_DRAFT: AutomationDraft = {
   name: "",
   description: "",
   scheduleKind: "cron",
   scheduleValue: "0 9 * * 1-5",
   timezone: "America/Chicago",
-  exact: false,
+  exact: true,
   triggerScript: "",
   pacingMin: "",
   pacingMax: "",
@@ -323,14 +322,14 @@ const EMPTY_DRAFT: AutomationDraft = {
   sessionTarget: "isolated",
   wakeMode: "now",
   agent: "main",
-  deliveryMode: "announce",
+  deliveryMode: "none",
   channel: "last",
   target: "Current conversation",
   model: "Workspace default",
   thinking: "",
-  tools: "read",
+  tools: "",
   timeoutSeconds: "600",
-  failureAlertAfter: "2",
+  failureAlertAfter: "",
 };
 
 const SCHEDULE_META: Record<AutomationScheduleKind, { label: string; description: string; icon: LucideIcon }> = {
@@ -393,7 +392,7 @@ function draftFromJob(job: AutomationJob): AutomationDraft {
     thinking: job.payload.thinking ?? "",
     tools: job.payload.tools?.join(", ") ?? "",
     timeoutSeconds: job.payload.timeout?.replace(/\D/g, "") || "600",
-    failureAlertAfter: String(Math.max(2, job.consecutiveErrors || 2)),
+    failureAlertAfter: job.failureAlertAfter === undefined ? "" : String(job.failureAlertAfter),
   };
 }
 
@@ -892,10 +891,11 @@ type ComposerProps = {
 };
 
 function AutomationComposer({ draft, editing, onChange, onClose, onSubmit }: ComposerProps) {
-  const { catalog, error: catalogError } = useModelCatalog("admin/workspace", draft.agent.trim() || "main");
   const set = <Key extends keyof AutomationDraft>(key: Key, value: AutomationDraft[Key]) => onChange({ ...draft, [key]: value });
   const dangerous = draft.payloadKind === "command" || draft.payloadKind === "script" || draft.scheduleKind === "stream" || Boolean(draft.triggerScript);
-  const valid = draft.name.trim() && draft.scheduleValue.trim() && draft.payload.trim();
+  const unsupported = !["cron", "every", "at"].includes(draft.scheduleKind) || draft.payloadKind !== "agentTurn"
+    || draft.sessionTarget !== "isolated" || draft.wakeMode !== "now" || draft.deliveryMode !== "none" || Boolean(draft.tools.trim() || draft.failureAlertAfter.trim() || draft.triggerScript.trim() || draft.pacingMin.trim() || draft.pacingMax.trim());
+  const valid = !unsupported && draft.name.trim() && draft.scheduleValue.trim() && draft.payload.trim();
   return (
     <div className="automation-composer-layer">
       <button type="button" className="automation-composer__scrim" aria-label="Close automation editor" onClick={onClose} />
@@ -909,18 +909,18 @@ function AutomationComposer({ draft, editing, onChange, onClose, onSubmit }: Com
           </section>
 
           <section className="automation-form-section">
-            <div className="automation-form-section__heading"><span>02</span><div><h3>Choose a trigger</h3><p>All current Neural Labs schedule families are available.</p></div></div>
-            <div className="automation-choice-grid is-five" aria-label="Schedule type">
-              {(Object.entries(SCHEDULE_META) as [AutomationScheduleKind, (typeof SCHEDULE_META)[AutomationScheduleKind]][]).map(([kind, meta]) => { const Icon = meta.icon; return <button type="button" key={kind} className={draft.scheduleKind === kind ? "is-selected" : ""} aria-label={`${meta.label}: ${meta.description}`} aria-pressed={draft.scheduleKind === kind} onClick={() => set("scheduleKind", kind)}><Icon /><strong>{meta.label}</strong><small>{meta.description}</small></button>; })}
+            <div className="automation-form-section__heading"><span>02</span><div><h3>Choose a trigger</h3><p>Choose a one-time, interval, or calendar schedule.</p></div></div>
+            <div className="automation-choice-grid is-three" aria-label="Schedule type">
+              {(Object.entries(SCHEDULE_META).filter(([kind]) => ["at", "every", "cron"].includes(kind)) as [AutomationScheduleKind, (typeof SCHEDULE_META)[AutomationScheduleKind]][]).map(([kind, meta]) => { const Icon = meta.icon; return <button type="button" key={kind} className={draft.scheduleKind === kind ? "is-selected" : ""} aria-label={`${meta.label}: ${meta.description}`} aria-pressed={draft.scheduleKind === kind} onClick={() => set("scheduleKind", kind)}><Icon /><strong>{meta.label}</strong><small>{meta.description}</small></button>; })}
             </div>
             <ScheduleFields draft={draft} set={set} />
-            {(draft.scheduleKind === "cron" || draft.scheduleKind === "every") && <details className="automation-advanced-inline"><summary>Condition and pacing <ChevronDown /></summary><label><span>Condition script <em>optional</em></span><textarea value={draft.triggerScript} onChange={(event) => set("triggerScript", event.target.value)} placeholder="Return { fire, message?, state? }" rows={3} /></label><div><label><span>Pacing minimum</span><input value={draft.pacingMin} onChange={(event) => set("pacingMin", event.target.value)} placeholder="15m" /></label><label><span>Pacing maximum</span><input value={draft.pacingMax} onChange={(event) => set("pacingMax", event.target.value)} placeholder="4h" /></label></div></details>}
+
           </section>
 
           <section className="automation-form-section">
             <div className="automation-form-section__heading"><span>03</span><div><h3>Define the action</h3><p>Each automation carries exactly one payload.</p></div></div>
-            <div className="automation-choice-grid is-four" aria-label="Payload type">
-              {(Object.entries(PAYLOAD_META) as [AutomationDraft["payloadKind"], (typeof PAYLOAD_META)[AutomationDraft["payloadKind"]]][]).map(([kind, meta]) => { const Icon = meta.icon; return <button type="button" key={kind} className={draft.payloadKind === kind ? "is-selected" : ""} aria-label={meta.label} aria-pressed={draft.payloadKind === kind} onClick={() => set("payloadKind", kind)}><Icon /><strong>{meta.label}</strong></button>; })}
+            <div className="automation-choice-grid" aria-label="Payload type">
+              {(Object.entries(PAYLOAD_META).filter(([kind]) => kind === "agentTurn") as [AutomationDraft["payloadKind"], (typeof PAYLOAD_META)[AutomationDraft["payloadKind"]]][]).map(([kind, meta]) => { const Icon = meta.icon; return <button type="button" key={kind} className={draft.payloadKind === kind ? "is-selected" : ""} aria-label={meta.label} aria-pressed={draft.payloadKind === kind} onClick={() => set("payloadKind", kind)}><Icon /><strong>{meta.label}</strong></button>; })}
             </div>
             <label><span>{draft.payloadKind === "agentTurn" ? "Agent instruction" : draft.payloadKind === "systemEvent" ? "Event text" : draft.payloadKind === "command" ? "Command or argv" : "Code-mode script"}</span><textarea value={draft.payload} onChange={(event) => set("payload", event.target.value)} placeholder={draft.payloadKind === "agentTurn" ? "Summarize workspace changes and post the useful decisions…" : draft.payloadKind === "command" ? "./scripts/check-queue.sh" : "Enter the automation payload…"} rows={5} className={draft.payloadKind === "command" || draft.payloadKind === "script" ? "is-code" : ""} /></label>
             {(draft.payloadKind === "command" || draft.payloadKind === "script") && <label><span>Working directory</span><input value={draft.workingDirectory} onChange={(event) => set("workingDirectory", event.target.value)} /></label>}
@@ -928,22 +928,15 @@ function AutomationComposer({ draft, editing, onChange, onClose, onSubmit }: Com
 
           <section className="automation-form-section">
             <div className="automation-form-section__heading"><span>04</span><div><h3>Execution and delivery</h3><p>Choose context, ownership, and where the result lands.</p></div></div>
-            <div className="automation-field-grid is-three">
-              <label><span>Session</span><select value={draft.sessionTarget} onChange={(event) => set("sessionTarget", event.target.value as AutomationDraft["sessionTarget"])}><option value="isolated">Isolated</option><option value="main">Main session</option><option value="current">Current session</option><option value="session:release">Custom · release</option></select></label>
-              <label><span>Agent</span><select value={draft.agent} onChange={(event) => set("agent", event.target.value)}><option value="main">main</option><option value="release">release</option><option value="build">build</option></select></label>
-              <label><span>Wake mode</span><select value={draft.wakeMode} onChange={(event) => set("wakeMode", event.target.value as AutomationDraft["wakeMode"])}><option value="now">Wake now</option><option value="next-heartbeat">Next heartbeat</option></select></label>
-            </div>
-            <div className="automation-delivery-choice" aria-label="Delivery mode">
-              {(["announce", "webhook", "none"] as const).map((mode) => <button type="button" key={mode} className={draft.deliveryMode === mode ? "is-selected" : ""} aria-pressed={draft.deliveryMode === mode} onClick={() => set("deliveryMode", mode)}><DeliveryIcon mode={mode} /><span><strong>{mode === "announce" ? "Announce" : mode === "webhook" ? "Webhook" : "No delivery"}</strong><small>{mode === "announce" ? "Fallback to a chat target" : mode === "webhook" ? "POST the finished event" : "Log completion only"}</small></span></button>)}
-            </div>
-            {draft.deliveryMode === "announce" && <div className="automation-field-grid"><label><span>Channel</span><select value={draft.channel} onChange={(event) => set("channel", event.target.value)}><option value="last">Last resolved channel</option><option value="slack">Slack</option><option value="teams">Microsoft Teams</option><option value="discord">Discord</option></select></label><label><span>Target</span><input value={draft.target} onChange={(event) => set("target", event.target.value)} placeholder="Current conversation" /></label></div>}
-            {draft.deliveryMode === "webhook" && <label><span>Webhook URL</span><input type="url" value={draft.target} onChange={(event) => set("target", event.target.value)} placeholder="https://hooks.example.invalid/automation" /></label>}
+            <p>Each run uses a separate session. New jobs save your selected AI connection and model; editing preserves the job’s saved account. Scheduled execution requires background access.</p>
+            <p>Results appear in run history. Use Subscribe for result and failure notifications.</p>
           </section>
 
           <section className="automation-form-section">
-            <details className="automation-advanced-inline"><summary><span><Settings2 />Advanced runtime</span><ChevronDown /></summary><div className="automation-field-grid"><ModelPicker catalog={catalog} error={catalogError} model={draft.model === "Workspace default" ? "" : draft.model} effort={draft.thinking} defaultLabel="Agent default" onChange={(model, thinking) => onChange({ ...draft, model: model || "Workspace default", thinking })} /><label><span>Allowed tools</span><input value={draft.tools} onChange={(event) => set("tools", event.target.value)} placeholder="read, exec" /></label><label><span>Timeout seconds</span><input inputMode="numeric" value={draft.timeoutSeconds} onChange={(event) => set("timeoutSeconds", event.target.value)} /></label><label><span>Failure alert after</span><input inputMode="numeric" value={draft.failureAlertAfter} onChange={(event) => set("failureAlertAfter", event.target.value)} /></label></div></details>
+            <label><span>Timeout seconds</span><input inputMode="numeric" value={draft.timeoutSeconds} onChange={(event) => set("timeoutSeconds", event.target.value)} /></label>
           </section>
 
+          {unsupported && <p role="alert">This saved job contains policies that require migration review. Its existing settings are retained.</p>}
           {dangerous && <div className="automation-code-warning"><ShieldAlert /><span><strong>Unattended execution surface</strong><small>Condition scripts, stream sources, command payloads, and scripts run without a person present. Execution uses the saved account and permissions.</small></span></div>}
 
           <footer><span><i />New jobs are enabled after creation</span><div><button type="button" onClick={onClose}>Cancel</button><button type="submit" disabled={!valid}>{editing ? "Save changes" : "Create automation"}</button></div></footer>
@@ -954,7 +947,7 @@ function AutomationComposer({ draft, editing, onChange, onClose, onSubmit }: Com
 }
 
 function ScheduleFields({ draft, set }: { draft: AutomationDraft; set: <Key extends keyof AutomationDraft>(key: Key, value: AutomationDraft[Key]) => void }) {
-  if (draft.scheduleKind === "cron") return <div className="automation-field-grid"><label><span>Cron expression</span><input value={draft.scheduleValue} onChange={(event) => set("scheduleValue", event.target.value)} /></label><label><span>Timezone</span><select value={draft.timezone} onChange={(event) => set("timezone", event.target.value)}><option>America/Chicago</option><option>America/New_York</option><option>America/Los_Angeles</option><option>UTC</option></select></label><label className="automation-check"><input type="checkbox" checked={draft.exact} onChange={(event) => set("exact", event.target.checked)} /><i /><span><strong>Exact timing</strong><small>Disable automatic staggering</small></span></label></div>;
+  if (draft.scheduleKind === "cron") return <div className="automation-field-grid"><label><span>Cron expression</span><input value={draft.scheduleValue} onChange={(event) => set("scheduleValue", event.target.value)} /></label><label><span>Timezone</span><select value={draft.timezone} onChange={(event) => set("timezone", event.target.value)}><option>America/Chicago</option><option>America/New_York</option><option>America/Los_Angeles</option><option>UTC</option></select></label></div>;
   if (draft.scheduleKind === "every") return <label><span>Interval</span><input value={draft.scheduleValue} onChange={(event) => set("scheduleValue", event.target.value)} placeholder="30m, 4h, or 1d" /></label>;
   if (draft.scheduleKind === "at") return <div className="automation-field-grid"><label><span>Date and time</span><input value={draft.scheduleValue} onChange={(event) => set("scheduleValue", event.target.value)} placeholder="2026-09-03T09:30:00" /></label><label><span>Timezone</span><select value={draft.timezone} onChange={(event) => set("timezone", event.target.value)}><option>America/Chicago</option><option>America/New_York</option><option>America/Los_Angeles</option><option>UTC</option></select></label></div>;
   if (draft.scheduleKind === "on-exit") return <div className="automation-field-grid"><label><span>Watched command</span><input value={draft.scheduleValue} onChange={(event) => set("scheduleValue", event.target.value)} placeholder="./scripts/watch.sh" /></label><label><span>Working directory</span><input value={draft.workingDirectory} onChange={(event) => set("workingDirectory", event.target.value)} /></label></div>;

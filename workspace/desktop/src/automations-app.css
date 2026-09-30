@@ -355,6 +355,7 @@
 .automation-form-section textarea:focus,
 .automation-form-section select:focus { border-color: rgba(123, 77, 255, .38); box-shadow: 0 0 0 3px rgba(123, 77, 255, .065); }
 .automation-choice-grid { display: grid; gap: .28rem; }
+.automation-choice-grid.is-three { grid-template-columns: repeat(3, 1fr); }
 .automation-choice-grid.is-five { grid-template-columns: repeat(5, 1fr); }
 .automation-choice-grid.is-four { grid-template-columns: repeat(4, 1fr); }
 .automation-choice-grid > button { min-width: 0; min-height: 3.25rem; display: grid; place-content: center; justify-items: center; gap: .15rem; padding: .35rem .18rem; border: 1px solid var(--automation-line); border-radius: 8px; color: #898a90; background: rgba(255, 255, 255, .56); cursor: pointer; }
