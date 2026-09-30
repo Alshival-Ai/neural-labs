@@ -2168,18 +2168,6 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
               </ol>
             </section>}
             <div className={`composer-shell${composeMode === "plan" ? " is-planning" : ""}`}>
-              <div className="composer-mode-row">
-                <label><span>Mode</span><select aria-label="Conversation mode" aria-keyshortcuts="Control+Shift+P Meta+Shift+P" value={composeMode} disabled={modeLocked} onChange={(event) => changeComposeMode(event.target.value as NeuraComposeMode)}>
-                  <option value="default">Normal</option><option value="plan">Draft plan</option>
-                </select></label>
-                <small>{modeLocked ? "Switch modes when the run and queue are idle." : composeMode === "plan" ? "Requests a plan; tool permissions stay the same." : "Ctrl/Cmd+Shift+P to draft a plan"}</small>
-              </div>
-              <div className="composer-mode-row">
-                <label><span>Commands</span><select aria-label="Command approvals" value={commandMode} disabled={modeLocked} onChange={event => {
-                  try { selectCommandApproval(event.target.value as CommandApproval); } catch (error) { notify(error instanceof Error ? error.message : "Could not save command approvals"); }
-                }}><option value="on-request">Ask when needed</option><option value="never">Do not ask</option></select></label>
-                <small>{commandMode === "never" ? "Commands and edits run without asking. Workspace boundaries still apply." : "Alshival can ask before running commands or editing files."} Applies to new runs.</small>
-              </div>
               {skillTrigger && <div className="skill-mention-menu" id="neura-skill-suggestions" role="listbox" aria-label="Available skills">
                   <div className="skill-mention-menu__heading" role="presentation"><strong>Skills</strong><span>Type to filter · Enter to add</span></div>
                 {!skillsLoaded && <p className="skill-mention-menu__empty">Loading skills…</p>}
@@ -2233,6 +2221,18 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
                   {agentBusy && <button type="button" className="queue-button" disabled={composerSubmitting || !sessionReady} onClick={() => void queueMessage()} aria-label="Queue after this run" title="Queue after this run (Ctrl/Cmd+Enter)"><ListOrdered /><span>Queue</span></button>}
                 </div>}
               </div>
+            </div>
+            <div className="composer-options" aria-label="Chat options">
+              <label title={modeLocked ? "Switch modes when the run and queue are idle." : "Ctrl/Cmd+Shift+P to draft a plan. Tool permissions stay the same."}>
+                <span>Mode</span><select aria-label="Conversation mode" aria-keyshortcuts="Control+Shift+P Meta+Shift+P" value={composeMode} disabled={modeLocked} onChange={(event) => changeComposeMode(event.target.value as NeuraComposeMode)}>
+                  <option value="default">Normal</option><option value="plan">Draft plan</option>
+                </select>
+              </label>
+              <label title={modeLocked ? "Change command approvals when the run and queue are idle." : "Applies to new runs. Do not ask allows commands and edits without prompts; workspace boundaries still apply."}>
+                <span>Commands</span><select aria-label="Command approvals" value={commandMode} disabled={modeLocked} onChange={event => {
+                  try { selectCommandApproval(event.target.value as CommandApproval); } catch (error) { notify(error instanceof Error ? error.message : "Could not save command approvals"); }
+                }}><option value="on-request">Ask when needed</option><option value="never">Do not ask</option></select>
+              </label>
             </div>
             <p className="composer-hint">Enter to {agentBusy ? "steer now" : "send"} · {agentBusy && <>Ctrl/Cmd+Enter to queue · </>}Shift+Enter for a new line · {voiceMode === "hold" ? "hold wave to speak" : "open mic for voice"}</p>
           </footer>

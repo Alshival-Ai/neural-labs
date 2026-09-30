@@ -510,7 +510,7 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, summary:focus-vis
 .connection-error p { margin: .3rem 0 0; color: #986168; font-size: var(--desktop-font-control, 14px); }
 
 .neura-composer-area { min-width: 0; flex: 0 0 auto; padding: 0 clamp(.8rem, 4vw, 3.5rem) .65rem; background: linear-gradient(180deg, transparent, rgba(246, 244, 239, .96) 26%); }
-.activity-strip, .approval-card, .active-run-banner, .prompt-queue, .composer-shell, .composer-hint { width: min(48rem, 100%); margin-inline: auto; }
+.activity-strip, .approval-card, .active-run-banner, .prompt-queue, .composer-shell, .composer-options, .composer-hint { width: min(48rem, 100%); margin-inline: auto; }
 .activity-strip { display: flex; flex-wrap: wrap; gap: .35rem; margin-bottom: .38rem; }
 .activity { display: flex; align-items: center; gap: .38rem; min-width: 0; padding: .32rem .48rem; border: 1px solid var(--line); border-radius: 8px; color: #555760; background: rgba(255, 255, 255, .72); font-size: var(--desktop-font-body, 13px); }
 .activity > span:last-child { min-width: 0; display: grid; }
@@ -748,10 +748,12 @@ kbd { color: #87888f; font-family: inherit; font-size: var(--desktop-font-body, 
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
 
-.composer-mode-row { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .75rem; padding: .5rem .65rem; border-bottom: 1px solid var(--line); }
-.composer-mode-row label { display: flex; align-items: center; gap: .4rem; font-size: var(--desktop-font-control, 14px); }
-.composer-mode-row select { padding: .3rem .5rem; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-soft); color: var(--ink); font: inherit; }
-.composer-mode-row small { flex: 1; min-width: 10rem; color: #77787f; font-size: var(--desktop-font-body, 13px); }
+.composer-options { display: flex; flex-wrap: wrap; align-items: center; gap: .2rem 1rem; padding: .35rem .15rem 0; }
+.composer-options label { display: inline-flex; align-items: center; gap: .3rem; min-width: 0; color: #62636b; font-size: var(--desktop-font-body, 13px); }
+.composer-options select { max-width: 100%; padding: .3rem .2rem; border: 0; border-radius: 6px; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
+.composer-options select:hover:not(:disabled) { background: var(--ui-selected, #eee8fc); }
+.composer-options select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.composer-options select:disabled { opacity: .6; cursor: default; }
 .composer-shell.is-planning { border-color: var(--accent); }
 .message-plan .message-body { border: 1px solid rgba(123, 77, 255, .25); border-radius: 12px; padding: 1rem; background: var(--surface-soft); }
 .implement-plan-button, .neura-questions footer button { min-height: 2.4rem; padding: .45rem .8rem; border: 1px solid var(--line); border-radius: 8px; background: var(--ink); color: white; font: inherit; cursor: pointer; }

@@ -37,7 +37,7 @@ the app. Shift+Enter adds a newline; the visible send controls also work on phon
 
 ## Command approvals
 
-In a private chat, use **Commands** beside the composer controls:
+In a private chat, use **Commands** in the compact options row below the chat input, alongside **Mode**:
 
 - **Ask when needed** is the default. The CLI can request approval for commands
   and edits.

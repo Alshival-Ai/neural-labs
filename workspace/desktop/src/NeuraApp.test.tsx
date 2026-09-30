@@ -149,7 +149,7 @@ describe("Alshival realtime conversation", () => {
     fireEvent.change(mode, { target: { value: "never" } });
     expect(commandApproval()).toBe("never");
     expect(mode).toHaveValue("never");
-    expect(screen.getByText(/Workspace boundaries still apply/)).toBeInTheDocument();
+    expect(screen.getByTitle(/workspace boundaries still apply/)).toBeInTheDocument();
     fireEvent.change(mode, { target: { value: "on-request" } });
     expect(commandApproval()).toBe("on-request");
   });
@@ -907,7 +907,7 @@ describe("Alshival realtime conversation", () => {
     await waitFor(() => expect(mode).toBeEnabled());
     fireEvent.keyDown(input, { key: "P", ctrlKey: true, shiftKey: true });
     await waitFor(() => expect(mode).toHaveValue("plan"));
-    expect(screen.getByText("Requests a plan; tool permissions stay the same.")).toBeInTheDocument();
+    expect(screen.getByTitle(/Tool permissions stay the same/)).toBeInTheDocument();
     fireEvent.change(input, { target: { value: "Explore the feature" } });
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(mode).toBeDisabled());
