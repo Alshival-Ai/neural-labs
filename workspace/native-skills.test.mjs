@@ -76,3 +76,39 @@ test("light context mounts only explicitly selected accessible skills", async t 
   assert.deepEqual(prepared.packages.map(row => row.key), ["selected"]);
   await prepared.release();
 });
+
+async function declareDependencies(skill, names) {
+  const dir = path.join(path.dirname(skill.path), "references");
+  await mkdir(dir, { recursive: true });
+  await writeFile(path.join(dir, "skill-dependencies.json"), JSON.stringify({ schemaVersion: 1, skills: names }));
+}
+
+test("light context includes transitive dependencies for both providers without unrelated packages", async t => {
+  const f = await fixture(t);
+  const primary = await f.save("alice", "primary"), helper = await f.save("alice", "helper", "team");
+  await f.save("alice", "leaf", "team"); await f.save("alice", "unrelated");
+  await declareDependencies(primary, ["helper"]); await declareDependencies(helper, ["leaf"]);
+  for (const provider of ["codex", "claude"]) {
+    const prepared = await f.skills.prepare({ actor: "alice", provider, explicitOnly: true, input: [{ type: "text", text: "$primary" }] });
+    assert.deepEqual(prepared.packages.map(row => row.key).sort(), ["helper", "leaf", "primary"]);
+    if (provider === "codex") assert.deepEqual(prepared.input.filter(row => row.type === "skill").map(row => row.name), ["primary"]);
+    await prepared.release();
+  }
+});
+
+test("dependencies cannot cross ownership or team execution boundaries, enable skills, or form cycles", async t => {
+  const f = await fixture(t), primary = await f.save("alice", "primary", "team");
+  await f.save("bob", "private");
+  const own = await f.save("alice", "own"), paused = await f.save("alice", "paused", "team");
+  const meta = path.join(path.dirname(paused.path), ".neural-labs.json");
+  await writeFile(meta, JSON.stringify({ ...JSON.parse(await readFile(meta, "utf8")), enabled: false }));
+  for (const names of [["private"], ["paused"], ["missing"], ["../escape"], ["own", "own"], ["primary"]]) {
+    await declareDependencies(primary, names);
+    for (const explicitOnly of [true, false]) await assert.rejects(f.skills.prepare({ actor: "alice", provider: "codex", explicitOnly, input: [{ type: "text", text: "$primary" }] }));
+    assert.deepEqual(await readdir(path.join(f.root, "executions")), []);
+  }
+  await declareDependencies(primary, ["own"]);
+  await assert.rejects(f.skills.prepare({ actor: "alice", scope: "team", provider: "claude", explicitOnly: true, input: [{ type: "text", text: "$primary" }] }));
+  await declareDependencies(own, ["primary"]);
+  await assert.rejects(f.skills.prepare({ actor: "alice", provider: "claude", explicitOnly: true, input: [{ type: "text", text: "$primary" }] }), /Cyclic/);
+});

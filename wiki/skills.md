@@ -5,7 +5,7 @@ Skills holds reusable Alshival workflows and automations for Codex and Claude.
 - **My Skills** contains your editable personal skills.
 - **Team Skills** contains workspace-managed skills shared with everyone.
 - **Library** contains read-only built-in and installed packages, including
-  `deploy`, plus ClawHub discovery. Installed packages are already usable by the
+  `deploy` and the website toolkit below, plus ClawHub discovery. Installed packages are already usable by the
   team; they do not need to be copied into Team Skills to run.
 - **Drafts** contains autosaved work in progress.
 - **Automations** shows the native scheduler and durable run history.
@@ -128,30 +128,72 @@ See [ADR 0012](adr/0012-collaborative-skill-builder-and-automation-read-model.md
 for the collaboration and automation-read decision and [ADR 0011](adr/0011-direct-personal-and-team-skills.md)
 for the published-skill ownership model.
 
-## Kiki Models API skill
-
-The Kiki deployment has an operator-installed `models-api` Team Skill, invoked
-with `$models-api`. Its package lives in `/home/node/workspace/skills/models-api`
-in the persistent workspace home; the operator copy is in `skills/models-api`
-on the deployment host. Include both in deployment backups; the operator copy
-is ignored by Git, as are other instance-specific skills.
-
-The skill covers live model discovery, Nomic and Qwen embeddings, GPT OSS chat,
-and Wan2.2 text-to-video and image-to-video jobs. Its Python helper handles bearer
-authentication, JSON requests, saved video job IDs, and MP4 downloads.
-For requests in Alshival, the skill instructs the agent to attach the downloaded
-MP4 to its final reply through OpenClaw’s native media directive. Alshival then
-shows inline playback and Download / Download to Workspace actions. The skill
-also documents verification and the deployed 16 MiB outgoing video limit.
-
-Configure `MODELS_API_URL` and a dedicated `MODELS_API_KEY` in the protected root
-`.env`. Compose passes these into the workspace and OpenClaw agent environment;
-recreate the workspace after changing them. The Kiki endpoint is
-`http://192.168.10.113:8000`. Never copy the key into a skill, generated project,
-browser code, or chat. The skill instructs agents to read live `/models` and
-`/openapi.json` when checking current capabilities and limits.
-
 ## Built-in deploy skill
 
 The read-only `deploy` skill is installed with Neural Labs for both native providers.
 See [Deployments](deployments.md) for publication, lifecycle controls, and hosting setup.
+
+## Built-in website toolkit
+
+Fresh installations include these read-only Library packages for both Codex and
+Claude. Existing installations receive them with a normal runtime upgrade;
+a source checkout update alone does not update a running container.
+
+| Skill | Use |
+| --- | --- |
+| `site-generator` | Build or redesign a website from a brief, business or existing project |
+| `local-business-website-builder` | Business-specific composition, useful content and conversion paths |
+| `business-research-and-media` | Verify a selected business and inspect usable authentic media |
+| `cinematic-interactions` | Implement selected scroll, pointer, text and media effects |
+| `web-video-asset-preparation` | Prepare local video, posters and smooth-motion assets |
+
+Examples:
+
+```text
+Use $site-generator to build a portfolio from the files in projects/portfolio.
+Use $local-business-website-builder for the bakery described in my uploaded brief.
+Add a reduced-motion-friendly horizontal gallery using $cinematic-interactions.
+Generate a website that says Hello, World! and $deploy.
+```
+
+No Maps listing, public domain or paid media key is required for basic website
+creation. Research uses available sources and records gaps. Image generation is
+optional and requires a separately available configured tool and user request;
+a model connection does not supply it. Supplied assets, licensed media and original
+layout/graphics remain supported. Prospect hunting and staff publishing workflows
+are not installed as part of this toolkit.
+
+Building defaults to a local preview. `$deploy` discovers the installation's
+hosting settings: local by default, or the configured wildcard domain. The skill
+does not manage host SSH, DNS or certificates. See [Deployments](deployments.md)
+for wildcard domain setup and custom domains. A local URL refers to the instance
+machine; remote viewers need the supported preview route or a tunnel.
+
+Use **Customize a copy** to change a built-in workflow, then optionally **Share
+with team**. Product upgrades preserve those copies and existing project files.
+The default packages remain read-only. Existing same-name saved packages retain
+precedence; updating the product does not silently replace their instructions.
+
+### Skill dependencies
+
+Packages may declare required supporting skills in
+`references/skill-dependencies.json`:
+
+```json
+{"schemaVersion": 1, "skills": ["cinematic-interactions"]}
+```
+
+Use at most 16 unique skill slugs. Declarations resolve only against the current
+actor's accessible, enabled skills and never grant access. During light-context
+execution, an explicit skill selection includes its transitive supporting packages
+without loading unrelated skills. Only the originally selected skills receive
+explicit invocation instructions. Read supporting instructions only as needed.
+Missing/disabled dependencies, invalid declarations and cycles fail the selected
+workflow; fix the package or its availability before retrying. Unknown dollar
+variables are not treated as mandatory skill selections. Dependencies are read
+from the same immutable, ownership-checked snapshot as other package resources.
+
+The site generator provides a static output structure checker, while cinematic
+interactions provides a media inspection helper. These checks do not replace
+browser review or prove design quality. See the skill's linked references for
+commands and record unperformed checks as incomplete.

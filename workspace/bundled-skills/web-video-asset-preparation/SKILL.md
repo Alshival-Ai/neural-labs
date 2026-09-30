@@ -71,9 +71,8 @@ controller behavior, reduced-motion fallback, cleanup, and browser QA.
 ## Neural Labs continuous-motion quality
 
 For local-business builds read
-[motion-quality.md](../local-business-website-builder/references/motion-quality.md)
-and [quality-contract.md](../local-business-website-builder/references/quality-contract.md)
+[motion-quality.md](references/motion-quality.md)
 before selecting source windows or extracting frames. Preserve native temporal
 detail; a 3-fps sequence is not a smooth substitute for a 24-fps source. Shorten
-the source window to fit the existing publication budget. Verify every frame,
+the source window to fit the project's delivery budget. Verify every frame,
 continuous scrolling and static failure geometry, not just start/middle/end.

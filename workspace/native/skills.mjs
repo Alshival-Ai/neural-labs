@@ -84,10 +84,16 @@ export class NativeSkills {
     const release = () => rm(root, { recursive: true, force: true });
     try {
       const discovery = path.join(root, "discovery"); await mkdir(discovery, { mode: 0o700 });
-      const mounts = [], packages = [], available = new Map();
+      const mounts = [], packages = [], available = new Map(), dependencies = new Map();
+      const eligible = new Map();
       for (const record of records) {
+        if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(record.key) || eligible.has(record.key)) throw new Error("Ambiguous skill identity");
+        eligible.set(record.key, record);
+      }
+      const queue = records.filter(record => record.enabled !== false && (!explicitOnly || requested.has(record.key)));
+      const queued = new Set(queue.map(record => record.key));
+      for (const record of queue) {
         if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(record.key) || available.has(record.key)) throw new Error("Ambiguous skill identity");
-        if (record.enabled === false || explicitOnly && !requested.has(record.key)) continue;
         const directory = path.join(root, record.key); await mkdir(directory, { mode: 0o700 });
         const files = await snapshot(path.dirname(record.path), directory);
         const document = await readFile(path.join(directory, "SKILL.md"), "utf8");
@@ -98,12 +104,42 @@ export class NativeSkills {
             throw new Error("Skill ownership changed during preparation");
           if (metadata.enabled === false) continue;
         } catch (error) { if (error.code !== "ENOENT") throw error; }
+        // Read declarations only from the ownership-checked immutable package.
+        // Names resolve through the same actor/scope-filtered catalog as a direct
+        // selection. Declarations cannot grant access or enable disabled skills.
+        let required = [];
+        try {
+          const declaration = JSON.parse(await readFile(path.join(directory, "references", "skill-dependencies.json"), "utf8"));
+          if (declaration.schemaVersion !== 1 || !Array.isArray(declaration.skills) || declaration.skills.length > 16
+              || declaration.skills.some(key => typeof key !== "string" || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(key))
+              || new Set(declaration.skills).size !== declaration.skills.length)
+            throw new Error(`Invalid skill dependencies: ${record.key}`);
+          required = declaration.skills;
+        } catch (error) { if (error.code !== "ENOENT") throw error; }
+        dependencies.set(record.key, required);
+        if (explicitOnly) for (const key of required) {
+          const dependency = eligible.get(key);
+          if (!dependency || dependency.enabled === false) throw new Error(`Skill ${record.key} requires unavailable skill: ${key}`);
+          if (!queued.has(key)) { queue.push(dependency); queued.add(key); }
+        }
         const target = `/opt/neural-labs/skills/${record.key}`;
         mounts.push({ source: directory, target });
         await symlink(target, path.join(discovery, record.key));
         available.set(record.key, { target, userInvocable: !/^user-invocable:\s*false\s*$/m.test(document) });
         packages.push({ key: record.key, source: record.path, files, changes: [] });
       }
+      const checked = new Set();
+      function checkDependencies(key, visiting = new Set()) {
+        if (visiting.has(key)) throw new Error(`Cyclic skill dependency: ${key}`);
+        if (checked.has(key)) return;
+        if (!available.has(key)) throw new Error(`Required skill is unavailable: ${key}`);
+        visiting.add(key);
+        for (const dependency of dependencies.get(key) || []) checkDependencies(dependency, visiting);
+        visiting.delete(key); checked.add(key);
+      }
+      // Missing/cyclic dependencies on unselected packages do not prevent chat.
+      // Selected packages need a complete dependency graph in both modes.
+      for (const key of requested) if (available.has(key)) checkDependencies(key);
       const instructions = [];
       for (const key of requested) {
         const skill = available.get(key);

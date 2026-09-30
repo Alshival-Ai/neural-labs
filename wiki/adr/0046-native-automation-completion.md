@@ -13,7 +13,11 @@ workspace-only working directory, and the existing public-egress/private-network
 boundary. Revocation and maintenance stop those children. Unknown process outcomes
 are retained for review. Streams use bounded buffering and queues, with a visible
 hold on overflow. Light-context AI runs use a fresh authentication-only home and
-explicit skill selections; workspace instructions continue to apply.
+explicit skill selections and their declared supporting packages; workspace
+instructions continue to apply. Supporting skill names resolve through the same
+member/scope-filtered catalog, enabled-state checks and immutable snapshot path.
+Declarations cannot grant filesystem access or enable a disabled package. See
+[Skill dependencies](../skills.md#skill-dependencies).
 
 PostgreSQL connector messages reference notification events. Stable handoff keys
 prevent duplicated sends across crashes, and external delivery rechecks current

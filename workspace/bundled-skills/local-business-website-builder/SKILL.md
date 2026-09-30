@@ -9,11 +9,10 @@ Create a credible, distinctive website that helps a local business earn a specif
 
 ## Neural Labs integration
 
-This is the active design/build skill transferred from the personal Codex skill.
+This skill supports hosted and self-hosted Neural Labs installations.
 For a name-and-address request, read [neural-labs-workflow.md](references/neural-labs-workflow.md)
 first. It adapts orchestration, tool discovery, default creative choices, quality
-gates and preview links to this runtime. It replaces the desktop-only preview
-and effect-questionnaire defaults below. Do not require a style questionnaire
+gates and preview links to this runtime. Use the available runtime browser and preview tools. Do not require a style questionnaire
 when only a name/address was supplied; omitted creative decisions are AUTO.
 Explicit user choices always take precedence. Keep one presentation director.
 
@@ -21,14 +20,14 @@ Explicit user choices always take precedence. Keep one presentation director.
 
 Use the stages that match the request; one invocation may run the entire sequence:
 
-1. `Scout`: Start from a user-selected candidate or a permitted lead source. For Google Maps or another restricted listing service, read [references/lead-discovery.md](references/lead-discovery.md). Do not scrape, bulk-export, or build a prospect database from restricted content.
+1. `Identify`: Start from the user-selected business. For Google Maps or another restricted listing service, read [references/lead-discovery.md](references/lead-discovery.md). Do not scrape, bulk-export, or build a prospect database from restricted content.
 2. `Verify`: Create an evidence ledger and independently confirm launch-critical facts. Read [references/intake-and-evidence.md](references/intake-and-evidence.md).
 3. `Source`: Read [business-photo-direction.md](references/business-photo-direction.md) and [asset-policy.md](references/asset-policy.md). Inspect the actual business first and build the asset manifest. When stock photos or videos are requested, read [references/licensed-asset-sourcing.md](references/licensed-asset-sourcing.md). Treat Pexels media as licensed representative content, not public-domain evidence of the actual business.
 4. `Translate`: Convert verified business characteristics, permission-cleared visual cues, and the asset set into an original design system. Read [references/style-translation.md](references/style-translation.md) and [references/visual-system-and-assets.md](references/visual-system-and-assets.md).
 5. `Specify`: Choose the conversion architecture and record the content, pages, assets, effects, and blockers in [references/site-spec.md](references/site-spec.md).
 6. `Build`: Implement the site in the existing framework or initialize the user-requested stack when the destination is empty. Keep claims and integrations honest.
-7. `Enhance`: Honor explicit or recorded effects. For name/address-only requests, use AUTO to choose a purposeful effect or a strong static composition; do not require the desktop questionnaire. Record the chosen recipe, content primitive, purpose and fallback. Use `$cinematic-interactions` and the exact recipe. GSAP/DOM choreography, paused video, numbered frames and layered images require different implementation and QA. Usually use one signature scene; add a second only for a different communication job. Follow explicit user effect budgets.
-8. `Preview`: Use the Neural Labs workspace preview route from AGENTS.md, open the real page, and complete browser QA using [references/quality-gates.md](references/quality-gates.md) and the runtime adapter. Use the existing deploy workflow only within the requested output scope.
+7. `Enhance`: Honor explicit or recorded effects. For name/address-only requests, use AUTO to choose a purposeful effect or a strong static composition; choose omitted creative details without a mandatory questionnaire. Record the chosen recipe, content primitive, purpose and fallback. Use `$cinematic-interactions` and the exact recipe. GSAP/DOM choreography, paused video, numbered frames and layered images require different implementation and QA. Usually use one signature scene; add a second only for a different communication job. Follow explicit user effect budgets.
+8. `Preview`: Use the runtime browser/preview capability and its returned route, open the real page, and complete browser QA using [references/quality-gates.md](references/quality-gates.md) and the runtime adapter. Use the existing deploy workflow only within the requested output scope.
 
 ## Establish the job
 

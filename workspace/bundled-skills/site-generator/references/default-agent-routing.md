@@ -1,14 +1,8 @@
-## Local-business website requests
+# Website routing
 
-For a request to build/redesign a real local business website from its name and
-address, load skills/site-generator/SKILL.md and use
-skills/local-business-website-builder/SKILL.md as the default presentation skill.
-Read the current files even if an earlier conversation used older instructions.
-Skip prospect hunting for a selected business. AUTO covers omitted creative
-choices; do not require a design questionnaire. Explicit user choices win.
-Inspect accessible Maps/official photos, record their distinctive characteristics,
-and translate them into the actual design using the builder's photo-direction,
-asset-policy and quality-contract references. Suitable authentic imagery comes
-first, then coordinated generated representative assets; stock is a documented
-exception. Existing website-template-1/prospect-video-site names are compatibility
-routes to this workflow. Preserve completed sites and the requested output scope.
+Use site-generator for a requested website, redesign or project continuation.
+Use local-business-website-builder for a selected local business, and research
+that identity without hunting for alternatives. For other website types use the
+brief and existing framework. Choose omitted creative details to fit the content;
+honor recorded user choices. Effects, external media and publication are optional.
+These instructions are package guidance, not a workspace AGENTS.md installation.

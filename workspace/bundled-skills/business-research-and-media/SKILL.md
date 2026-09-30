@@ -22,7 +22,7 @@ Use current tool results, not search snippets alone or category assumptions.
 ## Establish the business story
 
 1. Confirm the supplied business identity using its name, location, official URL
-   or Place ID. For a matched Places listing, call `google_place_details` and
+   or Place ID. For a matched Places listing and an available tool, call `google_place_details` and
    inspect official links, current operating details and photo metadata. If the
    required tool is unavailable, record that limitation and continue with
    accessible sources; do not claim the Places check succeeded.
@@ -49,8 +49,7 @@ Look for the logo, exterior, interior, work, products, staff and services.
 When Places details contain relevant photos, call `google_place_photo` for the returned relevant photo resources and inspect
 the accessible Maps gallery using browser navigation when available. Prioritize
 business-attributed imagery while covering exterior, interior, work/products,
-service/menu boards and distinctive details. Read the active builder's
-references/business-photo-direction.md; inspect all accessible unique relevant
+service/menu boards and distinctive details. Read [business-photo-direction.md](references/business-photo-direction.md); inspect all accessible unique relevant
 photos for manageable galleries, or record category/date coverage and a reasoned
 sampling limit for large galleries. An API result is not the complete gallery.
 Actually view the resolved images with the available image/browser tools. Match
@@ -98,12 +97,12 @@ images for concrete identity, premises, work and gallery roles, with a usable
 source and acquisition status. An inventory of photo metadata alone is not a
 completed media handoff.
 
-For website work, write BUSINESS-VISUAL-BRIEF.json using the active
-local-business-website-builder's photo-direction and quality-contract references.
+For website work, write BUSINESS-VISUAL-BRIEF.json using [quality-contract.md](references/quality-contract.md).
 Translate specific observed characteristics into proposed layout/content/interaction
 features. Separate source inspection from permission to reuse its pixels.
-Follow that builder's asset-policy for gaps: authentic, then coordinated generated
-representative imagery, then a justified stock exception. Do not default to Pexels.
+Follow [asset-policy.md](references/asset-policy.md) for gaps: supplied/authentic assets, original
+layout/graphics or suitable licensed representative media. Paid tools and image
+generation are optional; do not require them to finish research.
 
 ## Identity and publication handoff
 

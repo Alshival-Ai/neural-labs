@@ -60,6 +60,11 @@ COPY workspace/start.mjs workspace/http-server.mjs workspace/response-work.mjs \
      workspace/public-apps.mjs workspace/imported-history.mjs workspace/import-history.mjs ./
 COPY workspace/native ./native
 COPY workspace/bundled-skills/deploy /usr/local/share/neural-labs/skills/deploy
+COPY workspace/bundled-skills/site-generator /usr/local/share/neural-labs/skills/site-generator
+COPY workspace/bundled-skills/local-business-website-builder /usr/local/share/neural-labs/skills/local-business-website-builder
+COPY workspace/bundled-skills/business-research-and-media /usr/local/share/neural-labs/skills/business-research-and-media
+COPY workspace/bundled-skills/cinematic-interactions /usr/local/share/neural-labs/skills/cinematic-interactions
+COPY workspace/bundled-skills/web-video-asset-preparation /usr/local/share/neural-labs/skills/web-video-asset-preparation
 COPY --chmod=0755 workspace/entrypoint.sh /usr/local/bin/neural-labs-runtime
 COPY --from=desktop-build /build/dist /usr/local/share/neural-labs/desktop
 COPY --chown=node:node --from=mcp-build /build/package.json /build/package-lock.json /usr/local/lib/neural-labs/mcp/
