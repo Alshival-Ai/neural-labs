@@ -29,11 +29,15 @@ checked at admission, before spawn, during execution and after approval.
 The native workspace image must not contribute team-specific skills to every
 tenant. Skill discovery uses the workspace's own team and personal directories
 plus packages installed into that workspace. Claude's native tool list is
-explicitly limited to file discovery and reads, with Edit and Write added only
-for workspace-write policy. Shell and network-fetch tools are not granted to
-Claude turns by default. Provider processes still need outbound access for AI
-inference, so host egress rules and the process filesystem namespace remain
-separate containment controls.
+explicitly limited to file discovery and reads for read-only policy, with Edit,
+Write and Bash added for workspace-write policy. Bash uses the same selected
+account and workspace Bubblewrap filesystem view as the provider process;
+permission requests go through the active user's approval flow. Network-fetch
+tools are not granted to Claude turns. Provider processes still need outbound
+access for AI inference, so host egress rules and the process filesystem
+namespace remain separate containment controls. The selected account home is
+visible to its own provider and subprocesses; this boundary does not establish
+workspace-files-only access.
 
 SQLite records occurrence claims before execution. Lost responses and interrupted
 claims are unknown and never automatically replayed. Unknown work retains its

@@ -24,7 +24,9 @@ Open **Files**, create a project folder, and upload files or create a new text
 file. Text and code open in **VS Code**. **Terminal** starts shells in the same
 workspace, and Alshival can help with those files.
 
-Files, VS Code, terminals, and agent tools share `/home/node/workspace`. Changes
+Files, VS Code, terminals, and agent tools share `/home/node/workspace`. In a
+normal Alshival chat, Codex and Claude Code can run terminal commands inside
+the selected workspace's isolated container, subject to tool approvals. Changes
 saved there are immediately part of the shared project tree. Files refreshes
 when another user or a tool changes a directory. Use **Open Preview** for a
 static website or supported media, and **Edit image** for raster images.
