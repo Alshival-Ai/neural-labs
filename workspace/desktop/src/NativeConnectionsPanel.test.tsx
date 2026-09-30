@@ -14,6 +14,7 @@ it("connects OpenAI in its card, shows the device code, then selects a loaded mo
     if (input === "/api/runtime/connections") return Response.json({ connections: [
       { id: "personal", provider: "codex", scope: "personal", method: "subscription", enabled: true, generation: 1, label: "My OpenAI" },
     ] });
+    if (input === "/api/runtime/defaults") return Response.json({ revision: init?.method === "PUT" ? 1 : 0 });
     expect(input).toBe("/api/runtime/request");
     expect(new Headers(init?.headers).get("X-CSRF-Token")).toBe("fixture-csrf");
     const request = JSON.parse(String(init?.body));
@@ -32,7 +33,7 @@ it("connects OpenAI in its card, shows the device code, then selects a loaded mo
   await screen.findByText("ABCD-EFGH");
   await waitFor(() => expect(checks).toBeGreaterThanOrEqual(3), { timeout: 4000 });
   await screen.findByRole("option", { name: "GPT fixture" });
-  expect(nativeSelection()).toEqual({ connection: "personal", model: "gpt-fixture" });
+  await waitFor(() => expect(nativeSelection()).toEqual({ connection: "personal", model: "gpt-fixture" }));
 });
 it("loads models on demand from the selected account and never silently selects shared AI", async () => {
   configureNativeActor("fixture", "fixture-csrf");
@@ -40,6 +41,7 @@ it("loads models on demand from the selected account and never silently selects 
     if (input === "/api/runtime/connections") return Response.json({ connections: [
       { id: "shared", provider: "claude", scope: "shared", method: "subscription", enabled: true, generation: 1, label: "Shared Claude" },
     ] });
+    if (input === "/api/runtime/defaults") return Response.json({ revision: init?.method === "PUT" ? 1 : 0 });
     expect(JSON.parse(String(init?.body))).toMatchObject({ operation: "models.list", selection: { connection: "shared" } });
     return Response.json({ models: [{ id: "claude-exact", name: "Claude fixture", available: true }] });
   });
@@ -52,7 +54,31 @@ it("loads models on demand from the selected account and never silently selects 
   expect(nativeSelection()).toBeUndefined();
   fireEvent.change(screen.getByLabelText("Model"), { target: { value: "claude-exact" } });
   fireEvent.click(screen.getByRole("button", { name: "Use for my chats" }));
-  expect(nativeSelection()).toEqual({ connection: "shared", model: "claude-exact" });
+  await waitFor(() => expect(nativeSelection()).toEqual({ connection: "shared", model: "claude-exact" }));
+});
+
+it("requires an administrator to save an explicit native Team connection and model", async () => {
+  configureNativeActor("admin", "fixture-csrf");
+  const requests: Array<{ url: string; body?: unknown }> = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    requests.push({ url: String(input), body: init?.body ? JSON.parse(String(init.body)) : undefined });
+    if (input === "/api/runtime/connections") return Response.json({ connections: [
+      { id: "team", provider: "claude", scope: "team", method: "subscription", enabled: true, generation: 3, label: "Team Claude" },
+    ] });
+    if (input === "/api/admin/runtime/team-defaults") return Response.json({ revision: init?.method === "PUT" ? 1 : 0 });
+    return Response.json({ models: [{ id: "claude-team", name: "Claude Team", available: true }] });
+  });
+  render(<NativeConnectionsPanel csrfToken="fixture-csrf" administrator />);
+  await screen.findByRole("option", { name: "Team Claude · team" });
+  fireEvent.change(screen.getByLabelText("Connection"), { target: { value: "team" } });
+  fireEvent.click(screen.getByRole("button", { name: "Load models" }));
+  await screen.findByRole("option", { name: "Claude Team" });
+  fireEvent.click(screen.getByRole("button", { name: "Use for Team Chat" }));
+  await screen.findByText("Team Claude selected for Team Chat.");
+  expect(requests.find(row => row.url === "/api/admin/runtime/team-defaults" && row.body)).toEqual({
+    url: "/api/admin/runtime/team-defaults", body: { connection: "team", model: "claude-team", generation: 3, revision: 0 },
+  });
+  expect(nativeSelection()).toBeUndefined();
 });
 
 it("offers a new OpenAI sign-in when the device attempt ends", async () => {

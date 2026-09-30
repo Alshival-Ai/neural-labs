@@ -53,8 +53,7 @@ a new conversation after the account is replaced.
 | Private Alshival conversation or a personal skill test | Your personal account for the selected model provider |
 | Manually running an AI task automation from the desktop | The person pressing Run's personal account |
 | Scheduled automation | The automation's assigned agent; `main` uses the background account |
-| Team Chat before dedicated Team Alshival activation | The message author's personal account |
-| Team Chat after dedicated Team Alshival activation | The dedicated Team account, including requests from members without a personal connection |
+| Team Chat | The explicitly selected native Team connection, including requests from members without a personal connection |
 | Alshival realtime voice and voice-memo transcription | The server's `OPENAI_API_KEY`, configured separately for audio |
 | `codex` run directly in a terminal | The terminal CLI's separate login cache |
 
@@ -71,10 +70,9 @@ Administrators open **Settings → Workspace** to configure these separately:
 - **Background AI Claude connection** provides an independent Claude sign-in or
   workspace API key. Saving an API key explicitly selects separately billed API
   usage for this workload. It does not change your model default.
-- **Team Alshival** has its own OpenAI and Claude connections and model defaults. Connect the dedicated
-  account, then explicitly confirm and save the Team defaults to activate it.
-  Once activated, Team Chat requires that account; a later disconnect does not
-  restore the message-author fallback.
+- **Team Alshival** uses a native Team connection. Under **Advanced connections**,
+  connect it, load models, choose one, and select **Use for Team Chat**. Team Chat
+  requires that saved connection; a disconnect leaves Team turns unavailable.
 - **Voice** controls supported audio models and voice selection. Supply the
   audio API key through the protected deployment configuration and apply it
   with the normal operator update process.

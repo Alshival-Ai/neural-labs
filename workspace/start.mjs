@@ -56,7 +56,8 @@ const terminals = new WorkspaceTerminalManager({ workspaceRoot,
 });
 const providers = new ProviderRuntime(loadProviderConfig(process.env), new URL("/internal/plugins/providers/config", controlOrigin).href, token);
 await providers.start();
-const tools = new NativeTools({ origin: `http://127.0.0.1:${toolsPort}`, createApplication: createProviderApplication, configuration: () => providers.snapshot() });
+const tools = new NativeTools({ origin: `http://127.0.0.1:${toolsPort}`, teamOrigin: controlOrigin,
+  createApplication: createProviderApplication, configuration: () => providers.snapshot() });
 const skills = new NativeSkills({ root: "/run/neural-labs/skills", manager: createSkillsManager({
   personalRoot: path.join(path.dirname(workspaceRoot), ".agents", "skills"), teamRoot: path.join(workspaceRoot, "skills"),
   libraryRoots: [path.join(root, "installed-skills")],
@@ -92,6 +93,8 @@ const server = createWorkspaceHttpServer({ desktopRoot: "/usr/local/share/neural
   skillLibraryRoots: [path.join(root, "installed-skills")],
   runtimeReady: async () => !stopping && triggers.status().ready, mcpStatus, apiProviderRuntime: providers, terminalManager: terminals,
   terminalActorResolver: resolveActor, workspaceControlToken: token, codexVersion: release.codex, claudeVersion: release.claude,
+  runTeamAgent: input => runtime.runTeam({ run: input.runId, channel: input.channelId,
+    actor: input.userId, capability: input.capability, prompt: input.prompt, trigger: input.trigger, signal: input.signal }),
   voiceService: createVoiceService({ safetySecret: token }),
   maxUploadBytes: Number(process.env.NEURAL_LABS_WORKSPACE_MAX_UPLOAD_BYTES || 2 * 1024 ** 3),
 });

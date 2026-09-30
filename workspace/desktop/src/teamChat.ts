@@ -49,6 +49,7 @@ export type TeamMessage = {
   activities?: TeamRunActivity[];
   createdAt: string;
 };
+export type TeamNativeApproval = { id: string; request: { method?: string; params?: unknown } };
 
 type ApiError = { error?: { message?: string } };
 
@@ -74,6 +75,10 @@ function mutate(csrfToken: string, method: string, body?: unknown): RequestInit 
 }
 
 export const teamChatApi = {
+  nativeApprovals: (runId: string) => json<{ approvals: TeamNativeApproval[] }>(`/api/admin/runtime/team-approvals/${encodeURIComponent(runId)}`),
+  resolveNativeApproval: (csrfToken: string, runId: string, approvalId: string, decision: "accept" | "decline") =>
+    json<{ ok: true }>(`/api/admin/runtime/team-approvals/${encodeURIComponent(runId)}/${encodeURIComponent(approvalId)}`,
+      mutate(csrfToken, "POST", { decision })),
   cancel: (csrfToken: string, channelId: string) =>
     json<void>(`/api/team/channels/${encodeURIComponent(channelId)}/cancel`, mutate(csrfToken, "POST")),
   postMemo: (csrfToken: string, channelId: string, input: { body: string; attachments: TeamAttachment[]; clientRequestId: string }, signal?: AbortSignal) =>

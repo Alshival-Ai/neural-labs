@@ -1,6 +1,8 @@
 import { NativeAccessError } from "./nativeErrors.js";
 export { NativeAccessError } from "./nativeErrors.js";
 import { authorizeNativeBackground, nativeBackgroundSchema } from "./nativeBackground.js";
+import { authorizeNativeTeam, nativeTeamSchema } from "./nativeTeam.js";
+import { portalExchange } from "./managed.js";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { Express, Request, Response, RequestHandler } from "express";
 import { z } from "zod";
@@ -10,6 +12,7 @@ import type { SessionActor } from "./types.js";
 import type { ControlPlaneConfig } from "./config.js";
 
 const selectionSchema = z.object({ connection: z.string().uuid(), model: z.string().trim().min(1).max(160) }).strict();
+const defaultSchema = selectionSchema.extend({ generation: z.number().int().positive(), revision: z.number().int().nonnegative() }).strict();
 const operationSchema = z.object({
   operation: z.enum(["conversations.list", "conversations.create", "conversations.update", "conversations.delete",
     "jobs.snapshot", "jobs.create", "jobs.update", "jobs.remove", "jobs.review", "jobs.run", "turns.start", "turns.cancel", "events.read", "approvals.resolve", "models.list", "account.status", "account.login", "account.refresh", "account.cancel"]),
@@ -75,6 +78,80 @@ export function registerNativeRuntime(app: Express, database: Database, sessions
     catch (error) { res.status(error instanceof NativeAccessError ? error.status : 503).json({ error: {
       message: error instanceof NativeAccessError ? error.message : "Native execution is temporarily unavailable" } }); }
   };
+  for (const team of [false, true]) {
+    const route = team ? "/api/admin/runtime/team-defaults" : "/api/runtime/defaults";
+    const key = (actor: SessionActor) => team ? "workspace:team" : `user:${actor.user.id}`;
+    const active = async (req: Request, res: Response) => {
+      const actor = await options.active(req, res);
+      if (actor && team && actor.user.role !== "admin") throw new NativeAccessError(403, "Administrator access is required");
+      return actor;
+    };
+    app.get(route, wrap(async (req, res) => {
+      const actor = await active(req, res); if (!actor) return;
+      const result = await database.pool.query(`SELECT connection_id AS connection,connection_generation AS generation,model,revision
+        FROM native_chat_defaults WHERE selection_key=$1`, [key(actor)]);
+      res.json({ selection: result.rows[0] || null, revision: Number(result.rows[0]?.revision || 0) });
+    }));
+    app.put(route, options.sameOrigin, wrap(async (req, res) => {
+      const actor = await active(req, res); if (!actor || !options.csrf(req, res, actor)) return;
+      const parsed = defaultSchema.safeParse(req.body);
+      if (!parsed.success) throw new NativeAccessError(400, "Choose an active connection and model");
+      const { connection, generation, model, revision } = parsed.data;
+      const selected = await database.pool.query(`SELECT id FROM native_connections WHERE id=$1 AND generation=$2 AND enabled
+        AND ($3::boolean AND scope='team' OR NOT $3::boolean AND (scope='shared' OR scope='personal' AND user_id=$4))`,
+      [connection, generation, team, actor.user.id]);
+      if (!selected.rowCount) throw new NativeAccessError(403, "The selected connection is unavailable");
+      const selectionKey = key(actor), owner = team ? null : actor.user.id;
+      const saved = revision === 0
+        ? await database.pool.query(`INSERT INTO native_chat_defaults(selection_key,user_id,connection_id,connection_generation,model)
+          VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING
+          RETURNING connection_id AS connection,connection_generation AS generation,model,revision`,
+        [selectionKey, owner, connection, generation, model])
+        : await database.pool.query(`UPDATE native_chat_defaults SET connection_id=$3,connection_generation=$4,model=$5,
+          revision=revision+1,updated_at=now() WHERE selection_key=$1 AND user_id IS NOT DISTINCT FROM $2 AND revision=$6
+          RETURNING connection_id AS connection,connection_generation AS generation,model,revision`,
+        [selectionKey, owner, connection, generation, model, revision]);
+      if (!saved.rowCount) throw new NativeAccessError(409, "The selected model changed in another window. Reload and try again");
+      await database.audit(actor.user.id, team ? "workspace.native_team_default.updated" : "account.native_default.updated",
+        team ? null : actor.user.id, { connection, generation, model, revision: saved.rows[0].revision });
+      res.json({ selection: saved.rows[0], revision: Number(saved.rows[0].revision) });
+    }));
+  }
+  const teamApproval = async (req: Request, res: Response, operation: "read" | "resolve") => {
+    const actor = await options.active(req, res); if (!actor) return;
+    if (actor.user.role !== "admin") throw new NativeAccessError(403, "Administrator access is required");
+    if (config.managed) {
+      const identity = (await database.pool.query(`SELECT subject FROM managed_identities WHERE user_id=$1 AND issuer=$2 AND workspace=$3`,
+        [actor.user.id, config.managed.portalOrigin, config.managed.workspace])).rows[0];
+      if (!identity) throw new NativeAccessError(403, "Administrator membership is unavailable");
+      const members = z.object({ members: z.array(z.object({ subject: z.string(), role: z.enum(["admin", "user"]) })) })
+        .parse(await portalExchange(config, "members", { subjects: [identity.subject] }));
+      if (!members.members.some(member => member.subject === identity.subject && member.role === "admin"))
+        throw new NativeAccessError(403, "Administrator membership was revoked");
+    }
+    if (operation === "resolve" && !options.csrf(req, res, actor)) return;
+    const run = z.string().uuid().safeParse(req.params.run);
+    const approval = operation === "resolve" ? z.string().uuid().safeParse(req.params.approval) : undefined;
+    const decision = operation === "resolve" ? z.enum(["accept", "decline", "cancel"]).safeParse(req.body?.decision) : undefined;
+    if (!run.success || approval && !approval.success || decision && !decision.success)
+      throw new NativeAccessError(400, "Invalid Team Chat approval request");
+    const current = await database.pool.query(`SELECT id FROM team_agent_runs WHERE id=$1 AND status='running' AND expires_at>now()`, [run.data]);
+    if (!current.rowCount) throw new NativeAccessError(409, "Team Chat run is no longer active");
+    const upstream = await (options.fetch ?? fetch)(new URL("/internal/native/team-approvals", config.workspace.controlUrl), {
+      method: "POST", redirect: "error", signal: AbortSignal.timeout(10000),
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.workspace.controlToken}` },
+      body: JSON.stringify({ operation, run: run.data,
+        ...(approval?.success ? { approval: approval.data } : {}), ...(decision?.success ? { decision: decision.data } : {}) }),
+    });
+    if (!upstream.ok) throw new NativeAccessError(409, "Team Chat approval is unavailable");
+    const result = await upstream.json();
+    if (operation === "resolve") await database.audit(actor.user.id, "team.native_approval.resolved", run.data,
+      { approval: approval!.data, decision: decision!.data });
+    res.json(result);
+  };
+  app.get("/api/admin/runtime/team-approvals/:run", wrap((req, res) => teamApproval(req, res, "read")));
+  app.post("/api/admin/runtime/team-approvals/:run/:approval", options.sameOrigin,
+    wrap((req, res) => teamApproval(req, res, "resolve")));
   app.get("/api/runtime/connections", wrap(async (req, res) => {
     const actor = await options.active(req, res); if (!actor) return;
     const result = await database.pool.query(`SELECT id,scope,provider,method,label,enabled,generation FROM native_connections
@@ -129,6 +206,16 @@ export function registerNativeRuntime(app: Express, database: Database, sessions
     const gate = (await database.pool.query("SELECT gate FROM update_runtime WHERE singleton")).rows[0];
     if (!gate || gate.gate !== false) throw new NativeAccessError(503, "Workspace maintenance is in progress");
     res.json(await authorizeNativeBackground(database, config, parsed.data));
+  }));
+  app.post("/internal/native/team", wrap(async (req, res) => {
+    const supplied = Buffer.from(req.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "");
+    const expected = Buffer.from(config.workspace.controlToken);
+    if (!expected.length || supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) throw new NativeAccessError(401, "Unauthorized");
+    const parsed = nativeTeamSchema.safeParse(req.body);
+    if (!parsed.success) throw new NativeAccessError(400, "A Team Chat run capability is required");
+    const gate = (await database.pool.query("SELECT gate FROM update_runtime WHERE singleton")).rows[0];
+    if (!gate || gate.gate !== false) throw new NativeAccessError(503, "Workspace maintenance is in progress");
+    res.json(await authorizeNativeTeam(database, config, parsed.data));
   }));
   app.post("/internal/native/interactive", wrap(async (req, res) => {
     const supplied = Buffer.from(req.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "");

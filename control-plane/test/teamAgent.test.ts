@@ -32,7 +32,7 @@ describe("Team Chat personal Alshival runner", () => {
       claimRun: vi.fn(async () => ({ ...run, status: "running" as const })),
       runContext: vi.fn(async () => ({
         channel: { name: "Release room" },
-        trigger: { id: run.triggerMessageId },
+        trigger: { id: run.triggerMessageId, body: "@Alshival summarize this" },
         messages: [{
           id: run.triggerMessageId, sequence: 1, channelId: run.channelId, authorKind: "user", author: { id: run.requestedBy!, handle: "maya", displayName: "Maya", role: "user" },
           body: "@Alshival summarize this", attachments: [{ path: "reports/chart.png", name: "chart.png", type: "image/png", size: 2048 }], mentions: [], activities: [], createdAt: "2026-09-03T00:00:00.000Z",
@@ -58,7 +58,8 @@ describe("Team Chat personal Alshival runner", () => {
     processor.enqueue({ ...run, terminalContextToken: `nlt_${"a".repeat(43)}` });
     await vi.waitFor(() => expect(finishRun).toHaveBeenCalled());
 
-    expect(requestBody).toMatchObject({ terminalContextToken: `nlt_${"a".repeat(43)}`, userId: run.requestedBy, runId: run.id, capability: run.capability });
+    expect(requestBody).toMatchObject({ terminalContextToken: `nlt_${"a".repeat(43)}`, userId: run.requestedBy, runId: run.id, capability: run.capability,
+      trigger: "@Alshival summarize this" });
     expect(String(requestBody?.prompt)).toContain("@maya: @Alshival summarize this");
     expect(String(requestBody?.prompt)).toContain("chart.png (reports/chart.png · image/png)");
     expect(String(requestBody?.prompt)).toContain("neural_labs_post_channel_message");

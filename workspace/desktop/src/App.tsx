@@ -31,7 +31,7 @@ import {
 } from "./fontScale";
 import type { WorkspacePreviewFile } from "./filesApi";
 import { NativeClient } from "./nativeClient";
-import { configureNativeActor, nativeSelection } from "./nativeApi";
+import { configureNativeActor, loadNativeDefault, nativeSelection } from "./nativeApi";
 import { NativeAutomationsClient } from "./automationsApi";
 import { openPopoutSurface, type PopoutSurface } from "./popoutWindow";
 import { TerminalLaunchContext } from "./TerminalLaunchContext";
@@ -309,8 +309,11 @@ export function App() {
         if (stopped) return;
         if (payload.user?.id && payload.csrfToken) {
           configureNativeActor(payload.user.id, payload.csrfToken);
-          gateway.start();
-          if (!nativeSelection()) notify("Select your native AI connection in Model Provider settings.", "open-personalization");
+          void loadNativeDefault().catch(() => undefined).finally(() => {
+            if (stopped) return;
+            gateway.start();
+            if (!nativeSelection()) notify("Select your native AI connection in Model Provider settings.", "open-personalization");
+          });
         }
         const userId = payload.user?.id;
         if (userId) {

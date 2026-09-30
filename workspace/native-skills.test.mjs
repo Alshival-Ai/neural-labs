@@ -50,6 +50,18 @@ test("linked package content fails closed and cleans up its execution snapshot",
   await assert.rejects(f.skills.prepare({ actor: "alice", provider: "claude", input: [{ type: "text", text: "$linked" }] }));
   assert.deepEqual(await readdir(path.join(f.root, "executions")), []);
 });
+test("Team Chat activates only skills in the triggering message, not historical transcript text", async t => {
+  const f = await fixture(t);
+  await f.save("alice", "alice-private");
+  await f.save("alice", "old-skill", "team");
+  await f.save("alice", "current-skill", "team");
+  const prepared = await f.skills.prepare({ actor: "alice", provider: "codex",
+    input: [{ type: "text", text: "Earlier: $old-skill. Triggering message: $current-skill" }],
+    requestedSkillText: "@Alshival $current-skill please", scope: "team" });
+  assert.deepEqual(prepared.packages.map(row => row.key).sort(), ["current-skill", "old-skill"]);
+  assert.deepEqual(prepared.input.filter(row => row.type === "skill").map(row => row.name), ["current-skill"]);
+  await prepared.release();
+});
 test("disabled state survives builder edits and scope changes", async t => {
   const f = await fixture(t), skill = await f.save("alice", "paused");
   const file = path.join(path.dirname(skill.path), ".neural-labs.json");

@@ -61,17 +61,21 @@ async function snapshot(source, destination, relative = "", receipt = [], budget
 
 export class NativeSkills {
   constructor({ manager, root }) { this.manager = manager; this.root = root; }
-  async prepare({ actor, input, provider }) {
+  async prepare({ actor, input, provider, requestedSkillText, scope = "personal" }) {
     if (!["codex", "claude"].includes(provider)) throw new Error("Unknown skill provider");
+    if (!["personal", "team"].includes(scope)) throw new Error("Unknown skill scope");
     const owner = workspaceSkillActorId(actor);
     const skillActor = { id: owner, userId: actor, role: "user" };
     const records = (await this.manager.list(skillActor))
-      .filter(row => row.scope === "team" || row.ownerUserId === owner);
+      .filter(row => row.scope === "team" || scope === "personal" && row.ownerUserId === owner);
     const canonicalKeys = new Set(records.map(row => row.key));
     for (const record of await this.manager.library?.(skillActor) || []) {
       // An explicitly saved package wins over its installed original. The
       // original remains in the library and is never overwritten or deleted.
-      if (!canonicalKeys.has(record.key)) { records.push(record); canonicalKeys.add(record.key); }
+      if (!canonicalKeys.has(record.key) && (record.canonicalScope === "team" || record.scope === "team"
+          || scope === "personal" && record.ownerUserId === owner)) {
+        records.push(record); canonicalKeys.add(record.key);
+      }
     }
     await mkdir(this.root, { recursive: true, mode: 0o700 });
     const root = await mkdtemp(path.join(this.root, "execution-"));
@@ -98,7 +102,8 @@ export class NativeSkills {
         available.set(record.key, { target, userInvocable: !/^user-invocable:\s*false\s*$/m.test(document) });
         packages.push({ key: record.key, source: record.path, files, changes: [] });
       }
-      const requested = new Set(input.flatMap(row => [...row.text.matchAll(/(?:^|\s)\$([a-z0-9][a-z0-9-]*)(?=$|[\s.,:;!?])/g)].map(match => match[1])));
+      const requested = new Set((requestedSkillText === undefined ? input.map(row => row.text) : [requestedSkillText])
+        .flatMap(text => [...text.matchAll(/(?:^|\s)\$([a-z0-9][a-z0-9-]*)(?=$|[\s.,:;!?])/g)].map(match => match[1])));
       const instructions = [];
       for (const key of requested) {
         const skill = available.get(key);

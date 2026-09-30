@@ -127,6 +127,8 @@ export async function runCodexTurn({
   if (mcpConfig) {
     args.push("-c", `mcp_servers.neural-labs.url=${JSON.stringify(mcpConfig.url)}`,
       "-c", `mcp_servers.neural-labs.http_headers={${Object.entries(mcpConfig.http_headers).map(([key, value]) => `${JSON.stringify(key)}=${JSON.stringify(value)}`).join(",")}}`);
+    if (mcpConfig.team) args.push("-c", `mcp_servers.neural-labs-team.url=${JSON.stringify(mcpConfig.team.url)}`,
+      "-c", `mcp_servers.neural-labs-team.http_headers={${Object.entries(mcpConfig.team.http_headers).map(([key, value]) => `${JSON.stringify(key)}=${JSON.stringify(value)}`).join(",")}}`);
   }
   const rpc = createRpc(command, args, { cwd, env });
   let threadId, turnId, settled = false, result, resolveDone, eventTail = Promise.resolve();

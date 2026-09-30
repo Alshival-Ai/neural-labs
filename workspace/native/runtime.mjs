@@ -16,10 +16,11 @@ function session(row) {
 export function controlPlaneAuthority({ origin, token, request = fetch }) {
   return async lease => {
     const scheduled = typeof lease === "object" && lease?.job;
-    if (!scheduled) identity(lease);
-    const url = new URL(scheduled ? "/internal/native/background" : "/internal/native/lease", origin);
+    const team = typeof lease === "object" && lease?.team;
+    if (!scheduled && !team) identity(lease);
+    const url = new URL(scheduled ? "/internal/native/background" : team ? "/internal/native/team" : "/internal/native/lease", origin);
     const response = await request(url, { method: "POST", redirect: "error", signal: AbortSignal.timeout(5000),
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(scheduled ? lease : { lease }) });
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(scheduled || team ? lease : { lease }) });
     if (!response.ok) throw new Error("Native execution authorization was revoked or is unavailable");
     return response.json();
   };
@@ -34,6 +35,7 @@ export class NativeRuntime {
     this.skillHistory = new NativeSkillHistory(this.state);
     this.accounts = accounts || new NativeAccounts({ terminals, spawnPty, resolveActor });
     this.executionGrants = new Map();
+    this.teamExecutions = new Map();
     this.jobs = new NativeJobs({ state: this.state, changed: async () => this.triggers?.refresh(),
       authorizeReview: async (actorGrant, definition) => {
         const selected = definition.connection;
@@ -100,7 +102,8 @@ export class NativeRuntime {
       const current = await this.authorize(lease);
       if (current.actor !== actor || current.actorRole !== original.actorRole || current.scope !== original.scope
           || current.connection !== original.connection || canonical(current.binding) !== binding
-          || current.model !== original.model || current.background !== original.background || current.authorityGeneration !== original.authorityGeneration || canonical(current.policy) !== canonical(original.policy)) {
+          || current.model !== original.model || current.background !== original.background || current.authorityGeneration !== original.authorityGeneration
+          || canonical(current.team ?? null) !== canonical(original.team ?? null) || canonical(current.policy) !== canonical(original.policy)) {
         throw new Error("Native execution binding changed");
       }
     };
@@ -110,7 +113,8 @@ export class NativeRuntime {
       credentialHome: `${NATIVE_HOME}/${original.binding.provider === "codex" ? ".codex" : ".claude"}` };
     if (this.skills) grant.prepareLaunch = async input => {
       await revalidate();
-      const prepared = await this.skills.prepare({ actor, input, provider: original.binding.provider });
+      const prepared = await this.skills.prepare({ actor, input, provider: original.binding.provider,
+        ...(grant.team ? { requestedSkillText: grant.teamTrigger, scope: "team" } : {}) });
       try {
         const launch = await this.launcher({ workspaceRoot: this.workspaceRoot, homeRoot,
           readOnly: policy.sandbox === "read-only", extraReadOnly: prepared.mounts, skillDiscoveryRoot: prepared.discovery });
@@ -123,6 +127,77 @@ export class NativeRuntime {
       if (!status.ready) throw new Error("The selected account requires native sign-in");
     }
     return grant;
+  }
+  async runTeam({ run, channel, actor, capability, prompt, trigger, signal }) {
+    identity(run); identity(channel); identity(actor);
+    if (typeof capability !== "string" || capability.length < 32 || typeof prompt !== "string" || !prompt.trim()
+        || typeof trigger !== "string" || Buffer.byteLength(trigger) > 128 * 1024
+        || Buffer.byteLength(prompt) > 2 * 1024 * 1024) throw new Error("Invalid Team Chat run");
+    if (this.turns.gated) throw new Error("Native runtime admission is closed");
+    const lease = { team: true, run, channel, actor, capability };
+    let grant;
+    try { grant = await this.execution(actor, lease, "team-run"); }
+    catch {
+      throw Object.assign(new Error("Ask an administrator to check the Team AI connection in Settings → Model Provider."),
+        { code: "team_connection_required" });
+    }
+    if (grant.purpose !== "team-run" || grant.scope !== "team" || grant.team?.run !== run
+        || grant.team?.channel !== channel || grant.team?.capability !== capability)
+      throw new Error("Team Chat execution binding failed");
+    grant.teamTrigger = trigger;
+    if (!(await this.accounts.status(grant, grant.launch)).ready)
+      throw Object.assign(new Error("The Team AI account needs sign-in in Settings → Model Provider."),
+        { code: "team_connection_required" });
+    const selection = Symbol(run);
+    this.executionGrants.set(selection, grant);
+    let turnId;
+    const abort = () => { if (turnId) void this.turns.cancel(actor, selection, turnId).catch(() => {}); };
+    signal?.addEventListener("abort", abort, { once: true });
+    try {
+      if (signal?.aborted) throw new Error("Team Chat run was cancelled");
+      const conversation = (await this.turns.create(actor, selection)).id;
+      this.state.updateConversation(conversation, actor, grant.binding,
+        { title: `Team Chat ${channel}`, archived: true, model: grant.model });
+      const turn = await this.turns.start(actor, selection, { conversation, requestId: run,
+        input: [{ type: "text", text: prompt }] });
+      turnId = turn.id;
+      this.teamExecutions.set(run, { actor, selection, turn: turn.id, grant });
+      if (signal?.aborted) abort();
+      const outcome = await this.turns.active.get(turn.id)?.done;
+      if (outcome?.status !== "succeeded") throw new Error("Team Chat native turn did not complete");
+      await grant.revalidate();
+      const events = this.state.events(conversation, actor, grant.binding, 0);
+      const reply = events.filter(event => event.type === "output" && typeof event.payload?.text === "string")
+        .map(event => event.payload.text).join("").trim();
+      if (!reply) throw new Error("Team Chat native turn produced no reply");
+      return { reply };
+    } finally { signal?.removeEventListener("abort", abort); this.teamExecutions.delete(run); this.executionGrants.delete(selection); }
+  }
+  async teamApprovals(run) {
+    identity(run);
+    const active = this.teamExecutions.get(run);
+    if (!active) return { approvals: [] };
+    await active.grant.revalidate();
+    return { approvals: [...this.turns.approvals.entries()]
+      .filter(([, pending]) => pending.execution.id === active.turn)
+      .map(([id, pending]) => ({ id, request: pending.request })) };
+  }
+  async resolveTeamApproval(run, approval, decision) {
+    identity(run); identity(approval);
+    if (!["accept", "decline", "cancel"].includes(decision)) throw new Error("Invalid Team Chat approval decision");
+    const active = this.teamExecutions.get(run);
+    if (!active) throw new Error("Team Chat run is no longer active");
+    await active.grant.revalidate();
+    const pending = this.turns.approvals.get(approval);
+    if (!pending || pending.execution.id !== active.turn) throw new Error("Team Chat approval is unavailable");
+    if (pending.request.method === "item/tool/requestUserInput") {
+      if (decision === "accept") throw new Error("This Team Chat request needs an answer, not permission");
+      await this.turns.cancel(active.actor, active.selection, active.turn);
+      return { ok: true };
+    }
+    await this.turns.approve(active.actor, active.selection, approval,
+      pending.request.method === "mcpServer/elicitation/request" ? { action: decision } : { decision });
+    return { ok: true };
   }
   async handle({ actor, lease, operation, params = {} }) {
     identity(actor); identity(lease);

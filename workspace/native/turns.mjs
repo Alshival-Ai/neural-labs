@@ -83,7 +83,7 @@ export class NativeTurns extends EventEmitter {
           approve: async request => {
             await grant.revalidate();
             const id = randomUUID();
-            const answer = new Promise(resolve => this.approvals.set(id, { execution, resolve }));
+            const answer = new Promise(resolve => this.approvals.set(id, { execution, request, resolve }));
             emit("approval-required", { id, request });
             try { return await answer; }
             finally { this.approvals.delete(id); }

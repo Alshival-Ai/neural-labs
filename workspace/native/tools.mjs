@@ -7,9 +7,9 @@ const READ_TOOLS = new Set(["google_places_search", "google_place_details", "goo
 // One MCP application per live execution capability. Connector keys stay in
 // this trusted service; provider processes receive only a revocable turn token.
 export class NativeTools {
-  constructor({ origin, createApplication, configuration, request = fetch }) {
+  constructor({ origin, teamOrigin, createApplication, configuration, request = fetch }) {
     this.origin = new URL(origin); this.createApplication = createApplication;
-    this.configuration = configuration; this.request = request; this.sessions = new Map();
+    this.teamOrigin = teamOrigin; this.configuration = configuration; this.request = request; this.sessions = new Map();
   }
   async mint(grant) {
     await grant.revalidate();
@@ -36,18 +36,47 @@ export class NativeTools {
     const application = this.createApplication(this.configuration, transport, undefined, authorizeTool);
     const entry = { application, grant, revoke: () => { active = false; } }; this.sessions.set(token, entry);
     const url = new URL("/mcp", this.origin).href, headers = { Authorization: `Bearer ${token}` };
+    const team = grant.team && this.teamOrigin ? { url: new URL("/team-mcp", this.origin).href, http_headers: headers } : undefined;
     return {
-      codex: { url, http_headers: headers }, claude: { mcpServers: { "neural-labs": { type: "http", url, headers } } },
+      codex: { url, http_headers: headers, ...(team ? { team } : {}) },
+      claude: { mcpServers: { "neural-labs": { type: "http", url, headers },
+        ...(team ? { "neural-labs-team": { type: "http", url: team.url, headers } } : {}) } },
       release: async () => { active = false; this.sessions.delete(token); await application.close(); },
     };
   }
   async handle(request, response) {
     const token = request.headers.authorization?.replace(/^Bearer\s+/i, "");
     const session = typeof token === "string" ? this.sessions.get(token) : undefined;
-    if (!session || request.url !== "/mcp") { response.writeHead(401, { "Cache-Control": "no-store" }).end(); return; }
+    if (!session || !["/mcp", "/team-mcp"].includes(request.url)) { response.writeHead(401, { "Cache-Control": "no-store" }).end(); return; }
     try {
       await session.grant.revalidate();
       if (this.sessions.get(token) !== session) throw new Error("Execution ended");
+      if (request.url === "/team-mcp") {
+        if (!session.grant.team || !this.teamOrigin || request.method !== "POST") throw new Error("Team Chat tool unavailable");
+        const chunks = []; let size = 0;
+        for await (const chunk of request) {
+          size += chunk.length;
+          if (size > 1024 * 1024) throw new Error("Team Chat tool request exceeds limit");
+          chunks.push(chunk);
+        }
+        await session.grant.revalidate();
+        const upstream = await this.request(new URL("/internal/team-mcp", this.teamOrigin), {
+          method: "POST", redirect: "error", signal: AbortSignal.timeout(65000),
+          headers: { Authorization: `Bearer ${session.grant.team.capability}`, "Content-Type": "application/json" },
+          body: Buffer.concat(chunks),
+        });
+        const responseChunks = []; let total = 0;
+        if (!upstream.body) throw new Error("Team Chat tool response is empty");
+        for await (const chunk of upstream.body) {
+          total += chunk.length;
+          if (total > 4 * 1024 * 1024) throw new Error("Team Chat tool response exceeds limit");
+          responseChunks.push(chunk);
+        }
+        const body = Buffer.concat(responseChunks);
+        await session.grant.revalidate();
+        response.writeHead(upstream.status, { "Cache-Control": "no-store", "Content-Type": upstream.headers.get("content-type") || "application/json" }).end(body);
+        return;
+      }
       // The MCP application is not the account/session authority. Consume the
       // scoped bearer here and do not forward it to provider HTTP transports.
       delete request.headers.authorization;

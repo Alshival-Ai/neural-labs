@@ -125,6 +125,52 @@ test("authenticated native service executes, reconnects and keeps actor ownershi
   assert.equal((await f.request("conversations.list")).sessions.length, 0);
   assert.equal(f.service.state.db.prepare("SELECT COUNT(*) AS n FROM turns").get().n, 1);
 });
+test("Team Chat runs through the native CLI with a revalidated Team-only binding", async t => {
+  const f = await fixture(t); f.service.turns.gated = false;
+  const input = { run: "team-run", channel: "team-channel", actor: "member",
+    capability: "team-capability-at-least-thirty-two-characters", prompt: "Help the team", trigger: "@Alshival help" };
+  f.service.authorize = async lease => {
+    assert.equal(lease.team, true);
+    assert.equal(lease.run, input.run);
+    return { actor: input.actor, actorRole: "user", connection: "team-account",
+      binding: { provider: "codex", owner: "team-account", generation: 1, method: "subscription" },
+      model: "fixture", background: false, scope: "team", purpose: "team-run",
+      team: { run: input.run, channel: input.channel, capability: input.capability, revision: 1 },
+      policy: { sandbox: "workspace-write", approval: "on-request" } };
+  };
+  assert.deepEqual(await f.service.runTeam(input), { reply: "fixture reply" });
+  assert.equal(f.contexts[0].model, "fixture");
+  assert.equal(f.contexts[0].background, false);
+  assert.equal(f.launches[0].homeRoot.endsWith("/accounts/team-account"), true);
+});
+test("Team Chat permissions wait for an explicit administrator decision", async t => {
+  const f = await fixture(t); f.service.turns.gated = false;
+  const input = { run: "team-approval-run", channel: "team-channel", actor: "member",
+    capability: "team-capability-at-least-thirty-two-characters", prompt: "Run a command", trigger: "@Alshival run a command" };
+  f.service.authorize = async () => ({ actor: input.actor, actorRole: "user", connection: "team-account",
+    binding: { provider: "codex", owner: "team-account", generation: 1, method: "subscription" },
+    model: "fixture", background: false, scope: "team", purpose: "team-run",
+    team: { run: input.run, channel: input.channel, capability: input.capability, revision: 1 },
+    policy: { sandbox: "workspace-write", approval: "on-request" } });
+  let received;
+  f.service.turns.providers.codex = async ctx => {
+    received = await ctx.approve({ method: "item/commandExecution/requestApproval", params: { command: "pwd" } });
+    await ctx.onEvent("output", { text: "Approved" });
+    return { status: "succeeded" };
+  };
+  const running = f.service.runTeam(input);
+  let approvals = [];
+  for (let index = 0; index < 100 && !approvals.length; index++) {
+    approvals = (await f.service.teamApprovals(input.run)).approvals;
+    if (!approvals.length) await new Promise(resolve => setTimeout(resolve, 5));
+  }
+  assert.equal(approvals.length, 1);
+  await assert.rejects(f.service.resolveTeamApproval("different-run", approvals[0].id, "accept"), /no longer active/);
+  await f.service.resolveTeamApproval(input.run, approvals[0].id, "accept");
+  assert.deepEqual(await running, { reply: "Approved" });
+  assert.deepEqual(received, { decision: "accept" });
+  assert.deepEqual((await f.service.teamApprovals(input.run)).approvals, []);
+});
 test("event reads batch nearby output while preserving every delta", async t => {
   const f = await fixture(t); f.service.turns.gated = false;
   const { session } = await f.request("conversations.create");

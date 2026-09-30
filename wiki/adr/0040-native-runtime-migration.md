@@ -45,6 +45,18 @@ workflow lock. Manual executions retain their initiating actor/connection withou
 modifying the scheduled account. Scheduled permission requirements block work
 visibly rather than widening permissions.
 
+Team Chat uses a separately saved Team connection and model. Each native Team
+turn is bound to the control plane's running channel capability, initiating
+member, active channel membership, credential generation, and (for managed
+instances) live portal membership. The runtime revalidates that binding while
+the CLI runs. A local MCP proxy holds the channel capability server-side and
+exposes only the invoking channel's tools to the provider. Native command/file
+permission requests require an active administrator's explicit decision;
+managed administrator role is checked against the portal at decision time.
+The initiator's personal connection is never a Team fallback. Team turns mount
+only workspace-owned Team skill packages; only the current triggering message
+can explicitly activate one, so old transcript mentions cannot replay skills.
+
 ## Preservation
 
 Use a read-only inventory, then a consistent export after gating and draining

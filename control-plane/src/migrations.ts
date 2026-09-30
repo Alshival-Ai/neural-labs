@@ -545,4 +545,18 @@ export const migrations: Migration[] = [
       UPDATE update_runtime SET available=NULL,installed=NULL,codex=NULL,heartbeat=NULL,checked_at=NULL;
     `,
   },
+  {
+    version: 19,
+    sql: `CREATE TABLE native_chat_defaults (
+      selection_key text PRIMARY KEY,
+      user_id uuid REFERENCES users(id) ON DELETE CASCADE,
+      connection_id uuid NOT NULL REFERENCES native_connections(id),
+      connection_generation integer NOT NULL CHECK(connection_generation > 0),
+      model text NOT NULL CHECK(length(model) BETWEEN 1 AND 160),
+      revision bigint NOT NULL DEFAULT 1 CHECK(revision > 0),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      CHECK ((selection_key = 'workspace:team' AND user_id IS NULL)
+        OR (user_id IS NOT NULL AND selection_key = 'user:' || user_id::text))
+    );`,
+  },
 ];

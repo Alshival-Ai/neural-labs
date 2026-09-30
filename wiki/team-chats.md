@@ -1,9 +1,9 @@
 # Team Chats
 
 Team Chats are durable, multi-user channels inside the Alshival desktop app. They
-are separate from private Alshival conversations: a new private conversation is
-still an OpenClaw creator-only `draft`, while a Team Chat is stored by the
-control plane in PostgreSQL and has an explicit audience.
+are separate from private Alshival conversations. Team channels, messages, and
+run records live in the control-plane PostgreSQL database and have an explicit
+audience.
 
 ## Using Team Chats
 
@@ -17,9 +17,9 @@ Open Alshival and use the **Team chats** section in the conversation sidebar.
   handle in Settings → Personalization.
 - Type `$` to open the same enabled-skill picker used in a private Alshival chat.
   Sending a `$skill-name` command asks Alshival to run that skill. Use `@Alshival`
-  for a general request; `$Alshival` is not an agent mention. Before dedicated Team
-  Alshival activation, the author connects a personal account in **Settings → Model
-  Provider**. After activation, Team Chat uses the dedicated account. See
+  for a general request; `$Alshival` is not an agent mention. An administrator
+  selects a dedicated Team connection and model under **Settings → Model Provider
+  → Advanced connections** before Team Chat can run Alshival. See
   [AI accounts](ai-accounts.md). An ordinary mention such as `@teammate` does not
   invoke the agent.
 - Images appear as embedded previews, while other attachments appear as
@@ -73,25 +73,31 @@ the archive. A source conversation can be shared only once by its creator.
 `@Alshival` or a `$skill-name` command queues a durable agent-run record and issues
 a random, short-lived capability. Only a hash of that capability is stored in
 PostgreSQL. The control plane sends the recent channel transcript and the run
-capability to the workspace's authenticated internal runner. The runner starts
-an isolated OpenClaw execution using the selected Team account policy. Until
-an administrator first activates dedicated Team Alshival, it uses the message
-author's personal agent. After activation, queued requests capture the applied
-Team model defaults and use the dedicated credential. Missing credentials fail
-the turn without falling back to a personal, background, or audio API account.
+capability to the workspace's authenticated internal runner. The native runtime
+launches Codex app-server or Claude Code using the administrator's saved Team
+connection and model. Before launch and during execution, the control plane
+checks the run capability, channel membership, Team connection generation, and
+managed portal membership when applicable. Missing or paused Team credentials
+fail the turn without choosing a personal account.
 
-For that process only, OpenClaw receives an MCP server configuration whose
-authorization header comes from the run capability. The built-in MCP surface
+For that turn only, the CLI receives a local MCP token. The trusted workspace
+service forwards Team MCP requests with the run capability after revalidating
+execution authority. The built-in MCP surface
 can inspect channel metadata, read the current channel, and post as Alshival with
 shared-workspace file references. It
 cannot select or access another channel. Alshival receives up to 250 recent
 messages plus bounded, redacted plans, commands, file operations, and tool
-results from earlier Alshival turns as handoff context. The same public work
-details are stored with the run and shown in a collapsed timeline below the
-Team Chat answer. Raw model reasoning is not included. The complete
+results from earlier Alshival turns as handoff context. Raw model reasoning is
+not included. The complete
 orchestration prompt remains capped at 1 MiB. The capability expires when the
-run finishes or after 20 minutes. Two Team Chat Alshival turns may execute
-concurrently; additional turns remain queued.
+run finishes or after 20 minutes. Turns in one channel execute in order;
+independent channels can run concurrently.
+
+Native CLI command and file permission requests appear in Team Chat for
+administrators only. An administrator chooses **Allow once** or **Decline**;
+the message author cannot approve the CLI action. Pending approvals stay with
+the active run across browser reconnects. Revoking membership or the Team
+connection stops native execution on its next authority check.
 
 The dedicated-appliance defaults allow 128 KiB messages, 100 attachments per
 message, 500 messages per history page, 2,000 members or imported messages per

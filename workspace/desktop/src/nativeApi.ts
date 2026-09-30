@@ -18,6 +18,24 @@ export function selectNativeConnection(selection: NativeSelection) {
   localStorage.setItem(`neural-labs.native-selection.${currentActor}`, JSON.stringify(selection));
   window.dispatchEvent(new Event("neural-labs-native-selection"));
 }
+export async function loadNativeDefault() {
+  if (!currentActor) return;
+  const actor = currentActor;
+  const result = await settingsRequest<{ selection: (NativeSelection & { generation: number }) | null }>("/api/runtime/defaults",
+    { signal: AbortSignal.timeout(5000) });
+  if (actor !== currentActor || !result.selection) return;
+  const { connection, model } = result.selection;
+  if (typeof connection === "string" && typeof model === "string" && model)
+    selectNativeConnection({ connection, model });
+}
+export async function saveNativeDefault(selection: NativeSelection, generation: number, team = false) {
+  if (!currentActor) throw new Error("Sign in to select an AI connection");
+  const route = team ? "/api/admin/runtime/team-defaults" : "/api/runtime/defaults";
+  const current = await settingsRequest<{ revision: number }>(route);
+  if (!Number.isSafeInteger(current.revision) || current.revision < 0) throw new Error("The saved AI selection is unavailable");
+  return settingsRequest<{ revision: number }>(route, { method: "PUT", headers: { "X-CSRF-Token": csrfToken },
+    body: JSON.stringify({ ...selection, generation, revision: current.revision }) });
+}
 export async function nativeRequest<T>(operation: string, params: Record<string, unknown> = {}, selection = nativeSelection(), signal?: AbortSignal): Promise<T> {
   if (!selection) throw new Error("Select your AI connection in Settings → Model Provider");
   return settingsRequest<T>("/api/runtime/request", { method: "POST", headers: { "X-CSRF-Token": csrfToken },

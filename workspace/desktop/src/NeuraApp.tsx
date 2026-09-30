@@ -42,7 +42,7 @@ import { activitiesFromGatewayEvent, eventRecord, assistantMessageContent, messa
 import { readDeviceState, writeDeviceState } from "./deviceState";
 import { createWorkspaceFolder, uploadWorkspaceFile, workspaceContentUrl, workspaceDownloadUrl, type WorkspacePreviewFile } from "./filesApi";
 import { listCustomSkills } from "./skillsApi";
-import { teamChatApi, teamSocketUrl, type TeamAttachment, type TeamChannel, type TeamDirectoryUser, type TeamMessage } from "./teamChat";
+import { teamChatApi, teamSocketUrl, type TeamAttachment, type TeamChannel, type TeamDirectoryUser, type TeamMessage, type TeamNativeApproval } from "./teamChat";
 import { listTerminals, type TerminalDescriptor } from "./terminalApi";
 import { transcribeVoiceMemo, voiceMemoExtension } from "./voiceApi";
 import { usePrivateNeuraVoice, useTeamVoiceMemo, type VoiceMode } from "./useNeuraVoice";
@@ -437,6 +437,8 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
   const [teamMembers, setTeamMembers] = useState<TeamDirectoryUser[]>([]);
   const [teamConnection, setTeamConnection] = useState<ConnectionState>("connecting");
   const [teamAgentPhase, setTeamAgentPhase] = useState<TeamAgentPhase>();
+  const [teamRunId, setTeamRunId] = useState<string>();
+  const [teamNativeApprovals, setTeamNativeApprovals] = useState<TeamNativeApproval[]>([]);
   const [olderMessagesAvailable, setOlderMessagesAvailable] = useState(true);
   const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
   const [teamAgentError, setTeamAgentError] = useState<string>();
@@ -479,6 +481,7 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
   const [initialSessionsLoaded, setInitialSessionsLoaded] = useState(false);
   const [skills, setSkills] = useState<SkillSuggestion[]>([]);
   const [skillsLoaded, setSkillsLoaded] = useState(false);
+  const [teamSkills, setTeamSkills] = useState<SkillSuggestion[]>([]);
   const [skillTrigger, setSkillTrigger] = useState<SkillTrigger | null>(null);
   const [skillMenuIndex, setSkillMenuIndex] = useState(0);
   const [teamSkillTrigger, setTeamSkillTrigger] = useState<SkillTrigger | null>(null);
@@ -776,8 +779,9 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
             if (Array.isArray(value.users)) setTeamDirectory(value.users as TeamDirectoryUser[]);
           } else if (value.type === "snapshot" && value.channelId === selectedChannelRef.current && Array.isArray(value.messages)) {
             setTeamMessages(current => [...new Map([...current, ...value.messages as TeamMessage[]].map(item => [item.id, item])).values()].sort((a, b) => a.sequence - b.sequence));
-            const run = value.agentRun as { status?: string } | undefined;
+            const run = value.agentRun as { id?: string; status?: string } | undefined;
             setTeamAgentPhase(teamAgentPhaseFromStatus(run?.status));
+            setTeamRunId(run?.status === "running" && run.id ? run.id : undefined);
           } else if (value.type === "message.created" && value.channelId === selectedChannelRef.current && value.message) {
             const message = value.message as TeamMessage;
             setTeamMessages((current) => current.some((item) => item.id === message.id)
@@ -786,8 +790,9 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
           } else if (value.type === "channels.changed") {
             void refreshTeamChannels();
           } else if (value.type === "agent.status" && value.channelId === selectedChannelRef.current) {
-            const run = value.run as { status?: string; error?: string } | undefined;
+            const run = value.run as { id?: string; status?: string; error?: string } | undefined;
             setTeamAgentPhase(teamAgentPhaseFromStatus(run?.status));
+            setTeamRunId(run?.status === "running" && run.id ? run.id : undefined);
             if (run?.status === "queued" || run?.status === "running" || run?.status === "completed") setTeamAgentError(undefined);
             if (run?.status === "failed") setTeamAgentError(run.error ?? "Alshival could not complete that Team Chat turn.");
           } else if (value.type === "typing" && value.channelId === selectedChannelRef.current && value.user) {
@@ -851,6 +856,18 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
       .then((result) => { if (selectedChannelRef.current === selectedChannelId) setTeamMembers(result.users); })
       .catch(() => setTeamMembers([]));
   }, [selectedChannelId, notify]);
+  useEffect(() => {
+    if (currentUser?.role !== "admin" || !teamRunId || !selectedChannelId || !teamAgentPhase) {
+      setTeamNativeApprovals([]); return;
+    }
+    let live = true;
+    const refresh = () => void teamChatApi.nativeApprovals(teamRunId)
+      .then(result => { if (live) setTeamNativeApprovals(result.approvals); })
+      .catch(() => { if (live) setTeamNativeApprovals([]); });
+    refresh();
+    const timer = window.setInterval(refresh, 2000);
+    return () => { live = false; window.clearInterval(timer); };
+  }, [currentUser?.role, selectedChannelId, teamAgentPhase, teamRunId]);
 
   useEffect(() => {
     if (!selectedChannelId || teamMessages.length === 0) return;
@@ -907,6 +924,12 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
           visible.push({ key: custom.key, name: custom.name, description: custom.description });
         }
         setSkills(visible.sort((left, right) => left.name.localeCompare(right.name)));
+        const teamVisible = skillSuggestionsFromStatus(status);
+        for (const custom of customSkills) {
+          if (custom.scope !== "team" || teamVisible.some(skill => skill.key === custom.key)) continue;
+          teamVisible.push({ key: custom.key, name: custom.name, description: custom.description });
+        }
+        setTeamSkills(teamVisible.sort((left, right) => left.name.localeCompare(right.name)));
         setSkillsLoaded(true);
       })
       .catch(() => {
@@ -1187,7 +1210,7 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
   const pinnedTeamChannels = teamChannels.filter((channel) => channel.pinned && matchesHistory(channel.name));
   const regularTeamChannels = teamChannels.filter((channel) => !channel.pinned && matchesHistory(channel.name));
   const matchingSkills = useMemo(() => matchingSkillSuggestions(skills, skillTrigger), [skillTrigger, skills]);
-  const matchingTeamSkills = useMemo(() => matchingSkillSuggestions(skills, teamSkillTrigger), [skills, teamSkillTrigger]);
+  const matchingTeamSkills = useMemo(() => matchingSkillSuggestions(teamSkills, teamSkillTrigger), [teamSkills, teamSkillTrigger]);
   const matchingTeamMentions = useMemo(() => matchingTeamMentionSuggestions(teamMembers, teamMentionTrigger), [teamMembers, teamMentionTrigger]);
 
   const createConversation = async () => {
@@ -1963,6 +1986,16 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
                 <span className="activity-spinner" aria-hidden="true" />
                 <span><strong>{teamAgentPhase === "starting" ? "Starting Alshival…" : "Alshival is working…"}</strong><small>{teamAgentPhase === "starting" ? "Preparing your personal agent for this team channel." : "Work continues even if you leave this channel or the app reconnects."}</small></span>
               </div>
+              {currentUser?.role === "admin" && teamRunId && teamNativeApprovals.map(approval => <div key={approval.id} className="connection-error" role="group" aria-label="Team Chat permission request">
+                <strong>{approval.request.method === "item/tool/requestUserInput" ? "Alshival needs input to continue" : "Alshival requests permission"}</strong>
+                <p>{approval.request.method || "Native CLI action"}</p>
+                <pre>{JSON.stringify(approval.request.params ?? {}, null, 2).slice(0, 4000)}</pre>
+                {approval.request.method !== "item/tool/requestUserInput" && <button type="button" onClick={() => void teamChatApi.resolveNativeApproval(csrfToken, teamRunId, approval.id, "accept")
+                  .then(() => setTeamNativeApprovals(current => current.filter(item => item.id !== approval.id))).catch(error => notify(error instanceof Error ? error.message : "Approval failed"))}>Allow once</button>
+                }
+                <button type="button" onClick={() => void teamChatApi.resolveNativeApproval(csrfToken, teamRunId, approval.id, "decline")
+                  .then(() => setTeamNativeApprovals(current => current.filter(item => item.id !== approval.id))).catch(error => notify(error instanceof Error ? error.message : "Decline failed"))}>{approval.request.method === "item/tool/requestUserInput" ? "Cancel run" : "Decline"}</button>
+              </div>)}
             </div>
           </article>}
           {!selectedChannel && displayedActivities.length > 0 && <NeuraActivityTimeline activities={displayedActivities} live={agentBusy} />}

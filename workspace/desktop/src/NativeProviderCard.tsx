@@ -1,14 +1,15 @@
 import { useContext, useEffect, useRef, useState } from "react";
 import { TerminalLaunchContext } from "./TerminalLaunchContext";
-import { nativeRequest, nativeSelection, selectNativeConnection, type NativeConnection } from "./nativeApi";
+import { nativeRequest, nativeSelection, type NativeConnection, type NativeSelection } from "./nativeApi";
 import type { ProviderCatalog } from "./modelProviders";
 
 type Provider = NativeConnection["provider"];
 type AccountStatus = { ready: boolean; pending?: boolean; signIn?: { verificationUrl: string; userCode: string } };
 const OPENAI_DEVICE_URL = "https://auth.openai.com/codex/device";
 
-export function NativeProviderCard({ provider, connection, ensureConnection }: {
+export function NativeProviderCard({ provider, connection, ensureConnection, onSelect }: {
   provider: Provider; connection?: NativeConnection; ensureConnection: (provider: Provider) => Promise<NativeConnection>;
+  onSelect: (selection: NativeSelection, generation: number) => Promise<void>;
 }) {
   const launchTerminal = useContext(TerminalLaunchContext);
   const [status, setStatus] = useState<AccountStatus>();
@@ -34,7 +35,7 @@ export function NativeProviderCard({ provider, connection, ensureConnection }: {
           || result.models.find(row => row.available)?.id || "";
       setModel(preferred);
       if (activate && preferred) {
-        selectNativeConnection({ connection: id, model: preferred });
+        await onSelect({ connection: id, model: preferred }, connection?.generation || 1);
         autoSelect.current = false;
         setNotice(`${name} is ready for your chats. You can change the model below.`);
       } else if (!preferred) setNotice("No available models were returned. Check your account and reload models.");
@@ -129,9 +130,13 @@ export function NativeProviderCard({ provider, connection, ensureConnection }: {
     </div>
     {status?.ready && <div className="native-provider-ready"><label>{name} model<select value={model} disabled={!catalog || busy} onChange={event => {
       const value = event.target.value; setModel(value);
-      if (connectionId && value) { selectNativeConnection({ connection: connectionId, model: value }); setNotice(`${name} model selected for your chats.`); }
+      if (connectionId && value) void onSelect({ connection: connectionId, model: value }, connection?.generation || 1)
+        .then(() => setNotice(`${name} model selected for your chats.`))
+        .catch(error => setNotice(error instanceof Error ? error.message : "The model could not be selected."));
     }}><option value="">Choose a model</option>{catalog?.models.map(row => <option key={row.id} value={row.id} disabled={!row.available}>{row.name}</option>)}</select></label>
-      {!active && model && connectionId && <button className="settings-button is-primary" type="button" onClick={() => { selectNativeConnection({ connection: connectionId, model }); setNotice(`${name} is ready for your chats.`); }}>Use for my chats</button>}
+      {!active && model && connectionId && <button className="settings-button is-primary" type="button" onClick={() => void onSelect({ connection: connectionId, model }, connection?.generation || 1)
+        .then(() => setNotice(`${name} is ready for your chats.`))
+        .catch(error => setNotice(error instanceof Error ? error.message : "The model could not be selected."))}>Use for my chats</button>}
       <button className="settings-button" type="button" disabled={busy} onClick={() => connectionId && void loadModels(connectionId, false)}>Reload models</button>
     </div>}
     {notice && <p className="settings-card-note" role="status">{notice}</p>}

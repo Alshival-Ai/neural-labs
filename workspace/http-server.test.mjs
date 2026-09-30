@@ -441,7 +441,9 @@ test("protects the internal Team Chat Alshival runner with the workspace control
   try {
     const body = JSON.stringify({
       prompt: "Help the release room",
+      trigger: "@Alshival help the release room",
       capability: "channel-capability-at-least-thirty-two-characters",
+      channelId: "33333333-3333-4333-8333-333333333333",
       userId: "11111111-1111-4111-8111-111111111111",
       runId: "22222222-2222-4222-8222-222222222222",
     });
@@ -465,7 +467,9 @@ test("protects the internal Team Chat Alshival runner with the workspace control
     assert.equal(calls[0].signal.aborted, false);
     assert.deepEqual(calls.map(({ signal, ...input }) => input), [{
       prompt: "Help the release room",
+      trigger: "@Alshival help the release room",
       capability: "channel-capability-at-least-thirty-two-characters",
+      channelId: "33333333-3333-4333-8333-333333333333",
       userId: "11111111-1111-4111-8111-111111111111",
       runId: "22222222-2222-4222-8222-222222222222",
     }]);

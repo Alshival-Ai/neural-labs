@@ -66,3 +66,32 @@ test("a held delivery policy rejects sends without disabling read-only integrati
   await f.transport("http://control-plane:4174/internal/notifications/send", {});
   assert.equal(f.requests.length, 2);
 });
+test("Team MCP proxy forwards only the active channel capability and closes on revocation", async t => {
+  let authorized = true, upstream;
+  const tools = new NativeTools({ origin: "http://127.0.0.1:8792", teamOrigin: "http://control-plane:4174",
+    configuration: {}, createApplication: () => ({ app() {}, close: async () => {} }),
+    request: async (url, init) => { upstream = { url: String(url), init }; return new Response(JSON.stringify({ result: {} }),
+      { headers: { "Content-Type": "application/json" } }); } });
+  t.after(() => tools.close());
+  const session = await tools.mint({ team: { capability: "private-team-capability" },
+    revalidate: async () => { if (!authorized) throw new Error("revoked"); } });
+  assert.equal(session.codex.team.url, "http://127.0.0.1:8792/team-mcp");
+  const request = async () => {
+    const body = Buffer.from('{"jsonrpc":"2.0","method":"tools/list","id":1}');
+    return { url: "/team-mcp", method: "POST", headers: { authorization: session.codex.http_headers.Authorization },
+      async *[Symbol.asyncIterator]() { yield body; } };
+  };
+  const response = { status: 0, headers: {}, body: undefined,
+    writeHead(status, headers) { this.status = status; this.headers = headers; return this; },
+    end(body) { this.body = body; } };
+  await tools.handle(await request(), response);
+  assert.equal(response.status, 200);
+  assert.equal(upstream.url, "http://control-plane:4174/internal/team-mcp");
+  assert.equal(upstream.init.headers.Authorization, "Bearer private-team-capability");
+  assert.equal(upstream.init.body.toString(), '{"jsonrpc":"2.0","method":"tools/list","id":1}');
+  authorized = false;
+  const denied = { ...response, status: 0, writeHead(status) { this.status = status; return this; }, end() {} };
+  await tools.handle(await request(), denied);
+  assert.equal(denied.status, 403);
+  await session.release();
+});

@@ -615,13 +615,31 @@ export function createWorkspaceHttpServer({
             ? await terminalAgent.context(body.terminalContextToken, terminalActor.id, body.channelId)
             : await terminalAgent.mint(terminalActor, { conversationId: `team:${body.channelId}:${body.runId}`, channelId: body.channelId })
           : null;
-        const result = await runTeamAgent({ signal: abort.signal, prompt: body?.prompt + (terminalContext ? terminalContextInstructions(terminalContext) : ""), capability: body?.capability, userId: body?.userId, runId: body?.runId, ...(body?.modelSettings ? { modelSettings: body.modelSettings } : {}) });
+        const result = await runTeamAgent({ signal: abort.signal, channelId: body?.channelId, prompt: body?.prompt + (terminalContext ? terminalContextInstructions(terminalContext) : ""), trigger: body?.trigger, capability: body?.capability, userId: body?.userId, runId: body?.runId, ...(body?.modelSettings ? { modelSettings: body.modelSettings } : {}) });
         sendJson(response, 200, typeof result === "string" ? { reply: result } : result, method);
       } catch (error) {
         console.error("Team Chat agent run failed", error instanceof Error ? error.message : error);
         const personalAccountRequired = error?.code === "personal_openai_required";
-        sendJson(response, personalAccountRequired ? 409 : 502, { error: { code: personalAccountRequired ? "personal_openai_required" : "agent_run_failed", message: personalAccountRequired ? error.message : "Alshival could not complete this Team Chat turn" } }, method);
+        const teamConnectionRequired = error?.code === "team_connection_required";
+        sendJson(response, personalAccountRequired || teamConnectionRequired ? 409 : 502,
+          { error: { code: teamConnectionRequired ? "team_connection_required" : personalAccountRequired ? "personal_openai_required" : "agent_run_failed",
+            message: personalAccountRequired || teamConnectionRequired ? error.message : "Alshival could not complete this Team Chat turn" } }, method);
       }
+      return;
+    }
+    if (pathname === "/internal/native/team-approvals") {
+      if (!nativeRuntime || !workspaceControlToken || !validControlToken(request, workspaceControlToken)) {
+        sendJson(response, 401, { error: { message: "Unauthorized" } }, method); return;
+      }
+      if (method !== "POST") { sendJson(response, 405, { error: { message: "POST is required" } }, method); return; }
+      try {
+        const body = await readJsonBody(request, 4096);
+        const result = body?.operation === "read" ? await nativeRuntime.teamApprovals(body.run)
+          : body?.operation === "resolve" ? await nativeRuntime.resolveTeamApproval(body.run, body.approval, body.decision)
+          : null;
+        if (!result) throw new Error("Invalid Team Chat approval operation");
+        sendJson(response, 200, result, method);
+      } catch { sendJson(response, 409, { error: { message: "Team Chat approval is unavailable" } }, method); }
       return;
     }
     if (pathname === VSCODE_BASE_PATH || pathname.startsWith(`${VSCODE_BASE_PATH}/`)) {

@@ -96,7 +96,7 @@ export class TeamAgentProcessor {
           "Content-Type": "application/json",
           Authorization: `Bearer ${this.config.workspace.controlToken}`,
         },
-        body: JSON.stringify({ channelId: run.channelId, ...(run.terminalContextToken ? { terminalContextToken: run.terminalContextToken } : {}), prompt: buildPrompt(context), capability: run.capability, userId: run.requestedBy, runId: run.id, ...(run.modelSettings ? { modelSettings: run.modelSettings } : {}) }),
+        body: JSON.stringify({ channelId: run.channelId, ...(run.terminalContextToken ? { terminalContextToken: run.terminalContextToken } : {}), prompt: buildPrompt(context), trigger: context.trigger.body, capability: run.capability, userId: run.requestedBy, runId: run.id, ...(run.modelSettings ? { modelSettings: run.modelSettings } : {}) }),
         signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10 * 60 * 1000)]),
       });
       const payload = await response.json().catch(() => undefined) as { reply?: unknown; activities?: unknown; error?: { message?: unknown } } | undefined;

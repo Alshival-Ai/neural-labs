@@ -1,7 +1,7 @@
 import { useContext, useEffect, useState } from "react";
 import { NativeProviderCard } from "./NativeProviderCard";
 import { TerminalLaunchContext } from "./TerminalLaunchContext";
-import { nativeRequest, nativeSelection, selectNativeConnection, type NativeConnection } from "./nativeApi";
+import { nativeRequest, nativeSelection, saveNativeDefault, selectNativeConnection, type NativeConnection, type NativeSelection } from "./nativeApi";
 import { settingsRequest } from "./settingsApi";
 import type { ProviderCatalog } from "./modelProviders";
 
@@ -15,6 +15,10 @@ export function NativeConnectionsPanel({ csrfToken, administrator = false }: { c
   const [advancedCatalog, setAdvancedCatalog] = useState<ProviderCatalog>();
   const [busy, setBusy] = useState(false), [notice, setNotice] = useState<string>();
   const launchTerminal = useContext(TerminalLaunchContext);
+  const selectPersonal = async (selection: NativeSelection, generation: number) => {
+    await saveNativeDefault(selection, generation);
+    selectNativeConnection(selection);
+  };
   const refresh = async () => {
     const result = await settingsRequest<{ connections: NativeConnection[] }>("/api/runtime/connections");
     if (!Array.isArray(result.connections)) throw new Error("The connection list is unavailable");
@@ -41,8 +45,8 @@ export function NativeConnectionsPanel({ csrfToken, administrator = false }: { c
     <h2>AI connections</h2>
     <p>Connect your provider account in its card. After sign-in, models load and the default available model is ready for your chats.</p>
     <div className="native-provider-grid">
-      <NativeProviderCard provider="codex" connection={connections.find(row => row.scope === "personal" && row.provider === "codex" && row.id === nativeSelection()?.connection) || connections.find(row => row.scope === "personal" && row.provider === "codex")} ensureConnection={ensurePersonal} />
-      <NativeProviderCard provider="claude" connection={connections.find(row => row.scope === "personal" && row.provider === "claude" && row.id === nativeSelection()?.connection) || connections.find(row => row.scope === "personal" && row.provider === "claude")} ensureConnection={ensurePersonal} />
+      <NativeProviderCard provider="codex" connection={connections.find(row => row.scope === "personal" && row.provider === "codex" && row.id === nativeSelection()?.connection) || connections.find(row => row.scope === "personal" && row.provider === "codex")} ensureConnection={ensurePersonal} onSelect={selectPersonal} />
+      <NativeProviderCard provider="claude" connection={connections.find(row => row.scope === "personal" && row.provider === "claude" && row.id === nativeSelection()?.connection) || connections.find(row => row.scope === "personal" && row.provider === "claude")} ensureConnection={ensurePersonal} onSelect={selectPersonal} />
     </div>
     <details className="native-provider-advanced"><summary>Advanced connections</summary>
       <p>Manage additional personal, shared, Team Alshival, and background connections.</p>
@@ -60,9 +64,14 @@ export function NativeConnectionsPanel({ csrfToken, administrator = false }: { c
             const result = await nativeRequest<{ terminalId: string }>("account.login", {}, { connection: current.id, model: "account-setup" });
             await launchTerminal(result.terminalId); setNotice("Complete sign-in in the private Terminal.");
           })}>Start sign-in</button>
-          <button className="settings-button is-primary" disabled={busy || !current.enabled || !advancedModel || !["personal", "shared"].includes(current.scope)} onClick={() => {
-            selectNativeConnection({ connection: current.id, model: advancedModel }); setNotice(`${current.label} selected for your chats.`);
-          }}>Use for my chats</button>
+          {["personal", "shared"].includes(current.scope) && <button className="settings-button is-primary" disabled={busy || !current.enabled || !advancedModel} onClick={() => void manage(async () => {
+            await selectPersonal({ connection: current.id, model: advancedModel }, current.generation);
+            setNotice(`${current.label} selected for your chats.`);
+          })}>Use for my chats</button>}
+          {administrator && current.scope === "team" && <button className="settings-button is-primary" disabled={busy || !current.enabled || !advancedModel} onClick={() => void manage(async () => {
+            await saveNativeDefault({ connection: current.id, model: advancedModel }, current.generation, true);
+            setNotice(`${current.label} selected for Team Chat.`);
+          })}>Use for Team Chat</button>}
           <button className="settings-button" disabled={busy || current.scope !== "personal" && !administrator} onClick={() => void manage(async () => {
             await settingsRequest(`/api/runtime/connections/${current.id}`, { method: "PATCH", headers: { "X-CSRF-Token": csrfToken }, body: JSON.stringify({ generation: current.generation, enabled: !current.enabled }) });
             await refresh(); setNotice(current.enabled ? "Connection paused." : "Connection resumed.");
