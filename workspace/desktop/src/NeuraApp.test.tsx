@@ -307,16 +307,13 @@ describe("Alshival realtime conversation", () => {
     expect(screen.getByText("What should we work on?")).toBeInTheDocument();
   });
 
-  it("makes Team Chat creation a labeled, discoverable action", async () => {
+  it("shows one team channel beside private chats", async () => {
     const gateway = new FakeGateway();
     render(<NeuraApp gateway={gateway as unknown as NativeClient} notify={vi.fn()} />);
 
-    const actions = screen.getAllByRole("button", { name: "New Team Chat" });
-    expect(actions.length).toBeGreaterThanOrEqual(2);
-    fireEvent.click(actions[0]);
-    expect(await screen.findByRole("dialog", { name: "Create Team Chat" })).toBeInTheDocument();
-    expect(screen.getByText("Invited teammates")).toBeInTheDocument();
-    expect(screen.getByText("Everyone")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Team channel" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Your chats" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New Team Chat" })).not.toBeInTheDocument();
   });
 
   it("shows channel terminal activity and connected member bubbles in a collapsible rail", () => {

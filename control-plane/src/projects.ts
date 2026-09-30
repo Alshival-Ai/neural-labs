@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { z } from "zod";
 import type { UserRecord } from "./types.js";
+import { ensurePrimaryChannel } from "./teamPrimary.js";
 
 export class ProjectError extends Error {
   constructor(readonly status: number, readonly code: string, message: string) { super(message); }
@@ -26,10 +27,13 @@ export const projectFields = z.object({
     public_url: z.string().max(2048), external_id: z.string().max(200).nullable() }).strict().nullable().default(null),
   publication: z.object({ published: z.boolean(), title: z.string().max(200), body: z.string().max(20000) }).strict().nullable().default(null),
   references: z.record(z.string().max(80), z.string().max(512)).default({}),
+  checklist: z.array(z.object({ id: z.string().uuid(), text: z.string().trim().min(1).max(500),
+    done: z.boolean() }).strict()).max(100).default([]),
 
 }).strict();
 export const createProjectItem = z.object({
   idempotency_key: z.string().uuid(), kind: z.enum(["task", "deliverable", "note", "resource", "ticket", "comment"]),
+  sync_id: z.string().uuid().optional(),
   data: projectFields,
 }).strict();
 const patchFields = z.object(Object.fromEntries(Object.entries(projectFields.shape).map(([key, field]) =>
@@ -43,7 +47,7 @@ export const projectAction = z.object({
   idempotency_key: z.string().uuid(), revision: z.number().int().positive(),
   action: z.enum(["approve", "changes", "reopen"]),
 }).strict();
-export type ProjectActor = UserRecord & { projectInternal?: boolean; projectPlan?: boolean };
+export type ProjectActor = UserRecord & { projectInternal?: boolean; projectPlan?: boolean; projectSync?: boolean };
 export const internalAccess = (actor: ProjectActor) => actor.projectInternal ?? actor.role === "admin";
 export type ProjectItem = { id: string; kind: string; revision: number; data: z.infer<typeof projectFields>; author_id: string; created_at: string; updated_at: string };
 function requireActive(actor: ProjectActor) {
@@ -118,6 +122,8 @@ export class ProjectStore {
       const old: ProjectItem | undefined = operation === "create" ? undefined : (await client.query("SELECT * FROM project_items WHERE id=$1", [id])).rows[0];
       if (operation !== "create") { readable(actor, old); await this.get(actor, id!, client); }
       const submitted = "data" in parsed ? parsed.data : {};
+      if ("sync_id" in parsed && parsed.sync_id && !actor.projectSync)
+        throw new ProjectError(403, "sync_scope_required", "A sync credential is required to preserve item identity.");
       if (!internalAccess(actor) && (submitted.publication != null || old?.data.publication))
         throw new ProjectError(403, "planning_required", "Published work is managed by the project team.");
       if (old && "revision" in parsed && Number(old.revision) !== parsed.revision)
@@ -148,6 +154,7 @@ export class ProjectStore {
         if (parent.data.visibility === "internal" && data.visibility !== "internal")
           throw new ProjectError(422, "invalid_visibility", "Internal replies must remain internal.");
       } else if (kind === "comment") throw new ProjectError(422, "parent_required", "A comment requires a project item.");
+      if (kind === "comment" && !data.body.trim()) throw new ProjectError(422, "comment_required", "Write a comment.");
       if (old && data.visibility !== old.data.visibility && (await client.query("SELECT id FROM project_items WHERE data->>'parent_id'=$1 LIMIT 1", [old.id])).rowCount)
         throw new ProjectError(409, "visibility_has_children", "Update child visibility before changing the parent visibility.");
       if ("action" in parsed) {
@@ -160,9 +167,18 @@ export class ProjectStore {
           data.state = "doing";
         } else data.state = "todo";
       }
-      const itemId = id ?? randomUUID();
+      const itemId = id ?? ("sync_id" in parsed ? parsed.sync_id : undefined) ?? randomUUID();
       const result = old ? await client.query(`UPDATE project_items SET data=$2, revision=revision+1, updated_at=now() WHERE id=$1 RETURNING *`, [itemId, data])
         : await client.query(`INSERT INTO project_items(id,kind,data,author_id) VALUES($1,$2,$3,$4) RETURNING *`, [itemId, kind, data, actor.id]);
+      if (operation === "create" && kind === "comment" && data.parent_id) {
+        const parent = await this.get(actor, data.parent_id, client);
+        if (parent.kind === "task") {
+          const channelId = await ensurePrimaryChannel(client, actor.id);
+          await client.query(`INSERT INTO team_messages(id,channel_id,author_kind,author_user_id,body,project_item_id)
+            VALUES($1,$2,'user',$3,$4,$5) ON CONFLICT(project_item_id) DO NOTHING`,
+          [randomUUID(), channelId, actor.id, data.body, itemId]);
+        }
+      }
       await client.query(`INSERT INTO project_requests(actor_id,request_id,fingerprint,item_id) VALUES($1,$2,$3,$4)`, [actor.id, parsed.idempotency_key, fingerprint, itemId]);
       await client.query(`INSERT INTO project_events(item_id,actor_id,operation) VALUES($1,$2,$3)`, [itemId, actor.id, "action" in parsed ? parsed.action : operation]);
       await client.query("UPDATE project_storage SET revision=revision+1 WHERE singleton");

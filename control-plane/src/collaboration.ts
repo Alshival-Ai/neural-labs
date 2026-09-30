@@ -4,6 +4,8 @@ import type { Pool, PoolClient, QueryResultRow } from "pg";
 
 import { hashToken, randomToken } from "./crypto.js";
 import type { UserRecord } from "./types.js";
+import { ensurePrimaryChannel } from "./teamPrimary.js";
+import { ProjectStore } from "./projects.js";
 
 export const TEAM_CHAT_LIMITS = {
   attachmentsPerMessage: 100,
@@ -44,6 +46,7 @@ export type TeamChannel = {
   updatedAt: string;
   canManage: boolean;
   canPin: boolean;
+  primary?: boolean;
 };
 
 export type TeamMessage = {
@@ -57,6 +60,8 @@ export type TeamMessage = {
   attachments: ChannelAttachment[];
   mentions: string[];
   agentRunId?: string;
+  projectItemId?: string;
+  projectTaskTitle?: string;
   activities: TeamRunActivity[];
   createdAt: string;
 };
@@ -98,6 +103,7 @@ interface ChannelRow extends QueryResultRow {
   audience: ChannelAudience;
   owner_user_id: string;
   source_session_key: string | null;
+  import_source: string | null;
   pinned_at: Date | null;
   pinned_by: string | null;
   created_at: Date;
@@ -114,6 +120,8 @@ interface MessageRow extends QueryResultRow {
   body: string;
   attachments: unknown;
   agent_run_id: string | null;
+  project_item_id: string | null;
+  project_task_title: string | null;
   created_at: Date;
   handle: string | null;
   display_name: string | null;
@@ -217,6 +225,8 @@ function mapMessage(row: MessageRow): TeamMessage {
     attachments: attachments(row.attachments),
     mentions: row.mentions ?? [],
     ...(row.agent_run_id ? { agentRunId: row.agent_run_id } : {}),
+    ...(row.project_item_id ? { projectItemId: row.project_item_id } : {}),
+    ...(row.project_task_title ? { projectTaskTitle: row.project_task_title } : {}),
     activities: teamRunActivities(row.activities),
     ...(row.model_settings ? { modelSettings: row.model_settings } : {}),
     createdAt: row.created_at.toISOString(),
@@ -264,6 +274,9 @@ function assertAttachments(input: ChannelAttachment[], native = false): ChannelA
 
 const MESSAGE_SELECT = `
   SELECT m.*, u.handle, u.display_name, u.role,
+    (SELECT task.data->>'title' FROM project_items comment
+      JOIN project_items task ON task.id=(comment.data->>'parent_id')::uuid
+      WHERE comment.id=m.project_item_id) AS project_task_title,
     COALESCE(array_agg(mm.user_id::text) FILTER (WHERE mm.user_id IS NOT NULL), '{}') AS mentions,
     COALESCE((SELECT r.activities FROM team_agent_runs r WHERE r.id = m.agent_run_id), '[]'::jsonb) AS activities
   FROM team_messages m
@@ -322,6 +335,7 @@ export class CollaborationStore {
   }
 
   async listChannels(actor: UserRecord): Promise<TeamChannel[]> {
+    await ensurePrimaryChannel(this.pool, actor.id);
     const result = await this.pool.query<QueryResultRow & ChannelRow & {
       member_count: string;
       unread_count: string;
@@ -363,6 +377,7 @@ export class CollaborationStore {
       updatedAt: row.updated_at.toISOString(),
       canManage: actor.role === "admin" || row.owner_user_id === actor.id,
       canPin: actor.role === "admin",
+      primary: row.import_source === "workspace:primary",
     }));
   }
 
@@ -643,6 +658,13 @@ export class CollaborationStore {
     return result.rows.reverse().map(mapMessage);
   }
 
+  async projectMessagesAfter(sequence: number): Promise<TeamMessage[]> {
+    const result = await this.pool.query<MessageRow>(`${MESSAGE_SELECT}
+      WHERE m.project_item_id IS NOT NULL AND m.sequence > $1
+      GROUP BY m.sequence,m.id,u.id ORDER BY m.sequence LIMIT 100`, [sequence]);
+    return result.rows.map(mapMessage);
+  }
+
   async latestRun(actor: UserRecord, channelId: string): Promise<TeamAgentRun | undefined> {
     await this.requireAccess(this.pool, channelId, actor.id);
     const row = (await this.pool.query<RunRow>(
@@ -710,7 +732,23 @@ export class CollaborationStore {
     clientRequestId: string;
     // Voice transcripts are channel context, never implicit commands.
     invokeAgent?: boolean;
+    replyToId?: string | undefined;
   }): Promise<{ message: TeamMessage; run?: TeamAgentRun & { capability: string } }> {
+    if (input.replyToId) {
+      if (input.attachments.length) throw new CollaborationError(422, "reply_attachments", "Task replies cannot include attachments.");
+      await this.requireAccess(this.pool, input.channelId, actor.id);
+      const source = (await this.pool.query<{ project_item_id: string | null }>(
+        "SELECT project_item_id FROM team_messages WHERE id=$1 AND channel_id=$2", [input.replyToId, input.channelId])).rows[0];
+      if (!source?.project_item_id) throw new CollaborationError(422, "task_message_required", "Reply to a task comment.");
+      const store = new ProjectStore(this.pool);
+      const original = await store.get(actor, source.project_item_id);
+      const comment = await store.mutate(actor, "create", null, { idempotency_key: input.clientRequestId,
+        kind: "comment", data: { title: "Reply", body: input.body.trim(), parent_id: original.data.parent_id,
+          visibility: original.data.visibility } });
+      const result = await this.pool.query<MessageRow>(`${MESSAGE_SELECT}
+        WHERE m.project_item_id=$1 GROUP BY m.sequence,m.id,u.id`, [comment.id]);
+      return { message: mapMessage(result.rows[0]!) };
+    }
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");

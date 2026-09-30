@@ -20,6 +20,7 @@ export type TeamChannel = {
   updatedAt: string;
   canManage: boolean;
   canPin: boolean;
+  primary?: boolean;
 };
 
 export type TeamAttachment = { path: string; url?: string; sourceUrl?: string; artifactId?: string; name: string; type?: string; size?: number };
@@ -46,6 +47,8 @@ export type TeamMessage = {
   attachments: TeamAttachment[];
   mentions: string[];
   agentRunId?: string;
+  projectItemId?: string;
+  projectTaskTitle?: string;
   activities?: TeamRunActivity[];
   createdAt: string;
 };

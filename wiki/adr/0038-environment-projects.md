@@ -4,6 +4,18 @@ Project content belongs to the deployment's PostgreSQL and persistent file volum
 The browser, desktop and external API/MCP clients use the same project service.
 The revision WebSocket contains invalidations, not a second content database.
 Each mutation is serialized, revision checked and deduplicated per actor/request ID.
+Task relationships are stored as workspace-local directed edges in PostgreSQL.
+`depends_on` edges reject cycles; `related` edges have canonical symmetric identity.
+Both endpoints must pass the same item visibility checks as ordinary project reads.
+Dependencies warn in the UI but do not block status changes or review actions.
+Checklists live on task records, while task-attached sticky notes remain separate
+note records so each can keep its own author, visibility and history.
+
+Task comments are also written into the installation's primary team channel in
+the same database transaction. Replying to such a channel message creates a
+comment on its original task. Ordinary channel messages remain chat messages.
+The channel and project database work without any managed portal connection;
+private agent conversations are separate.
 
 The project service is generic. It does not contain Alshival billing tiers or
 provisioning policy. Optional managed identity uses the existing identity adapter;

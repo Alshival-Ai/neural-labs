@@ -15,6 +15,7 @@ const clientEventSchema = z.discriminatedUnion("type", [
     type: z.literal("post"),
     channelId: z.string().uuid(),
     clientRequestId: z.string().uuid(),
+    replyToId: z.string().uuid().optional(),
     invokeAgent: z.boolean().default(true),
     terminalContextToken: z.string().regex(/^nlt_[A-Za-z0-9_-]{43}$/).optional(),
     body: z.string().max(TEAM_CHAT_LIMITS.messageCharacters).default(""),

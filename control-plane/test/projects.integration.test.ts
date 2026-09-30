@@ -8,6 +8,8 @@ import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Database } from "../src/database.js";
 import { ProjectStore } from "../src/projects.js";
+import { ProjectGraph } from "../src/projectGraph.js";
+import { CollaborationStore } from "../src/collaboration.js";
 import type { UserRecord } from "../src/types.js";
 
 const url = process.env.TEST_DATABASE_URL;
@@ -50,6 +52,42 @@ const url = process.env.TEST_DATABASE_URL;
     expect(accepted.data.state).toBe("done");
     const edited = await store.mutate(member, "update", item.id, { revision: accepted.revision, idempotency_key: randomUUID(), data: { body: "Updated after acceptance" } });
     expect(edited.data.state).toBe("done");
+  });
+  it("stores task links locally, rejects dependency cycles, and filters private endpoints", async () => {
+    const graph = new ProjectGraph(pool, store);
+    const staff = { ...owner, projectInternal: true };
+    const task = async (title: string, visibility = "shared") => store.mutate(staff, "create", null,
+      { idempotency_key: randomUUID(), kind: "task", data: { title, visibility } });
+    const first = await task("First"); const second = await task("Second"); const privateTask = await task("Private", "internal");
+    const requestId = randomUUID();
+    const link = await graph.create(staff, { idempotency_key: requestId, source_id: first.id, target_id: second.id, kind: "depends_on" });
+    expect((await graph.create(staff, { idempotency_key: requestId, source_id: first.id, target_id: second.id, kind: "depends_on" })).id).toBe(link.id);
+    await expect(graph.create(staff, { idempotency_key: randomUUID(), source_id: second.id, target_id: first.id, kind: "depends_on" })).rejects.toMatchObject({ code: "dependency_cycle" });
+    await graph.create(staff, { idempotency_key: randomUUID(), source_id: first.id, target_id: privateTask.id, kind: "related" });
+    expect((await graph.list(member)).map(edge => edge.id)).toEqual([link.id]);
+    await graph.remove(staff, link.id);
+    expect((await graph.list(staff)).some(edge => edge.id === link.id)).toBe(false);
+  });
+  it("broadcasts task comments to the workspace channel and turns replies into comments", async () => {
+    const task = await store.mutate(member, "create", null, { idempotency_key: randomUUID(), kind: "task", data: { title: "Discuss" } });
+    const comment = await store.mutate(member, "create", null, { idempotency_key: randomUUID(), kind: "comment",
+      data: { title: "Reply", body: "First update", parent_id: task.id } });
+    const collaboration = new CollaborationStore(pool);
+    const channel = (await collaboration.listChannels(member)).find(row => row.primary)!;
+    const message = (await collaboration.listMessages(member, channel.id)).find(row => row.projectItemId === comment.id)!;
+    expect(message.body).toBe("First update");
+    const response = await collaboration.postMessage(member, { channelId: channel.id, body: "Follow up", attachments: [],
+      clientRequestId: randomUUID(), replyToId: message.id });
+    expect(response.message.projectItemId).toBeTruthy();
+    const linked = await store.get(member, response.message.projectItemId!);
+    expect(linked.kind).toBe("comment"); expect(linked.data.parent_id).toBe(task.id);
+  });
+  it("reserves stable imported IDs for explicit sync authority", async () => {
+    const id = randomUUID(); const request = { idempotency_key: randomUUID(), sync_id: id, kind: "task", data: { title: "Imported" } };
+    await expect(store.mutate(member, "create", null, request)).rejects.toMatchObject({ code: "sync_scope_required" });
+    const item = await store.mutate({ ...owner, projectSync: true }, "create", null, request);
+    expect(item.id).toBe(id);
+    expect((await store.mutate({ ...owner, projectSync: true }, "create", null, request)).id).toBe(id);
   });
   it("binds external credentials to their user, scopes, expiry and revocation", async () => {
     const app = express(); app.use(express.json());

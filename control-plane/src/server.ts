@@ -151,6 +151,7 @@ const teamChannelUpdateSchema = z.object({
 }).refine((value) => value.name !== undefined || value.pinned !== undefined);
 const teamMembersSchema = z.object({ memberIds: z.array(z.string().uuid()).min(1).max(TEAM_CHAT_LIMITS.membersPerChannel) });
 const teamMessageSchema = z.object({
+  replyToId: z.string().uuid().optional(),
   invokeAgent: z.boolean().default(true),
   body: z.string().max(TEAM_CHAT_LIMITS.messageCharacters).default(""),
   clientRequestId: z.string().uuid(),

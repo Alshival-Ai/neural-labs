@@ -559,4 +559,36 @@ export const migrations: Migration[] = [
         OR (user_id IS NOT NULL AND selection_key = 'user:' || user_id::text))
     );`,
   },
+  {
+    version: 20,
+    sql: `CREATE TABLE project_edges (
+      id uuid PRIMARY KEY, source_id uuid NOT NULL REFERENCES project_items(id) ON DELETE CASCADE,
+      target_id uuid NOT NULL REFERENCES project_items(id) ON DELETE CASCADE,
+      kind text NOT NULL CHECK(kind IN ('depends_on','related')),
+      actor_id uuid NOT NULL REFERENCES users(id), created_at timestamptz NOT NULL DEFAULT now(),
+      CHECK(source_id <> target_id), UNIQUE(source_id,target_id,kind)
+    );
+    CREATE INDEX project_edges_target ON project_edges(target_id);
+    CREATE TABLE project_edge_requests (
+      actor_id uuid NOT NULL REFERENCES users(id), request_id uuid NOT NULL,
+      fingerprint text NOT NULL, edge_id uuid REFERENCES project_edges(id) ON DELETE SET NULL,
+      PRIMARY KEY(actor_id,request_id)
+    );`,
+  },
+  {
+    version: 21,
+    sql: `ALTER TABLE team_messages ADD COLUMN project_item_id uuid UNIQUE REFERENCES project_items(id) ON DELETE SET NULL;
+    CREATE INDEX team_messages_project_item_idx ON team_messages(project_item_id) WHERE project_item_id IS NOT NULL;
+    INSERT INTO team_channels(id,name,audience,owner_user_id,import_source)
+      SELECT md5('workspace:primary')::uuid,'Team channel','everyone',id,'workspace:primary'
+      FROM users ORDER BY (status='active') DESC,(role='admin') DESC,created_at LIMIT 1
+      ON CONFLICT(import_source) DO NOTHING;
+    INSERT INTO team_messages(id,channel_id,author_kind,author_user_id,body,project_item_id,created_at)
+      SELECT md5('project-comment:'||item.id::text)::uuid,channel.id,'user',item.author_id,item.data->>'body',item.id,item.created_at
+      FROM project_items item JOIN project_items parent ON parent.id=(item.data->>'parent_id')::uuid AND parent.kind='task'
+      CROSS JOIN team_channels channel
+      WHERE item.kind='comment' AND channel.import_source='workspace:primary'
+        AND char_length(item.data->>'body') BETWEEN 1 AND 32000
+      ON CONFLICT(project_item_id) DO NOTHING;`,
+  },
 ];
