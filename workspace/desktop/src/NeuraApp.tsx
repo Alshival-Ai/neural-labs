@@ -1,3 +1,4 @@
+import { ConnectorInbox } from "./ConnectorsPanel";
 import { commandApproval, selectCommandApproval, type CommandApproval, requestAnthropicReconnect } from "./nativeApi";
 import { ANTHROPIC_RECONNECT, ANTHROPIC_ADMIN_RECONNECT } from "./nativeErrors";
 import "./minimal-apps.css";
@@ -420,6 +421,7 @@ export function modelProviderErrorMessage(rawError: string): string {
 
 export function NeuraApp({ initialChannelId, gateway, notify, active = true, storageNamespace, storageArea = "neura", composeRequest, csrfToken = "", currentUser = unavailableTeamUser, onPreviewFile, onOpenTeamTerminal }: Props) {
   const appViewport = useAppViewport();
+  const [connectorInbox, setConnectorInbox] = useState(false);
   const appRoot = useRef<HTMLDivElement>(null);
   const historyId = useId();
   const terminalsId = useId();
@@ -1886,7 +1888,8 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
     <div ref={appRoot} className={`neura-app${!appViewport.mobile && sidebarOpen ? " has-sidebar" : ""}${appViewport.mobile ? " is-mobile" : ""}`}>
       {!appViewport.mobile && sidebarOpen && sidebar}
       {appViewport.mobile && mobileDrawer && <AppDrawer id={historyId} label="Conversation history" anchor={appRoot} onClose={() => setMobileDrawer(false)}>{sidebar}</AppDrawer>}
-      <main className="neura-main">
+      <main className="neura-main" style={{ position: "relative" }}>
+        {connectorInbox && <ConnectorInbox csrfToken={csrfToken} onClose={() => setConnectorInbox(false)} />}
         <header className="neura-toolbar">
           <button type="button" className="sidebar-toggle" onClick={() => appViewport.mobile ? setMobileDrawer(true) : setSidebarOpen(true)} aria-label="Open conversation history" aria-expanded={appViewport.mobile ? mobileDrawer : sidebarOpen} aria-controls={historyId}>
             {appViewport.mobile ? <Menu /> : <PanelLeftOpen />}
@@ -1901,6 +1904,7 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
                 : connection === "connected" ? selected && !sessionReady ? "Syncing conversation" : "Connected to Neural Labs" : connection}
             </span>
           </div>
+          <button type="button" className="neura-messages-button" onClick={() => setConnectorInbox(true)}>Email &amp; SMS</button>
           {selected && !selectedChannel && connection === "connected" && <ConversationModelPicker key={`${selected.key}:${selected.sessionId}`} session={selected} gateway={gateway} />}
           {appViewport.mobile && <button type="button" className="neura-mobile-action" disabled={creatingSession} aria-label="New private conversation" onClick={() => void createConversation()}><MessageSquarePlus /></button>}
           {appViewport.mobile && selectedChannel && <button type="button" className="neura-mobile-action" aria-label="Open channel terminals" aria-expanded={mobileTerminals} aria-controls={terminalsId} onClick={() => setMobileTerminals(true)}><TerminalSquare /></button>}

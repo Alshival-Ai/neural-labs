@@ -510,12 +510,25 @@ export function createWorkspaceHttpServer({
       } catch (error) { sendJson(response, 409, { error: { message: error.message || 'Deployment operation failed' } }, method); }
       return;
     }
+    if (["/internal/connectors/run", "/internal/connectors/status"].includes(pathname)) {
+      if (!validControlToken(request, workspaceControlToken)) { sendJson(response, 401, { error: "Unauthorized" }, method); return; }
+      if (method !== "POST" || !nativeRuntime || updateMaintenance?.gated) { sendJson(response, 503, { error: "Runtime unavailable" }, method); return; }
+      try { const input = await readJsonBody(request, 256 * 1024);
+        sendJson(response, 200, pathname.endsWith("/run") ? await nativeRuntime.connectorRun(input) : nativeRuntime.connectorStatus(input), method);
+      } catch { sendJson(response, 409, { error: "Connector execution unavailable" }, method); }
+      return;
+    }
     if (pathname === "/internal/native/request") {
       if (!validControlToken(request, workspaceControlToken)) { sendJson(response, 401, { error: { message: "Unauthorized" } }, method); return; }
       if (method !== "POST") { sendJson(response, 405, { error: { message: "Method not allowed" } }, method); return; }
       try {
+        const input = await readJsonBody(request, 2 * 1024 * 1024);
         if (!nativeRuntime || updateMaintenance?.gated) throw new Error("Native runtime is unavailable");
-        sendJson(response, 200, await nativeRuntime.handle(await readJsonBody(request, 2 * 1024 * 1024)), method);
+        const work = async () => { sendJson(response, 200, await nativeRuntime.handle(input), method); };
+        // Waiting for chat events does not mutate workspace files or start work.
+        // Classify the parsed operation here, never a caller-supplied HTTP flag.
+        if (input.operation === "events.read") await work();
+        else await trackResponseWork(response, work, delta => { activeWrites += delta; });
       } catch (error) {
         const safe = { anthropic_reconnect: 'Your Anthropic connection needs to be renewed. Reconnect in Settings → Model Provider.',
           anthropic_admin_reconnect: 'An administrator needs to reconnect this Anthropic account.',
@@ -1336,7 +1349,7 @@ export function createWorkspaceHttpServer({
       catch { sendJson(response, 401, { error: { message: "Workspace authorization is required" } }, request.method ?? "GET"); return; }
     }
     const work = () => handleRequest(request, response);
-    const tracked = !["GET", "HEAD", "OPTIONS"].includes(request.method ?? "GET") && !request.url?.startsWith("/internal/updates/");
+    const tracked = !["GET", "HEAD", "OPTIONS"].includes(request.method ?? "GET") && !request.url?.startsWith("/internal/updates/") && request.url !== "/internal/native/request";
     const completed = tracked ? trackResponseWork(response, work, delta => { activeWrites += delta; }) : work();
     void completed.catch(() => {
       if (!response.headersSent) sendJson(response, 500, { error: { message: "Workspace request failed" } }, request.method ?? "GET");

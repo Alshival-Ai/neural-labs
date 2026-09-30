@@ -46,3 +46,5 @@
 - [Connect Anthropic](anthropic-connection.md): guided sign-in and reconnect.
 
 - [Deploy websites and apps](deployments.md): the built-in deploy skill, local hosting, wildcard DNS, TLS, and custom domains.
+
+- [Email and SMS connectors](connectors.md)

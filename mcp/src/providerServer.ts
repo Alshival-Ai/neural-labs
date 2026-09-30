@@ -44,6 +44,7 @@ export function createProviderApplication(
   browser?: BrowserAdapter,
   deployments?: DeploymentAdapter,
   projectRead?: (input: { after?: string | undefined }) => Promise<unknown>,
+  communications?: (input: { action: "status" | "history" | "send"; input?: unknown }) => Promise<unknown>,
 ): ProviderApplication {
   const app = createMcpExpressApp({
     host: "127.0.0.1",
@@ -77,6 +78,7 @@ export function createProviderApplication(
         ...(browser ? ["browser"] : []),
         ...(deployments ? ["deployments"] : []),
         ...(projectRead ? ["read_project_graph"] : []),
+        ...(communications ? ["workspace_messages"] : []),
         ...(googleConfigured ? GOOGLE_TOOLS : []),
         ...(klipyConfigured ? KLIPY_TOOLS : []),
         ...(pexelsConfigured ? PEXELS_TOOLS : []),
@@ -119,6 +121,10 @@ export function createProviderApplication(
         description: "Read a page of the workspace task graph, sticky notes, comments and statuses. Follow next with after; restart if revision changes. This tool cannot modify the graph.",
         inputSchema: z.object({ after: z.string().uuid().optional() }).strict(),
       }, async input => ({ content: [{ type: "text" as const, text: JSON.stringify(await projectRead(input)) }] }));
+      if (communications) server.registerTool("workspace_messages", {
+        description: "Read your private email/SMS history or send a message from the workspace agent mailbox/number to a verified opted-in member. Use member ID or handle, never an arbitrary email or number. New sends require a stable UUID requestId; reuse it if checking an uncertain response. Current inbound replies are delivered automatically from your final answer.",
+        inputSchema: z.object({ action: z.enum(["status", "history", "send"]), input: z.object({ channel: z.enum(["email", "sms"]), member: z.string().min(1).max(100), subject: z.string().max(300).optional(), message: z.string().min(1).max(16000), requestId: z.string().uuid() }).strict().optional() }).strict(),
+      }, async input => ({ content: [{ type: "text" as const, text: JSON.stringify(await communications(input)) }] }));
       return server;
     },
     {

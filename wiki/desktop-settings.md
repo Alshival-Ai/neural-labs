@@ -98,20 +98,12 @@ their own connection, depending on the provider.
 
 ## Plugins and SMS
 
-The global **Twilio SMS/MMS** channel uses one administrator-managed Twilio
-account and sender number. Credentials are entered manually, validated with a
-read-only Twilio request, and encrypted by the control plane. Neural Labs shows
-the exact inbound webhook URL and setup steps but does not change the Twilio
-Console in v1. Verified phone numbers are the inbound allowlist and route to
-that member's private Alshival. Each member must separately enable **Agent SMS/MMS
-updates** in Personalization before an agent can send proactive messages to
-them. Agent tools accept only a workspace handle or user ID, never an arbitrary
-phone number.
-
-The workspace image pins the official `@openclaw/sms` package to the same
-reviewed release as OpenClaw (see the [release manifest](../workspace/openclaw-release.json)). In Twilio, configure the sender number's **A
-message comes in** webhook as HTTP POST to the URL shown in Settings. SMS and
-MMS callbacks are signature-validated by the channel plugin.
+The shared Twilio connection is managed in **Settings → Connectors**, alongside
+Gmail and Outlook. Inbound text messages use the designated workspace native AI
+connection and a private conversation per member. See [Connectors](connectors.md).
+The legacy Plugins card remains available for existing phone-verification setup;
+both views use the same encrypted Twilio connection. MMS is not supported by the
+native conversation connector.
 
 The add-plugin and remote MCP installation views are currently a product
 preview. They deliberately accept no URL or credential until the isolated
@@ -186,3 +178,9 @@ Legacy `/account` requests and account-link callbacks open Security in the deskt
 Nginx authenticates `/workspace` with the control-plane subrequest before
 serving the desktop. The same session cookie is then used for the same-origin
 Settings API calls.
+
+## Workspace mailboxes and SMS connectors
+
+Use **Settings → Connectors** for the workspace Gmail or Outlook mailbox,
+Twilio number, designated workspace AI connection, and your messaging opt-ins.
+See [Email and SMS connectors](connectors.md) for provider setup and verification.

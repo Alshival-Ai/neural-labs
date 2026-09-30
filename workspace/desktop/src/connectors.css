@@ -1,0 +1,29 @@
+.connectors-panel { display:grid;gap:20px;max-width:1080px;color:var(--ink,#202124); }
+.connectors-panel h1,.connectors-panel h2,.connector-inbox h2 { margin:0; }
+.connectors-panel p,.connector-inbox header p { color:#62636b;line-height:1.5; }
+.connector-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr));gap:16px;align-items:start; }
+.connector-card { min-width:0;padding:20px;border:1px solid #e4e4e7;border-radius:12px;background:#fff; }
+.connector-card header { display:flex;align-items:center;gap:10px; }
+.connector-card header svg { color:#7040df;width:22px;height:22px; }
+.connector-card h2 { font-size:18px; }
+.connector-card form { display:grid;gap:12px;margin-top:12px; }
+.connector-card label { display:grid;gap:6px;font-size:14px; }
+.connector-card input:not([type=checkbox]),.connector-card select { width:100%;min-width:0;padding:9px;border:1px solid #d7d7dd;border-radius:7px;background:#fff;color:#202124;font:inherit; }
+.connector-actions { display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin-top:14px; }
+.connector-actions label { flex:1;min-width:150px; }
+.connector-url { display:block;padding:10px;background:#f5f5f7;border-radius:7px;overflow-wrap:anywhere;font-size:12px; }
+.connector-card details { margin-top:18px; }
+.connector-card summary { cursor:pointer; }
+.connector-card .connector-toggle { display:flex;align-items:center;margin-top:12px; }
+.connector-inbox { position:absolute;inset:0;z-index:8;display:flex;flex-direction:column;padding:18px;background:#fafafa;color:#202124;overflow:auto; }
+.connector-inbox>header { display:flex;gap:10px;align-items:start; }
+.connector-inbox>header>div { flex:1; }
+.connector-message-list { display:grid;gap:12px; }
+.connector-message { border:1px solid #e4e4e7;background:#fff;border-radius:10px;padding:14px;overflow-wrap:anywhere; }
+.connector-message.is-out { border-left:3px solid #7040df; }
+.connector-message p { white-space:pre-wrap; }
+.connector-message small { color:#62636b; }
+.neura-messages-button { border:0;background:#eee8fc;color:#51328f;padding:9px;border-radius:8px;cursor:pointer;white-space:nowrap; }
+.connectors-panel .settings-button,.connector-inbox .settings-button { padding:9px 12px;border:1px solid #ded9e8;border-radius:8px;background:#eeeaf4;color:#40364f;font:inherit;cursor:pointer; }
+.connectors-panel .settings-button.is-primary { background:#7040df;border-color:#7040df;color:#fff; }
+.connectors-panel .settings-button:disabled { background:#eeecf1;border-color:#e2dfe7;color:#96919d;cursor:not-allowed; }

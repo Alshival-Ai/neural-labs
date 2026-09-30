@@ -655,4 +655,54 @@ export const migrations: Migration[] = [
     ALTER TABLE project_edges ADD COLUMN revision integer NOT NULL DEFAULT 1;
     UPDATE project_storage SET revision=revision+1;`,
   },
+  {
+    version: 24,
+    sql: `
+      CREATE TABLE connector_settings (
+        singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),
+        revision integer NOT NULL DEFAULT 1,
+        connection_id uuid REFERENCES native_connections(id), connection_generation integer, model text,
+        configured_by uuid REFERENCES users(id), sms_enabled boolean NOT NULL DEFAULT false,
+        mailbox_provider text CHECK(mailbox_provider IN ('gmail','outlook')),
+        mailbox_address text, mailbox_secret text, mailbox_cursor jsonb,
+        mailbox_started_at timestamptz, mailbox_paused boolean NOT NULL DEFAULT true,
+        last_sync_at timestamptz, next_sync_at timestamptz NOT NULL DEFAULT now(), error text
+      );
+      INSERT INTO connector_settings(singleton) VALUES(true);
+      CREATE TABLE connector_oauth_apps(provider text PRIMARY KEY CHECK(provider IN ('gmail','outlook')), encrypted_config text NOT NULL);
+      CREATE TABLE connector_oauth_states (
+        state_hash text PRIMARY KEY, provider text NOT NULL, actor_id uuid NOT NULL REFERENCES users(id),
+        session_hash text NOT NULL, revision integer NOT NULL, verifier text NOT NULL,
+        redirect_uri text NOT NULL, expires_at timestamptz NOT NULL
+      );
+      CREATE TABLE connector_members (
+        user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        email_enabled boolean NOT NULL DEFAULT false, sms_enabled boolean NOT NULL DEFAULT false,
+        verified_email text, verification_hash text, verification_expires timestamptz,
+        sms_opted_out boolean NOT NULL DEFAULT false
+      );
+      CREATE TABLE connector_messages (
+        id uuid PRIMARY KEY, user_id uuid NOT NULL REFERENCES users(id),
+        channel text NOT NULL CHECK(channel IN ('email','sms')), direction text NOT NULL CHECK(direction IN ('in','out')),
+        connector_revision integer NOT NULL, initiator_id uuid REFERENCES users(id), provider_key text UNIQUE, thread_key text NOT NULL,
+        subject text NOT NULL DEFAULT '', body text NOT NULL, reply_reference text,
+        status text NOT NULL, error text, native_turn uuid, request_key text UNIQUE,
+        provider_sid text UNIQUE, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX connector_messages_work ON connector_messages(status,created_at);
+      CREATE INDEX connector_messages_private ON connector_messages(user_id,created_at);
+      CREATE TABLE connector_deliveries (
+        id uuid PRIMARY KEY, message_id uuid UNIQUE NOT NULL REFERENCES connector_messages(id),
+        recipient text NOT NULL, status text NOT NULL DEFAULT 'pending', error text,
+        provider_sid text UNIQUE, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE TABLE connector_webhook_receipts (provider_key text PRIMARY KEY, created_at timestamptz NOT NULL DEFAULT now());
+      CREATE TABLE connector_sms_status (sid text PRIMARY KEY, recipient text NOT NULL, status text NOT NULL, rank integer NOT NULL, error text);
+      CREATE TABLE connector_runtime_grants (
+        id uuid PRIMARY KEY, message_id uuid NOT NULL REFERENCES connector_messages(id),
+        actor_id uuid NOT NULL REFERENCES users(id), revision integer NOT NULL,
+        expires_at timestamptz NOT NULL
+      );
+    `,
+  },
 ];

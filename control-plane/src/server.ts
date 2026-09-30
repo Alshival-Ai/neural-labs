@@ -1,3 +1,5 @@
+import { Connectors } from "./connectors.js";
+import { registerConnectorRoutes } from "./connectorRoutes.js";
 import { registerNativeRuntime } from "./nativeRuntime.js";
 import { workspaceAssertion } from "./workspaceAssertion.js";
 import { registerProjectTransferRoutes } from "./projectTransferRoutes.js";
@@ -306,6 +308,7 @@ export interface ControlPlaneApplication {
   sessions: SessionService;
   collaboration: CollaborationStore;
   notifications: Notifications;
+  connectors: Connectors;
   updates: UpdateService;
 }
 
@@ -345,6 +348,7 @@ export function createApplication(input: {
   const modelPolicies = input.modelPolicies ?? new ModelProviderPolicies(database.pool, config.workspace, workspaceFetch);
   const updates = input.updates ?? new UpdateService(database.pool);
   const notifications = new Notifications(database.pool, authConfiguration, twilio, config, workspaceFetch);
+  const connectors = new Connectors(database, config, cipher, twilio, sessions, workspaceFetch, async () => (await updates.maintenance()).maintenance, delta => { updates.activeRequests += delta; });
   const app = express();
   const publish = (event: CollaborationEvent) => input.onCollaborationEvent?.(event);
   app.disable("x-powered-by");
@@ -360,7 +364,9 @@ export function createApplication(input: {
     const mutating = !["GET", "HEAD", "OPTIONS"].includes(request.method)
       && (request.path.startsWith("/api/") || request.path.startsWith("/internal/"))
       && !request.path.startsWith("/api/admin/updates") && !request.path.startsWith("/internal/updates/") && !request.path.startsWith("/api/auth/");
-    if (!workspaceAuth && !mutating) { next(); return; }
+    const connectorCallback = /^\/api\/connectors\/oauth\/(gmail|outlook)\/callback$/.test(request.path)
+      || request.path === "/webhooks/twilio/sms" || request.path === "/webhooks/twilio/sms/status";
+    if (!workspaceAuth && !mutating && !connectorCallback) { next(); return; }
     updates.activeRequests++;
     let finished = false;
     const done = () => { if (!finished) { finished = true; updates.activeRequests--; } };
@@ -925,6 +931,7 @@ export function createApplication(input: {
   registerProjectTransferRoutes(app, database, config);
   registerProjectRoutes(app, database, config, { active: requireActiveJson, csrf: requireCsrfJson, sameOrigin });
   registerNativeRuntime(app, database, sessions, config, { sameOrigin, active: requireActiveJson, csrf: requireCsrfJson, fetch: workspaceFetch });
+  registerConnectorRoutes(app, connectors, { sameOrigin, active: requireActiveJson, admin: requireAdminJson, csrf: requireCsrfJson, token: config.workspace.controlToken });
   registerNotificationRoutes(app, notifications, { sameOrigin, active: requireActiveJson, admin: requireAdminJson, csrf: requireCsrfJson, token: config.workspace.controlToken });
   app.get("/api/account/phone", async (request, response) => {
     response.set("Cache-Control", "no-store");
@@ -2546,5 +2553,5 @@ export function createApplication(input: {
     }
   });
 
-  return { app, sessions, collaboration, notifications, updates };
+  return { app, sessions, collaboration, notifications, connectors, updates };
 }

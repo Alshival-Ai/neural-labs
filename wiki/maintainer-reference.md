@@ -96,3 +96,5 @@ API-key text-account decisions were superseded by 0028 and 0032; 0033's Septembe
 | [ADR 0031: Authorized saved-item context actions](adr/0031-skill-context-actions.md) | [Skills and graphical builder](skills.md) |
 | [ADR 0033: Personal accounts for manual automation runs](adr/0033-personal-manual-automation-runs.md) | [Run and manage automations](automations.md) |
 | [ADR 0034: Owner-scoped Claude connections](adr/0034-claude-account-connections.md) | [AI accounts and models](ai-accounts.md) |
+
+- [ADR 0045: Workspace communications](adr/0045-workspace-communications.md)

@@ -254,6 +254,7 @@ export class TwilioPluginService implements VerificationSmsTransport {
        FROM users JOIN user_phones ON user_phones.user_id = users.id
        WHERE users.status = 'active' AND user_phones.verified_at IS NOT NULL
          AND user_phones.notifications_enabled = true
+         AND NOT EXISTS (SELECT 1 FROM connector_members cm WHERE cm.user_id=users.id AND cm.sms_opted_out)
          AND (($1::uuid IS NOT NULL AND users.id = $1) OR ($2::text IS NOT NULL AND lower(users.handle) = lower($2)))`,
       [input.userId ?? null, input.handle ?? null],
     );

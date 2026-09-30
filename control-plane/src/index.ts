@@ -104,6 +104,8 @@ if (process.argv[2] === "setup-reset") {
   void reconcileMembers();
   const notificationTimer = setInterval(() => { void maintenance().then(paused => paused ? undefined : application.notifications.tick()).catch(() => console.warn("Notification reconciliation is unavailable")); }, 15_000);
   notificationTimer.unref();
+  const connectorTimer = setInterval(() => { void application.connectors.tick().catch(() => console.warn("Connector processing is awaiting recovery")); }, 5000);
+  connectorTimer.unref();
   const server = createServer(application.app);
   socketHub.attach(server);
   const projectSocket = attachProjectSocket(server, new SessionService(database, config), new ProjectStore(database.pool));
@@ -116,6 +118,7 @@ if (process.argv[2] === "setup-reset") {
     if (stopping) return;
     stopping = true;
     clearInterval(notificationTimer);
+    clearInterval(connectorTimer);
     clearInterval(memberTimer);
     clearInterval(projectMessageTimer);
     console.log(`Received ${signal}; shutting down control plane`);
