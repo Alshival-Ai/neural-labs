@@ -15,6 +15,7 @@ validate:
 	node --check tests/native-container-smoke.mjs
 	node --check tests/native-browser-smoke.mjs
 	node --check tests/native-guided-auth-smoke.mjs
+	node --check tests/native-deployment-smoke.mjs
 	bash tests/public_boundary_test.sh
 	python3 bin/export-wiki.py --check
 	python3 tests/wiki_export_test.py
@@ -37,6 +38,8 @@ validate:
 	node --check workspace/bundled-skills/prospect-video-site/scripts/qa-site.mjs
 	node --check workspace/http-server.mjs
 	node --check workspace/public-apps.mjs
+	node --check workspace/native/deployments.mjs
+	node --check workspace/native/static-site.mjs
 	node --check workspace/builder-manager.mjs
 	node --check workspace/vscode-proxy.mjs
 	node --check workspace/file-manager.mjs

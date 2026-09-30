@@ -4,6 +4,7 @@ import { UpdateNotice } from "./UpdateNotice";
 import { recordTerminalFocus, terminalAgentRequest } from "./terminalAgentApi";
 import {
   Bot,
+  Globe,
   CalendarClock,
   ChevronRight,
   Code2,
@@ -38,6 +39,7 @@ import { TerminalLaunchContext } from "./TerminalLaunchContext";
 import { createTerminal, getTerminal, type TerminalDescriptor } from "./terminalApi";
 import type { VsCodeOpenRequest } from "./VsCodeApp";
 
+const DeploymentsApp = lazy(() => import("./DeploymentsApp").then((module) => ({ default: module.DeploymentsApp })));
 const FilesApp = lazy(() => import("./FilesApp").then((module) => ({ default: module.FilesApp })));
 const ImageEditorApp = lazy(() => import("./ImageEditorApp").then((module) => ({ default: module.ImageEditorApp })));
 const NeuraApp = lazy(() => import("./NeuraApp").then((module) => ({ default: module.NeuraApp })));
@@ -66,7 +68,7 @@ type Session = {
 type Runtime = { status: string };
 type PersonalModelBootstrap = { agentId: string; authenticated: boolean; paused: boolean };
 type ToastNotice = { message: string; action?: "open-personalization" };
-type DesktopApp = "projects" | "neura" | "files" | "preview" | "image-editor" | "settings" | "terminal" | "vscode" | "automations" | "skills";
+type DesktopApp = "deployments" | "projects" | "neura" | "files" | "preview" | "image-editor" | "settings" | "terminal" | "vscode" | "automations" | "skills";
 type WindowVisibility = "open" | "minimized" | "popped-out";
 type DesktopWindowState = { id: string; app: DesktopApp; visibility: WindowVisibility; order: number; preview?: WorkspacePreviewFile; filesPath?: string };
 type ManagedPopout = PopoutSurface & { handlePageHide: () => void };
@@ -79,7 +81,7 @@ type AppearanceDeviceState = {
   fontScale: number;
 };
 
-const DESKTOP_APPS = new Set<DesktopApp>(["projects", "neura", "files", "preview", "image-editor", "settings", "terminal", "vscode", "automations", "skills"]);
+const DESKTOP_APPS = new Set<DesktopApp>(["deployments", "projects", "neura", "files", "preview", "image-editor", "settings", "terminal", "vscode", "automations", "skills"]);
 
 function storedPreviewFile(value: unknown): WorkspacePreviewFile | undefined {
   if (!value || typeof value !== "object") return undefined;
@@ -160,6 +162,7 @@ function raiseWindow(windows: DesktopWindowState[], windowId: string): DesktopWi
 }
 
 function desktopWindowTitle(window: DesktopWindowState): string {
+  if (window.app === "deployments") return "Deployments";
   if (window.app === "neura") return "Alshival";
   if (window.app === "files") return "Files";
   if (window.app === "preview") return `Preview — ${window.preview?.name ?? "File"}`;
@@ -706,7 +709,7 @@ export function App() {
       <main id="desktop-canvas" className="desktop-canvas" aria-busy={!session?.authenticated}>
         {mountedWindows.map((desktopWindow) => {
           const title = desktopWindowTitle(desktopWindow);
-          const icon = desktopWindow.app === "neura" ? <WandSparkles /> : desktopWindow.app === "files" ? <Folder /> : desktopWindow.app === "preview" ? <FileSearch2 /> : desktopWindow.app === "image-editor" ? <ImageIcon /> : desktopWindow.app === "settings" ? <Settings /> : desktopWindow.app === "automations" ? <CalendarClock /> : desktopWindow.app === "skills" ? <Bot /> : desktopWindow.app === "vscode" ? <Code2 /> : <TerminalSquare />;
+          const icon = desktopWindow.app === "deployments" ? <Globe /> : desktopWindow.app === "neura" ? <WandSparkles /> : desktopWindow.app === "files" ? <Folder /> : desktopWindow.app === "preview" ? <FileSearch2 /> : desktopWindow.app === "image-editor" ? <ImageIcon /> : desktopWindow.app === "settings" ? <Settings /> : desktopWindow.app === "automations" ? <CalendarClock /> : desktopWindow.app === "skills" ? <Bot /> : desktopWindow.app === "vscode" ? <Code2 /> : <TerminalSquare />;
           return (
             <DesktopWindow
               key={desktopWindow.id}
@@ -731,6 +734,7 @@ export function App() {
             >
               <Suspense fallback={<div className="app-loading">Loading {title.toLowerCase()}…</div>}>
                 {desktopWindow.app === "neura" && session?.user && session.csrfToken && <NeuraApp initialChannelId={channelLaunch?.windowId === desktopWindow.id ? channelLaunch.channelId : undefined} gateway={gateway} notify={notify} active={activeWindowId === desktopWindow.id} csrfToken={session.csrfToken} currentUser={session.user} storageNamespace={persistenceUserId} storageArea={`neura.${desktopWindow.id}`} composeRequest={neuraComposeRequest?.targetWindowId === desktopWindow.id ? neuraComposeRequest : undefined} onPreviewFile={openPreviewFile} onOpenTeamTerminal={openTeamChatTerminal} />}
+                {desktopWindow.app === "deployments" && <DeploymentsApp />}
                 {desktopWindow.app === "files" && <FilesApp notify={notify} active={activeWindowId === desktopWindow.id || desktopWindow.visibility === "popped-out"} initialPath={desktopWindow.filesPath} onOpenWindow={openFilesWindow} onEditImage={openImageEditor} onOpenInVsCode={openInVsCode} onPreviewFile={openPreviewFile} storageNamespace={persistenceUserId} storageArea={`files.${desktopWindow.id}`} />}
                 {desktopWindow.app === "preview" && desktopWindow.preview && <PreviewApp file={desktopWindow.preview} onEditImage={openImageEditor} />}
                 {desktopWindow.app === "image-editor" && <ImageEditorApp file={desktopWindow.preview} onDirtyChange={(dirty) => { if (dirty) dirtyEditors.current.add(desktopWindow.id); else dirtyEditors.current.delete(desktopWindow.id); }} />}
@@ -756,6 +760,7 @@ export function App() {
         <DockButton name="Terminal" active={windowCount("terminal") > 0} count={windowCount("terminal")} onClick={() => toggleDockApp("terminal")} onContextMenu={(event) => openDockMenu("terminal", event)}><TerminalSquare /></DockButton>
         <span className="dock-separator" aria-hidden="true" />
         <DockButton name="Automations" active={windowCount("skills") > 0} count={windowCount("skills")} onClick={() => openSkillsSection("automations")}><CalendarClock /></DockButton>
+        <DockButton name="Deployments" active={windowCount("deployments") > 0} count={windowCount("deployments")} onClick={() => toggleDockApp("deployments")} onContextMenu={(event) => openDockMenu("deployments", event)}><Globe /></DockButton>
         <DockButton name="Skills" active={windowCount("skills") > 0} count={windowCount("skills")} onClick={() => openSkillsSection("mine")} onContextMenu={(event) => openDockMenu("skills", event)}><Bot /></DockButton>
         <DockButton name="Settings" active={windowCount("settings") > 0} count={windowCount("settings")} onClick={() => toggleDockApp("settings")} onContextMenu={(event) => openDockMenu("settings", event)}><Settings /></DockButton>
       </nav>

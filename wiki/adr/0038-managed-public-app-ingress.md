@@ -36,7 +36,7 @@ runtime route before marking the switch ready. The certificate for
 `*.alshival.cloud` does not cover application hosts one level deeper. The
 per-workspace certificate renews through the root-owned DNS hook.
 
-No tenant process is started by this ingress change. A future deployment skill
-must assign a free port in the dedicated range, run and supervise the app, write
-its manifest entry, and verify the public URL. SSH stays behind the existing
+The [deployment service](0043-workspace-app-deployments.md) now assigns app ports,
+supervises processes, and verifies URLs. Its broker-owned route table is
+authoritative; the editable manifest is only a browser-preview compatibility view. SSH stays behind the existing
 authenticated access path; this ADR opens HTTP and HTTPS only.

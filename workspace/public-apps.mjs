@@ -33,24 +33,28 @@ async function portFor(root, slug) {
   return Number.isInteger(port) && port >= 30000 && port <= 30999 ? port : null;
 }
 
-function requestHeaders(incoming, slug, publicOrigin) {
-  const base = new URL(publicOrigin);
-  const headers = { host: `${slug}.${base.host}`, "x-forwarded-proto": "https" };
+function appOrigin(slug, publicOrigin, local) {
+  const base = new URL(typeof publicOrigin === "function" ? publicOrigin() : publicOrigin);
+  return local ? base.origin : `https://${slug}.${base.host}`;
+}
+function requestHeaders(incoming, slug, publicOrigin, local) {
+  const base = new URL(appOrigin(slug, publicOrigin, local));
+  const headers = { host: base.host, "x-forwarded-proto": base.protocol.slice(0, -1) };
   for (const [key, value] of Object.entries(incoming)) {
     if (REQUEST.has(key) && typeof value === "string") headers[key] = value;
   }
   return headers;
 }
 
-export async function proxyPublicApp(request, response, { workspaceRoot, publicOrigin, gated }) {
+export async function proxyPublicApp(request, response, { workspaceRoot, publicOrigin, gated, resolvePort, local = false }) {
   const parsed = publicAppPath(request.url);
   if (!parsed) return false;
   response.setHeader("X-Neural-Labs-App-Gateway", "ready");
   if (parsed.invalid || gated?.()) { response.writeHead(parsed.invalid ? 404 : 503).end(); return true; }
-  const port = await portFor(workspaceRoot, parsed.slug);
+  const port = (resolvePort ? await resolvePort(parsed.slug) : await portFor(workspaceRoot, parsed.slug));
   if (!port) { response.writeHead(404).end(); return true; }
   const upstream = httpRequest({ hostname: "127.0.0.1", port, method: request.method,
-    path: parsed.relative, headers: requestHeaders(request.headers, parsed.slug, publicOrigin), timeout: 30000 }, incoming => {
+    path: parsed.relative, headers: requestHeaders(request.headers, parsed.slug, publicOrigin, local), timeout: 30000 }, incoming => {
     const headers = {};
     for (const [key, value] of Object.entries(incoming.headers)) {
       if (!HOP.has(key) && key !== "server" && value !== undefined) headers[key] = value;
@@ -68,16 +72,16 @@ export async function proxyPublicApp(request, response, { workspaceRoot, publicO
   return true;
 }
 
-export function attachPublicAppWebSocket(server, { workspaceRoot, publicOrigin, gated }) {
+export function attachPublicAppWebSocket(server, { workspaceRoot, publicOrigin, gated, resolvePort, local = false }) {
   server.on("upgrade", async (request, socket, head) => {
     const parsed = publicAppPath(request.url);
     if (!parsed) return;
     if (parsed.invalid || gated?.()) { socket.destroy(); return; }
-    const expected = `https://${parsed.slug}.${new URL(publicOrigin).host}`;
+    const expected = appOrigin(parsed.slug, publicOrigin, local);
     if (request.headers.origin !== expected) { socket.destroy(); return; }
-    const port = await portFor(workspaceRoot, parsed.slug);
+    const port = (resolvePort ? await resolvePort(parsed.slug) : await portFor(workspaceRoot, parsed.slug));
     if (!port) { socket.destroy(); return; }
-    const headers = { ...requestHeaders(request.headers, parsed.slug, publicOrigin),
+    const headers = { ...requestHeaders(request.headers, parsed.slug, publicOrigin, local),
       connection: "Upgrade", upgrade: "websocket", "sec-websocket-key": request.headers["sec-websocket-key"],
       "sec-websocket-version": request.headers["sec-websocket-version"] };
     if (request.headers["sec-websocket-protocol"]) headers["sec-websocket-protocol"] = request.headers["sec-websocket-protocol"];

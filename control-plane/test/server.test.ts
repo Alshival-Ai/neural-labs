@@ -800,3 +800,19 @@ describe("Claude account boundary", () => {
     } finally { deadline.mockRestore(); }
   });
 });
+
+describe('deployment control boundary', () => {
+  it('requires the private runtime credential and a live matching session', async () => {
+    const { app } = application(regular);
+    const payload = { actorId: regular.id, session: 'a'.repeat(43) };
+    await request(app).post('/internal/deployment-access').send(payload).expect(401);
+    await request(app).post('/internal/deployment-access').set('Authorization', `Bearer ${config.workspace.controlToken}`).send(payload).expect(200);
+    await request(app).post('/internal/deployment-access').set('Authorization', `Bearer ${config.workspace.controlToken}`).send({ ...payload, actorId: admin.id }).expect(403);
+    await request(application().app).post('/internal/deployment-access').set('Authorization', `Bearer ${config.workspace.controlToken}`).send(payload).expect(403);
+  });
+  it('does not expose hosting discovery to apps or invent managed hosting on standalone', async () => {
+    const { app } = application(regular);
+    await request(app).post('/internal/deployment-hosting').send({}).expect(401);
+    await request(app).post('/internal/deployment-hosting').set('Authorization', `Bearer ${config.workspace.controlToken}`).send({}).expect(404);
+  });
+});

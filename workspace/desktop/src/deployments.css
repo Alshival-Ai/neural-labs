@@ -1,0 +1,11 @@
+.deployments-app { height: 100%; overflow: auto; padding: 1.25rem; box-sizing: border-box; background: var(--paper, #f6f4ef); color: var(--ink, #0b0c11); }
+.deployments-app header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.deployments-app h2, .deployments-app h3 { margin: .25rem 0; }
+.deployments-app p { line-height: 1.5; }
+.deployment-hosting, .deployment-card { padding: 1rem; margin: 1rem 0; border: 1px solid var(--line, #d5d3ce); border-radius: 12px; background: var(--paper-bright, #fffef9); }
+.deployment-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin: .75rem 0; }
+.deployments-app button { background: var(--panel, #0b0c11); color: #fffef9; padding: .5rem .85rem; border: 0; border-radius: 8px; cursor: pointer; }
+.deployments-app button:disabled { opacity: .55; cursor: wait; }
+.deployments-app a { color: var(--accent, #7b4dff); overflow-wrap: anywhere; }
+.deployments-app pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #0f172a; color: #e2e8f0; padding: 1rem; max-height: 24rem; overflow: auto; }
+.deployments-app dd { margin: .2rem 0 .75rem; overflow-wrap: anywhere; }

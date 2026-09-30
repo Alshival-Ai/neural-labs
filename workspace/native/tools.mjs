@@ -38,12 +38,15 @@ export class NativeTools {
       }
       return this.request(url, init);
     };
-    const authorizeTool = async name => {
+    const authorizeTool = async (name, input) => {
       await grant.revalidate();
       if (!active) throw new Error("Execution ended");
-      if (grant.policy?.sandbox === "read-only" && !READ_TOOLS.has(name) && name !== "browser") throw new Error("The saved execution policy does not allow this tool");
+      if (grant.policy?.sandbox === "read-only" && !READ_TOOLS.has(name) && name !== "browser" && !(name === "deployments" && ["hosting","list","status","logs"].includes(input?.action))) throw new Error("The saved execution policy does not allow this tool");
     };
-    const application = this.createApplication(this.configuration, transport, undefined, authorizeTool, browserCall);
+    const application = this.createApplication(this.configuration, transport, undefined, authorizeTool, browserCall,
+      this.deployments ? input => this.deployments.call(input, { ...grant, revalidate: async () => {
+        await grant.revalidate(); if (!active) throw new Error('Execution ended');
+      } }) : undefined);
     const entry = { application, grant, revoke: () => { active = false; } }; this.sessions.set(token, entry);
     const url = new URL("/mcp", this.origin).href, headers = { Authorization: `Bearer ${token}` };
     const team = grant.team && this.teamOrigin ? { url: new URL("/team-mcp", this.origin).href, http_headers: headers } : undefined;

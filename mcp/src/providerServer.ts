@@ -1,3 +1,4 @@
+import { registerDeploymentTools, type DeploymentAdapter } from './deploymentTools.js';
 import { registerBrowserTools, type BrowserAdapter } from "./browserTools.js";
 import { registerTerminalTools, TERMINAL_TOOLS } from "./terminalTools.js";
 import {
@@ -40,6 +41,7 @@ export function createProviderApplication(
   runtimeStatus?: () => unknown,
   authorizeTool?: (name: string, input?: unknown) => Promise<void>,
   browser?: BrowserAdapter,
+  deployments?: DeploymentAdapter,
 ): ProviderApplication {
   const app = createMcpExpressApp({
     host: "127.0.0.1",
@@ -71,6 +73,7 @@ export function createProviderApplication(
       },
       tools: [
         ...(browser ? ["browser"] : []),
+        ...(deployments ? ["deployments"] : []),
         ...(googleConfigured ? GOOGLE_TOOLS : []),
         ...(klipyConfigured ? KLIPY_TOOLS : []),
         ...(pexelsConfigured ? PEXELS_TOOLS : []),
@@ -108,6 +111,7 @@ export function createProviderApplication(
       registerSmsNotificationTool(server, config, fetchFn);
       registerTerminalTools(server, config, fetchFn);
       registerBrowserTools(server, browser);
+      registerDeploymentTools(server, deployments);
       return server;
     },
     {

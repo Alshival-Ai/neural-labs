@@ -35,7 +35,7 @@ export class NativeMaintenance {
     const cronRuns = state.db.prepare("SELECT count(*) AS n FROM occurrences WHERE status IN ('claimed','running','unknown')").get().n;
     const local = this.localActivity();
     const activity = { ...local, terminals: local.terminals + (this.runtime.accounts.claude?.active || 0), chatRuns, cronRuns, tasks: this.runtime.scheduler.active.size,
-      background: this.runtime.accounts.logins?.size || 0 };
+      background: (this.runtime.accounts.logins?.size || 0) + (this.runtime.deployments?.active || 0) };
     if (Object.values(activity).some(value => !Number.isSafeInteger(value) || value < 0)) throw new Error("Native activity cannot be verified");
     return { protocol: 1, probation: this.probation, gated: this.gated, activity,
       eligible: await this.readiness(), idle: Object.values(activity).every(value => value === 0) };
@@ -49,6 +49,7 @@ export class NativeMaintenance {
       this.runtime.state.setMetadata("scheduling", "disabled"); this.runtime.state.setMetadata("delivery", "disabled");
     });
     await this.runtime.triggers?.refresh();
+    if (!this.runtime.deployments?.active) await this.runtime.deployments?.pause();
     return this.activity();
   }); }
   resume() { return this.exclusive(async () => {
@@ -65,6 +66,7 @@ export class NativeMaintenance {
       await this.runtime.triggers?.refresh();
       state.db.prepare("DELETE FROM metadata WHERE key='maintenance'").run();
       this.runtime.scheduler.closed = false; this.runtime.turns.gated = false; this.gated = false;
+      await this.runtime.deployments?.restore();
       return { ok: true };
     } catch (error) {
       state.setMetadata("scheduling", "disabled"); state.setMetadata("delivery", "disabled");

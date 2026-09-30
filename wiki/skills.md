@@ -148,3 +148,8 @@ recreate the workspace after changing them. The Kiki endpoint is
 `http://192.168.10.113:8000`. Never copy the key into a skill, generated project,
 browser code, or chat. The skill instructs agents to read live `/models` and
 `/openapi.json` when checking current capabilities and limits.
+
+## Built-in deploy skill
+
+The read-only `deploy` skill is installed with Neural Labs for both native providers.
+See [Deployments](deployments.md) for publication, lifecycle controls, and hosting setup.

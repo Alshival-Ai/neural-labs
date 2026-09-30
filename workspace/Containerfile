@@ -36,7 +36,7 @@ RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
       bash-completion bubblewrap build-essential ca-certificates chromium curl poppler-utils \
       ffmpeg fonts-liberation fonts-noto-color-emoji fonts-noto-core git \
-      imagemagick jq less openssh-client procps python3 python3-pip ripgrep \
+      imagemagick jq less openssh-client procps python3 python3-pip python3-venv ripgrep \
       rsync tini util-linux vim-tiny webp zsh zsh-autosuggestions zsh-syntax-highlighting \
     && rm -rf /var/lib/apt/lists/*
 
@@ -59,6 +59,7 @@ COPY workspace/start.mjs workspace/http-server.mjs workspace/response-work.mjs \
      workspace/voice.mjs workspace/terminal-agent.mjs workspace/terminal-manager.mjs \
      workspace/public-apps.mjs workspace/imported-history.mjs ./
 COPY workspace/native ./native
+COPY workspace/bundled-skills/deploy /usr/local/share/neural-labs/skills/deploy
 COPY --chmod=0755 workspace/entrypoint.sh /usr/local/bin/neural-labs-runtime
 COPY --from=desktop-build /build/dist /usr/local/share/neural-labs/desktop
 COPY --chown=node:node --from=mcp-build /build/package.json /build/package-lock.json /usr/local/lib/neural-labs/mcp/

@@ -88,7 +88,7 @@ def build(registration, destination):
             "healthcheck": {"test": ["CMD", "curl", "--fail", "--silent", "--max-time", "6", "http://127.0.0.1:18790/healthz"],
                             "interval": "15s", "timeout": "8s", "retries": 12, "start_period": "120s"},
             "environment": {"NEURAL_LABS_AUTH_MODE": "alshival", "NEURAL_LABS_PUBLIC_ORIGIN": public, "NEURAL_LABS_WORKSPACE_PROXY_IP": str(network.network_address + 1),
-                "NEURAL_LABS_APP_DOMAIN": hostname,
+                "NEURAL_LABS_APP_DOMAIN": hostname, "NEURAL_LABS_APP_LOCAL_ENABLED": "false",
                 "NEURAL_LABS_EMBED_ORIGINS": "https://alshival.ai",
                 "NEURAL_LABS_WORKSPACE_CONTROL_TOKEN": cfg["control_token"],
                 "NEURAL_LABS_RUNTIME_VERSION": release["version"], "NEURAL_LABS_CODEX_VERSION": release["codex"],

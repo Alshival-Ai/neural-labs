@@ -176,3 +176,5 @@ to plan retention and test recovery.
 - [Release history](release-history.md): changes and dated release records.
 
 For hosting integrated with the Alshival portal, see [Alshival-managed installations](alshival-managed.md).
+
+- [Deploy websites and apps](deployments.md): the built-in deploy skill, local hosting, wildcard DNS, TLS, and custom domains.

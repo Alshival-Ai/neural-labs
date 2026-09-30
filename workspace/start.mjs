@@ -1,3 +1,4 @@
+import { Deployments, hostingConfig } from './native/deployments.mjs';
 import { createServer } from "node:http";
 import { mkdir, access } from "node:fs/promises";
 import path from "node:path";
@@ -63,7 +64,7 @@ const tools = new NativeTools({ origin: `http://127.0.0.1:${toolsPort}`, teamOri
   createApplication: createProviderApplication, configuration: () => providers.snapshot() });
 const skills = new NativeSkills({ root: "/run/neural-labs/skills", manager: createSkillsManager({
   personalRoot: path.join(path.dirname(workspaceRoot), ".agents", "skills"), teamRoot: path.join(workspaceRoot, "skills"),
-  libraryRoots: [path.join(root, "installed-skills")],
+  libraryRoots: ["/usr/local/share/neural-labs/skills", path.join(root, "installed-skills")],
 }) });
 const runtime = new NativeRuntime({ stateRoot: root, workspaceRoot, authorize: controlPlaneAuthority({ origin: controlOrigin, token }),
   tools, skills, terminals, spawnPty: pty.spawn, resolveActor });
@@ -91,6 +92,13 @@ const preservationReady = () => nativePreservationReady(runtime.state, { legacyS
 const maintenance = new NativeMaintenance({ runtime, probation, readiness: async () => preservationReady() });
 if (probation || !preservationReady()) await maintenance.pause();
 else if (!maintenance.gated) runtime.turns.gated = false;
+const deployments = new Deployments({ root: path.join(root, 'deployments'), workspaceRoot, state: runtime.state,
+  configuration: hostingConfig(process.env), hosting: () => control('/internal/deployment-hosting', {}), gated: () => maintenance.gated });
+runtime.deployments = deployments; tools.deployments = deployments;
+await deployments.host();
+const hostingRefresh = setInterval(() => { void deployments.host(); }, 10000);
+await deployments.restore();
+await deployments.localListeners();
 const triggers = new NativeTriggerLoop({ state: runtime.state, scheduler: runtime.scheduler, root: "/run/neural-labs/scheduler" });
 runtime.triggers = triggers;
 await triggers.start();
@@ -101,8 +109,8 @@ const mcpStatus = async () => ({ ready: mcpServer.listening, mode: "workspace-lo
   providerConfiguration: providers.status(), providers: { googlePlaces: providers.status()["google-maps"].available,
     googleGeocoding: providers.status()["google-maps"].available, klipy: providers.status().klipy.available, pexels: providers.status().pexels.available }, tools: ["browser"] });
 const server = createWorkspaceHttpServer({ desktopRoot: "/usr/local/share/neural-labs/desktop", workspaceRoot, publicOrigin,
-  nativeArtifacts: artifacts, nativeRuntime: runtime, requireSignedRequests: true, nativeEditors: editors, updateMaintenance: maintenance,
-  skillLibraryRoots: [path.join(root, "installed-skills")],
+  nativeArtifacts: artifacts, deployments, deploymentAuthorize: input => control('/internal/deployment-access', input), nativeRuntime: runtime, requireSignedRequests: true, nativeEditors: editors, updateMaintenance: maintenance,
+  skillLibraryRoots: ["/usr/local/share/neural-labs/skills", path.join(root, "installed-skills")],
   runtimeReady: async () => !stopping && triggers.status().ready, mcpStatus, apiProviderRuntime: providers, terminalManager: terminals,
   terminalActorResolver: resolveActor, workspaceControlToken: token, codexVersion: release.codex, claudeVersion: release.claude,
   runTeamAgent: input => runtime.runTeam({ run: input.runId, channel: input.channelId,
@@ -116,8 +124,8 @@ console.log(`Neural Labs native runtime listening on ${statusPort}`);
 async function stop() {
   if (stopping) return; stopping = true;
   runtime.turns.gated = true; runtime.scheduler.closed = true;
-  server.close(); providers.close();
-  await triggers.close(); await editors.close(); await runtime.close(); await tools.close(); artifacts.close();
+  clearInterval(hostingRefresh); server.close(); providers.close();
+  await deployments.close(); await triggers.close(); await editors.close(); await runtime.close(); await tools.close(); artifacts.close();
   mcpServer.close();
 }
 process.once("SIGINT", () => void stop());

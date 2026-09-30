@@ -40,7 +40,7 @@ import type { Database, SaveSetupInput } from "./database.js";
 import { MicrosoftOidcClient } from "./entra.js";
 import { WebAuthnService, type WebAuthnOperations } from "./passkeys.js";
 import { SessionService } from "./sessions.js";
-import { managedMembersReady, registerManagedRoutes } from "./managed.js";
+import { managedMembersReady, registerManagedRoutes, portalExchange } from "./managed.js";
 import { PhoneError, PhoneService, PhoneStore } from "./phone.js";
 import { TwilioPluginService, twilioNotificationSchema, twilioSettingsSchema } from "./twilioPlugin.js";
 import type {
@@ -2406,6 +2406,24 @@ export function createApplication(input: {
       iceServers: [...stunUrls, ...(relayUrls.length > 0 ? [{ urls: relayUrls, username, credential }] : [])],
       expiresAt,
     });
+  });
+
+  app.post("/internal/deployment-hosting", async (request, response) => {
+    const supplied = request.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+    if (!supplied || !safeEqual(supplied, config.workspace.controlToken)) { response.status(401).end(); return; }
+    response.set("Cache-Control", "no-store");
+    if (!config.managed) { response.status(404).end(); return; }
+    try { response.json(await portalExchange(config, "app-hosting", {})); }
+    catch { response.status(503).json({ error: { message: "Managed hosting status is unavailable" } }); }
+  });
+  app.post("/internal/deployment-access", async (request, response) => {
+    const supplied = request.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+    if (!supplied || !safeEqual(supplied, config.workspace.controlToken)) { response.status(401).end(); return; }
+    const parsed = z.object({ actorId: z.string().uuid(), session: z.string().regex(/^[A-Za-z0-9_-]{43}$/) }).strict().safeParse(request.body);
+    if (!parsed.success) { response.status(400).end(); return; }
+    const actor = await sessions.actorByTokenHash(parsed.data.session);
+    if (!actor || actor.user.id !== parsed.data.actorId || actor.user.status !== "active") { response.status(403).end(); return; }
+    response.set("Cache-Control", "no-store").json({ allowed: true });
   });
 
   app.post("/internal/terminal-actor", async (request, response) => {

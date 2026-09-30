@@ -246,3 +246,9 @@ for troubleshooting, but normal operators should use the lifecycle CLI.
 The standalone deployment above retains its existing identity and update workflow.
 Portal-owned stacks use the [managed adapter](alshival-managed.md) with a fresh
 identity database and platform execution leases.
+
+## Hosting generated apps
+
+The default app gateways bind host ports 31000–31009 on loopback. Configure
+[app hosting](deployments.md) before publication when you want wildcard public
+URLs, TLS, or a custom app namespace. Keep these separate from workspace login.

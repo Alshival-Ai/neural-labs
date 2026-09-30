@@ -44,3 +44,5 @@
 - [Native runtime migration](native-migration.md): preservation, probation and recovery.
 
 - [Connect Anthropic](anthropic-connection.md): guided sign-in and reconnect.
+
+- [Deploy websites and apps](deployments.md): the built-in deploy skill, local hosting, wildcard DNS, TLS, and custom domains.

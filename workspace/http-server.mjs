@@ -418,6 +418,8 @@ export function createWorkspaceHttpServer({
   nativeRuntime,
   nativeArtifacts,
   requireSignedRequests = false,
+  deployments,
+  deploymentAuthorize,
   nativeEditors,
   workspaceRoot,
   publicOrigin,
@@ -484,12 +486,28 @@ export function createWorkspaceHttpServer({
   const terminalAgent = new TerminalAgentBridge({ manager: terminals, resolveActor: terminalActorResolver ?? (async () => null) });
   const previewLaunches = new Map();
   let activeWrites = 0;
+  const appOptions = { workspaceRoot, publicOrigin: () => deployments?.lastHosting?.domain ? `https://${deployments.lastHosting.domain}` : publicOrigin,
+    gated: () => updateMaintenance?.gated || deployments?.lastHosting?.mode === 'public' && (!deployments.lastHosting.ready || !deployments.lastHosting.enabled), ...(deployments ? { resolvePort: slug => deployments.resolve(slug) } : {}) };
   const handleRequest = async (request, response) => {
     const method = request.method ?? "GET";
     const url = new URL(request.url ?? "/", "http://workspace.local");
     const pathname = url.pathname;
     if (pathname.startsWith("/__alshival_app/")) {
-      await proxyPublicApp(request, response, { workspaceRoot, publicOrigin, gated: () => updateMaintenance?.gated });
+      await proxyPublicApp(request, response, appOptions);
+      return;
+    }
+    if (pathname === '/workspace/api/deployments') {
+      const actor = terminalActor(request.headers);
+      if (!actor || !deployments || !deploymentAuthorize) { sendJson(response, 401, { error: { message: 'Workspace authorization is required' } }, method); return; }
+      if (method !== 'GET' && (method !== 'POST' || request.headers.origin !== publicOrigin)) {
+        sendJson(response, 403, { error: { message: 'A same-origin POST is required' } }, method); return;
+      }
+      try {
+        const session = request.headers['x-neural-labs-session'];
+        const revalidate = () => deploymentAuthorize({ actorId: actor.id, session });
+        const input = method === 'GET' ? { action: 'list' } : await readJsonBody(request, 16384);
+        sendJson(response, 200, await deployments.call(input, { revalidate, policy: { sandbox: 'workspace-write' } }), method);
+      } catch (error) { sendJson(response, 409, { error: { message: error.message || 'Deployment operation failed' } }, method); }
       return;
     }
     if (pathname === "/internal/native/request") {
@@ -1334,7 +1352,7 @@ export function createWorkspaceHttpServer({
       catch { socket.destroy(); }
     }
   });
-  attachPublicAppWebSocket(server, { workspaceRoot, publicOrigin, gated: () => updateMaintenance?.gated });
+  attachPublicAppWebSocket(server, appOptions);
   const terminalSockets = attachTerminalWebSocket(server, { manager: terminals, publicOrigin, heartbeatMs: terminalHeartbeatMs, gated: () => updateMaintenance?.gated });
   const vsCodeSockets = attachVsCodeWebSocketBridge(server, { codeServerOrigin, publicOrigin, gated: () => updateMaintenance?.gated,
     ...(nativeEditors ? { resolveTarget: req => nativeEditors.ensure(req) } : {}) });
