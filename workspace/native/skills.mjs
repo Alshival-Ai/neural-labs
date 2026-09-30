@@ -61,9 +61,11 @@ async function snapshot(source, destination, relative = "", receipt = [], budget
 
 export class NativeSkills {
   constructor({ manager, root }) { this.manager = manager; this.root = root; }
-  async prepare({ actor, input, provider, requestedSkillText, scope = "personal" }) {
+  async prepare({ actor, input, provider, requestedSkillText, scope = "personal", explicitOnly = false }) {
     if (!["codex", "claude"].includes(provider)) throw new Error("Unknown skill provider");
     if (!["personal", "team"].includes(scope)) throw new Error("Unknown skill scope");
+    const requested = new Set((requestedSkillText === undefined ? input.map(row => row.text) : [requestedSkillText])
+      .flatMap(text => [...text.matchAll(/(?:^|\s)\$([a-z0-9][a-z0-9-]*)(?=$|[\s.,:;!?])/g)].map(match => match[1])));
     const owner = workspaceSkillActorId(actor);
     const skillActor = { id: owner, userId: actor, role: "user" };
     const records = (await this.manager.list(skillActor))
@@ -85,7 +87,7 @@ export class NativeSkills {
       const mounts = [], packages = [], available = new Map();
       for (const record of records) {
         if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(record.key) || available.has(record.key)) throw new Error("Ambiguous skill identity");
-        if (record.enabled === false) continue;
+        if (record.enabled === false || explicitOnly && !requested.has(record.key)) continue;
         const directory = path.join(root, record.key); await mkdir(directory, { mode: 0o700 });
         const files = await snapshot(path.dirname(record.path), directory);
         const document = await readFile(path.join(directory, "SKILL.md"), "utf8");
@@ -102,8 +104,6 @@ export class NativeSkills {
         available.set(record.key, { target, userInvocable: !/^user-invocable:\s*false\s*$/m.test(document) });
         packages.push({ key: record.key, source: record.path, files, changes: [] });
       }
-      const requested = new Set((requestedSkillText === undefined ? input.map(row => row.text) : [requestedSkillText])
-        .flatMap(text => [...text.matchAll(/(?:^|\s)\$([a-z0-9][a-z0-9-]*)(?=$|[\s.,:;!?])/g)].map(match => match[1])));
       const instructions = [];
       for (const key of requested) {
         const skill = available.get(key);

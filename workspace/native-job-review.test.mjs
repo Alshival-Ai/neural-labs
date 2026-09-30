@@ -41,9 +41,9 @@ test("review rejects non-admins, unsupported policies, uncertain runs and system
     await assert.rejects(f.jobs.review(grant, f.input), /operator review/);
   }
   for (const extra of [{ trigger: { script: "fixture" } }, { failureAlert: { after: 2 } }, { payload: { kind: "agentTurn", message: "fixture", toolsAllow: ["exec"] } },
-    { sessionTarget: "main" }, { state: { runningAtMs: 1 } }, { schedule: { kind: "cron", expr: "0 * * * *", staggerMs: 1000 } }]) {
+    { sessionTarget: "main" }, { state: { runningAtMs: 1 } }, { schedule: { kind: "cron", expr: "0 * * * *", staggerMs: -1 } }]) {
     const g = fixture(t, extra);
-    await assert.rejects(g.jobs.review(grant, g.input), /policy|policies|reconciliation/);
+    await assert.rejects(g.jobs.review(grant, g.input), /policy|policies|reconciliation|stagger/);
     assert.equal(g.state.job(g.job.id).hold, "native-connection-required");
   }
 });

@@ -2,7 +2,7 @@ import { configureNativeActor, selectNativeConnection } from "./nativeApi";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { mergeCustomSkills, SkillsLiveApp } from "./SkillsLiveApp";
+import { automationInitial, mergeCustomSkills, SkillsLiveApp } from "./SkillsLiveApp";
 import { SkillsApp } from "./SkillsApp";
 import type { NativeClient } from "./nativeClient";
 import type { ConnectionState } from "./types";
@@ -115,4 +115,14 @@ it("lets members run an automation using their explicitly selected native connec
   fireEvent.click(run);
   await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/runtime/request", expect.objectContaining({ method: "POST", body: expect.stringContaining('"job":"example"') })));
   expect(screen.queryByRole("button", { name: "Save automation" })).toBeNull();
+});
+
+it("preserves saved automation policy values when reopening the collaborative builder", async () => {
+  const { mapAutomationsSnapshot } = await import("./automationsApi");
+  const job = mapAutomationsSnapshot({}, { jobs: [{ id: "job", name: "Saved", enabled: true,
+    schedule: { kind: "stream", source: "saved-source", command: ["/bin/cat"], cwd: "." },
+    payload: { kind: "agentTurn", message: "Check", lightContext: true }, failureAlert: { after: 7, cooldownMs: 60000 },
+    state: { consecutiveErrors: 42 } }] }, {}).jobs[0];
+  expect(automationInitial(job)).toMatchObject({ failureAlertAfter: "7", failureCooldownMs: "60000", lightContext: "true", sourceId: "saved-source" });
+  expect(automationInitial({ ...job, failureAlertAfter: undefined }).failureAlertAfter).toBe("");
 });

@@ -32,7 +32,7 @@ export class NativeState {
     if (filename !== ":memory:") chmodSync(filename, 0o600);
     this.db.exec(`PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;`);
     const version = this.db.prepare("PRAGMA user_version").get().user_version;
-    if (version > 7) { this.db.close(); throw new Error("Native state was written by a newer runtime"); }
+    if (version > 8) { this.db.close(); throw new Error("Native state was written by a newer runtime"); }
     this.db.exec(`
       BEGIN IMMEDIATE;
       CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -59,6 +59,25 @@ export class NativeState {
         actor TEXT NOT NULL, connection TEXT NOT NULL, definition TEXT NOT NULL,
         manual INTEGER NOT NULL CHECK(manual IN (0,1)), claimed_at INTEGER NOT NULL,
         finished_at INTEGER, result TEXT, UNIQUE(job_id,occurrence)
+      );
+      CREATE TABLE IF NOT EXISTS event_sources (
+        generation TEXT PRIMARY KEY, job_id TEXT NOT NULL REFERENCES jobs(id), revision TEXT NOT NULL,
+        actor TEXT NOT NULL, binding TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL, sequence INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS source_events (
+        job_id TEXT NOT NULL REFERENCES jobs(id), occurrence TEXT NOT NULL, revision TEXT NOT NULL,
+        generation TEXT NOT NULL REFERENCES event_sources(generation), payload TEXT NOT NULL,
+        created_at INTEGER NOT NULL, consumed INTEGER NOT NULL, PRIMARY KEY(job_id,occurrence)
+      );
+      CREATE TABLE IF NOT EXISTS failure_policies (
+        job_id TEXT PRIMARY KEY REFERENCES jobs(id), streak INTEGER NOT NULL DEFAULT 0, alerted_at INTEGER
+      );
+      CREATE TABLE IF NOT EXISTS run_notification_policy (
+        run_id TEXT PRIMARY KEY REFERENCES occurrences(id), external INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS scheduled_pending (
+        job_id TEXT NOT NULL REFERENCES jobs(id), occurrence TEXT NOT NULL, revision TEXT NOT NULL,
+        due_at INTEGER NOT NULL, PRIMARY KEY(job_id,occurrence)
       );
       CREATE TABLE IF NOT EXISTS job_reviews (
         request_id TEXT PRIMARY KEY, job_id TEXT NOT NULL REFERENCES jobs(id),
@@ -110,7 +129,7 @@ export class NativeState {
       INSERT OR IGNORE INTO turn_bindings SELECT t.id,c.binding FROM turns t JOIN conversations c ON c.id=t.conversation;
     `);
     if (version < 4) this.db.exec("ALTER TABLE conversation_profiles ADD COLUMN effort TEXT");
-    this.db.exec("PRAGMA user_version=7; COMMIT;");
+    this.db.exec("PRAGMA user_version=8; COMMIT;");
   }
 
   close() { this.db.close(); }
@@ -201,6 +220,7 @@ export class NativeState {
         (id,job_id,occurrence,status,actor,connection,definition,manual,claimed_at,finished_at,result)
         VALUES (?,?,?,'blocked',?,?,?,0,?,?,?)`)
         .run(id, jobId, occurrence, job.definition.actor, canonical(binding), canonical(job.definition), now, now, result);
+      this.db.prepare("INSERT INTO run_notification_policy VALUES (?,?)").run(id, Number(!job.definition.failureAlert));
       this.db.prepare("UPDATE jobs SET hold='authorization-or-policy-unavailable' WHERE id=?").run(jobId);
       return { accepted: false, id, blocked: true };
     });
@@ -215,6 +235,23 @@ export class NativeState {
       const row = this.db.prepare("SELECT * FROM occurrences WHERE id=?").get(id);
       if (!row || !["claimed", "running"].includes(row.status)) throw new Error("Occurrence already settled");
       this.db.prepare("UPDATE occurrences SET status=?,finished_at=?,result=? WHERE id=?").run(status, this.now(), canonical(result), id);
+      const policy = JSON.parse(row.definition).failureAlert;
+      let external = true;
+      if (!row.manual && ["succeeded", "failed"].includes(status)) {
+        const previous = this.db.prepare("SELECT * FROM failure_policies WHERE job_id=?").get(row.job_id);
+        const streak = status === "succeeded" ? 0 : (previous?.streak || 0) + 1;
+        let alerted = status === "succeeded" ? null : previous?.alerted_at ?? null;
+        if (status === "failed" && policy) {
+          external = streak >= policy.after && (alerted === null || this.now() - alerted >= policy.cooldownMs);
+          if (external) alerted = this.now();
+        }
+        this.db.prepare(`INSERT INTO failure_policies VALUES (?,?,?) ON CONFLICT(job_id)
+          DO UPDATE SET streak=excluded.streak,alerted_at=excluded.alerted_at`).run(row.job_id, streak, alerted);
+      }
+      // Manual receipts and admission blocks remain visible, but do not bypass
+      // an explicitly configured scheduled failure policy.
+      if (policy && status !== "succeeded" && (row.manual || status !== "failed")) external = false;
+      this.db.prepare("INSERT INTO run_notification_policy VALUES (?,?)").run(id, Number(external));
       // Unknown outcomes retain their workflow lock until an operator resolves
       // them. Completing an at job must never make it eligible after restart.
       if (status !== "unknown") this.db.prepare("DELETE FROM workflow_locks WHERE run_id=?").run(id);

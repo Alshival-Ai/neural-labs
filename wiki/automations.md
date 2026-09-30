@@ -34,7 +34,7 @@ automations. Members' ability to run an existing AI task does not grant these
 scheduler-management permissions.
 
 1. In Skills, choose **+ Automation**.
-2. Name the job and choose its trigger: one-time, interval, or cron.
+2. Name the job and choose its trigger: one-time, interval, cron, supervised process exit, or supervised line stream.
 3. Configure the action. **Run a skill** starts an AI task with `$skill-name`
    and an optional prompt. Select your AI connection and model in Model Provider before creating the job.
    That connection must be authorized for background execution.
@@ -51,15 +51,60 @@ Useful form conventions:
   with explicit offsets can also identify one-time runs.
 - Actions are agent instructions or a skill invocation.
 - Each run gets its own session. Results remain in run history.
-- Use **Subscribe** for result/failure notifications. Failure thresholds, direct
-  channel/webhook delivery, process/stream triggers, conditions, pacing, custom
-  tool allowlists, shared sessions, and staggering are not yet supported.
+- Use **Subscribe** for result/failure notifications. Optional consecutive-failure
+  thresholds and cooldowns govern external failure alerts. Every finalized outcome
+  still has a run receipt, and in-app subscriber notifications remain available.
+- Maximum schedule delay adds a deterministic delay from zero to the configured
+  milliseconds (at most one day). Accepted delayed occurrences survive restarts.
+- Light context starts with a fresh account home and only explicitly requested
+  skills. Workspace files and required workspace instructions remain accessible;
+  previous CLI conversation history is excluded.
 - Existing drafts retain unsupported values and show a validation error before
   publication. Imported jobs with these policies remain held for review.
 
 Agent instructions can execute workspace commands under the saved execution
 policy. Review the job’s access and outputs before enabling unattended work.
 The native runtime validates policy again on create, edit, review, and admission.
+
+## Failure alerts and trusted event sources
+
+Failure alerts are optional. With a policy configured, only scheduled failures
+advance its durable streak. Scheduled success resets the streak and cooldown;
+manual runs, cancellation, admission blocks, and uncertain outcomes do not advance
+it. Admission blocks remain visible as holds. After reaching the threshold,
+external failure notifications respect the cooldown (default one hour). Existing
+subscriptions and consent still apply; enabling a policy creates no subscribers.
+
+Process and stream sources run administrator-saved command argv inside the
+workspace sandbox, without provider credentials or host access. Use an absolute
+executable and a workspace-relative working directory, for example
+`["/bin/sh", "scripts/watch.sh"]` with directory `.`. Each stream stdout line is
+an event; a process source emits one event when it exits with a known exit code.
+Source output is passed to the agent as untrusted data, never as an instruction.
+
+Sources are bound to the saved member/account, definition, and generation. Events
+are persisted and deduplicated. Pending queues are limited to 100 events and 1 MiB
+per job; a line/buffer is limited to 64 KiB. Overflow holds the job for review.
+Maintenance and revoked access stop supervised children. Streams restart with a
+new generation no sooner than five seconds after the previous start. Interrupted
+process sources require review; no exit event is invented. Change or duplicate a
+finished process definition to run its source again. Run now executes the AI task;
+it does not fabricate an event or launch the source command.
+
+## Supported release boundaries
+
+| Capability | Status |
+| --- | --- |
+| Cron, interval, one-time, supervised process/stream | Supported |
+| Failure thresholds/cooldowns, schedule delay, light context | Supported |
+| Gmail/Outlook/Twilio member notifications | Supported; account setup required |
+| Generic SMTP, direct arbitrary webhook delivery | Unsupported |
+| Shared sessions, legacy conditions/pacing, stream match scripts | Retired legacy modes |
+| Provider fallback and custom tool allowlists | Unsupported; saved execution policy applies |
+
+Imported jobs keep their original definitions and holds. Support for a field does
+not automatically enable an imported job. Unsupported configurations require an
+explicit replacement/review; the runtime does not discard their fields.
 
 ## Status, history, and item actions
 
@@ -93,8 +138,10 @@ conversation if needed. Receiving an update does not execute an agent turn;
 replying starts a turn with the visible results as context.
 
 SMS needs a verified phone, administrator-configured Twilio, and your SMS opt-in.
-Email needs your explicit opt-in and an administrator-configured Microsoft 365
-sender, including mailbox ID/address and application Mail.Send permission.
+Email uses the workspace Gmail or Outlook connector. Verify your address and
+opt into email in Settings → Connectors, then enable email notifications.
+SMS also requires the connector opt-in. The former Microsoft application-mail
+sender is retired: saved settings are retained, but are not a fallback transport.
 See [Settings](desktop-settings.md) for configuration. Provider acceptance does
 not establish confirmed delivery.
 

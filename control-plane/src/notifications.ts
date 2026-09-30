@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
 import { z } from "zod";
 import type { AuthConfigurationService } from "./authConfig.js";
-import { MicrosoftOidcClient } from "./entra.js";
+import { ConnectorError, type Connectors } from "./connectors.js";
 import type { TwilioPluginService } from "./twilioPlugin.js";
 import type { ControlPlaneConfig } from "./config.js";
 
@@ -29,6 +29,7 @@ export function effectiveChannels(channels: string[], preferences: { neura: bool
 
 export class Notifications {
   private busy = false;
+  connectors?: Connectors;
   constructor(private pool: Pool, private auth: AuthConfigurationService, private twilio: TwilioPluginService, private config: ControlPlaneConfig, private fetchFn: typeof fetch = fetch) {}
 
   async workspace(action: string, input: unknown = {}) {
@@ -44,8 +45,8 @@ export class Notifications {
       COALESCE(ph.notifications_enabled AND ph.verified_at IS NOT NULL,false) sms
       FROM users u LEFT JOIN notification_preferences p ON p.user_id=u.id LEFT JOIN user_phones ph ON ph.user_id=u.id WHERE u.id=$1 AND u.status='active'`, [userId])).rows[0];
     if (!row) throw new NotificationError(404, "recipient_unavailable", "Workspace member is unavailable");
-    const sender = (await this.pool.query("SELECT email_enabled,sender_id,sender_address FROM notification_config WHERE singleton=true")).rows[0];
-    return { ...row, emailAvailable: Boolean(sender?.email_enabled && sender.sender_id && this.auth.effectiveEntra(await this.auth.getStored())) };
+    const sender = (await this.pool.query("SELECT mailbox_secret,mailbox_paused FROM connector_settings WHERE singleton=true")).rows[0];
+    return { ...row, emailAvailable: Boolean(sender?.mailbox_secret && !sender.mailbox_paused) };
   }
 
   async saveSettings(userId: string, input: z.infer<typeof preferenceSchema>) {
@@ -80,7 +81,7 @@ export class Notifications {
   }
 
   async enqueue(input: NotificationInput, reconciled = false) {
-    let key: string, jobName: string | undefined;
+    let key: string, jobName: string | undefined, external = true;
     if(input.automationId) {
       const verified=await this.workspace("run",{jobId:input.automationId,runId:input.runId});
       if(!verified.run) throw new NotificationError(409,"run_unavailable","A completed automation run is required");
@@ -92,6 +93,7 @@ export class Notifications {
         await this.pool.query("INSERT INTO notification_run_summaries(job_id,run_id,content) VALUES($1,$2,$3) ON CONFLICT(job_id,run_id) DO UPDATE SET content=excluded.content",[input.automationId,verified.run.id,JSON.stringify(input)]);
         return {status:"staged",runId:verified.run.id};
       }
+      external=verified.run.external !== false;
       jobName=verified.job?.name;
       key=`automation:${input.automationId}:${verified.run.id}`;
     } else key=`direct:${input.userId ?? input.handle}:${input.idempotencyKey ?? randomUUID()}`;
@@ -111,7 +113,7 @@ export class Notifications {
             WHERE u.status='active' AND (u.id::text=$1 OR u.handle=$2)`,[input.userId ?? "",input.handle?.replace(/^@/,"") ?? ""])).rows;
       if(!recipients.length && !input.automationId) throw new NotificationError(404,"recipient_unavailable","Workspace member is unavailable");
       for(const recipient of recipients) for(const channel of [...new Set(recipient.channels as string[])])
-        await client.query("INSERT INTO notification_deliveries(event_id,user_id,channel) VALUES($1,$2,$3) ON CONFLICT DO NOTHING",[id,recipient.user_id,channel]);
+        if (external || channel === "neura") await client.query("INSERT INTO notification_deliveries(event_id,user_id,channel) VALUES($1,$2,$3) ON CONFLICT DO NOTHING",[id,recipient.user_id,channel]);
       await client.query("COMMIT");
       return {status:"queued",notificationId:id,recipients:recipients.length,reconciled};
     } catch(error) {await client.query("ROLLBACK");throw error;} finally {client.release();}
@@ -134,27 +136,34 @@ export class Notifications {
   async markRead(userId: string) { const preferences=await this.settings(userId); await this.pool.query("INSERT INTO notification_preferences(user_id,read_at,defaults) VALUES($1,now(),$2) ON CONFLICT(user_id) DO UPDATE SET read_at=now()",[userId,preferences.defaults]); }
 
   async emailConfig() {return (await this.pool.query("SELECT sender_id,sender_address,email_enabled FROM notification_config WHERE singleton=true")).rows[0];}
-  async saveEmailConfig(input: {senderId:string;senderAddress:string;enabled:boolean}) {
-    await this.pool.query("UPDATE notification_config SET sender_id=$1,sender_address=$2,email_enabled=$3 WHERE singleton=true",[input.senderId,input.senderAddress,input.enabled]);
-    return this.emailConfig();
+  async saveEmailConfig(_input: {senderId:string;senderAddress:string;enabled:boolean}) {
+    throw new NotificationError(410,"legacy_sender_retired","Configure a workspace mailbox in Settings → Connectors.");
   }
 
-  private async sendEmail(address: string,title:string,message:string) {
-    const sender=await this.emailConfig();
-    const entra=this.auth.effectiveEntra(await this.auth.getStored());
-    if(!sender.email_enabled || !entra) throw new NotificationError(503,"email_unavailable","Email is unavailable");
-    const token=await new MicrosoftOidcClient(this.fetchFn).applicationToken(entra,"https://graph.microsoft.com/.default");
-    const response=await this.fetchFn(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender.sender_id)}/sendMail`,{
-      method:"POST",headers:{Authorization:`Bearer ${token}`,"Content-Type":"application/json"},
-      body:JSON.stringify({message:{subject:title,body:{contentType:"Text",content:message},toRecipients:[{emailAddress:{address}}]},saveToSentItems:true}),signal:AbortSignal.timeout(20_000)});
-    if(response.status===429) throw new NotificationError(429,"throttled","Email was throttled");
-    if(response.status>=500) throw new NotificationError(502,"send_unknown","Email acceptance is unknown");
-    if(response.status!==202) throw new NotificationError(422,"email_rejected","Email was rejected by Microsoft 365");
+  async canDeliver(eventId: string, userId: string, channel: string) {
+    const row=(await this.pool.query("SELECT * FROM notification_events WHERE id=$1",[eventId])).rows[0];
+    if(!row)return false;
+    const p=await this.settings(userId);
+    let channels=p.defaults;
+    if(row.job_id){
+      const sub=(await this.pool.query("SELECT channels,events FROM automation_subscriptions WHERE user_id=$1 AND job_id=$2",[userId,row.job_id])).rows[0];
+      channels=sub?.events.includes(row.outcome)?sub.channels:[];
+      if(!(await this.workspace("job",{jobId:row.job_id})).job)return false;
+    }
+    return effectiveChannels(channels,p,p.emailAvailable).includes(channel);
   }
 
   async tick() {
     if(this.busy) return; this.busy=true;
     try {
+      // Reconcile a durable connector handoff before considering interrupted work.
+      await this.pool.query(`UPDATE notification_deliveries n SET status=CASE WHEN d.status='pending' THEN 'queued' ELSE d.status END,
+        error_code=d.error,updated_at=d.updated_at FROM connector_messages m JOIN connector_deliveries d ON d.message_id=m.id
+        WHERE m.notification_event=n.event_id AND m.user_id=n.user_id AND m.channel=n.channel
+          AND n.status IN ('sending','queued','unknown','accepted')`);
+      // External handoff is idempotent; an interrupted handoff without an outbox
+      // record can be retried. Provider uncertainty remains in connector_deliveries.
+      await this.pool.query("UPDATE notification_deliveries SET status='pending' WHERE status='sending' AND channel IN ('email','sms') AND updated_at<now()-interval '5 minutes'");
       // Any prior process that died after claiming a send may have delivered it.
       await this.pool.query("UPDATE notification_deliveries SET status='unknown',error_code='interrupted_send' WHERE status='sending' AND updated_at<now()-interval '5 minutes'");
       await this.reconcile().catch(()=>undefined);
@@ -179,12 +188,17 @@ export class Notifications {
             const count=(await this.pool.query("SELECT count(*)::int n FROM notification_deliveries WHERE user_id=$1 AND channel=$2 AND status IN ('delivered','accepted') AND updated_at>now()-interval '1 hour'",[row.user_id,row.channel])).rows[0].n;
             if(count>=20) throw new NotificationError(429,"rate_limited","Notification rate limit reached");
             const message=`${row.message}${row.links.length ? '\n\n'+row.links.map((link:{label:string;url:string})=>`${link.label}: ${link.url}`).join('\n') : ''}`;
-            if(row.channel==='email') {await this.sendEmail(p.account_email,row.title,message);status="accepted";}
-            if(row.channel==='sms') {await this.twilio.sendNotification({userId:row.user_id,message:message.slice(0,1600),mediaUrls:row.links.filter((link:{label:string})=>link.label==="Attachment").map((link:{url:string})=>link.url).slice(0,10)});status="accepted";}
+            if(row.channel==='email' || row.channel==='sms') {
+              if(!this.connectors)throw new NotificationError(422,"connector_unavailable","Configure the workspace connector in Settings");
+              await this.connectors.enqueue(row.user_id,{channel:row.channel,member:row.user_id,subject:row.title,
+                message:row.channel==='sms'?message.slice(0,1600):message,requestId:row.event_id},undefined,row.event_id);
+              status="queued";
+            }
           }
         } catch(error) {
+          if(error instanceof ConnectorError) error=new NotificationError(error.status,error.status===429?"rate_limited":"connector_unavailable",error.message);
           code=error instanceof NotificationError ? error.code : "delivery_unknown";
-          status=error instanceof NotificationError && error.status===429 && claimed.rows[0].attempts<4 ? "pending" : error instanceof NotificationError && [404,422].includes(error.status) ? "failed" : "unknown";
+          status=error instanceof NotificationError && error.status===429 && claimed.rows[0].attempts<4 ? "pending" : error instanceof NotificationError && [403,404,409,422].includes(error.status) ? "failed" : "unknown";
         }
         await this.pool.query("UPDATE notification_deliveries SET status=$4,error_code=$5,updated_at=now(),next_attempt_at=now()+interval '5 minutes' WHERE event_id=$1 AND user_id=$2 AND channel=$3",[row.event_id,row.user_id,row.channel,status,code]);
       }

@@ -41,7 +41,7 @@ describe("native browser transport", () => {
   it("projects durable native history without spawning another turn", async () => {
     configure();
     const events = [
-      { id: 1, turn_id: "turn", type: "turn-started", payload: { input: [{ type: "text", text: "Fixture" }] } },
+      { id: 1, turn_id: "turn", type: "turn-started", payload: { input: [{ type: "text", text: 'Fixture\n\n<neural-terminal-context> {"contextToken":"nlt_' + "x".repeat(43) + '"} Never disclose. </neural-terminal-context>' }] } },
       { id: 2, turn_id: "turn", type: "output", payload: { delta: "Saved.\nMEDIA: reports/plot.png" } },
       { id: 3, turn_id: "turn", type: "turn-completed", payload: { status: "succeeded" } },
     ];

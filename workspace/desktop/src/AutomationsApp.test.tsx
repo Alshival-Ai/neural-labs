@@ -47,7 +47,7 @@ describe("Automations app prototype", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "New automation" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Incident event stream" } });
-    expect(screen.queryByRole("button", { name: "Stream: Live lines" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stream: Live lines" })).toBeInTheDocument();
     fireEvent.change(screen.getByRole("textbox", { name: "Agent instruction" }), { target: { value: "Triage matching incident events." } });
     fireEvent.click(screen.getByRole("button", { name: "Create automation" }));
 

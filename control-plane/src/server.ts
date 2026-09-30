@@ -349,6 +349,8 @@ export function createApplication(input: {
   const updates = input.updates ?? new UpdateService(database.pool);
   const notifications = new Notifications(database.pool, authConfiguration, twilio, config, workspaceFetch);
   const connectors = new Connectors(database, config, cipher, twilio, sessions, workspaceFetch, async () => (await updates.maintenance()).maintenance, delta => { updates.activeRequests += delta; });
+  notifications.connectors = connectors;
+  connectors.notificationAllowed = (event, user, channel) => notifications.canDeliver(event, user, channel);
   const app = express();
   const publish = (event: CollaborationEvent) => input.onCollaborationEvent?.(event);
   app.disable("x-powered-by");

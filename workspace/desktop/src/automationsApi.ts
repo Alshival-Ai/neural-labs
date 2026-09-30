@@ -140,7 +140,7 @@ function mapJob(job: RecordValue, runs: AutomationRun[], index: number): Automat
     : payloadKind === "command" ? JSON.stringify(Array.isArray(payload.argv) ? payload.argv : [])
     : payloadKind === "script" ? stringValue(payload.script)
     : payloadKind === "heartbeat" ? "Neural Labs heartbeat task" : "Neural Labs skill collection review";
-  const streamStatus = stringValue(state.streamStatus);
+  const streamStatus = stringValue(job.sourceStatus) ?? stringValue(state.streamStatus);
   const normalizedRuns = runningAt && !runs.some((run) => run.status === "running")
     ? [{ id: `${id}:running:${runningAt}`, status: "running" as const, started: formatDate(runningAt), duration: formatDuration(Date.now() - runningAt), summary: "Neural Labs is running this automation.", deliveryStatus: "pending" as const }, ...runs]
     : runs;
@@ -148,6 +148,10 @@ function mapJob(job: RecordValue, runs: AutomationRun[], index: number): Automat
     id,
     configRevision: stringValue(job.configRevision),
     failureAlertAfter: isRecord(job.failureAlert) ? numberValue(job.failureAlert.after) : undefined,
+    failureCooldownMs: isRecord(job.failureAlert) ? numberValue(job.failureAlert.cooldownMs) : undefined,
+    staggerMs: isRecord(job.schedule) ? numberValue(job.schedule.staggerMs) : undefined,
+    sourceId: isRecord(job.schedule) ? stringValue(job.schedule.source) : undefined,
+    lightContext: payload.lightContext === true,
     reviewable: job.reviewable === true,
     completed: job.completed === true,
     reviewPolicy: { sandbox: isRecord(job.executionPolicy) ? stringValue(job.executionPolicy.sandbox) : undefined,
@@ -186,7 +190,7 @@ function mapJob(job: RecordValue, runs: AutomationRun[], index: number): Automat
       bestEffort: booleanValue(delivery.bestEffort),
     },
     nextRun: runningAt ? "Running now" : nextRunAt ? formatDate(nextRunAt) : scheduleKind === "stream" && streamStatus ? streamStatus : job.enabled ? "Awaiting schedule" : "Paused",
-    nextRunDetail: nextRunAt ? relativeDate(nextRunAt) : stringValue(state.streamError) ?? "",
+    nextRunDetail: nextRunAt ? relativeDate(nextRunAt) : stringValue(job.sourceStatus) ?? stringValue(state.streamError) ?? "",
     lastRun: lastRunAt ? formatDate(lastRunAt) : "Never",
     lastStatus,
     consecutiveErrors: numberValue(state.consecutiveErrors) ?? 0,
@@ -209,7 +213,7 @@ function mapSchedule(kind: AutomationScheduleKind, schedule: RecordValue, trigge
     return { kind, label: `Cron · ${expression}`, detail: "Calendar schedule", expression, timezone: stringValue(schedule.tz), exact: schedule.staggerMs === 0, trigger: stringValue(trigger?.script), pacing: pacingLabel(pacing) };
   }
   if (kind === "on-exit") {
-    const command = stringValue(schedule.command) ?? "";
+    const command = Array.isArray(schedule.command) ? JSON.stringify(schedule.command) : stringValue(schedule.command) ?? "";
     return { kind, label: "When process exits", detail: stringValue(schedule.cwd) ?? "Process watcher", expression: command, workingDirectory: stringValue(schedule.cwd) };
   }
   const command = Array.isArray(schedule.command) ? JSON.stringify(schedule.command) : "[]";
@@ -238,6 +242,11 @@ export function draftToNativeDefinition(draft: AutomationDraft, updating = false
   const toolsAllow = draft.tools.split(",").map((tool) => tool.trim()).filter(Boolean);
   const timeoutSeconds = optionalPositiveNumber(draft.timeoutSeconds, "Timeout");
   const schedule = scheduleFromDraft(draft);
+  if (["cron", "every", "at"].includes(draft.scheduleKind)) {
+    const delay = Number(draft.staggerMs || 0);
+    if (!Number.isSafeInteger(delay) || delay < 0 || delay > 86400000) throw new Error("Schedule delay must be 0–86400000 milliseconds");
+    schedule.staggerMs = delay;
+  }
   const payload = draft.payloadKind === "systemEvent" ? { kind: "systemEvent", text: draft.payload.trim(), ...(toolsAllow.length ? { toolsAllow } : {}) }
     : draft.payloadKind === "agentTurn" ? { kind: "agentTurn", message: draft.payload.trim(), ...(draft.model && draft.model !== "Workspace default" ? { model: draft.model, fallbacks: [] } : updating ? { model: null, fallbacks: null } : {}), ...(draft.thinking ? { thinking: draft.thinking } : updating ? { thinking: null } : {}), ...(timeoutSeconds ? { timeoutSeconds } : {}), ...(toolsAllow.length ? { toolsAllow } : {}) }
     : draft.payloadKind === "command" ? { kind: "command", argv: commandArgv(draft.payload), ...(draft.workingDirectory.trim() ? { cwd: draft.workingDirectory.trim() } : {}), ...(timeoutSeconds ? { timeoutSeconds } : {}), ...(toolsAllow.length ? { toolsAllow } : {}) }
@@ -258,9 +267,13 @@ export function draftToNativeDefinition(draft: AutomationDraft, updating = false
     sessionTarget: draft.sessionTarget,
     wakeMode: draft.wakeMode,
     agentId: draft.agent.trim() || "main",
-    payload,
+    payload: { ...payload, lightContext: draft.lightContext === "true" },
     delivery,
-    ...(failureAfter ? { failureAlert: { after: failureAfter } } : {}),
+    failureAlert: failureAfter ? { after: failureAfter, cooldownMs: (() => {
+      const value = Number(draft.failureCooldownMs ?? 3600000);
+      if (!Number.isSafeInteger(value) || value < 0 || value > 2592000000) throw new Error("Invalid failure cooldown");
+      return value;
+    })() } : null,
   };
 }
 
@@ -269,9 +282,12 @@ function scheduleFromDraft(draft: AutomationDraft): RecordValue {
   if (draft.scheduleKind === "at") return { kind: "at", at: zonedDateTimeToIso(value, draft.timezone) };
   if (draft.scheduleKind === "every") return { kind: "every", everyMs: parseDuration(value) };
   if (draft.scheduleKind === "cron") return { kind: "cron", expr: value, ...(draft.timezone.trim() ? { tz: draft.timezone.trim() } : {}), ...(draft.exact ? { staggerMs: 0 } : {}) };
-  if (draft.scheduleKind === "on-exit") return { kind: "on-exit", command: value, ...(draft.workingDirectory.trim() ? { cwd: draft.workingDirectory.trim() } : {}) };
-  const command = jsonStringArray(value, "Stream command argv");
-  return { kind: "stream", command, ...(draft.workingDirectory.trim() ? { cwd: draft.workingDirectory.trim() } : {}), ...(draft.triggerScript.trim() ? { mode: "match", match: draft.triggerScript.trim() } : { mode: "line" }) };
+  if (draft.triggerScript.trim()) throw new Error("Stream matching requires migration review");
+  const command = jsonStringArray(value, "Source command argv");
+  if (!command[0].startsWith("/")) throw new Error("Use an absolute source executable");
+  const cwd = draft.workingDirectory.trim() || ".";
+  return { kind: draft.scheduleKind === "on-exit" ? "process" : "stream", source: draft.sourceId || crypto.randomUUID(), command, cwd };
+
 }
 
 function commandArgv(value: string): string[] {
@@ -338,6 +354,7 @@ function zonedDateTimeToIso(value: string, timeZone: string): string {
 }
 
 function scheduleKindValue(value: unknown): AutomationScheduleKind {
+  if (value === "process") return "on-exit";
   return value === "at" || value === "every" || value === "on-exit" || value === "stream" ? value : "cron";
 }
 

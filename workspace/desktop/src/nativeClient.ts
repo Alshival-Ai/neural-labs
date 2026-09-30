@@ -4,7 +4,7 @@ import { createWorkspaceFolder, uploadWorkspaceFile } from "./filesApi";
 import { projectGeneratedMedia } from "./neuraMedia";
 import { nativeRequest, nativeSelection, type NativeEvent } from "./nativeApi";
 import { settingsRequest } from "./settingsApi";
-import { terminalMessageContext } from "./terminalAgentApi";
+import { stripTerminalContext, terminalMessageContext } from "./terminalAgentApi";
 import type { ComposerAttachment, ConnectionState, GatewayEvent, NeuraAttachment, NeuraMessage, SessionRow } from "./types";
 import type { NeuraQuestion } from "./neuraMessages";
 import { mapAutomationsSnapshot, type AutomationsSnapshot } from "./automationsApi";
@@ -124,7 +124,7 @@ export class NativeClient {
     for (const event of rows) {
       const error = nativeFailure(event); if (error) failures.set(event.turn_id, error);
       if (event.type === "turn-started") messages.push({ id: `user:${event.turn_id}`, role: "user", attachments: event.payload.attachments as NeuraMessage["attachments"],
-        text: (event.payload.input as Array<{ text: string }>).map(row => row.text).join("\n") });
+        text: stripTerminalContext((event.payload.input as Array<{ text: string }>).map(row => row.text).join("\n")) });
       if (event.type === "artifact-created") artifacts.set(event.turn_id, [...(artifacts.get(event.turn_id) || []), event.payload.attachment as NeuraAttachment]);
       if (event.type === "output") outputs.set(event.turn_id, (outputs.get(event.turn_id) || "") + String(event.payload.delta ?? event.payload.text ?? ""));
       if (event.type === "turn-completed") {

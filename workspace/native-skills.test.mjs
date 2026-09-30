@@ -70,3 +70,9 @@ test("disabled state survives builder edits and scope changes", async t => {
   await f.manager.share(f.actor("alice"), "paused", "team");
   assert.equal((await f.manager.list(f.actor("alice")))[0].enabled, false);
 });
+test("light context mounts only explicitly selected accessible skills", async t => {
+  const f = await fixture(t); await f.save("alice", "selected"); await f.save("alice", "unrequested"); await f.save("bob", "private");
+  const prepared = await f.skills.prepare({ actor: "alice", provider: "codex", explicitOnly: true, input: [{ type: "text", text: "$selected $private" }] });
+  assert.deepEqual(prepared.packages.map(row => row.key), ["selected"]);
+  await prepared.release();
+});

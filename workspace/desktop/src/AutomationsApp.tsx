@@ -119,6 +119,10 @@ export type AutomationJob = {
   lastStatus: Exclude<AutomationRunStatus, "running">;
   consecutiveErrors: number;
   failureAlertAfter?: number;
+  failureCooldownMs?: number;
+  staggerMs?: number;
+  lightContext?: boolean;
+  sourceId?: string;
   runs: readonly AutomationRun[];
 };
 
@@ -148,6 +152,10 @@ export type AutomationDraft = {
   tools: string;
   timeoutSeconds: string;
   failureAlertAfter: string;
+  failureCooldownMs?: string;
+  staggerMs?: string;
+  lightContext?: string;
+  sourceId?: string;
 };
 
 export type AutomationsAppProps = {
@@ -318,7 +326,7 @@ export const EMPTY_DRAFT: AutomationDraft = {
   pacingMax: "",
   payloadKind: "agentTurn",
   payload: "",
-  workingDirectory: "/home/node/workspace",
+  workingDirectory: ".",
   sessionTarget: "isolated",
   wakeMode: "now",
   agent: "main",
@@ -393,6 +401,8 @@ function draftFromJob(job: AutomationJob): AutomationDraft {
     tools: job.payload.tools?.join(", ") ?? "",
     timeoutSeconds: job.payload.timeout?.replace(/\D/g, "") || "600",
     failureAlertAfter: job.failureAlertAfter === undefined ? "" : String(job.failureAlertAfter),
+    failureCooldownMs: String(job.failureCooldownMs ?? 3600000), staggerMs: String(job.staggerMs ?? 0),
+    lightContext: String(job.lightContext ?? false), sourceId: job.sourceId,
   };
 }
 
@@ -893,8 +903,8 @@ type ComposerProps = {
 function AutomationComposer({ draft, editing, onChange, onClose, onSubmit }: ComposerProps) {
   const set = <Key extends keyof AutomationDraft>(key: Key, value: AutomationDraft[Key]) => onChange({ ...draft, [key]: value });
   const dangerous = draft.payloadKind === "command" || draft.payloadKind === "script" || draft.scheduleKind === "stream" || Boolean(draft.triggerScript);
-  const unsupported = !["cron", "every", "at"].includes(draft.scheduleKind) || draft.payloadKind !== "agentTurn"
-    || draft.sessionTarget !== "isolated" || draft.wakeMode !== "now" || draft.deliveryMode !== "none" || Boolean(draft.tools.trim() || draft.failureAlertAfter.trim() || draft.triggerScript.trim() || draft.pacingMin.trim() || draft.pacingMax.trim());
+  const unsupported = !["cron", "every", "at", "on-exit", "stream"].includes(draft.scheduleKind) || draft.payloadKind !== "agentTurn"
+    || draft.sessionTarget !== "isolated" || draft.wakeMode !== "now" || draft.deliveryMode !== "none" || Boolean(draft.tools.trim() || draft.triggerScript.trim() || draft.pacingMin.trim() || draft.pacingMax.trim());
   const valid = !unsupported && draft.name.trim() && draft.scheduleValue.trim() && draft.payload.trim();
   return (
     <div className="automation-composer-layer">
@@ -911,7 +921,7 @@ function AutomationComposer({ draft, editing, onChange, onClose, onSubmit }: Com
           <section className="automation-form-section">
             <div className="automation-form-section__heading"><span>02</span><div><h3>Choose a trigger</h3><p>Choose a one-time, interval, or calendar schedule.</p></div></div>
             <div className="automation-choice-grid is-three" aria-label="Schedule type">
-              {(Object.entries(SCHEDULE_META).filter(([kind]) => ["at", "every", "cron"].includes(kind)) as [AutomationScheduleKind, (typeof SCHEDULE_META)[AutomationScheduleKind]][]).map(([kind, meta]) => { const Icon = meta.icon; return <button type="button" key={kind} className={draft.scheduleKind === kind ? "is-selected" : ""} aria-label={`${meta.label}: ${meta.description}`} aria-pressed={draft.scheduleKind === kind} onClick={() => set("scheduleKind", kind)}><Icon /><strong>{meta.label}</strong><small>{meta.description}</small></button>; })}
+              {(Object.entries(SCHEDULE_META).filter(([kind]) => ["at", "every", "cron", "on-exit", "stream"].includes(kind)) as [AutomationScheduleKind, (typeof SCHEDULE_META)[AutomationScheduleKind]][]).map(([kind, meta]) => { const Icon = meta.icon; return <button type="button" key={kind} className={draft.scheduleKind === kind ? "is-selected" : ""} aria-label={`${meta.label}: ${meta.description}`} aria-pressed={draft.scheduleKind === kind} onClick={() => set("scheduleKind", kind)}><Icon /><strong>{meta.label}</strong><small>{meta.description}</small></button>; })}
             </div>
             <ScheduleFields draft={draft} set={set} />
 
@@ -930,6 +940,10 @@ function AutomationComposer({ draft, editing, onChange, onClose, onSubmit }: Com
             <div className="automation-form-section__heading"><span>04</span><div><h3>Execution and delivery</h3><p>Choose context, ownership, and where the result lands.</p></div></div>
             <p>Each run uses a separate session. New jobs save your selected AI connection and model; editing preserves the job’s saved account. Scheduled execution requires background access.</p>
             <p>Results appear in run history. Use Subscribe for result and failure notifications.</p>
+            <label><span>Light context</span><select value={draft.lightContext ?? "false"} onChange={e => set("lightContext", e.target.value)}><option value="false">Standard workspace context</option><option value="true">Fresh history and explicitly selected skills</option></select></label>
+            <label><span>Alert after consecutive failures</span><input type="number" min="1" max="1000" value={draft.failureAlertAfter} placeholder="Every failure" onChange={e => set("failureAlertAfter", e.target.value)} /></label>
+            <label><span>Failure alert cooldown (milliseconds)</span><input type="number" min="0" max="2592000000" value={draft.failureCooldownMs ?? "3600000"} onChange={e => set("failureCooldownMs", e.target.value)} /></label>
+            {["cron", "every", "at"].includes(draft.scheduleKind) && <label><span>Maximum schedule delay (milliseconds)</span><input type="number" min="0" max="86400000" value={draft.staggerMs ?? "0"} onChange={e => set("staggerMs", e.target.value)} /></label>}
           </section>
 
           <section className="automation-form-section">
@@ -950,6 +964,6 @@ function ScheduleFields({ draft, set }: { draft: AutomationDraft; set: <Key exte
   if (draft.scheduleKind === "cron") return <div className="automation-field-grid"><label><span>Cron expression</span><input value={draft.scheduleValue} onChange={(event) => set("scheduleValue", event.target.value)} /></label><label><span>Timezone</span><select value={draft.timezone} onChange={(event) => set("timezone", event.target.value)}><option>America/Chicago</option><option>America/New_York</option><option>America/Los_Angeles</option><option>UTC</option></select></label></div>;
   if (draft.scheduleKind === "every") return <label><span>Interval</span><input value={draft.scheduleValue} onChange={(event) => set("scheduleValue", event.target.value)} placeholder="30m, 4h, or 1d" /></label>;
   if (draft.scheduleKind === "at") return <div className="automation-field-grid"><label><span>Date and time</span><input value={draft.scheduleValue} onChange={(event) => set("scheduleValue", event.target.value)} placeholder="2026-09-03T09:30:00" /></label><label><span>Timezone</span><select value={draft.timezone} onChange={(event) => set("timezone", event.target.value)}><option>America/Chicago</option><option>America/New_York</option><option>America/Los_Angeles</option><option>UTC</option></select></label></div>;
-  if (draft.scheduleKind === "on-exit") return <div className="automation-field-grid"><label><span>Watched command</span><input value={draft.scheduleValue} onChange={(event) => set("scheduleValue", event.target.value)} placeholder="./scripts/watch.sh" /></label><label><span>Working directory</span><input value={draft.workingDirectory} onChange={(event) => set("workingDirectory", event.target.value)} /></label></div>;
-  return <div className="automation-field-grid"><label><span>Stream command argv</span><input value={draft.scheduleValue} onChange={(event) => set("scheduleValue", event.target.value)} placeholder='["node","scripts/events.mjs"]' /></label><label><span>Match expression <em>optional</em></span><input value={draft.triggerScript} onChange={(event) => set("triggerScript", event.target.value)} placeholder="^(failed|recovered):" /></label></div>;
+  if (draft.scheduleKind === "on-exit") return <div className="automation-field-grid"><label><span>Command argv (JSON)</span><input value={draft.scheduleValue} onChange={(event) => set("scheduleValue", event.target.value)} placeholder='["/bin/sh", "scripts/watch.sh"]' /></label><label><span>Working directory</span><input value={draft.workingDirectory} onChange={(event) => set("workingDirectory", event.target.value)} /></label></div>;
+  return <div className="automation-field-grid"><label><span>Stream command argv</span><input value={draft.scheduleValue} onChange={(event) => set("scheduleValue", event.target.value)} placeholder='["/usr/local/bin/node","scripts/events.mjs"]' /></label></div>;
 }

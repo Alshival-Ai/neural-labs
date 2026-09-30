@@ -1,4 +1,4 @@
-import { identity } from "./state.mjs";
+import { identity, canonical } from "./state.mjs";
 
 export function timezone(value) {
   if (typeof value !== "string" || !/^[A-Za-z0-9_+/-]+$/.test(value)) throw new Error("Invalid schedule timezone");
@@ -132,8 +132,18 @@ export class NativeScheduler {
     if (manual && mode !== "force" && !requestId) throw new Error("A manual run request identity is required");
     const job = this.state.job(jobId);
     if (!job) throw new Error("Automation not found");
+    let sourceEvent;
+    if (!manual && ["process", "stream"].includes(job.definition.schedule.kind)) {
+      const event = sourceEvent = this.state.db.prepare(`SELECT e.*,s.actor,s.binding FROM source_events e JOIN event_sources s ON s.generation=e.generation
+        WHERE e.job_id=? AND e.occurrence=?`).get(jobId, occurrence);
+      if (!event || event.revision !== job.source_hash || event.actor !== job.definition.actor
+          || canonical(JSON.parse(event.binding).connection) !== canonical(job.definition.connection)) throw new Error("Untrusted event source");
+    }
     let binding;
-    try { binding = await this.authorize({ job, actor, connection, manual }); }
+    try {
+      binding = await this.authorize({ job, actor, connection, manual });
+      if (sourceEvent && JSON.parse(sourceEvent.binding).authorityGeneration !== (binding.authorityGeneration ?? 0)) throw new Error("Source authority generation changed");
+    }
     catch (error) {
       if (manual) throw error;
       // No provider has started. Retain a visible blocked receipt and a hold,

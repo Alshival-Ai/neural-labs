@@ -98,3 +98,5 @@ API-key text-account decisions were superseded by 0028 and 0032; 0033's Septembe
 | [ADR 0034: Owner-scoped Claude connections](adr/0034-claude-account-connections.md) | [AI accounts and models](ai-accounts.md) |
 
 - [ADR 0045: Workspace communications](adr/0045-workspace-communications.md)
+
+- [ADR 0046: Native automation completion](adr/0046-native-automation-completion.md)

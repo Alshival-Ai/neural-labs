@@ -23,6 +23,7 @@ export function validTwilioSignature(token: string, url: string, fields: Record<
 export class Connectors {
   readonly mail: MailProviders;
   private busy=false;
+  notificationAllowed?: (event: string, user: string, channel: string) => Promise<boolean>;
   constructor(readonly db: Database, readonly config: ControlPlaneConfig, readonly cipher: CredentialCipher,
     readonly twilio: TwilioPluginService, readonly sessions: SessionService, readonly fetchFn: typeof fetch=fetch,
     readonly maintenance: ()=>Promise<boolean>=async()=>false, readonly activity:(delta:number)=>void=()=>{}) {this.mail=new MailProviders(fetchFn);}
@@ -132,19 +133,19 @@ export class Connectors {
     await this.db.pool.query(`INSERT INTO connector_messages(id,user_id,channel,direction,connector_revision,provider_key,thread_key,subject,body,reply_reference,status)
       VALUES($1,$2,$3,'in',$4,$5,$6,$7,$8,$9,'pending') ON CONFLICT(provider_key) DO NOTHING`,[randomUUID(),id,channel,row.revision,key,thread,subject,body.slice(0,32000),reference]);
   }
-  async enqueue(actor:string,input:z.infer<typeof connectorSend>,reply?:any) {
+  async enqueue(actor:string,input:z.infer<typeof connectorSend>,reply?:any, notificationEvent?:string) {
     await this.memberAuthority(actor);const row=await this.settings();
     if(input.channel==="email"?row.mailbox_paused||!row.mailbox_secret:!row.sms_enabled)throw new ConnectorError(409,"The connector is not enabled.");
     const m=(await this.db.pool.query("SELECT id FROM users WHERE status='active' AND (id::text=$1 OR lower(handle)=$2)",[input.member,input.member.replace(/^@/,"").toLowerCase()])).rows[0];
     if(!m)throw new ConnectorError(404,"Workspace member not found.");
     if(reply&&reply.user_id!==m.id)throw new ConnectorError(403,"Reply recipient mismatch.");
     if(input.channel==="sms"&&input.message.length>1600)throw new ConnectorError(422,"SMS messages must be 1600 characters or fewer.");
-    const recipient=await this.eligible(m.id,input.channel);const id=randomUUID();const requestKey=`${actor}:${input.requestId}`;
+    const recipient=await this.eligible(m.id,input.channel);const id=randomUUID();const requestKey=notificationEvent ? `notification:${notificationEvent}:${m.id}:${input.channel}` : `${actor}:${input.requestId}`;
     if((await this.db.pool.query("SELECT id FROM connector_messages WHERE request_key=$1",[requestKey])).rowCount)return {status:"queued",requestId:input.requestId};
     if(!await this.db.consumeRateLimit(`connector-out:${actor}:${input.channel}`,60,3600))throw new ConnectorError(429,"Outgoing message limit reached. Try later.");
     const client=await this.db.pool.connect();
-    try{await client.query("BEGIN");const inserted=await client.query(`INSERT INTO connector_messages(id,user_id,channel,direction,connector_revision,thread_key,subject,body,reply_reference,status,request_key,initiator_id)
-      VALUES($1,$2,$3,'out',$4,$5,$6,$7,$8,'pending',$9,$10) ON CONFLICT(request_key) DO NOTHING RETURNING id`,[id,m.id,input.channel,row.revision,reply?.thread_key || `${input.channel}:${m.id}:${id}`,input.subject,input.message,reply?.reply_reference || null,requestKey,actor]);
+    try{await client.query("BEGIN");const inserted=await client.query(`INSERT INTO connector_messages(id,user_id,channel,direction,connector_revision,thread_key,subject,body,reply_reference,status,request_key,initiator_id,notification_event)
+      VALUES($1,$2,$3,'out',$4,$5,$6,$7,$8,'pending',$9,$10,$11) ON CONFLICT(request_key) DO NOTHING RETURNING id`,[id,m.id,input.channel,row.revision,reply?.thread_key || `${input.channel}:${m.id}:${id}`,input.subject,input.message,reply?.reply_reference || null,requestKey,actor,notificationEvent || null]);
       if(inserted.rowCount)await client.query("INSERT INTO connector_deliveries(id,message_id,recipient) VALUES($1,$2,$3)",[randomUUID(),id,recipient]);await client.query("COMMIT");
     }catch(e){await client.query("ROLLBACK");throw e;}finally{client.release();}
     return {status:"queued",requestId:input.requestId};
@@ -211,6 +212,7 @@ export class Connectors {
         if(await this.maintenance())return;
         if((await this.settings()).revision!==row.revision)throw new ConnectorError(409,"Connector changed before delivery.");
         if(await this.eligible(d.user_id,d.channel)!==recipient)throw new ConnectorError(409,"Recipient changed before delivery.");
+        if(d.notification_event && !await this.notificationAllowed?.(d.notification_event,d.user_id,d.channel))throw new ConnectorError(403,"Notification subscription was revoked.");
         const result=await this.db.pool.query("UPDATE connector_deliveries SET status='sending',updated_at=now() WHERE id=$1 AND status='pending' RETURNING id",[d.delivery_id]);if(!result.rowCount)continue;claimed=true;
         let sid:string|null=null;
         if(d.channel==="email"){const thread=d.thread_key.split(":").slice(2).join(":");const sent=await this.mail.send(row.mailbox_provider,token!,{to:recipient,subject:d.subject,text:d.body,reference:d.reply_reference,thread:row.mailbox_provider==="gmail"&&d.reply_reference?thread:undefined,messageId:d.id});sid=sent.id||null;}

@@ -7,9 +7,10 @@ this guide. A 32-bit Raspberry Pi OS installation is not covered.
 The [deployment guide](container-deployment.md) remains the source for
 configuration, HTTPS ingress, and account setup. This page covers the extra
 steps a fresh Pi needs. The [managed host updater](workspace-updates.md) and
-published workspace-release workflow currently support **linux/amd64 only**;
-do not install or activate that updater on the Pi. Manual Compose deployment
-is a separate path.
+published workspace-release workflow support native **linux/amd64 and linux/arm64**.
+Existing managed installations must use their host worker. Automatic migration
+eligibility remains separately gated; an image build is not preservation or
+restore evidence. Follow the operator procedure in the updates guide.
 
 ## Prepare a fresh host
 
@@ -72,6 +73,13 @@ runtime processes run as non-root users. Cloning with `umask 077` makes ordinary
 source files unreadable in the workspace image and the bind-mounted TURN
 entrypoint. Use normal public-source permissions when cloning; do not apply
 a recursive permission change to a checkout containing `.env` or other secrets.
+
+## Capacity evidence
+
+Native ARM64 CLI startup checks do not establish a workload capacity guarantee.
+Measure real two- and four-session workloads on the intended 8 GiB host before
+promising that capacity. Simulated provider concurrency checks validate scheduling
+and receipts only; they do not measure paid-provider latency or memory use.
 
 ## Set the resource and network values
 

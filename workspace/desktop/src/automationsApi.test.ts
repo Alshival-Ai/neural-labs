@@ -54,7 +54,7 @@ describe("Native automation request mapping", () => {
     expect(definition.enabled).toBe(false);
     expect(definition.executionPolicy).toEqual({ sandbox: "read-only", approval: "on-request" });
     expect(definition.delivery).toEqual({ mode: "none" });
-    expect(definition).not.toHaveProperty("failureAlert");
+    expect(definition.failureAlert).toBeNull();
   });
   it("sends manual run identity to the authenticated HTTP adapter without an account override", async () => {
     const mocked = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ accepted: true }) });
@@ -82,7 +82,7 @@ describe("Native automation request mapping", () => {
   });
 
 
-  it("maps a calendar agent job to the current Gateway schema", () => {
+  it("maps a calendar agent job to the native schema", () => {
     expect(draftToNativeDefinition(baseDraft)).toEqual({
       name: "Morning brief",
       description: "Summarize overnight work",
@@ -94,42 +94,42 @@ describe("Native automation request mapping", () => {
       payload: {
         kind: "agentTurn",
         message: "Summarize overnight work.",
+        lightContext: false,
         thinking: "medium",
         timeoutSeconds: 600,
         toolsAllow: ["read", "exec"],
       },
       delivery: { mode: "none" },
-      failureAlert: { after: 2 },
+      failureAlert: { after: 2, cooldownMs: 3600000 },
     });
   });
 
-  it("maps stream argv and a match expression without treating it as a condition script", () => {
+  it("maps supervised stream argv with a stable source identity", () => {
     const params = draftToNativeDefinition({
       ...baseDraft,
       scheduleKind: "stream",
-      scheduleValue: '["node","scripts/events.mjs"]',
-      triggerScript: "^(failed|recovered):",
+      scheduleValue: '["/usr/local/bin/node","scripts/events.mjs"]',
+      sourceId: 'source-fixture', workingDirectory: '.',
+      triggerScript: "",
       payloadKind: "systemEvent",
       payload: "A build event changed.",
     });
     expect(params.schedule).toEqual({
       kind: "stream",
-      command: ["node", "scripts/events.mjs"],
-      cwd: "/home/node/workspace",
-      mode: "match",
-      match: "^(failed|recovered):",
+      command: ["/usr/local/bin/node", "scripts/events.mjs"],
+      cwd: ".", source: "source-fixture",
     });
     expect(params).not.toHaveProperty("trigger");
   });
 
-  it("rejects ambiguous stream commands before they reach OpenClaw", () => {
+  it("rejects ambiguous stream commands before runtime admission", () => {
     expect(() => draftToNativeDefinition({ ...baseDraft, scheduleKind: "stream", scheduleValue: "node scripts/events.mjs" }))
-      .toThrow("Stream command argv must be a non-empty JSON array of strings.");
+      .toThrow("Source command argv must be a non-empty JSON array of strings.");
   });
 
   it("converts fixed intervals to milliseconds", () => {
     expect(draftToNativeDefinition({ ...baseDraft, scheduleKind: "every", scheduleValue: "4h" }).schedule)
-      .toEqual({ kind: "every", everyMs: 14_400_000 });
+      .toEqual({ kind: "every", everyMs: 14_400_000, staggerMs: 0 });
   });
 
   it("keeps operational state visible while removing administrator-only configuration", () => {

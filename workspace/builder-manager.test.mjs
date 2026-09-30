@@ -190,9 +190,9 @@ test("native automation builder defaults publish and unsupported policies stay r
   assert.equal(result.draft.failureAlertAfter, "");
   assert.equal(result.draft.tools, "");
   assert.equal(result.draft.deliveryMode, "none");
-  for (const policy of [{ failureAlertAfter: "3" }, { scheduleKind: "stream" }, { deliveryMode: "webhook" }, { tools: "read" }]) {
+  for (const policy of [{ failureAlertAfter: "-1" }, { scheduleKind: "stream" }, { deliveryMode: "webhook" }, { tools: "read" }]) {
     const draft = await manager.create(admin, { kind: "automation", initial: { ...initial, ...policy } });
-    assert.ok((await manager.validate(admin, draft.id)).issues.some(i => i.code === "unsupported_native_policy"));
-    await assert.rejects(manager.publish(admin, draft.id), /Not yet supported/);
+    assert.ok((await manager.validate(admin, draft.id)).issues.some(i => ["unsupported_native_policy", "invalid_policy", "invalid_source"].includes(i.code)));
+    await assert.rejects(manager.publish(admin, draft.id), /Not yet supported|Invalid|command argv/);
   }
 });

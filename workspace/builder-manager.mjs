@@ -39,7 +39,7 @@ const AUTOMATION_DEFAULTS = {
   payload: "",
   skillKey: "",
   skillPrompt: "",
-  workingDirectory: "/home/node/workspace",
+  workingDirectory: ".",
   sessionTarget: "isolated",
   wakeMode: "now",
   agent: "main",
@@ -51,6 +51,10 @@ const AUTOMATION_DEFAULTS = {
   tools: "",
   timeoutSeconds: "600",
   failureAlertAfter: "",
+  failureCooldownMs: "3600000",
+  staggerMs: "0",
+  lightContext: "false",
+  sourceId: "",
 };
 
 const FORBIDDEN_PATH = /(^|\/)(?:\.env(?:\.|$)|\.ssh|credentials?|secrets?|backups?|\.openclaw|\.codex)(?:\/|$)|\.(?:pem|p12|pfx|key|crt|cer|ovpn|token)$/i;
@@ -345,13 +349,24 @@ function validateAutomation(room) {
   if (!draft.scheduleValue.trim()) issues.push(issue("error", "missing_schedule", "A schedule value is required"));
   if (!draft.payload.trim()) issues.push(issue("error", "missing_action", "An automation action is required"));
   const unsupported = [];
-  if (!["cron", "every", "at"].includes(draft.scheduleKind)) unsupported.push("process/stream triggers");
+  if (!["cron", "every", "at", "on-exit", "stream"].includes(draft.scheduleKind)) unsupported.push("process/stream triggers");
   if (draft.payloadKind !== "agentTurn") unsupported.push("non-agent actions");
   if (draft.sessionTarget !== "isolated") unsupported.push("shared sessions");
   if (draft.wakeMode !== "now") unsupported.push("heartbeat wake mode");
   if (draft.deliveryMode !== "none") unsupported.push("direct channel/webhook delivery");
-  for (const [field, label] of [["failureAlertAfter", "failure thresholds"], ["tools", "tool allowlists"], ["triggerScript", "conditions"], ["pacingMin", "pacing"], ["pacingMax", "pacing"]]) {
+  for (const [field, label] of [["tools", "tool allowlists"], ["triggerScript", "conditions"], ["pacingMin", "pacing"], ["pacingMax", "pacing"]]) {
     if (draft[field]?.trim()) unsupported.push(label);
+  }
+  if (["on-exit", "stream"].includes(draft.scheduleKind)) {
+    try {
+      const argv = JSON.parse(draft.scheduleValue);
+      if (!Array.isArray(argv) || !argv.length || argv.some(a => typeof a !== "string" || a.includes("\0")) || !argv[0].startsWith("/")) throw new Error();
+      if (draft.workingDirectory.startsWith("/") || draft.workingDirectory.split("/").includes("..")) throw new Error();
+    } catch { issues.push(issue("error", "invalid_source", "Use command argv JSON and a workspace-relative working directory.")); }
+  }
+  for (const [field, min, max] of [["failureAlertAfter", 1, 1000], ["failureCooldownMs", 0, 2592000000], ["staggerMs", 0, 86400000]]) {
+    if (draft[field] && (!Number.isSafeInteger(Number(draft[field])) || Number(draft[field]) < min || Number(draft[field]) > max))
+      issues.push(issue("error", "invalid_policy", `Invalid ${field}`));
   }
   if (unsupported.length) issues.push(issue("error", "unsupported_native_policy", `Not yet supported: ${[...new Set(unsupported)].join(", ")}. Saved draft values are retained for review.`));
   if (SECRET_PATTERNS.some((pattern) => pattern.test(JSON.stringify(draft)))) issues.push(issue("error", "credential_detected", "Remove credentials from the automation draft"));

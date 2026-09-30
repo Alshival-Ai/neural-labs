@@ -125,3 +125,13 @@ agent tools. Disconnecting stops new processing and retains history. Pausing or
 changing connector settings revokes active connector grants and holds stale
 queued deliveries. Production acceptance requires actual provider consent and
 an owner-triggered test; fixture tests do not establish live provider readiness.
+
+## Automation notifications
+
+Automation subscriptions use the same workspace mailbox and SMS number. Configure
+the connector, verify your address/phone, enable the channel in Connectors, and
+choose your notification preferences and automation subscriptions. Old Microsoft
+application-mail sender settings are retained for reference but no longer send.
+There is no SMTP or legacy sender fallback. Notification handoff uses a durable
+identity; the outbox rechecks subscription, membership, verification and opt-in
+before sending. Uncertain provider acceptance is held without automatic resend.

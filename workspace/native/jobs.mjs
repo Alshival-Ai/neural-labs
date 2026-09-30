@@ -4,7 +4,7 @@ import { cronExpression, timezone } from "./schedules.mjs";
 const plain = value => value && typeof value === "object" && !Array.isArray(value);
 const text = (value, max) => typeof value === "string" && value.trim() && value.length <= max;
 const REVIEWABLE_HOLDS = new Set(["native-connection-required", "execution-policy-review-required",
-  "authorization-or-policy-unavailable", "membership-revoked"]);
+  "authorization-or-policy-unavailable", "membership-revoked", "source-interrupted-review-required", "source-start-review-required", "source-overflow-review-required"]);
 export function validateJob(definition) {
   identity(definition.id); identity(definition.actor); identity(definition.connection?.owner);
   if (!text(definition.name, 200) || typeof definition.enabled !== "boolean"
@@ -24,19 +24,34 @@ export function validateJob(definition) {
     if (!Number.isSafeInteger(s.everyMs) || s.everyMs < 1 || !Number.isSafeInteger(s.anchorMs) || s.anchorMs < 0) throw new Error("An interval requires a persistent anchor");
   } else if (s.kind === "at") {
     if (!text(s.at, 64) || !/[zZ]$|[+-]\d{2}:\d{2}$/.test(s.at) || !Number.isSafeInteger(Date.parse(s.at))) throw new Error("One-time schedules require an explicit timezone");
-  } else if (["process", "stream"].includes(s.kind)) { identity(s.source); }
+  } else if (["process", "stream"].includes(s.kind)) {
+    identity(s.source);
+    if (!Array.isArray(s.command) || !s.command.length || s.command.length > 100
+        || s.command.some(a => typeof a !== "string" || a.includes("\0") || a.length > 8192)
+        || !s.command[0].startsWith("/") || typeof s.cwd !== "string" || s.cwd.startsWith("/")
+        || s.cwd.split("/").includes("..") || s.cwd.includes("\0")
+        || s.match || s.mode && s.mode !== "line") throw new Error("Event source policy requires absolute command argv and a workspace-relative directory");
+  }
   else throw new Error("Unsupported automation trigger");
   if (definition.payload.kind !== "agentTurn" || !text(definition.payload.message, 2 * 1024 * 1024)) throw new Error("Invalid automation payload");
   const timeout = definition.payload.timeoutSeconds;
   if (timeout !== undefined && (!Number.isFinite(timeout) || timeout <= 0 || timeout > 86400)) throw new Error("Automation timeout must be within one day");
+  if (s.staggerMs !== undefined && (!Number.isSafeInteger(s.staggerMs) || s.staggerMs < 0 || s.staggerMs > 86400000
+      || !["cron", "every", "at"].includes(s.kind))) throw new Error("Invalid schedule staggering policy");
+  if (definition.payload.lightContext !== undefined && typeof definition.payload.lightContext !== "boolean") throw new Error("Invalid light context policy");
+  if (definition.failureAlert !== undefined && definition.failureAlert !== null) {
+    const p = definition.failureAlert;
+    if (!plain(p) || Object.keys(p).some(k => !["after", "cooldownMs"].includes(k))
+        || !Number.isSafeInteger(p.after) || p.after < 1 || p.after > 1000
+        || !Number.isSafeInteger(p.cooldownMs) || p.cooldownMs < 0 || p.cooldownMs > 2592000000)
+      throw new Error("Failure alert policy requires a positive threshold and cooldown within 30 days");
+  }
   // Preserve imported fields verbatim, but never silently activate a policy
   // that this executor cannot enforce. Migration retains such definitions held.
   if (definition.payload.thinking && !(definition.connection.provider === "codex" ? ["none", "minimal", "low", "medium", "high", "xhigh"] : ["low", "medium", "high", "xhigh", "max"]).includes(definition.payload.thinking)) throw new Error("Unsupported provider reasoning effort");
   if (definition.payload.fallbacks?.length || definition.payload.toolsAllow?.length
       || definition.trigger || definition.pacing || definition.delivery && definition.delivery.mode !== "none"
-      || definition.failureAlert || definition.schedule.staggerMs > 0
-      || definition.payload.lightContext === true || definition.sessionTarget && definition.sessionTarget !== "isolated"
-      || definition.schedule.kind === "process" || definition.schedule.kind === "stream")
+      || definition.sessionTarget && definition.sessionTarget !== "isolated")
     throw new Error("Automation policy adapters require review");
   if (Buffer.byteLength(canonical(definition)) > 2 * 1024 * 1024) throw new Error("Automation definition is too large");
   return definition;
@@ -98,7 +113,8 @@ export class NativeJobs {
     const job = saved ? { id: saved.id, name: saved.definition.name, enabled: saved.enabled, currentRunId: current?.id || null } : null;
     if (action === "job") return { job };
     const project = row => ({ id: row.id, jobId: row.job_id, name: this.state.job(row.job_id)?.definition.name || "Automation",
-      outcome: row.status === "succeeded" ? "success" : "failure", finishedAt: row.finished_at });
+      outcome: row.status === "succeeded" ? "success" : "failure", finishedAt: row.finished_at,
+      external: this.state.db.prepare("SELECT external FROM run_notification_policy WHERE run_id=?").get(row.id)?.external !== 0 });
     if (action === "runs") {
       const after = Number(input.after || 0);
       if (!Number.isSafeInteger(after) || after < 0) throw new Error("Invalid notification history cursor");
@@ -122,8 +138,9 @@ export class NativeJobs {
       const active = this.state.db.prepare("SELECT claimed_at FROM occurrences WHERE job_id=? AND status IN ('claimed','running','unknown') LIMIT 1").get(id);
       const publicFields = { id, nativeHistory: true, name: definition.name, enabled: row.enabled, schedule: { kind: definition.schedule?.kind },
         payload: { kind: definition.payload?.kind }, classification: row.classification, completed: row.completed,
+        sourceStatus: this.state.db.prepare("SELECT status FROM event_sources WHERE job_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1").get(id)?.status,
         configRevision: row.source_hash, hold: row.hold, manualRunWarning: row.hold ? `Held: ${row.hold}` : undefined,
-        state: { ...(definition.state || {}), ...(latest ? { lastRunAtMs: latest.claimed_at, lastRunStatus: latest.status } : {}),
+        state: { ...(definition.state || {}), consecutiveErrors: this.state.db.prepare("SELECT streak FROM failure_policies WHERE job_id=?").get(id)?.streak ?? 0, ...(latest ? { lastRunAtMs: latest.claimed_at, lastRunStatus: latest.status } : {}),
           ...(active ? { runningAtMs: active.claimed_at } : {}) } };
       return admin ? { ...definition, ...publicFields, schedule: definition.schedule, payload: definition.payload,
         reviewable: row.classification === "automation" && REVIEWABLE_HOLDS.has(row.hold) } : publicFields;
@@ -156,6 +173,8 @@ export class NativeJobs {
       if (!job || job.source_hash !== expectedRevision || job.hold === "deleted") throw new Error("Automation changed; refresh before editing");
       if (job.classification !== "automation") throw new Error("This retained record requires migration review");
       const definition = { ...job.definition, ...patch,
+        ...(patch.schedule?.kind === "every" ? { schedule: { ...patch.schedule,
+          anchorMs: patch.schedule.anchorMs ?? (job.definition.schedule.kind === "every" ? job.definition.schedule.anchorMs : this.state.now()) } } : {}),
         ...(reassign ? { actor: grant.actor, connection: grant.binding, model: grant.model } : {}) };
       // Pausing an incompatible imported job is always possible and retains
       // every original field and its review hold.
@@ -214,6 +233,7 @@ export class NativeJobs {
       // Completed flags, receipts, checkpoints and original migration records
       // remain untouched. Releasing a hold is never an occurrence claim.
       this.state.db.prepare("UPDATE jobs SET definition=?,source_hash=?,hold=NULL WHERE id=?").run(serialized, revision, id);
+      if (job.hold.startsWith("source-")) this.state.db.prepare("UPDATE event_sources SET status='reviewed' WHERE job_id=? AND status!='running'").run(id);
     });
     await this.changed();
     return { id, configRevision: revision, accepted: true };

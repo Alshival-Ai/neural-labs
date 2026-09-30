@@ -79,8 +79,8 @@ test("unsupported policies cannot enter scheduling through create or update", as
   const original = state.job(input.id);
   const policies = [
     { failureAlert: { after: 2 } },
-    { payload: { ...input.payload, lightContext: true } },
-    { schedule: { kind: "cron", expr: "0 * * * *", staggerMs: 1000 } },
+    { payload: { ...input.payload, lightContext: "invalid" } },
+    { schedule: { kind: "cron", expr: "0 * * * *", staggerMs: -1 } },
     { schedule: { kind: "process", source: "fixture" } },
     { schedule: { kind: "stream", source: "fixture" } },
   ];

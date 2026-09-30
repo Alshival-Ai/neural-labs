@@ -55,7 +55,7 @@ export class NativeTriggerLoop {
             if (!job || job.definition.schedule?.kind !== "cron") throw new Error("Unknown calendar job");
             const occurrence = calendarOccurrence(job.definition.schedule, this.now());
             if (!occurrence) throw new Error("Calendar occurrence is outside its schedule");
-            const result = await this.scheduler.launch(job.id, occurrence);
+            const result = await this.admit(job, occurrence);
             socket.end(JSON.stringify({ accepted: result.accepted, id: result.id ?? result.previous?.id }) + "\n");
           } catch { socket.end(JSON.stringify({ error: "Calendar occurrence could not be admitted" }) + "\n"); }
         })());
@@ -77,6 +77,7 @@ export class NativeTriggerLoop {
     return this.refreshing;
   }
   async refreshProcesses() {
+    await this.sources?.refresh(this.enabled);
     const files = this.enabled ? calendarFiles(this.jobs(), this.runnerPaths) : {};
     for (const [tz, child] of this.processes) if (!Object.hasOwn(files, tz)) { this.processes.delete(tz); child.kill("SIGTERM"); }
     for (const tz of this.retries.keys()) if (!Object.hasOwn(files, tz)) this.retries.delete(tz);
@@ -100,6 +101,25 @@ export class NativeTriggerLoop {
       child.once("error", failed); child.once("exit", failed);
     }
   }
+  async admit(job, occurrence) {
+    const window = job.definition.schedule.staggerMs || 0;
+    if (!window) return this.scheduler.launch(job.id, occurrence);
+    const instant = Number(occurrence.split(":")[1]);
+    const offset = createHash("sha256").update(`${job.id}:${occurrence}`).digest().readUInt32BE(0) % (window + 1);
+    this.state.db.prepare("INSERT OR IGNORE INTO scheduled_pending VALUES (?,?,?,?)")
+      .run(job.id, occurrence, job.source_hash, instant + offset);
+    return { accepted: true, queued: true };
+  }
+  async flush() {
+    for (const row of this.state.db.prepare("SELECT * FROM scheduled_pending WHERE due_at<=? ORDER BY due_at LIMIT 100").all(this.now())) {
+      if (!this.enabled) return;
+      const job = this.state.job(row.job_id);
+      try {
+        if (job?.enabled && !job.hold && !job.completed && job.source_hash === row.revision) await this.scheduler.launch(job.id, row.occurrence);
+      } catch { continue; }
+      this.state.db.prepare("DELETE FROM scheduled_pending WHERE job_id=? AND occurrence=?").run(row.job_id, row.occurrence);
+    }
+  }
   tick() {
     const now = this.now(), previousCheck = Math.min(this.previous, now); this.previous = now;
     if (!this.enabled) return;
@@ -107,20 +127,23 @@ export class NativeTriggerLoop {
     for (const job of this.jobs()) {
       try {
         const occurrence = dueOccurrence(job, { now, previousCheck });
-        if (occurrence) this.track(this.scheduler.launch(job.id, occurrence));
+        if (occurrence) this.track(this.admit(job, occurrence));
       } catch { this.lastError = "An automation schedule requires review"; }
     }
+    if (!this.sources?.busy) this.track(this.sources?.refresh(this.enabled));
+    this.track(this.flush());
     this.state.setMetadata("scheduler-last-check", String(now));
   }
   event(event) {
     if (!this.enabled) return;
     for (const job of this.jobs()) {
       const occurrence = dueOccurrence(job, { now: this.now(), event });
-      if (occurrence) this.track(this.scheduler.launch(job.id, occurrence));
+      if (occurrence) this.track(this.admit(job, occurrence));
     }
   }
   async close() {
     this.closed = true; clearInterval(this.timer);
+    await this.sources?.close();
     if (this.refreshing) await this.refreshing.catch(() => {});
     const children = [...this.processes.values()]; this.processes.clear();
     await Promise.all(children.map(child => new Promise(resolve => {

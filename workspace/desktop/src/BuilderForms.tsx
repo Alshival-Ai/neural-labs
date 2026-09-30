@@ -84,10 +84,10 @@ export function BuilderForms({ draft, skills, value, setValue, setSkillValue, in
         <p className="is-wide">New jobs save your selected AI connection and model. Editing preserves the saved account. Scheduled execution requires background access; Run now uses your selected account.</p>
       </Section>
       <Section title="When to run" description="Set the trigger and timing." icon={CalendarClock} accent="amber">
-        {select("scheduleKind", "Schedule type", [["cron", "Recurring schedule (cron)"], ["every", "Repeat at an interval"], ["at", "Once at a date and time"]])}
+        {select("scheduleKind", "Schedule type", [["cron", "Recurring schedule (cron)"], ["every", "Repeat at an interval"], ["at", "Once at a date and time"], ["on-exit", "Supervised process exit"], ["stream", "Supervised line stream"]])}
         {input("scheduleValue", ...(scheduleLabels[schedule] ?? ["Schedule", "Enter the schedule definition."]))}
         {(schedule === "cron" || schedule === "at") && input("timezone", "Timezone", "Use an IANA timezone, such as America/Chicago or UTC.")}
-        {schedule === "stream" && input("triggerScript", "Match expression", "Optional expression to match stream events.")}
+        {["on-exit", "stream"].includes(schedule) && <p>Use a JSON array with an absolute executable, for example ["/bin/sh", "scripts/watch.sh"]. The command runs inside this workspace without account credentials. Working directory is relative to the workspace.</p>}
         {(schedule === "stream" || schedule === "on-exit" || action === "command" || action === "script") && input("workingDirectory", "Working directory")}
       </Section>
       <Section title="Delivery" description="Results remain in run history. Use Subscribe for result and failure notifications." icon={Send} accent="mint">
@@ -101,7 +101,9 @@ export function BuilderForms({ draft, skills, value, setValue, setSkillValue, in
         {select("sessionTarget", "Session", [["isolated", "Isolated session"]])}
         {select("wakeMode", "Wake mode", [["now", "Immediately"]])}
         {select("thinking", "Thinking", [["", "Provider default"], ["low", "Low"], ["medium", "Medium"], ["high", "High"]])}
-        {value("tools") && input("tools", "Allowed tools", "Not yet supported. Clear to use the native execution policy.")}{input("timeoutSeconds", "Timeout (seconds)")}{value("failureAlertAfter") && input("failureAlertAfter", "Alert after failures", "Not yet supported. Clear and use Subscribe for failure notifications.")}
+        {value("tools") && input("tools", "Allowed tools", "Not yet supported. Clear to use the native execution policy.")}{input("timeoutSeconds", "Timeout (seconds)")}{input("failureAlertAfter", "Alert after consecutive failures", "Optional. Uses opted-in subscribers; empty means every failure.")}
+        {input("failureCooldownMs", "Alert cooldown (milliseconds)")}{input("staggerMs", "Maximum schedule delay (milliseconds)")}
+        {select("lightContext", "Context", [["false", "Standard workspace context"], ["true", "Fresh history and selected skills"]])}
       </Section>
     </>}
     <p className="builder-publish-note">Draft changes save automatically while connected. {skill ? "Publish when the skill is ready to use." : "Publishing updates the shared scheduler and requires an administrator."}</p>

@@ -40,3 +40,22 @@ test('connector native turns are idempotent and bound to one member',async t=>{
  assert.ok(launches.every(l=>l.homeRoot===path.join(root,'state/connector-homes/message')));
  active=false;await assert.rejects(runtime.connectorRun(input),/revoked/);
 });
+test('light-context scheduled execution uses a fresh auth-only home and cleans it afterwards',async t=>{
+ const {NativeRuntime}=await import('./native/runtime.mjs');const {NativeState}=await import('./native/state.mjs');
+ const root=await mkdtemp(path.join(os.tmpdir(),'nl-light-run-'));const state=new NativeState(':memory:');
+ const account=path.join(root,'state/accounts/account/.codex');await mkdir(account,{recursive:true});await mkdir(path.join(root,'workspace'));
+ await writeFile(path.join(account,'auth.json'),'fixture');await writeFile(path.join(account,'history.jsonl'),'private history');
+ const binding={owner:'account',provider:'codex',generation:1,method:'subscription'};
+ const policy={sandbox:'workspace-write',approval:'on-request'};
+ let isolated,explicit=false;
+ const runtime=new NativeRuntime({stateRoot:path.join(root,'state'),workspaceRoot:path.join(root,'workspace'),state,
+  authorize:async()=>({actor:'member',actorRole:'admin',connection:'account',binding,scope:'background',model:'fixture',background:true,authorityGeneration:1,policy}),
+  launcher:async input=>{if(input.homeRoot.includes('/light-homes/'))isolated=input.homeRoot;return {spawn(){},exec(){}};},accounts:{status:async()=>({ready:true})},
+  skills:{prepare:async input=>{explicit=input.explicitOnly;return {input:input.input,mounts:[],packages:[],release:async()=>{}};}},
+  providers:{codex:async()=>{assert.equal(await readFile(path.join(isolated,'.codex/auth.json'),'utf8'),'fixture');await assert.rejects(readFile(path.join(isolated,'.codex/history.jsonl')),/ENOENT/);return {status:'succeeded'};}}});
+ t.after(async()=>{await runtime.close();await rm(root,{recursive:true,force:true});});runtime.turns.gated=false;state.setMetadata('scheduling','enabled');
+ state.putJob({id:'job',name:'Light',actor:'member',connection:binding,model:'fixture',enabled:true,executionPolicy:policy,missedRunPolicy:'skip',overlap:'forbid',schedule:{kind:'every',everyMs:1000,anchorMs:0},payload:{kind:'agentTurn',message:'$selected',lightContext:true}});
+ const receipt=await runtime.scheduler.launch('job','every:1000');await runtime.scheduler.drain();
+ assert.equal(state.db.prepare('SELECT status FROM occurrences WHERE id=?').get(receipt.id).status,'succeeded');assert.equal(explicit,true);
+ await assert.rejects(readFile(path.join(isolated,'.codex/auth.json')),/ENOENT/);assert.equal(await readFile(path.join(account,'history.jsonl'),'utf8'),'private history');
+});

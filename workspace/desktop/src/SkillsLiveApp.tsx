@@ -68,19 +68,21 @@ export function mergeCustomSkills(gatewaySkills: SkillRecord[], customSkills: Cu
   return [...merged, ...Array.from(customByKey.values(), customFallback)];
 }
 
-function automationInitial(job: AutomationJob): Record<string, unknown> {
+export function automationInitial(job: AutomationJob): Record<string, unknown> {
   const payloadKind = ["systemEvent", "agentTurn", "command", "script"].includes(job.payload.kind) ? job.payload.kind : "agentTurn";
   const pacing = job.schedule.pacing?.split(/[–—-]/).map((value) => value.trim()) ?? [];
   return {
     name: job.name, description: job.description, scheduleKind: job.schedule.kind,
     scheduleValue: job.schedule.expression, timezone: job.schedule.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
     exact: job.schedule.exact === true, triggerScript: job.schedule.trigger ?? "", pacingMin: pacing[0] ?? "", pacingMax: pacing[1] ?? "",
-    payloadKind, payload: job.payload.content, workingDirectory: job.payload.workingDirectory ?? job.schedule.workingDirectory ?? "/home/node/workspace",
+    payloadKind, payload: job.payload.content, workingDirectory: job.payload.workingDirectory ?? job.schedule.workingDirectory ?? ".",
     sessionTarget: job.sessionTarget, wakeMode: job.wakeMode, agent: job.agent,
     deliveryMode: job.delivery.mode, channel: job.delivery.channel ?? "last", target: job.delivery.target ?? "",
     model: job.payload.model ?? "Workspace default", thinking: job.payload.thinking ?? "low",
     tools: job.payload.tools?.join(", ") ?? "", timeoutSeconds: job.payload.timeout?.replace(/\D/g, "") || "600",
-    failureAlertAfter: String(Math.max(2, job.consecutiveErrors || 3)),
+    failureAlertAfter: job.failureAlertAfter === undefined ? "" : String(job.failureAlertAfter),
+    failureCooldownMs: String(job.failureCooldownMs ?? 3600000), staggerMs: String(job.staggerMs ?? 0),
+    lightContext: String(job.lightContext ?? false), sourceId: job.sourceId ?? "",
   };
 }
 

@@ -705,4 +705,11 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    version: 25,
+    sql: `UPDATE notification_deliveries SET status='unknown',error_code='legacy_send_outcome_unknown'
+      WHERE status='sending' AND channel IN ('email','sms');
+      ALTER TABLE connector_messages ADD COLUMN notification_event uuid REFERENCES notification_events(id);
+      CREATE UNIQUE INDEX connector_notification ON connector_messages(notification_event,user_id,channel) WHERE notification_event IS NOT NULL;`,
+  },
 ];
