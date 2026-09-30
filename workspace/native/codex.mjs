@@ -125,7 +125,7 @@ export async function runCodexTurn({
   if (signal?.aborted) return { status: "cancelled" };
   const args = ["app-server", "-c", `forced_login_method=${JSON.stringify(env.OPENAI_API_KEY ? "api" : "chatgpt")}`];
   if (mcpConfig) {
-    args.push("-c", `mcp_servers.neural-labs.url=${JSON.stringify(mcpConfig.url)}`,
+    args.push("-c", "mcp_servers.neural-labs.tool_timeout_sec=420", "-c", `mcp_servers.neural-labs.url=${JSON.stringify(mcpConfig.url)}`,
       "-c", `mcp_servers.neural-labs.http_headers={${Object.entries(mcpConfig.http_headers).map(([key, value]) => `${JSON.stringify(key)}=${JSON.stringify(value)}`).join(",")}}`);
     if (mcpConfig.team) args.push("-c", `mcp_servers.neural-labs-team.url=${JSON.stringify(mcpConfig.team.url)}`,
       "-c", `mcp_servers.neural-labs-team.http_headers={${Object.entries(mcpConfig.team.http_headers).map(([key, value]) => `${JSON.stringify(key)}=${JSON.stringify(value)}`).join(",")}}`);

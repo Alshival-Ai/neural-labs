@@ -123,3 +123,13 @@ test('Claude authentication failures become stable actionable outcomes', async (
   const result = await runClaudeTurn(context(child));
   assert.equal(result.status, 'failed'); assert.equal(result.code, 'authentication-required');
 });
+
+test('deployment requests do not auto-background and outlive the default HTTP tool timeout', async () => {
+  const child = new FakeClaude((row, child) => { if (row.type === 'user') child.output({ type: 'result', subtype: 'success', is_error: false, result: 'done', session_id: row.session_id }); });
+  const result = await runClaudeTurn(context(child, { mcpConfig: '{}', spawnProcess: (_command, _args, options) => {
+    assert.equal(options.env.MCP_TOOL_TIMEOUT, '420000');
+    assert.equal(options.env.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT, '420000');
+    assert.equal(options.env.CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS, '0'); return child;
+  } }));
+  assert.equal(result.status, 'succeeded');
+});

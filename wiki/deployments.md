@@ -46,7 +46,12 @@ credentials merely because they were published.
   hard-coded credentials in public output. No environment-secret editor, Docker
   deployment, managed database provisioning, or automatic data rollback is provided.
 
-Builds have a five-minute limit; readiness has a 30-second limit. Snapshots allow
+Builds have a five-minute limit; readiness has a 30-second limit. Native CLI
+tool requests allow seven minutes for build and verification, while execution
+leases continue to be checked. Claude automatic MCP backgrounding is disabled
+so ending a turn cannot silently detach an unfinished deployment. These use the
+[Codex MCP timeout setting](https://learn.chatgpt.com/docs/config-file/config-reference)
+and [Claude MCP environment settings](https://code.claude.com/docs/en/env-vars). Snapshots allow
 up to 20,000 files and 512 MiB before dependencies are installed. Logs retain a
 bounded recent tail. Build commands and server processes share the workspace's
 configured CPU, memory, and storage allowance. The app sandbox mounts only its

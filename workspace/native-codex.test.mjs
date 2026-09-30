@@ -132,3 +132,10 @@ test("provider environments include only the selected credential and no ambient 
   assert.equal(claude.ANTHROPIC_API_KEY, "fixture-not-a-real-key");
   assert.equal(claude.OPENAI_API_KEY, undefined);
 });
+
+test('deployment tool calls have time for the bounded build and readiness checks', async () => {
+  const rpc = new FakeRpc(rpc => rpc.complete());
+  const result = await runCodexTurn(context(rpc, { mcpConfig: { url: 'http://127.0.0.1:8792/mcp', http_headers: {} },
+    createRpc: (_command, args) => { assert.ok(args.includes('mcp_servers.neural-labs.tool_timeout_sec=420')); return rpc; } }));
+  assert.equal(result.status, 'succeeded');
+});

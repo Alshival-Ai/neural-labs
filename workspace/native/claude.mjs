@@ -39,7 +39,7 @@ export async function runClaudeTurn({ command = "/usr/local/bin/claude", version
   await revalidate();
   if (signal?.aborted) return { status: "cancelled" };
   let lastOutputValidation = Date.now();
-  const child = spawnProcess(command, args, { cwd, env, detached: true, stdio: ["pipe", "pipe", "pipe"] });
+  const child = spawnProcess(command, args, { cwd, env: mcpConfig ? { ...env, MCP_TOOL_TIMEOUT: "420000", CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT: "420000", CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS: "0" } : env, detached: true, stdio: ["pipe", "pipe", "pipe"] });
   let resolveDone, settled = false, buffer = "", eventTail = Promise.resolve(), initialized = false, failureCode;
   const done = new Promise(resolve => { resolveDone = resolve; });
   const finish = outcome => { if (settled) return; settled = true; resolveDone(outcome); };

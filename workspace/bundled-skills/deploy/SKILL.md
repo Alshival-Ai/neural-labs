@@ -35,6 +35,9 @@ host configuration yourself.
    remaining DNS, TLS, or access issue. For visual checks, the browser tool can
    open the returned `previewUrl` inside the workspace.
 
+If a tool call times out, inspect `list`/`status` before retrying; the operation
+may still be completing.
+
 Apps outlive this chat and restart with Neural Labs. Use `list`, `status`, `logs`,
 `start`, `restart`, `stop`, or `remove` as requested. Removal unpublishes the app
 but preserves project files and app data. Local URLs refer to the installation's

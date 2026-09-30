@@ -107,7 +107,7 @@ await new Promise((resolve, reject) => { mcpServer.once("error", reject); mcpSer
 const mcpStatus = async () => ({ ready: mcpServer.listening, mode: "workspace-local", endpoint: `http://127.0.0.1:${toolsPort}/mcp`,
   transport: "streamable-http", agentServerName: "neural-labs", agentScope: "authenticated-execution", publicAccess: false,
   providerConfiguration: providers.status(), providers: { googlePlaces: providers.status()["google-maps"].available,
-    googleGeocoding: providers.status()["google-maps"].available, klipy: providers.status().klipy.available, pexels: providers.status().pexels.available }, tools: ["browser"] });
+    googleGeocoding: providers.status()["google-maps"].available, klipy: providers.status().klipy.available, pexels: providers.status().pexels.available }, tools: ["browser", "deployments"] });
 const server = createWorkspaceHttpServer({ desktopRoot: "/usr/local/share/neural-labs/desktop", workspaceRoot, publicOrigin,
   nativeArtifacts: artifacts, deployments, deploymentAuthorize: input => control('/internal/deployment-access', input), nativeRuntime: runtime, requireSignedRequests: true, nativeEditors: editors, updateMaintenance: maintenance,
   skillLibraryRoots: ["/usr/local/share/neural-labs/skills", path.join(root, "installed-skills")],
