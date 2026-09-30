@@ -7,6 +7,13 @@ Versioning and Git tags in the form `vMAJOR.MINOR.PATCH`.
 
 ### Changed
 
+- Updated the control-plane upload parser to Multer 2.4.0 and the console/desktop
+  test dependency to Undici 8.11.2 to address published security advisories.
+- Native automation policy validation now applies to create, edit, review, and
+  execution. Unsupported saved policies produce a visible hold before a provider
+  starts. Expanded generated-state isolation probes cover private skills,
+  runtime paths, symlink and `/proc` traversal, and host control sockets.
+
 - Added a global Twilio SMS/MMS plugin with encrypted administrator-managed
   credentials, read-only connection and webhook checks, in-product Twilio
   Console setup steps, and the official pinned OpenClaw SMS channel.

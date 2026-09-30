@@ -3,8 +3,10 @@
 Status: native preview; full replacement acceptance remains in progress. Operators
 may deploy the preview for desktop, files, Terminal, personal native AI, skills,
 and basic time-based agent automations after instance-specific preservation checks.
-Team Neura execution, additional automation policy adapters, browser MCP and new
-notification transports remain incomplete. Existing installations stay pinned
+Native Team Chat selection, execution, channel MCP and administrator approvals
+are implemented; the live Team pilot remains pending. Additional automation
+policy adapters, browser/image tools and new notification transports remain
+incomplete. Existing installations stay pinned
 unless their operator explicitly selects this preview and accepts its scope.
 
 The candidate runs Codex app-server and Claude Code behind the authenticated
