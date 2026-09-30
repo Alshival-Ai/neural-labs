@@ -29,6 +29,7 @@ function automation() {
   return { id: "scheduled-job", name: "Fixture", enabled: true, actor: "scheduler-owner", model: "saved-model",
     connection: { owner: "saved-account", provider: "codex", method: "subscription", generation: 3 },
     executionPolicy: { sandbox: "read-only", approval: "on-request" },
+    missedRunPolicy: "skip", overlap: "forbid",
     payload: { kind: "agentTurn", message: "fixture", timeoutSeconds: 120 },
     schedule: { kind: "every", everyMs: 60000, anchorMs: 0 } };
 }
@@ -78,7 +79,8 @@ test("run only if due cannot fabricate an event and completes a pending one-time
     ["event", { kind: "process", source: "terminal-1" }], ["once", { kind: "at", at: "1970-01-01T00:01:00Z" }]]) {
     f.service.state.putJob({ ...job, id, schedule });
   }
-  for (const id of ["future", "event"]) await assert.rejects(f.request("jobs.run", { job: id, mode: "due", requestId: id }), /not due/);
+  await assert.rejects(f.request("jobs.run", { job: "future", mode: "due", requestId: "future" }), /not due/);
+  await assert.rejects(f.request("jobs.run", { job: "event", mode: "due", requestId: "event" }), /policy/);
   const result = await f.request("jobs.run", { job: "once", mode: "due", requestId: "once" });
   await f.service.scheduler.drain(); assert.equal(f.calls(), 1);
   assert.equal(f.service.state.job("once").completed, true);
@@ -103,6 +105,18 @@ test("scheduled automation requires separate background authority and persists u
   assert.equal(blocked.blocked, true); assert.equal(f.calls(), 1);
   assert.equal(f.service.state.job(job.id).enabled, true); assert.ok(f.service.state.job(job.id).hold);
   assert.equal(f.service.state.db.prepare("SELECT status FROM occurrences WHERE id=?").get(blocked.id).status, "blocked");
+});
+test("previously saved unsupported policies cannot bypass admission with a manual or scheduled run", async t => {
+  const f = await fixture(t), job = { ...automation(), failureAlert: { after: 2 } };
+  f.service.state.putJob(job); f.service.turns.gated = false; f.service.state.setMetadata("scheduling", "enabled");
+  await assert.rejects(f.request("jobs.run", { job: job.id, requestId: "unsupported-manual" }), /policy/);
+  assert.equal(f.service.state.db.prepare("SELECT count(*) n FROM occurrences").get().n, 0);
+  const result = await f.service.scheduler.launch(job.id, "every:60000");
+  assert.equal(result.blocked, true);
+  assert.equal(f.calls(), 0);
+  assert.equal(f.service.state.job(job.id).enabled, true);
+  assert.ok(f.service.state.job(job.id).hold);
+  assert.equal(f.service.state.db.prepare("SELECT status FROM occurrences WHERE id=?").get(result.id).status, "blocked");
 });
 test("authenticated native service executes, reconnects and keeps actor ownership", async t => {
   const f = await fixture(t);

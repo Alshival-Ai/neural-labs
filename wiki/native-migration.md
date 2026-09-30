@@ -117,11 +117,20 @@ triggers and policies (including delivery or failure policies without native
 adapters) remain held for operator review. No unsupported field is silently dropped
 to make a job eligible. Choosing catch-up behavior applies only to unclaimed future
 scheduler decisions; it never retries a previously claimed unknown occurrence.
+The same policy validation runs on create, edit, and immediately before manual
+or scheduled execution. A previously saved unsupported definition cannot bypass
+review by using Run now; scheduled admission records a blocked receipt and hold
+without starting a provider or changing the desired enabled state.
 
 ## Acceptance evidence
 
 Protocol initialization, filesystem isolation, native editor lifecycle, sandboxed
 Chromium and commit/rollback rehearsals have passed on the native 8GB ARM64 fixture.
+The current amd64 candidate also passed generated-state filesystem checks for
+other account homes, private skills, runtime state, symlink and `/proc` traversal,
+plus Codex/Claude initialization, editor revocation and sandboxed Chromium.
+These checks used no tenant credentials or inference. Providers still share
+the container network; the filesystem results do not certify outbound isolation.
 Those checks do not establish real mixed-provider inference capacity. The measured
 fresh-stack idle working set was approximately 197 MiB; there is no equivalent
 old-stack comparison. Two/four simultaneous provider workloads, live account

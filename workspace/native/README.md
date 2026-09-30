@@ -1,8 +1,10 @@
 # Native runtime migration components
 
-These modules are preparatory components. They are not selected by `start.mjs`,
-the container image, the desktop, or the managed host admission manifest yet.
-Do not activate a pilot using only these modules.
+These modules power the native `start.mjs` entrypoint, workspace image, desktop
+chat, and automation executor. Personal and Team Chat use explicit control-plane
+account selections. Existing deployments require the operator migration and
+preservation procedure; source integration alone does not establish cutover
+readiness. See [the migration guide](../../wiki/native-migration.md).
 
 `codex.mjs` implements the pinned 0.155.1 app-server stdio protocol;
 `claude.mjs` implements the pinned 2.1.226 structured streaming host protocol.
@@ -18,7 +20,10 @@ launcher that isolates the selected credential filesystem view for **both**
 version probes and provider launches. Environment allowlisting alone cannot
 protect other owners' homes from native read/shell tools. Admission starts closed.
 The launcher, desktop/API routes, native login and application MCP integration
-are not wired into the deployed runtime in this change.
+are wired through `runtime.mjs` and `start.mjs`. Team Chat adds a channel-bound
+capability and administrator-only approvals. All provider processes can access
+their selected account home and the shared workspace. Filesystem isolation is
+separate from network policy; Bubblewrap currently shares the container network.
 
 `state.mjs` owns SQLite occurrence claims, workflow locks, checkpoints, private
 conversation bindings and reconnect events. The default execution and delivery
@@ -73,12 +78,15 @@ has not been inventoried. Preserve all manual-run helper registries as artifacts
 
 `schedules.mjs` renders separate timezone crontabs with a fixed runner and job ID,
 and calculates anchored interval, one-time, process-exit and stream occurrences.
-Calendar execution requires a separately pinned and verified Supercronic build;
-the renderer alone is not calendar/DST acceptance. Its runner path is reserved
-for the authenticated native runtime integration and is not installed yet.
+Calendar execution uses the pinned Supercronic build and `trigger-loop.mjs`;
+the renderer alone is not calendar/DST acceptance. `runner.mjs` submits only a
+job ID through the private scheduler socket. Process and stream schedules retain
+their definitions but remain held until trusted event producers are available.
 
-The remaining release gates include provider execution acceptance, runtime API
-and desktop replacement, native login/approval UI, application MCP adapters,
-notification transports, managed admission/cutover, immutable multi-architecture
-images, full preservation and browser acceptance, and measured ARM64 capacity.
-No release digest, production migration, NAS backup or Pi acceptance is implied.
+The remaining migration work includes network-boundary acceptance, native browser
+and image adapters, Gmail/SMTP and Twilio inbound/callback integration, advanced
+automation policies, trusted process/stream producers, and live Team pilot
+acceptance. The reviewed release workflow builds both native architectures, but
+source validation is not evidence that those images have been published or that
+mixed-provider workloads meet the 8GB Pi target. NAS backup acceptance remains a
+separate operator concern.

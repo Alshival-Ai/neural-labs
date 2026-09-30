@@ -72,6 +72,27 @@ test("native maintenance preserves activation policy and fails closed on unknown
   await assert.rejects(maintenance.activity(), /cannot be verified/);
 });
 
+test("unsupported policies cannot enter scheduling through create or update", async t => {
+  const state = new NativeState(":memory:"); t.after(() => state.close());
+  const jobs = new NativeJobs({ state });
+  const created = await jobs.create(grant, input);
+  const original = state.job(input.id);
+  const policies = [
+    { failureAlert: { after: 2 } },
+    { payload: { ...input.payload, lightContext: true } },
+    { schedule: { kind: "cron", expr: "0 * * * *", staggerMs: 1000 } },
+    { schedule: { kind: "process", source: "fixture" } },
+    { schedule: { kind: "stream", source: "fixture" } },
+  ];
+  for (const patch of policies) {
+    await assert.rejects(jobs.create(grant, { ...input, id: "unsupported", ...patch }), /policy/);
+    assert.equal(state.job("unsupported"), null);
+    await assert.rejects(jobs.update(grant, { id: input.id, expectedRevision: created.configRevision, patch }), /policy/);
+    assert.deepEqual(state.job(input.id), original);
+  }
+  await assert.rejects(jobs.create(grant, { ...input, id: "unsupported", sessionTarget: "main" }), /policy/);
+});
+
 test("history pages retain all imported receipts alongside native runs without resending notifications", async t => {
   const { canonical, digest } = await import("./native/state.mjs");
   const state = new NativeState(":memory:", { now: () => 5000 }); t.after(() => state.close());

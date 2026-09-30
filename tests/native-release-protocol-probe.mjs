@@ -2,7 +2,7 @@
 // provider sign-in, inference, network access, or tenant state.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { StdioRpc, CODEX_APP_SERVER } from "/usr/local/lib/neural-labs/native/codex.mjs";
 
@@ -11,6 +11,7 @@ const root = await mkdtemp("/tmp/native-release-probe-");
 const env = { PATH: "/usr/local/bin:/usr/bin:/bin", HOME: root, CODEX_HOME: path.join(root, "codex") };
 let rpc;
 try {
+  await mkdir(env.CODEX_HOME, { mode: 0o700 });
   assert.equal(execFileSync(CODEX_APP_SERVER, ["--version"], { env, encoding: "utf8", timeout: 10000 }).trim(),
     "codex-cli 0.155.1");
   rpc = new StdioRpc(CODEX_APP_SERVER, ["app-server", "-c", 'forced_login_method="chatgpt"'],

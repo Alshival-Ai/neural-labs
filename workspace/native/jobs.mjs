@@ -33,7 +33,10 @@ export function validateJob(definition) {
   // that this executor cannot enforce. Migration retains such definitions held.
   if (definition.payload.thinking && !(definition.connection.provider === "codex" ? ["none", "minimal", "low", "medium", "high", "xhigh"] : ["low", "medium", "high", "xhigh", "max"]).includes(definition.payload.thinking)) throw new Error("Unsupported provider reasoning effort");
   if (definition.payload.fallbacks?.length || definition.payload.toolsAllow?.length
-      || definition.trigger || definition.pacing || definition.delivery && definition.delivery.mode !== "none")
+      || definition.trigger || definition.pacing || definition.delivery && definition.delivery.mode !== "none"
+      || definition.failureAlert || definition.schedule.staggerMs > 0
+      || definition.payload.lightContext === true || definition.sessionTarget && definition.sessionTarget !== "isolated"
+      || definition.schedule.kind === "process" || definition.schedule.kind === "stream")
     throw new Error("Automation policy adapters require review");
   if (Buffer.byteLength(canonical(definition)) > 2 * 1024 * 1024) throw new Error("Automation definition is too large");
   return definition;
@@ -200,10 +203,6 @@ export class NativeJobs {
     // triggers, locks, delivery, timeouts and failure policies remain intact.
     const definition = validateJob({ ...job.definition, actor: grant.actor, connection: grant.binding, model: grant.model,
       enabled: job.enabled, missedRunPolicy, overlap, executionPolicy });
-    if (definition.failureAlert || definition.schedule.staggerMs > 0
-        || definition.payload.lightContext === true || definition.sessionTarget && definition.sessionTarget !== "isolated"
-        || definition.schedule.kind === "process" || definition.schedule.kind === "stream")
-      throw new Error("The retained automation needs an unsupported policy adapter; its hold remains in place");
     if (typeof this.authorizeReview !== "function") throw new Error("Native background readiness cannot be verified");
     const revalidate = await this.authorizeReview(grant, definition);
     await revalidate();

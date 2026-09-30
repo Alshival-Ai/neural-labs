@@ -80,10 +80,21 @@ Hosts without the required namespace/AppArmor support need a reviewed adapter.
 Run `tests/native-launcher-smoke.mjs` inside an isolated candidate to verify
 other account homes and runtime environment are inaccessible, system files are
 read-only, the PID namespace differs, and workspace/session writes persist.
+The probe also checks private skill and runtime-state paths, workspace/home
+symlinks to those paths, `/proc` root traversal, and absent Docker sockets. All
+targets contain generated fixture data. The selected account home remains
+accessible to its own CLI and shell tools by design.
 `tests/native-container-smoke.mjs` verifies the pinned Codex initialization
 protocol without inference, private editor sockets with idle/revocation cleanup,
 and Chromium with its sandbox enabled. Both scripts use generated fixture state.
 These operator checks are separate from non-mutating repository validation.
+
+Filesystem and process isolation do not establish network isolation. Provider
+processes currently share their container's network namespace, including its
+loopback listeners. Host firewall policy must protect private networks and host
+services; every runtime/control-plane listener must independently authenticate
+requests. A network-disabled protocol probe demonstrates protocol compatibility
+only and must not be reported as a provider egress test.
 
 The native migration remains under implementation. Component checks on amd64
 and ARM64 do not establish the four-job 8GB acceptance target or authorize

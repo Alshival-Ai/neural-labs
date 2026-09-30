@@ -1,5 +1,5 @@
 import { NativeScheduler } from "./schedules.mjs";
-import { NativeJobs } from "./jobs.mjs";
+import { NativeJobs, validateJob } from "./jobs.mjs";
 import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { canonical, identity, NativeState } from "./state.mjs";
@@ -52,7 +52,7 @@ export class NativeRuntime {
       resolveExecution: ({ actor, selection, purpose }) => this.execution(actor, selection, purpose) });
     this.scheduler = new NativeScheduler({ state: this.state,
       authorize: async ({ job, actor, connection, manual }) => {
-        const definition = job.definition, selected = definition.connection;
+        const definition = validateJob(job.definition), selected = definition.connection;
         if (definition.payload?.kind !== "agentTurn" || typeof definition.payload.message !== "string"
             || !["read-only", "workspace-write"].includes(definition.executionPolicy?.sandbox)
             || definition.executionPolicy?.approval !== "on-request") throw new Error("Saved automation policy requires review");
