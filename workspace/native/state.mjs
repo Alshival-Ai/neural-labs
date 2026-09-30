@@ -267,6 +267,12 @@ export class NativeState {
     return this.transaction(() => {
       const runs = this.db.prepare("UPDATE occurrences SET status='unknown' WHERE status IN ('claimed','running')").run().changes;
       const turns = this.db.prepare("UPDATE turns SET status='unknown' WHERE status='running'").run().changes;
+      // Replays need a terminal event even when the process died before writing
+      // one. Also repair older terminal rows once, without inventing success.
+      for (const turn of this.db.prepare(`SELECT id,status FROM turns WHERE status != 'running'
+          AND NOT EXISTS (SELECT 1 FROM events WHERE turn_id=turns.id AND type='turn-completed')`).all()) {
+        this.event(turn.id, "turn-completed", { status: turn.status });
+      }
       return { runs, turns };
     });
   }

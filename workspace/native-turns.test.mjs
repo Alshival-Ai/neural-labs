@@ -151,3 +151,64 @@ test("revoked members cannot read durable events or approve another turn", async
   turns.approvals.get(approval).resolve(null);
   await settle(turns, started.id);
 });
+
+test("provider completion closes unanswered approvals durably without granting permission", async t => {
+  let answer;
+  const { turns, state } = fixture(t, async ({ approve }) => {
+    answer = approve({ method: "tool/permission", params: { decision_reason: "Outside working directories" } });
+    await new Promise(resolve => setImmediate(resolve));
+    return { status: "succeeded" };
+  });
+  const conversation = (await turns.create("member-1")).id;
+  const turn = await turns.start("member-1", undefined, { conversation, requestId: "stale-approval", input });
+  await settle(turns, turn.id);
+  assert.equal(await answer, null); assert.equal(turns.approvals.size, 0);
+  const events = await turns.events("member-1", undefined, conversation);
+  const required = events.find(row => row.type === "approval-required");
+  assert.ok(required);
+  assert.ok(events.some(row => row.type === "approval-resolved" && row.payload.id === required.payload.id));
+});
+
+test("startup recovery closes interrupted approval history exactly once", t => {
+  const state = new NativeState(":memory:"); t.after(() => state.close());
+  const binding = { owner: "account", provider: "claude", method: "subscription", generation: 1 };
+  const conversation = state.createConversation("member", binding);
+  const turn = state.startTurn(conversation, "member", binding, "interrupted", input);
+  state.event(turn.id, "approval-required", { id: "orphan", request: { method: "tool/permission", params: {} } });
+  assert.equal(state.recoverInterrupted().turns, 1);
+  assert.equal(state.recoverInterrupted().turns, 0);
+  const completed = state.events(conversation, "member", binding).filter(row => row.type === "turn-completed");
+  assert.equal(completed.length, 1); assert.equal(completed[0].payload.status, "unknown");
+});
+
+test("expired requests emit approval closure without accepting the action", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let reached;
+  const waiting = new Promise(resolve => { reached = resolve; });
+  let decision;
+  const { turns } = fixture(t, async ({ approve }) => {
+    const answer = approve({ method: "tool/permission", params: {} });
+    await new Promise(resolve => setImmediate(resolve)); reached();
+    decision = await answer;
+    return { status: "blocked" };
+  });
+  const conversation = (await turns.create("member-1")).id;
+  const turn = await turns.start("member-1", undefined, { conversation, requestId: "expired-approval", input });
+  const done = settle(turns, turn.id);
+  await waiting; t.mock.timers.tick(20 * 60_000);
+  await done;
+  assert.equal(decision, null); assert.equal(turns.approvals.size, 0);
+  const events = await turns.events("member-1", undefined, conversation);
+  assert.equal(events.filter(row => row.type === "approval-resolved").length, 1);
+});
+
+test("late provider approval callbacks cannot reopen a finished run", async t => {
+  let lateApprove;
+  const { turns } = fixture(t, async ({ approve }) => { lateApprove = approve; return { status: "succeeded" }; });
+  const conversation = (await turns.create("member-1")).id;
+  const turn = await turns.start("member-1", undefined, { conversation, requestId: "late-approval", input });
+  await settle(turns, turn.id);
+  assert.equal(await lateApprove({ method: "tool/permission", params: {} }), null);
+  assert.equal(turns.approvals.size, 0);
+  assert.equal((await turns.events("member-1", undefined, conversation)).filter(row => row.type === "approval-required").length, 0);
+});

@@ -57,6 +57,12 @@ leases, tool authorization and host network rules stay enforced. Codex retains
 its workspace sandbox and permits network requests under the installation's
 existing egress rules; it does not use unrestricted filesystem access.
 
+Approval cards apply only to pending actions in the active run. They clear when
+the request is answered or expires, or when the run finishes, fails or is stopped.
+Reopening a chat replays those closures, so completed runs do not ask again.
+Runtime startup marks interrupted work as unknown and closes its old prompts;
+this does not approve the action or retry the run.
+
 ## Planning and sending in private chats
 
 Private chats have a **Normal / Draft plan** selector. Draft plan sends an ordinary

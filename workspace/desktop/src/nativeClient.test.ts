@@ -81,3 +81,38 @@ describe('Anthropic authentication errors', () => {
     expect(JSON.stringify(history)).not.toContain('never display this');
   });
 });
+
+describe("native approval lifecycle", () => {
+  async function replay(events: Array<{ id: number; turn_id: string; type: string; payload: Record<string, unknown> }>) {
+    configure();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, options) => {
+      const body = JSON.parse(String(options?.body));
+      if (!body.params?.after) return new Response(JSON.stringify({ events, cursor: events.at(-1)?.id }), { status: 200 });
+      return new Promise((_resolve, reject) => options?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true }));
+    });
+    const client = new NativeClient(), cards = new Map<string, unknown>(), emitted: string[] = [];
+    client.onEvent(event => {
+      if (event.event !== "session.approval") return;
+      const payload = event.payload as { id: string; phase?: string };
+      if (payload.phase === "terminal") cards.delete(payload.id); else cards.set(payload.id, payload);
+      emitted.push(`${payload.id}:${payload.phase || "requested"}`);
+    });
+    const subscription = await client.subscribeSession("conversation");
+    await vi.waitFor(() => expect(emitted.length).toBeGreaterThan(0));
+    return { client, subscription, cards, emitted };
+  }
+  const approval = (id: number, turn: string, key: string) => ({ id, turn_id: turn, type: "approval-required", payload: {
+    id: key, request: { method: "tool/permission", params: { decision_reason: "Path is outside allowed working directories" } },
+  } });
+  it.each(["succeeded", "failed", "cancelled", "blocked", "unknown"])("clears old approvals when replaying a %s turn after reopening", async status => {
+    const f = await replay([approval(1, "old", "stale"), { id: 2, turn_id: "old", type: "turn-completed", payload: { status } }, approval(3, "old", "late")]);
+    expect(f.cards.size).toBe(0); expect(f.emitted).toContain("stale:terminal");
+    await f.client.unsubscribeSession(f.subscription);
+  });
+  it("clears resolved approvals while preserving a different pending turn", async () => {
+    const f = await replay([approval(1, "old", "resolved"), { id: 2, turn_id: "old", type: "approval-resolved", payload: { id: "resolved" } },
+      approval(3, "active", "live"), { id: 4, turn_id: "old", type: "turn-completed", payload: { status: "succeeded" } }]);
+    expect([...f.cards.keys()]).toEqual(["live"]);
+    await f.client.unsubscribeSession(f.subscription); expect(f.cards.size).toBe(0);
+  });
+});

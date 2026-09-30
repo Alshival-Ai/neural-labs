@@ -68,7 +68,7 @@ export class NativeTurns extends EventEmitter {
           credentialHome: grant.credentialHome, method: grant.binding.method, ...(grant.apiKey ? { apiKey: grant.apiKey } : {}) });
         const approve = async request => {
           await grant.revalidate();
-          if (controller.signal.aborted) return null;
+          if (controller.signal.aborted || execution.finished) return null;
           const id = randomUUID();
           let settle;
           const answer = new Promise(resolve => { settle = resolve; this.approvals.set(id, { execution, request, resolve }); });
@@ -77,7 +77,10 @@ export class NativeTurns extends EventEmitter {
           controller.signal.addEventListener('abort', abort, { once: true });
           emit("approval-required", { id, request });
           try { return await answer; }
-          finally { clearTimeout(timer); controller.signal.removeEventListener('abort', abort); this.approvals.delete(id); }
+          finally {
+            clearTimeout(timer); controller.signal.removeEventListener('abort', abort);
+            if (this.approvals.delete(id)) emit("approval-resolved", { id });
+          }
         };
 
         toolSession = await this.tools?.mint(grant, { actor, conversation, emit, approve, signal: controller.signal });
@@ -98,6 +101,7 @@ export class NativeTurns extends EventEmitter {
         });
       } catch { outcome = { status: providerStarted ? "unknown" : controller.signal.aborted ? "cancelled" : "blocked", code: "native-execution-unavailable" }; }
       finally {
+        execution.finished = true;
         // Revocation removes the capability before transport cleanup. A cleanup
         // failure must not erase a provider outcome that is already known.
         try { await toolSession?.release(); } catch {}
@@ -112,7 +116,9 @@ export class NativeTurns extends EventEmitter {
         this.emit("event", { conversation });
       } finally {
         for (const [id, pending] of this.approvals) if (pending.execution.id === claimed.id) {
-          this.approvals.delete(id); pending.resolve(null);
+          this.approvals.delete(id);
+          this.state.event(claimed.id, "approval-resolved", { id });
+          pending.resolve(null);
         }
         this.active.delete(claimed.id);
       }

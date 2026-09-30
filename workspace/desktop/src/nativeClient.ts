@@ -9,7 +9,7 @@ import type { ComposerAttachment, ConnectionState, GatewayEvent, NeuraAttachment
 import type { NeuraQuestion } from "./neuraMessages";
 import { mapAutomationsSnapshot, type AutomationsSnapshot } from "./automationsApi";
 
-type Subscription = { key: string; sessionKey: string; controller: AbortController; cursor: number; refs: number; errors: Map<string, string>; artifacts: Map<string, NeuraAttachment[]>; output: Map<string, string> };
+type Subscription = { key: string; sessionKey: string; controller: AbortController; cursor: number; refs: number; errors: Map<string, string>; artifacts: Map<string, NeuraAttachment[]>; output: Map<string, string>; approvals: Map<string, string>; completed: Set<string> };
 export class NativeClient {
   private status: ConnectionState = "disconnected";
   private error?: string;
@@ -35,7 +35,18 @@ export class NativeClient {
     try { await this.listSessions(); if (this.started) this.setStatus("connected"); }
     catch (error) { if (this.started) this.setStatus("error", error instanceof Error ? error.message : "Native runtime unavailable"); }
   }
-  private stopStreams() { for (const sub of this.subscriptions.values()) sub.controller.abort(); this.subscriptions.clear(); this.questions.clear(); }
+  private closeApproval(sub: Subscription, id: string) {
+    sub.approvals.delete(id);
+    if (this.questions.delete(id)) this.emit({ event: "question.requested", payload: { sessionKey: sub.sessionKey } });
+    this.emit({ event: "session.approval", payload: { sessionKey: sub.sessionKey, id, phase: "terminal" } });
+  }
+  private stopStreams() {
+    for (const sub of this.subscriptions.values()) {
+      sub.controller.abort();
+      for (const id of sub.approvals.keys()) this.closeApproval(sub, id);
+    }
+    this.subscriptions.clear(); this.questions.clear(); this.activeTurns.clear();
+  }
   stop() { this.started = false; window.removeEventListener("neural-labs-native-selection", this.selectionChanged); this.stopStreams(); this.setStatus("disconnected"); }
   onStatus(listener: (state: ConnectionState, error?: string) => void) { this.statuses.add(listener); listener(this.status, this.error); return () => this.statuses.delete(listener); }
   onEvent(listener: (event: GatewayEvent) => void) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
@@ -45,12 +56,14 @@ export class NativeClient {
   async subscribeSession(sessionKey: string): Promise<Subscription> {
     let sub = this.subscriptions.get(sessionKey);
     if (sub) { sub.refs++; return sub; }
-    sub = { key: sessionKey, sessionKey, controller: new AbortController(), cursor: 0, refs: 1, errors: new Map(), artifacts: new Map(), output: new Map() };
+    sub = { key: sessionKey, sessionKey, controller: new AbortController(), cursor: 0, refs: 1, errors: new Map(), artifacts: new Map(), output: new Map(), approvals: new Map(), completed: new Set() };
     this.subscriptions.set(sessionKey, sub); void this.stream(sub); return sub;
   }
   async unsubscribeSession(sub: Subscription) {
     if (--sub.refs > 0) return;
-    sub.controller.abort(); if (this.subscriptions.get(sub.sessionKey) === sub) this.subscriptions.delete(sub.sessionKey);
+    sub.controller.abort();
+    for (const id of sub.approvals.keys()) this.closeApproval(sub, id);
+    if (this.subscriptions.get(sub.sessionKey) === sub) this.subscriptions.delete(sub.sessionKey);
   }
   private async stream(sub: Subscription) {
     const selection = nativeSelection(); let backoff = 500;
@@ -87,6 +100,8 @@ export class NativeClient {
       this.emit({ event: "session.message", payload: { sessionKey, runId, phase: "update", messageId: `native:${runId}`,
         message: { role: "assistant", content: [{ type: "text", text: sub.output.get(runId) || "" }], attachments: (sub.artifacts.get(runId) || []).map(item => ({ ...item, mimeType: item.type })) } } });
     } else if (event.type === "approval-required") {
+      if (sub.completed.has(runId)) return;
+      sub.approvals.set(String(data.id), runId);
       const request = data.request as { method: string; params: Record<string, unknown> };
       if (request.method === "item/tool/requestUserInput") {
         const questions = request.params.questions as Array<{ id: string; header: string; question: string; options?: Array<{ label: string; description?: string }>; isSecret?: boolean }>;
@@ -97,8 +112,12 @@ export class NativeClient {
         this.emit({ event: "session.approval", payload: { sessionKey, id: data.id, kind: "exec", presentation: {
           title: "Approve this action?", detail: JSON.stringify(request.params), allowedDecisions: ["allow-once", "deny"] } } });
       }
+    } else if (event.type === "approval-resolved") {
+      if (typeof data.id === "string" && sub.approvals.has(data.id)) this.closeApproval(sub, data.id);
     } else if (event.type === "turn-completed") {
-      this.activeTurns.delete(sessionKey);
+      sub.completed.add(runId);
+      for (const [id, turn] of sub.approvals) if (turn === runId) this.closeApproval(sub, id);
+      if (this.activeTurns.get(sessionKey) === runId) this.activeTurns.delete(sessionKey);
       for (const [id, question] of this.questions) if (question.sessionKey === sessionKey) this.questions.delete(id);
       const failed = !["succeeded", "cancelled"].includes(String(data.status));
       const text = [sub.output.get(runId), failed ? sub.errors.get(runId) : undefined].filter(Boolean).join("\n\n");
