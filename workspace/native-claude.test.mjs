@@ -133,3 +133,20 @@ test('deployment requests do not auto-background and outlive the default HTTP to
   } }));
   assert.equal(result.status, 'succeeded');
 });
+
+test("Claude no-prompt mode permits workspace commands but rejects unknown tools and revoked leases", async () => {
+  for (const [tool, sandbox, allowed] of [["Bash","workspace-write",true],["Write","workspace-write",true],["Bash","read-only",false],["Unknown","workspace-write",false]]) {
+    const child = new FakeClaude((row, child) => {
+      if (row.type === "user") child.output({ ...permission, request: { ...permission.request, tool_name: tool } });
+      if (row.type === "control_response") child.output({ type: "result", is_error: false });
+    });
+    const result = await runClaudeTurn(context(child, { policy: { sandbox, approval: "never" }, approve: () => { throw new Error("must not prompt"); } }));
+    assert.equal(result.status, "succeeded");
+    assert.equal(child.sent.find(r => r.type === "control_response").response.response.behavior, allowed ? "allow" : "deny");
+  }
+  let revoked = false;
+  const child = new FakeClaude((row, child) => { if (row.type === "user") { revoked = true; child.output(permission); } });
+  const result = await runClaudeTurn(context(child, { policy: { sandbox: "workspace-write", approval: "never" },
+    revalidate: async () => { if (revoked) throw new Error("revoked"); } }));
+  assert.equal(result.status, "unknown"); assert.ok(!child.sent.some(row => row.type === "control_response"));
+});

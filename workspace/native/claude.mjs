@@ -8,7 +8,7 @@ export const CLAUDE_PROTOCOL_VERSION = "2.1.226";
 
 export function claudeArguments({ model, nativeSession, sessionId, policy, mcpConfig, effort }) {
   if (!model || typeof model !== "string" || !/^[a-f0-9-]{36}$/i.test(nativeSession || sessionId || "")) throw new Error("Explicit Claude model and session are required");
-  if (!["read-only", "workspace-write"].includes(policy?.sandbox) || policy.approval !== "on-request") throw new Error("Unreviewed Claude execution policy");
+  if (!["read-only", "workspace-write"].includes(policy?.sandbox) || !["on-request", "never"].includes(policy.approval)) throw new Error("Unreviewed Claude execution policy");
   if (effort !== undefined && !["low", "medium", "high", "xhigh", "max"].includes(effort)) throw new Error("Unsupported Claude reasoning effort");
   return ["--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
     "--permission-prompt-tool", "stdio", "--permission-mode", "default", "--setting-sources", "", "--strict-mcp-config",
@@ -71,6 +71,16 @@ export async function runClaudeTurn({ command = "/usr/local/bin/claude", version
         if (mediatedBrowser && mcpConfig && row.request.tool_name === 'mcp__neural-labs__browser') {
           send({ type: 'control_response', response: { subtype: 'success', request_id: row.request_id,
             response: { behavior: 'allow', updatedInput: row.request.input } } });
+          return;
+        }
+        if (!background && policy.approval === "never") {
+          const allowed = (policy.sandbox === "read-only" ? ["Read", "Glob", "Grep"] : ["Read", "Glob", "Grep", "Edit", "Write", "Bash"])
+            .includes(row.request.tool_name) || Boolean(mcpConfig && row.request.tool_name?.startsWith("mcp__neural-labs__"));
+          // The outer launcher and each MCP handler still enforce the grant.
+          // Unknown tools do not gain authority from the no-prompt setting.
+          send({ type: "control_response", response: { subtype: "success", request_id: row.request_id,
+            response: allowed ? { behavior: "allow", updatedInput: row.request.input }
+              : { behavior: "deny", message: "Tool is outside the workspace command policy" } } });
           return;
         }
         if (background) {

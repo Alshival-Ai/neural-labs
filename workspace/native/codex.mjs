@@ -109,7 +109,7 @@ export async function runCodexTurn({
   revalidate, onSession, onEvent, approve, signal, timeoutMs = 20 * 60_000, leaseCheckMs = 5000,
   executeVersion = promisify(execFile), createRpc = (...args) => new StdioRpc(...args),
 }) {
-  if (!["read-only", "workspace-write"].includes(policy.sandbox) || policy.approval !== "on-request") throw new Error("Unreviewed native execution policy");
+  if (!["read-only", "workspace-write"].includes(policy.sandbox) || !["on-request", "never"].includes(policy.approval)) throw new Error("Unreviewed native execution policy");
   if (effort !== undefined && !["none", "minimal", "low", "medium", "high", "xhigh"].includes(effort)) throw new Error("Unsupported Codex reasoning effort");
   if (!path.isAbsolute(cwd) || typeof model !== "string" || !model.trim() || !Array.isArray(input)
       || !input.length || input.some(item => !item || !(item.type === "text" && typeof item.text === "string"
@@ -124,6 +124,7 @@ export async function runCodexTurn({
   await revalidate();
   if (signal?.aborted) return { status: "cancelled" };
   const args = ["app-server", "-c", `forced_login_method=${JSON.stringify(env.OPENAI_API_KEY ? "api" : "chatgpt")}`];
+  if (policy.approval === "never" && policy.sandbox === "workspace-write") args.push("-c", "sandbox_workspace_write.network_access=true");
   if (mcpConfig) {
     args.push("-c", "mcp_servers.neural-labs.tool_timeout_sec=420", "-c", `mcp_servers.neural-labs.url=${JSON.stringify(mcpConfig.url)}`,
       "-c", `mcp_servers.neural-labs.http_headers={${Object.entries(mcpConfig.http_headers).map(([key, value]) => `${JSON.stringify(key)}=${JSON.stringify(value)}`).join(",")}}`);

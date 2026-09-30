@@ -4,6 +4,18 @@ export type NativeConnection = { id: string; scope: "personal" | "shared" | "tea
   provider: "codex" | "claude"; method: "subscription" | "api-key"; label: string; enabled: boolean; generation: number };
 let currentActor: string | undefined;
 let csrfToken = "";
+export type CommandApproval = "on-request" | "never";
+export function commandApproval(): CommandApproval {
+  if (!currentActor) return "on-request";
+  try { return localStorage.getItem(`neural-labs.command-approval.${currentActor}`) === "never" ? "never" : "on-request"; }
+  catch { return "on-request"; }
+}
+export function selectCommandApproval(value: CommandApproval) {
+  if (!currentActor || !["on-request", "never"].includes(value)) throw new Error("Sign in to change command approvals");
+  localStorage.setItem(`neural-labs.command-approval.${currentActor}`, value);
+  window.dispatchEvent(new Event("neural-labs-command-approval"));
+}
+
 export function configureNativeActor(actor: string, csrf: string) { currentActor = actor; csrfToken = csrf; }
 export function nativeSelection(): NativeSelection | undefined {
   if (!currentActor) return undefined;
@@ -39,7 +51,7 @@ export async function saveNativeDefault(selection: NativeSelection, generation: 
 export async function nativeRequest<T>(operation: string, params: Record<string, unknown> = {}, selection = nativeSelection(), signal?: AbortSignal): Promise<T> {
   if (!selection) throw new Error("Select your AI connection in Settings → Model Provider");
   return settingsRequest<T>("/api/runtime/request", { method: "POST", headers: { "X-CSRF-Token": csrfToken },
-    body: JSON.stringify({ operation, selection, params }), signal });
+    body: JSON.stringify({ operation, selection, params, ...(operation === "turns.start" ? { approvalPolicy: commandApproval() } : {}) }), signal });
 }
 export type NativeEvent = { id: number; turn_id: string; type: string; payload: Record<string, unknown> };
 

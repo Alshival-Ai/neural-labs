@@ -35,6 +35,28 @@ above the visual viewport's keyboard boundary and the floating desktop dock.
 Long code blocks and tables scroll within the transcript rather than widening
 the app. Shift+Enter adds a newline; the visible send controls also work on phones.
 
+## Command approvals
+
+In a private chat, use **Commands** beside the composer controls:
+
+- **Ask when needed** is the default. The CLI can request approval for commands
+  and edits.
+- **Do not ask** runs workspace commands and edits without approval prompts.
+  It applies to both Codex and Claude. Questions that need your input can still
+  appear, and browser actions keep their own confirmation rules.
+
+The choice is remembered for your signed-in account in this browser and applies
+only to new private chat runs, including ones using a permitted shared connection.
+Switch while the run and queue are idle. To change a running turn, stop it and
+start a new one with the desired setting. Team Chat and automations retain their
+separate approval policies.
+
+This setting does not grant host access, other users' credentials, other
+workspaces, or administrator permissions. The workspace launcher, execution
+leases, tool authorization and host network rules stay enforced. Codex retains
+its workspace sandbox and permits network requests under the installation's
+existing egress rules; it does not use unrestricted filesystem access.
+
 ## Planning and sending in private chats
 
 Private chats have a **Normal / Draft plan** selector. Draft plan sends an ordinary

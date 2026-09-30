@@ -8,7 +8,7 @@ function fixture() {
   const actor = { user: { id: "member", role: "user", status: "active" }, session: { tokenHash: "session-hash" } } as SessionActor;
   const connection = { id: "connection", scope: "personal", user_id: "member", enabled: true, generation: 1, provider: "codex", method: "subscription" };
   const lease = { actor_id: "member", session_hash: "session-hash", connection_id: "connection", generation: 1, model: "fixture", purpose: "turns.start" };
-  const query = vi.fn(async (sql: string) => ({ rows: sql.startsWith("SELECT * FROM native_connections") ? [connection]
+  const query = vi.fn(async (sql: string, _args?: unknown[]) => ({ rows: sql.startsWith("SELECT * FROM native_connections") ? [connection]
     : sql.startsWith("SELECT * FROM native_execution_leases") ? [lease] : [{ id: "lease" }], rowCount: 1 }));
   const sessions = { actorByTokenHash: vi.fn(async () => actor as SessionActor | undefined) };
   const authority = new NativeExecutionAuthority({ pool: { query } } as unknown as Database, sessions as unknown as SessionService);
@@ -34,6 +34,16 @@ describe("native execution authority", () => {
     await expect(f.authority.verify("lease")).rejects.toThrow("generation changed");
     f.connection.generation--; f.sessions.actorByTokenHash.mockResolvedValue(undefined);
     await expect(f.authority.verify("lease")).rejects.toThrow("membership was revoked");
+  });
+  it("binds explicit no-prompt choice to an authenticated chat lease without expanding its sandbox", async () => {
+    const f = fixture();
+    await f.authority.issue(f.actor, { connection: "connection", model: "fixture" }, "turns.start", "never");
+    expect(f.query.mock.calls.find(([sql]) => sql.includes("INSERT INTO native_execution_leases"))?.[1]?.[6]).toBe("turns.start:no-prompt");
+    f.lease.purpose = "turns.start:no-prompt";
+    expect((await f.authority.verify("lease")).policy).toEqual({ sandbox: "workspace-write", approval: "never" });
+    f.connection.generation++;
+    await expect(f.authority.verify("lease")).rejects.toThrow("generation changed");
+    await expect(f.authority.issue(f.actor, { connection: "connection", model: "fixture" }, "jobs.run", "never")).rejects.toThrow("personal chat turns");
   });
   it("does not use a background or team connection as personal fallback", async () => {
     const f = fixture();

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NativeClient } from "./nativeClient";
-import { configureNativeActor, selectNativeConnection } from "./nativeApi";
+import { commandApproval, selectCommandApproval, configureNativeActor, selectNativeConnection } from "./nativeApi";
 
 const selection = { connection: "owner-connection", model: "fixture-model" };
 function configure() { configureNativeActor("member", "fixture-csrf"); selectNativeConnection(selection); }
@@ -24,8 +24,19 @@ describe("native browser transport", () => {
     const [url, options] = request.mock.calls[0];
     expect(url).toBe("/api/runtime/request");
     expect(new Headers(options?.headers).get("X-CSRF-Token")).toBe("fixture-csrf");
-    expect(JSON.parse(String(options?.body))).toEqual({ operation: "turns.start", selection,
+    expect(JSON.parse(String(options?.body))).toEqual({ operation: "turns.start", selection, approvalPolicy: "on-request",
       params: { conversation: "conversation", requestId: "same-request", attachments: [], input: [{ type: "text", text: "Please implement this plan" }] } });
+  });
+  it("keeps no-prompt consent per actor and applies it only to new chat turns", async () => {
+    configure(); expect(commandApproval()).toBe("on-request"); selectCommandApproval("never");
+    const request = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify({ id: "turn", events: [] }), { status: 200 }));
+    const client = new NativeClient();
+    await client.send({ key: "conversation", title: "Fixture", updatedAt: 0, archived: false, active: false, visibility: "draft" }, "pwd", [], "steer");
+    expect(JSON.parse(String(request.mock.calls[0][1]?.body)).approvalPolicy).toBe("never");
+    await client.loadHistory("conversation");
+    expect(JSON.parse(String(request.mock.calls[1][1]?.body)).approvalPolicy).toBeUndefined();
+    configureNativeActor("other-member", "other-csrf"); expect(commandApproval()).toBe("on-request");
+    configure(); expect(commandApproval()).toBe("never"); selectCommandApproval("on-request"); expect(commandApproval()).toBe("on-request");
   });
   it("projects durable native history without spawning another turn", async () => {
     configure();

@@ -17,6 +17,7 @@ const operationSchema = z.object({
   operation: z.enum(["conversations.list", "conversations.create", "conversations.update", "conversations.delete",
     "jobs.snapshot", "jobs.create", "jobs.update", "jobs.remove", "jobs.review", "jobs.run", "turns.start", "turns.cancel", "events.read", "approvals.resolve", "models.list", "account.status", "account.login", "account.refresh", "account.cancel", "account.submit", "account.verify"]),
   selection: selectionSchema,
+  approvalPolicy: z.enum(["on-request", "never"]).default("on-request"),
   params: z.record(z.string(), z.unknown()).default({}),
 }).strict();
 interface Connection {
@@ -39,7 +40,9 @@ export class NativeExecutionAuthority {
     if (!row.enabled) throw new NativeAccessError(409, "The selected connection is paused");
     return row;
   }
-  async issue(actor: SessionActor, selection: z.infer<typeof selectionSchema>, purpose: string) {
+  async issue(actor: SessionActor, selection: z.infer<typeof selectionSchema>, purpose: string, approvalPolicy: "on-request" | "never" = "on-request") {
+    if (!["on-request", "never"].includes(approvalPolicy) || approvalPolicy === "never" && purpose !== "turns.start")
+      throw new NativeAccessError(400, "Command approval mode applies only to personal chat turns");
     const connection = await this.connection(actor, selection.connection, purpose);
     const id = randomUUID();
     await this.database.pool.query("DELETE FROM native_execution_leases WHERE expires_at < now()-interval '1 hour'");
@@ -48,7 +51,7 @@ export class NativeExecutionAuthority {
     await this.database.pool.query(`INSERT INTO native_execution_leases
       (id,actor_id,session_hash,connection_id,generation,model,purpose,expires_at)
       VALUES($1,$2,$3,$4,$5,$6,$7,now()+interval '30 seconds')`,
-      [id, actor.user.id, actor.session.tokenHash, connection.id, connection.generation, selection.model, purpose]);
+      [id, actor.user.id, actor.session.tokenHash, connection.id, connection.generation, selection.model, approvalPolicy === "never" ? "turns.start:no-prompt" : purpose]);
     return id;
   }
   async verify(id: string) {
@@ -56,15 +59,18 @@ export class NativeExecutionAuthority {
     if (!lease) throw new NativeAccessError(403, "Execution lease expired");
     const actor = await this.sessions.actorByTokenHash(lease.session_hash);
     if (!actor || actor.user.id !== lease.actor_id || actor.user.status !== "active") throw new NativeAccessError(403, "Execution membership was revoked");
-    const connection = await this.connection(actor, lease.connection_id, lease.purpose);
+    // The internal lease purpose binds the explicit choice without trusting
+    // browser params during renewal. Return the logical operation to the broker.
+    const purpose = lease.purpose === "turns.start:no-prompt" ? "turns.start" : lease.purpose;
+    const connection = await this.connection(actor, lease.connection_id, purpose);
     if (connection.generation !== lease.generation) throw new NativeAccessError(403, "The selected credential generation changed");
     const updated = await this.database.pool.query(`UPDATE native_execution_leases SET expires_at=now()+interval '30 seconds'
       WHERE id=$1 AND expires_at>now() RETURNING id`, [id]);
     if (!updated.rowCount) throw new NativeAccessError(403, "Execution lease expired during authorization");
     return { actor: actor.user.id, actorRole: actor.user.role, lease: id, connection: connection.id,
       binding: { owner: connection.id, provider: connection.provider, generation: connection.generation, method: connection.method },
-      scope: connection.scope, purpose: lease.purpose, model: lease.model, background: false,
-      policy: { sandbox: "workspace-write", approval: "on-request" } };
+      scope: connection.scope, purpose, model: lease.model, background: false,
+      policy: { sandbox: "workspace-write", approval: lease.purpose === "turns.start:no-prompt" ? "never" : "on-request" } };
   }
 }
 
@@ -185,7 +191,7 @@ export function registerNativeRuntime(app: Express, database: Database, sessions
     const actor = await options.active(req, res); if (!actor || !options.csrf(req, res, actor)) return;
     const input = operationSchema.safeParse(req.body);
     if (!input.success) throw new NativeAccessError(400, "Invalid native runtime request");
-    const lease = await authority.issue(actor, input.data.selection, input.data.operation);
+    const lease = await authority.issue(actor, input.data.selection, input.data.operation, input.data.approvalPolicy);
     const response = await (options.fetch ?? fetch)(new URL("/internal/native/request", config.workspace.controlUrl), {
       method: "POST", redirect: "error", headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.workspace.controlToken}` },
       body: JSON.stringify({ actor: actor.user.id, lease, operation: input.data.operation, params: input.data.params }),

@@ -1,3 +1,4 @@
+import { configureNativeActor, commandApproval } from "./nativeApi";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -138,6 +139,20 @@ afterAll(() => {
 afterEach(cleanup);
 
 describe("Alshival realtime conversation", () => {
+  it("offers command approval control and remembers the signed-in user's choice", async () => {
+    configureNativeActor("permission-fixture", "fixture-csrf");
+    const gateway = new FakeGateway();
+    render(<NeuraApp gateway={gateway as unknown as NativeClient} notify={() => {}} />);
+    const mode = await screen.findByRole("combobox", { name: "Command approvals" });
+    await waitFor(() => expect(mode).toBeEnabled());
+    expect(mode).toHaveValue("on-request");
+    fireEvent.change(mode, { target: { value: "never" } });
+    expect(commandApproval()).toBe("never");
+    expect(mode).toHaveValue("never");
+    expect(screen.getByText(/Workspace boundaries still apply/)).toBeInTheDocument();
+    fireEvent.change(mode, { target: { value: "on-request" } });
+    expect(commandApproval()).toBe("on-request");
+  });
   it("subscribes a restored mobile conversation after the initial roster arrives", async () => {
     const gateway = new FakeGateway();
     writeDeviceState("restored-mobile-voice", "neura", { selectedKey: session.key });

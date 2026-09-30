@@ -56,7 +56,7 @@ export class NativeTurns extends EventEmitter {
     };
     // Persist receipt and user input before spawning a provider. A disconnect
     // never cancels accepted work or converts it into a new request.
-    emit("turn-started", { input, attachments });
+    emit("turn-started", { input, attachments, approvalPolicy: grant.policy?.approval || "on-request" });
     execution.done = Promise.resolve().then(async () => {
       let outcome, toolSession, prepared, providerStarted = false;
       try {

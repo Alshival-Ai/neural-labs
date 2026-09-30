@@ -1,4 +1,4 @@
-import { requestAnthropicReconnect } from "./nativeApi";
+import { commandApproval, selectCommandApproval, type CommandApproval, requestAnthropicReconnect } from "./nativeApi";
 import { ANTHROPIC_RECONNECT, ANTHROPIC_ADMIN_RECONNECT } from "./nativeErrors";
 import "./minimal-apps.css";
 import { NotificationMessages, notificationRequest, type NotificationEntry, type NotificationPreferences } from "./notifications";
@@ -460,6 +460,12 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [runId, setRunId] = useState<string>();
+  const [commandMode, setCommandMode] = useState<CommandApproval>(commandApproval);
+  useEffect(() => {
+    const refresh = () => setCommandMode(commandApproval());
+    refresh(); window.addEventListener("neural-labs-command-approval", refresh); window.addEventListener("storage", refresh);
+    return () => { window.removeEventListener("neural-labs-command-approval", refresh); window.removeEventListener("storage", refresh); };
+  }, [currentUser?.id]);
   const [composeModes, setComposeModes] = useState<Record<string, NeuraComposeMode>>({});
   const implementationKeys = useRef(new Map<string, string>());
   const [queuedPrompts, setQueuedPrompts] = useState<QueuedPrompt[]>([]);
@@ -2156,6 +2162,12 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
                   <option value="default">Normal</option><option value="plan">Draft plan</option>
                 </select></label>
                 <small>{modeLocked ? "Switch modes when the run and queue are idle." : composeMode === "plan" ? "Requests a plan; tool permissions stay the same." : "Ctrl/Cmd+Shift+P to draft a plan"}</small>
+              </div>
+              <div className="composer-mode-row">
+                <label><span>Commands</span><select aria-label="Command approvals" value={commandMode} disabled={modeLocked} onChange={event => {
+                  try { selectCommandApproval(event.target.value as CommandApproval); } catch (error) { notify(error instanceof Error ? error.message : "Could not save command approvals"); }
+                }}><option value="on-request">Ask when needed</option><option value="never">Do not ask</option></select></label>
+                <small>{commandMode === "never" ? "Commands and edits run without asking. Workspace boundaries still apply." : "Alshival can ask before running commands or editing files."} Applies to new runs.</small>
               </div>
               {skillTrigger && <div className="skill-mention-menu" id="neura-skill-suggestions" role="listbox" aria-label="Available skills">
                   <div className="skill-mention-menu__heading" role="presentation"><strong>Skills</strong><span>Type to filter · Enter to add</span></div>

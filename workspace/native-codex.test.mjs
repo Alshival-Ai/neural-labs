@@ -139,3 +139,16 @@ test('deployment tool calls have time for the bounded build and readiness checks
     createRpc: (_command, args) => { assert.ok(args.includes('mcp_servers.neural-labs.tool_timeout_sec=420')); return rpc; } }));
   assert.equal(result.status, 'succeeded');
 });
+
+test("Codex no-prompt mode retains workspace sandbox on new and resumed threads", async () => {
+  for (const nativeSession of [undefined, "thread-1"]) {
+    const rpc = new FakeRpc(rpc => rpc.complete()); let args;
+    const result = await runCodexTurn(context(rpc, { nativeSession, policy: { sandbox: "workspace-write", approval: "never" },
+      createRpc: (_command, supplied) => { args = supplied; return rpc; } }));
+    assert.equal(result.status, "succeeded");
+    assert.equal(rpc.calls[1].params.approvalPolicy, "never");
+    assert.equal(rpc.calls[1].params.sandbox, "workspace-write");
+    assert.ok(args.includes("sandbox_workspace_write.network_access=true"));
+    assert.ok(!JSON.stringify(args).includes("danger-full-access"));
+  }
+});
