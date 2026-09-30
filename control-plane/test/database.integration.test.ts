@@ -32,7 +32,7 @@ integration("PostgreSQL account state", () => {
     }
   });
 
-  it("upgrades attachment-only messages without rewriting historical captions", async () => {
+  it("clears old channel history once and retains newly posted attachments", async () => {
     const upgradeSchema = `chat_upgrade_${randomUUID().replaceAll("-", "")}`;
     await adminPool.query(`CREATE SCHEMA ${upgradeSchema}`);
     const upgradePool = new Pool({ connectionString: databaseUrl, options: `-c search_path=${upgradeSchema}` });
@@ -45,7 +45,7 @@ integration("PostgreSQL account state", () => {
       }
       const owner = await upgrade.createLocalUser({ email: "chat-upgrade@example.org", displayName: "Chat upgrade", passwordHash: "test-only" });
       const store = new CollaborationStore(upgradePool);
-      const channel = { channel: { id: randomUUID() } };
+      const channel: { channel: { id: string } } = { channel: { id: randomUUID() } };
       await upgradePool.query("INSERT INTO team_channels(id,name,audience,owner_user_id) VALUES($1,'Attachment upgrade','everyone',$2)", [channel.channel.id, owner.id]);
       const attachment = { path: "uploads/photo.png", name: "photo.png", type: "image/png", size: 12 };
       // Seed the historical schema directly. Current message admission also
@@ -55,7 +55,8 @@ integration("PostgreSQL account state", () => {
         [old.message.id, channel.channel.id, owner.id, JSON.stringify([attachment]), randomUUID()]);
       await upgrade.migrate();
       await upgrade.migrate();
-      expect((await upgradePool.query("SELECT body FROM team_messages WHERE id = $1", [old.message.id])).rows[0].body).toBe("photo.png");
+      expect((await upgradePool.query("SELECT body FROM team_messages WHERE id = $1", [old.message.id])).rows).toEqual([]);
+      channel.channel.id = (await store.listChannels(owner))[0]!.id;
       const next = await store.postMessage(owner, { channelId: channel.channel.id, body: "", attachments: [attachment], clientRequestId: randomUUID(), invokeAgent: false });
       expect(next.message.body).toBe("");
     } finally {
@@ -208,16 +209,16 @@ integration("PostgreSQL account state", () => {
 
       const created = await store.createChannel(owner, {
         name: "Release room",
-        audience: "restricted",
-        memberIds: [member.id],
+        audience: "everyone",
+        memberIds: [],
       });
-      expect(await store.teamTerminalAccess(created.channel.id, owner.id)).toMatchObject({ allowed: true, channel: { name: "Release room", audience: "restricted" } });
+      expect(await store.teamTerminalAccess(created.channel.id, owner.id)).toMatchObject({ allowed: true, channel: { name: "Team channel", audience: "everyone" } });
       expect(await store.teamTerminalAccess(created.channel.id, member.id)).toMatchObject({ allowed: true, channel: { id: created.channel.id } });
-      expect(await store.teamTerminalAccess(created.channel.id, outsider.id)).toBeUndefined();
-      await expect(store.listMessages(outsider, created.channel.id)).rejects.toMatchObject({
-        status: 404,
-        code: "channel_not_found",
-      });
+      expect(await store.teamTerminalAccess(created.channel.id, outsider.id)).toMatchObject({ allowed: true });
+      expect((await store.listChannels(outsider))).toHaveLength(1);
+      await expect(store.createChannel(owner, { name: "Private", audience: "restricted", memberIds: [member.id] }))
+        .rejects.toMatchObject({ code: "single_workspace_channel" });
+      await expect(store.deleteChannel(owner, created.channel.id)).rejects.toMatchObject({ code: "primary_channel_required" });
 
       const attachment = { path: "reports/chart.png", name: "chart.png", type: "image/png", size: 2048 };
       const attachmentOnly = await store.postMessage(member, {

@@ -282,7 +282,7 @@ describe("Alshival realtime conversation", () => {
     expect(teamAgentPhaseFromStatus("failed")).toBeUndefined();
   });
 
-  it("shows a focused loader until a newly created OpenClaw conversation is ready", async () => {
+  it("shows a focused loader until a newly created native conversation is ready", async () => {
     const gateway = new FakeGateway();
     let releaseCreate: () => void = () => {};
     let releaseHistory: () => void = () => {};
@@ -291,6 +291,7 @@ describe("Alshival realtime conversation", () => {
     const view = render(<NeuraApp gateway={gateway as unknown as NativeClient} notify={vi.fn()} />);
     await waitFor(() => expect(screen.getByPlaceholderText("Message Alshival…")).toBeEnabled());
 
+    fireEvent.click(screen.getByRole("button", { name: "Open conversation history" }));
     fireEvent.click(screen.getByRole("button", { name: "New chat" }));
     const loader = await screen.findByRole("status", { name: "Preparing Alshival conversation" });
     expect(loader).toHaveTextContent("Starting a new chat");
@@ -311,6 +312,7 @@ describe("Alshival realtime conversation", () => {
     const gateway = new FakeGateway();
     render(<NeuraApp gateway={gateway as unknown as NativeClient} notify={vi.fn()} />);
 
+    fireEvent.click(screen.getByRole("button", { name: "Open conversation history" }));
     expect(screen.getByRole("region", { name: "Team channel" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Your chats" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "New Team Chat" })).not.toBeInTheDocument();

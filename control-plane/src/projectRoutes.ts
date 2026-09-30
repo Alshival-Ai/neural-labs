@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID, createHash } from "node:crypto";
+import { randomBytes, randomUUID, createHash, timingSafeEqual } from "node:crypto";
 import type { Express, Request, Response, RequestHandler } from "express";
 import { z } from "zod";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
@@ -9,6 +9,7 @@ import type { SessionActor, UserRecord } from "./types.js";
 import { portalExchange } from "./managed.js";
 import { ProjectError, ProjectStore, internalAccess, type ProjectActor, createProjectItem, updateProjectItem, projectAction } from "./projects.js";
 import { ProjectGraph, edgeInput } from "./projectGraph.js";
+import { ProjectStatuses } from "./projectStatuses.js";
 
 const hash = (token: string) => createHash("sha256").update(token).digest("hex");
 const scopesSchema = z.array(z.enum(["project:read", "project:write", "project:sync"])).min(1).max(3);
@@ -35,6 +36,7 @@ export function registerProjectRoutes(app: Express, database: Database, config: 
 }) {
   const store = new ProjectStore(database.pool);
   const graph = new ProjectGraph(database.pool, store);
+  const statuses = new ProjectStatuses(database.pool);
   const wrap = (callback: (req: Request, res: Response) => Promise<void>): RequestHandler => async (req, res) => {
     try { await callback(req, res); }
     catch (error) {
@@ -81,27 +83,52 @@ export function registerProjectRoutes(app: Express, database: Database, config: 
     const actor = await authenticate(req, res, "project:read"); if (!actor) return;
     res.json({ members: (await database.pool.query("SELECT id,display_name FROM users WHERE status='active' ORDER BY display_name")).rows });
   }));
+  // Trusted runtime transport: provider processes never receive the service token.
+  app.post("/internal/projects/read", wrap(async (req, res) => {
+    const supplied = Buffer.from(req.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "");
+    const expected = Buffer.from(config.workspace.controlToken);
+    if (!supplied.length || supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
+      res.status(401).end(); return;
+    }
+    const input = z.object({ actorId: z.string().uuid(), after: z.string().uuid().optional() }).strict().parse(req.body);
+    const actor = await authorizeProjectMember(database, config, input.actorId, false);
+    const revision = await store.revision();
+    const items = await store.list(actor, input.after ?? "", 100);
+    const edges = input.after ? [] : await graph.list(actor);
+    if (revision !== await store.revision()) throw new ProjectError(409, "snapshot_changed", "The graph changed. Read it again.");
+    res.json({ revision, items, edges, statuses: input.after ? [] : await statuses.list(), next: items.length === 100 ? items.at(-1)!.id : null });
+  }));
   app.get("/api/projects/edges", wrap(async (req, res) => {
     const actor = await authenticate(req, res, "project:read"); if (actor) res.json({ edges: await graph.list(actor) });
+  }));
+  app.get("/api/projects/statuses", wrap(async (req, res) => {
+    const actor = await authenticate(req, res, "project:read");
+    if (actor) res.json({ statuses: await statuses.list(), can_manage: syncAuthority(actor) });
+  }));
+  app.post("/api/projects/statuses", wrap(async (req, res) => {
+    const actor = await authenticate(req, res, "project:write");
+    if (actor) res.json(await statuses.save(actor, req.body));
   }));
   app.get("/api/projects/sync/snapshot", wrap(async (req, res) => {
     const actor = await authenticate(req, res, "project:sync"); if (!actor) return;
     if (!syncAuthority(actor)) throw new ProjectError(403, "sync_admin_required", "Workspace project management is required.");
+    const revision = await store.revision();
     const after = z.string().max(36).parse(req.query.after ?? "");
     const items = await store.list(actor, after);
-    res.json({ revision: await store.revision(), items, next: items.length === 100 ? items.at(-1)!.id : null,
-      ...(after ? {} : { edges: await graph.list(actor),
+    const extras = after ? {} : { edges: await graph.list(actor, true), statuses: await statuses.list(),
         principals: config.managed ? (await database.pool.query(`SELECT u.id,m.subject FROM users u
           JOIN managed_identities m ON m.user_id=u.id
-          WHERE m.issuer=$1 AND m.workspace=$2 AND u.status='active'`,
-          [config.managed.portalOrigin, config.managed.workspace])).rows : [] }) });
+          WHERE m.issuer=$1 AND m.workspace=$2`,
+          [config.managed.portalOrigin, config.managed.workspace])).rows : [] };
+    if (revision !== await store.revision()) throw new ProjectError(409, "snapshot_changed", "The graph changed during the snapshot. Retry.");
+    res.json({ version: 2, revision, items, next: items.length === 100 ? items.at(-1)!.id : null, ...extras });
   }));
   app.post("/api/projects/edges", wrap(async (req, res) => {
     const actor = await authenticate(req, res, "project:write"); if (actor) res.status(201).json(await graph.create(actor, req.body));
   }));
   app.delete("/api/projects/edges/:id", wrap(async (req, res) => {
     const actor = await authenticate(req, res, "project:write");
-    if (actor) { await graph.remove(actor, z.string().uuid().parse(req.params.id)); res.sendStatus(204); }
+    if (actor) { await graph.remove(actor, z.string().uuid().parse(req.params.id), z.number().int().positive().optional().parse(req.body?.revision)); res.sendStatus(204); }
   }));
   app.get("/api/projects/items/:id/history", wrap(async (req, res) => {
     const actor = await authenticate(req, res, "project:read"); if (actor) res.json({ events: await store.history(actor, z.string().uuid().parse(req.params.id)) });

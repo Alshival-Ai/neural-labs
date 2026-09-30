@@ -124,6 +124,8 @@ export type AutomationJob = {
 };
 
 export type AutomationDraft = {
+  startPaused?: string;
+  proposalOnly?: string;
   name: string;
   description: string;
   scheduleKind: AutomationScheduleKind;
@@ -166,6 +168,7 @@ export type AutomationsAppProps = {
   onDelete?: (job: AutomationJob) => void | Promise<void>;
   onInspectRun?: (job: AutomationJob, run: AutomationRun) => void;
   onCreateDraft?: () => void;
+  onCreateProjectManagement?: () => void;
   onEditDraft?: (job: AutomationJob) => void;
 };
 
@@ -411,6 +414,7 @@ export function AutomationsApp({
   onDuplicate,
   onInspectRun,
   onCreateDraft,
+  onCreateProjectManagement,
   onEditDraft,
 }: AutomationsAppProps) {
   const libraryResize = useLibraryResize(currentUserId, "automations-list-width", 296);
@@ -647,6 +651,7 @@ export function AutomationsApp({
           <span><strong>{schedulerOnline ? "Scheduler online" : "Scheduler offline"}</strong><small>{schedulerOnline ? "Native scheduler is accepting jobs" : "Schedules will not fire"}</small></span>
         </div>
         <div className="automations-toolbar__actions">
+          {onCreateProjectManagement && <button type="button" onClick={onCreateProjectManagement}><Plus />Project management template</button>}
           <button type="button" aria-label="Refresh automations" disabled={pendingAction === "refresh"} onClick={() => void refreshJobs()}><RefreshCw className={pendingAction === "refresh" ? "is-spinning" : undefined} /></button>
           {!embedded && (onCreate || onCreateDraft) && <button type="button" onClick={openCreate}><Plus />New automation</button>}
         </div>

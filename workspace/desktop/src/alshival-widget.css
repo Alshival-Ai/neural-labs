@@ -1,0 +1,41 @@
+/* Alshival portal widget palette and compact conversation frame, using the
+   installation's native chat transport and desktop accessibility controls. */
+.desktop-window.alshival-widget {
+  --paper: #f6f4ef;
+  --bright: #fffef9;
+  --ink: #0b0c11;
+  --muted: #62636b;
+  --line: #dedcd6;
+  --field: #fffefa;
+  --accent: #5840ba;
+  --spectrum: linear-gradient(100deg,#08a9ef,#2676ff 22%,#7b4dff 44%,#f23aa9 65%,#ff6548 83%,#ffb80f);
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: var(--bright);
+  color: var(--ink);
+}
+.alshival-widget .window-titlebar {
+  background: var(--paper);
+  color: var(--ink);
+  border-bottom: 1px solid var(--line);
+}
+.alshival-widget .window-identity > svg { color: var(--accent); }
+.alshival-widget .neura-app {
+  --surface: var(--paper);
+  --text: var(--ink);
+  --border: var(--line);
+  background: var(--bright);
+  color: var(--ink);
+}
+.alshival-widget :is(.neura-main,.neura-messages,.team-messages) { background: var(--bright); }
+.alshival-widget :is(.neura-header,.neura-sidebar) { background: var(--paper); border-color: var(--line); }
+.alshival-widget :is(.neura-composer,.team-composer) { border-color: var(--line); background: var(--paper); }
+.alshival-widget textarea { background: var(--field); color: var(--ink); border-color: var(--line); border-radius: 16px; }
+.alshival-widget .send-button { background: var(--accent); color: #fff; border-radius: 50%; }
+@media (prefers-color-scheme: dark) {
+  .desktop-window.alshival-widget {
+    --paper: #17181c; --bright: #09090b; --ink: #f4f2ed; --muted: #a5a7b3;
+    --line: #333640; --field: #000; --accent: #c0abff;
+  }
+  .alshival-widget .send-button { color: #17181c; }
+}

@@ -61,7 +61,8 @@ const terminals = new WorkspaceTerminalManager({ workspaceRoot,
 const providers = new ProviderRuntime(loadProviderConfig(process.env), new URL("/internal/plugins/providers/config", controlOrigin).href, token);
 await providers.start();
 const tools = new NativeTools({ origin: `http://127.0.0.1:${toolsPort}`, teamOrigin: controlOrigin,
-  createApplication: createProviderApplication, configuration: () => providers.snapshot() });
+  createApplication: createProviderApplication, configuration: () => providers.snapshot(),
+  projectRead: (actorId, input) => control("/internal/projects/read", { ...input, actorId }) });
 const skills = new NativeSkills({ root: "/run/neural-labs/skills", manager: createSkillsManager({
   personalRoot: path.join(path.dirname(workspaceRoot), ".agents", "skills"), teamRoot: path.join(workspaceRoot, "skills"),
   libraryRoots: ["/usr/local/share/neural-labs/skills", path.join(root, "installed-skills")],

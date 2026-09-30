@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { registerDeploymentTools, type DeploymentAdapter } from './deploymentTools.js';
 import { registerBrowserTools, type BrowserAdapter } from "./browserTools.js";
 import { registerTerminalTools, TERMINAL_TOOLS } from "./terminalTools.js";
@@ -42,6 +43,7 @@ export function createProviderApplication(
   authorizeTool?: (name: string, input?: unknown) => Promise<void>,
   browser?: BrowserAdapter,
   deployments?: DeploymentAdapter,
+  projectRead?: (input: { after?: string | undefined }) => Promise<unknown>,
 ): ProviderApplication {
   const app = createMcpExpressApp({
     host: "127.0.0.1",
@@ -74,6 +76,7 @@ export function createProviderApplication(
       tools: [
         ...(browser ? ["browser"] : []),
         ...(deployments ? ["deployments"] : []),
+        ...(projectRead ? ["read_project_graph"] : []),
         ...(googleConfigured ? GOOGLE_TOOLS : []),
         ...(klipyConfigured ? KLIPY_TOOLS : []),
         ...(pexelsConfigured ? PEXELS_TOOLS : []),
@@ -112,6 +115,10 @@ export function createProviderApplication(
       registerTerminalTools(server, config, fetchFn);
       registerBrowserTools(server, browser);
       registerDeploymentTools(server, deployments);
+      if (projectRead) server.registerTool("read_project_graph", {
+        description: "Read a page of the workspace task graph, sticky notes, comments and statuses. Follow next with after; restart if revision changes. This tool cannot modify the graph.",
+        inputSchema: z.object({ after: z.string().uuid().optional() }).strict(),
+      }, async input => ({ content: [{ type: "text" as const, text: JSON.stringify(await projectRead(input)) }] }));
       return server;
     },
     {

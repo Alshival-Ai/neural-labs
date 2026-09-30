@@ -1,6 +1,7 @@
 import { requestAnthropicReconnect } from "./nativeApi";
 import { ANTHROPIC_RECONNECT, ANTHROPIC_ADMIN_RECONNECT } from "./nativeErrors";
 import "./minimal-apps.css";
+import "./alshival-widget.css";
 import { NotificationMessages, notificationRequest, type NotificationEntry, type NotificationPreferences } from "./notifications";
 import { captureTerminalContext } from "./terminalAgentApi";
 import {
@@ -184,7 +185,7 @@ export function insertTeamMention(value: string, trigger: SkillTrigger, mention:
 
 function neuraDeviceState(storageNamespace: string | undefined, storageArea: string): NeuraDeviceState {
   const stored = readDeviceState(storageNamespace, storageArea);
-  if (!stored || typeof stored !== "object") return { sidebarOpen: true, terminalSidebarOpen: false, showArchived: false };
+  if (!stored || typeof stored !== "object") return { sidebarOpen: false, terminalSidebarOpen: false, showArchived: false };
   const value = stored as Record<string, unknown>;
   return {
     selectedKey: typeof value.selectedKey === "string" ? value.selectedKey.slice(0, 500) : undefined,
@@ -1815,7 +1816,7 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
           {channel.canManage && <button type="button" onClick={() => void renameTeamChannel(channel)}>Rename</button>}
           {channel.canPin && <button type="button" onClick={() => void togglePin(channel)}><Pin />{channel.pinned ? "Unpin" : "Pin"}</button>}
           {!channel.canManage && channel.audience === "restricted" && channel.ownerUserId !== currentUser.id && <button type="button" onClick={() => void leaveTeamChannel(channel)}>Leave</button>}
-          {channel.canManage && <button type="button" className="danger" onClick={() => void deleteTeamChannel(channel)}><Trash2 />Delete</button>}
+          {!channel.primary && channel.canManage && <button type="button" className="danger" onClick={() => void deleteTeamChannel(channel)}><Trash2 />Delete</button>}
         </div>
       </details>
     </div>
@@ -1830,7 +1831,6 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
                 <summary aria-label={`Actions for ${session.title}`}><MoreHorizontal /></summary>
                 <div>
                   <button type="button" onClick={() => void renameSession(session)}>Rename</button>
-                  {!session.archived && <button type="button" onClick={() => setTeamDialog({ source: session })}><Users />Share as Team Chat</button>}
                   <button type="button" onClick={() => void archiveSession(session)}>{session.archived ? <ArchiveRestore /> : <Archive />}{session.archived ? "Unarchive" : "Archive"}</button>
                   <button type="button" className="danger" onClick={() => void deleteSession(session)}><Trash2 />Delete</button>
                 </div>

@@ -34,7 +34,14 @@ const baseDraft: AutomationDraft = {
   failureAlertAfter: "2",
 };
 
-describe("OpenClaw automation request mapping", () => {
+describe("Native automation request mapping", () => {
+  it("publishes proposal templates paused with enforced read-only execution", () => {
+    const definition = draftToNativeDefinition({ ...baseDraft, startPaused: "true", proposalOnly: "true", tools: "", failureAlertAfter: "" });
+    expect(definition.enabled).toBe(false);
+    expect(definition.executionPolicy).toEqual({ sandbox: "read-only", approval: "on-request" });
+    expect(definition.delivery).toEqual({ mode: "none" });
+    expect(definition).not.toHaveProperty("failureAlert");
+  });
   it("sends manual run identity to the authenticated HTTP adapter without an account override", async () => {
     const mocked = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ accepted: true }) });
     vi.stubGlobal("fetch", mocked);

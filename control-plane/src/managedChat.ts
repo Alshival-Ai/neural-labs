@@ -6,7 +6,7 @@ import type { ControlPlaneConfig } from "./config.js";
 import type { Database } from "./database.js";
 import { CollaborationError, type CollaborationStore, type TeamAgentInvocation } from "./collaboration.js";
 import type { CollaborationEvent } from "./server.js";
-import { portalCall, portalExchange, resolveManagedUserId, syncManagedUser } from "./managed.js";
+import { portalCall, syncManagedUser } from "./managed.js";
 import type { UserRecord } from "./types.js";
 
 export const MANAGED_CHAT_PROTOCOL = 1;
@@ -17,6 +17,7 @@ const inputSchema = z.object({
   channel: z.string().uuid().optional(),
   sourceConversation: z.string().uuid().optional(),
   requestId: z.string().uuid().optional(),
+  replyToId: z.string().uuid().optional(),
   name: z.string().trim().min(1).max(160).optional(),
   body: z.string().max(128 * 1024).optional(),
   before: z.number().int().positive().optional(),
@@ -56,38 +57,7 @@ export function registerManagedChat(app: Express, config: ControlPlaneConfig, da
       const actor: UserRecord = { id, email: row.email, handle: row.handle, displayName: row.display_name,
         role: row.role, status: row.status, createdAt: row.created_at, updatedAt: row.updated_at };
       if (input.operation === "import") {
-        if (!input.sourceConversation) { response.status(400).end(); return; }
-        const imported = z.object({ workspace: z.string().uuid(), instance: z.string().uuid(), generation: z.number().int(),
-          id: z.string().uuid(), name: z.string().max(300),
-          users: z.array(z.object({ subject: z.string().max(128), email: z.string().email(), display_name: z.string().max(512) })).max(2000),
-          messages: z.array(z.object({ role: z.enum(["user", "assistant"]), subject: z.string().optional(),
-            body: z.string().max(128 * 1024), createdAt: z.string().datetime({ offset: true }),
-            attachments: z.array(z.object({ path: z.string(), name: z.string(), size: z.number().int().nonnegative() })).max(100) })).max(2000),
-        }).parse(await portalExchange(config, "shared-history", { token: input.token, conversation: input.sourceConversation }));
-        if (imported.workspace !== managed.workspace || imported.instance !== managed.instance
-            || imported.generation !== identity.generation || imported.id !== input.sourceConversation)
-          throw new Error("Shared history binding mismatch");
-        const authorIds = new Map<string, string>();
-        for (const user of imported.users) {
-          const historicalId = await resolveManagedUserId(database, managed, user.subject);
-          authorIds.set(user.subject, historicalId);
-          // Preserve historical authors without giving former members a login
-          // or enrolling them into currently active workspace membership.
-          await database.pool.query(`INSERT INTO users(id,email,normalized_email,display_name,handle,role,status)
-            VALUES($1,$2,lower($2),$3,$4,'user','disabled') ON CONFLICT(id) DO NOTHING`,
-            [historicalId, user.email, user.display_name, `p-${historicalId.replaceAll("-", "").slice(0,28)}`]);
-        }
-        for (const message of imported.messages) {
-          if (message.subject && !authorIds.has(message.subject))
-            authorIds.set(message.subject, await resolveManagedUserId(database, managed, message.subject));
-        }
-        const result = await store.createChannel(actor, { name: imported.name || "Alshival · Workspace-shared",
-          audience: "everyone", memberIds: [], importSource: `portal:${managed.workspace}:${imported.id}`,
-          importedMessages: imported.messages.map(message => ({ ...message,
-            ...(message.subject ? { authorUserId: authorIds.get(message.subject)! } : {}) })),
-        });
-        publish({ type: "channels.changed", channelId: result.channel.id });
-        response.json(result); return;
+        response.status(410).json({ error: "channel_history_import_retired" }); return;
       }
       if (input.operation === "list") {
         response.json({ channels: await store.listChannels(actor) }); return;
@@ -95,7 +65,7 @@ export function registerManagedChat(app: Express, config: ControlPlaneConfig, da
       if (input.operation === "create") {
         if (!input.requestId) { response.status(400).end(); return; }
         const result = await store.createChannel(actor, { name: input.name ?? "Alshival · Workspace-shared",
-          audience: "everyone", memberIds: [], sourceSessionKey: `portal:${input.requestId}` });
+          audience: "everyone", memberIds: [] });
         publish({ type: "channels.changed", channelId: result.channel.id });
         response.json(result); return;
       }
@@ -109,7 +79,7 @@ export function registerManagedChat(app: Express, config: ControlPlaneConfig, da
       if (input.operation === "send") {
         if (!input.requestId) { response.status(400).end(); return; }
         const result = await store.postMessage(actor, { channelId: input.channel, body: input.body ?? "",
-          attachments: input.attachments, clientRequestId: input.requestId });
+          attachments: input.attachments, clientRequestId: input.requestId, replyToId: input.replyToId });
         publish({ type: "message.created", channelId: input.channel, message: result.message });
         publish({ type: "channels.changed", channelId: input.channel });
         if (result.run) {

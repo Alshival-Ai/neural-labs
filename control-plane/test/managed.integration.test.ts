@@ -145,7 +145,7 @@ integration("managed identity database boundary", () => {
     expect(revoked.body.messages).toBeUndefined();
   });
 
-  it("imports only bound shared history once, preserves authors and does not activate former members", async () => {
+  it("rejects retired history import without creating users or fetching old messages", async () => {
     const identity = { subject: "123", email: "current@example.com", display_name: "Current", role: "admin",
       workspace: managed.workspace, instance: managed.instance, origin: config.publicOrigin!.origin,
       generation: 3, expires_at: new Date(Date.now() + 3600000).toISOString() };
@@ -166,21 +166,14 @@ integration("managed identity database boundary", () => {
       return request(app).post("/api/alshival/chat-bridge").set("X-Neural-Labs-Time", stamp)
         .set("X-Neural-Labs-Signature", createHmac("sha256", managed.secret).update(`chat\n${stamp}\n${payload}`).digest("hex")).send({ payload });
     };
-    const first = await call();
-    expect(first.status).toBe(200);
-    expect(first.body.messages[1]).toMatchObject({ body: "  Original spacing  ", author: { displayName: "Former member" },
-      createdAt: "2026-01-01T12:00:00.000Z", attachments: history.messages[0]!.attachments });
-    identity.subject = "124"; identity.email = "other@example.com";
-    const again = await call();
-    expect(again.status).toBe(200);
-    expect(again.body.channel.id).toBe(first.body.channel.id);
-    expect((await database.pool.query("SELECT status FROM users WHERE id=$1", [managedUserId(managed, "old")])).rows[0].status).toBe("disabled");
+    expect((await call()).status).toBe(410);
+    expect((await call()).status).toBe(410);
+    expect((await database.pool.query("SELECT id FROM users WHERE id=$1", [managedUserId(managed, "old")])).rowCount).toBe(0);
+    expect(transport.mock.calls.some(args => String(args[0]).includes("shared-history"))).toBe(false);
     expect(enqueue).not.toHaveBeenCalled();
-    history.workspace = randomUUID();
-    expect((await call()).status).toBe(503);
     transport.mockResolvedValue(new Response(null, { status: 403 }));
     expect((await call(randomUUID())).status).toBe(503);
-    expect((await database.pool.query("SELECT count(*)::int AS n FROM team_channels")).rows[0].n).toBe(1);
+    expect((await database.pool.query("SELECT count(*)::int AS n FROM team_channels")).rows[0].n).toBe(0);
   });
 
 });

@@ -37,3 +37,11 @@
 .projects-app .projects-sticky[data-color=gray] { background:#e3e3e3; }
 @media(max-width:760px) { .projects-layout { grid-template-columns:1fr; } .projects-board { max-height:50vh; } }
 @media(prefers-color-scheme:light) { .projects-app { background:#fff; color:#111; } .projects-app input,.projects-app textarea,.projects-app select { background:#f6f6f6; color:#111; } .projects-app .projects-card { background:#f3f3f3; color:#111; } }
+
+.projects-graph-surface { min-width:0; width:100%; }
+.projects-graph-scroll { overflow:auto; max-height:65vh; color:var(--accent,#69b99b); }
+.projects-graph-task { cursor:pointer; outline:none; }
+.projects-graph-task rect { fill:var(--surface-raised,#24332f); stroke:var(--border,#52665e); }
+.projects-graph-task:focus rect,.projects-graph-task:hover rect { stroke:var(--accent,#69b99b); stroke-width:3; }
+.projects-graph-task text { fill:var(--text,#eee); font-size:14px; }
+.projects-graph-task .graph-state { font-size:12px; opacity:.7; }
