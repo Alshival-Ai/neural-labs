@@ -14,7 +14,7 @@ afterEach(() => vi.unstubAllGlobals());
 it("refreshes from environment invalidations without discarding an open editor", async () => {
   let title = "Original title";
   vi.stubGlobal("WebSocket", Socket);
-  vi.stubGlobal("fetch", vi.fn(async (path: string) => ({ ok: true, status: 200, json: async () => path.endsWith("/members") ? { members: [] } : { items: [{ id: "fixture", kind: "task", revision: title === "Original title" ? 1 : 2, data: { title, body: "", state: "todo", priority: "normal", archived: false } }], next: null } })));
+  vi.stubGlobal("fetch", vi.fn(async (path: string) => ({ ok: true, status: 200, json: async () => path.endsWith("/members") ? { members: [] } : path.endsWith("/statuses") ? { statuses: [{ id: "todo", name: "To do", category: "todo", legacy_state: "todo", retired: false, position: 0 }], can_manage: false } : { items: [{ id: "fixture", kind: "task", revision: title === "Original title" ? 1 : 2, data: { title, body: "", state: "todo", status_id: "todo", priority: "normal", archived: false } }], next: null } })));
   render(<ProjectsApp />);
   fireEvent.click(await screen.findByText("Original title"));
   expect(screen.getByLabelText("Title")).toHaveValue("Original title");

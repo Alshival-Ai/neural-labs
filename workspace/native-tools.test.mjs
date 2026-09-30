@@ -95,3 +95,27 @@ test("Team MCP proxy forwards only the active channel capability and closes on r
   assert.equal(denied.status, 403);
   await session.release();
 });
+
+
+test("graph reads bind the execution actor and discard data after revocation", async t => {
+  let callback, authorized = true, revokedDuringRead = false;
+  const tools = new NativeTools({ origin: "http://127.0.0.1:8792", configuration: {},
+    createApplication: (_config, _send, _status, _check, _browser, _deployments, read) => {
+      callback = read; return { app() {}, async close() {} };
+    },
+    projectRead: async (actor, input) => {
+      assert.equal(actor, "bound-member"); assert.deepEqual(input, {});
+      if (revokedDuringRead) authorized = false;
+      return { items: [{ id: "task" }] };
+    },
+  });
+  t.after(() => tools.close());
+  const session = await tools.mint({ actor: "bound-member", policy: { sandbox: "read-only" },
+    revalidate: async () => { if (!authorized) throw new Error("revoked"); } });
+  assert.deepEqual(await callback({}), { items: [{ id: "task" }] });
+  revokedDuringRead = true;
+  await assert.rejects(callback({}), /revoked/);
+  authorized = true;
+  await session.release();
+  await assert.rejects(callback({}), /ended/);
+});

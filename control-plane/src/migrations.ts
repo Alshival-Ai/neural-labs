@@ -559,4 +559,100 @@ export const migrations: Migration[] = [
         OR (user_id IS NOT NULL AND selection_key = 'user:' || user_id::text))
     );`,
   },
+  {
+    version: 20,
+    sql: `CREATE TABLE project_edges (
+      id uuid PRIMARY KEY, source_id uuid NOT NULL REFERENCES project_items(id) ON DELETE CASCADE,
+      target_id uuid NOT NULL REFERENCES project_items(id) ON DELETE CASCADE,
+      kind text NOT NULL CHECK(kind IN ('depends_on','related')),
+      actor_id uuid NOT NULL REFERENCES users(id), created_at timestamptz NOT NULL DEFAULT now(),
+      CHECK(source_id <> target_id), UNIQUE(source_id,target_id,kind)
+    );
+    CREATE INDEX project_edges_target ON project_edges(target_id);
+    CREATE TABLE project_edge_requests (
+      actor_id uuid NOT NULL REFERENCES users(id), request_id uuid NOT NULL,
+      fingerprint text NOT NULL, edge_id uuid REFERENCES project_edges(id) ON DELETE SET NULL,
+      PRIMARY KEY(actor_id,request_id)
+    );`,
+  },
+  {
+    version: 21,
+    sql: `ALTER TABLE team_messages ADD COLUMN project_item_id uuid UNIQUE REFERENCES project_items(id) ON DELETE SET NULL;
+    CREATE INDEX team_messages_project_item_idx ON team_messages(project_item_id) WHERE project_item_id IS NOT NULL;
+    INSERT INTO team_channels(id,name,audience,owner_user_id,import_source)
+      SELECT gen_random_uuid(),'Team channel','everyone',id,'workspace:primary'
+      FROM users ORDER BY (status='active') DESC,(role='admin') DESC,created_at LIMIT 1
+      ON CONFLICT(import_source) DO NOTHING;
+    INSERT INTO team_messages(id,channel_id,author_kind,author_user_id,body,project_item_id,created_at)
+      SELECT gen_random_uuid(),channel.id,'user',item.author_id,item.data->>'body',item.id,item.created_at
+      FROM project_items item JOIN project_items parent ON parent.id=(item.data->>'parent_id')::uuid
+        AND parent.kind='task' AND parent.data->>'visibility'='shared' AND parent.data->>'deleted'!='true'
+        AND (parent.data->'publication' IS NULL OR parent.data->'publication'='null'::jsonb
+          OR parent.data->'publication'->>'published'='true')
+      CROSS JOIN team_channels channel
+      WHERE item.kind='comment' AND item.data->>'visibility'='shared' AND item.data->>'deleted'!='true'
+        AND channel.import_source='workspace:primary'
+        AND char_length(item.data->>'body') BETWEEN 1 AND 32000
+      ON CONFLICT(project_item_id) DO NOTHING;`,
+  },
+  {
+    version: 22,
+    sql: `
+      -- Intentional one-time reset. Upgrades must retain their pre-upgrade backup.
+      INSERT INTO audit_log(action,metadata) SELECT 'projects.shared_workspace_migration',
+        jsonb_build_object('channels_removed',(SELECT count(*) FROM team_channels),
+          'messages_removed',(SELECT count(*) FROM team_messages));
+      DELETE FROM team_channels;
+      DELETE FROM team_socket_tickets;
+      CREATE TEMP TABLE removed_project_items ON COMMIT DROP AS
+        WITH RECURSIVE removed(id) AS (
+          SELECT id FROM project_items WHERE
+            data->>'visibility'='internal' OR data->'publication'->>'published'='false'
+          UNION SELECT child.id FROM project_items child JOIN removed parent
+            ON child.data->>'parent_id'=parent.id::text
+        ) SELECT item.id FROM project_items item JOIN removed USING(id)
+          WHERE item.kind IN ('task','note','comment');
+      INSERT INTO audit_log(action,metadata) SELECT 'projects.internal_content_removed',
+        jsonb_build_object('items_removed',count(*)) FROM removed_project_items;
+      DELETE FROM project_requests WHERE item_id IN (SELECT id FROM removed_project_items);
+      DELETE FROM project_events WHERE item_id IN (SELECT id FROM removed_project_items);
+      DELETE FROM project_items WHERE id IN (SELECT id FROM removed_project_items);
+      UPDATE project_items SET data=data || jsonb_build_object(
+        'title',data->'publication'->>'title','body',data->'publication'->>'body',
+        'acceptance','','details','{}'::jsonb,'references','{}'::jsonb,'reviewer',NULL)
+        WHERE kind='task' AND data->'publication'->>'published'='true';
+      UPDATE project_items SET data=jsonb_set(data,'{publication}','null'::jsonb)
+        WHERE kind IN ('task','note','comment');
+      ALTER TABLE project_items ADD CONSTRAINT shared_project_graph CHECK (
+        kind NOT IN ('task','note','comment') OR
+        (data->>'visibility'='shared' AND (data->'publication' IS NULL OR data->'publication'='null'::jsonb)));
+      ALTER TABLE project_storage ADD COLUMN channel_history_started_at timestamptz NOT NULL DEFAULT now();
+      UPDATE project_storage SET revision=revision+1;
+      INSERT INTO team_channels(id,name,audience,owner_user_id,import_source)
+        SELECT gen_random_uuid(),'Team channel','everyone',id,'workspace:primary'
+        FROM users ORDER BY (status='active') DESC,(role='admin') DESC,created_at LIMIT 1;
+      ALTER TABLE team_channels ADD CONSTRAINT workspace_primary_channel CHECK (
+        audience='everyone' AND import_source IS NOT DISTINCT FROM 'workspace:primary');
+    `,
+  },
+  {
+    version: 23,
+    sql: `CREATE TABLE project_statuses (
+      id uuid PRIMARY KEY, revision integer NOT NULL DEFAULT 1,
+      name text NOT NULL CHECK(length(name) BETWEEN 1 AND 60), color text NOT NULL DEFAULT 'blue',
+      category text NOT NULL CHECK(category IN ('todo','doing','done')),
+      legacy_state text NOT NULL DEFAULT '', position integer NOT NULL DEFAULT 0,
+      is_default boolean NOT NULL DEFAULT false, retired boolean NOT NULL DEFAULT false,
+      replacement_id uuid REFERENCES project_statuses(id));
+    CREATE UNIQUE INDEX project_status_legacy ON project_statuses(legacy_state) WHERE legacy_state<>'';
+    INSERT INTO project_statuses(id,name,color,category,legacy_state,position,is_default)
+      SELECT gen_random_uuid(),name,color,category,state,position,state='todo'
+      FROM (VALUES ('todo','To do','blue','todo',0),('doing','In progress','purple','doing',1),
+        ('waiting','Waiting','orange','doing',2),('review','Review','pink','doing',3),
+        ('done','Done','green','done',4)) AS defaults(state,name,color,category,position);
+    UPDATE project_items item SET data=jsonb_set(item.data,'{status_id}',to_jsonb(status.id::text)) FROM project_statuses status WHERE item.kind='task' AND status.legacy_state=item.data->>'state';
+    ALTER TABLE project_edges ADD COLUMN deleted_at timestamptz;
+    ALTER TABLE project_edges ADD COLUMN revision integer NOT NULL DEFAULT 1;
+    UPDATE project_storage SET revision=revision+1;`,
+  },
 ];

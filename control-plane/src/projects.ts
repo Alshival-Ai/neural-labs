@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { z } from "zod";
 import type { UserRecord } from "./types.js";
+import { ensurePrimaryChannel } from "./teamPrimary.js";
 
 export class ProjectError extends Error {
   constructor(readonly status: number, readonly code: string, message: string) { super(message); }
@@ -21,15 +22,21 @@ export const projectFields = z.object({
   archived: z.boolean().default(false),
   deleted: z.boolean().default(false),
   status_id: z.string().uuid().nullable().default(null),
+  position: z.object({ x: z.number().min(0).max(100000), y: z.number().min(0).max(100000) }).strict().nullable().default(null),
   resource: z.object({ kind: z.enum(["website", "server", "database", "api", "repository", "domain", "storage", "other"]),
     status: z.enum(["planned", "active", "retired"]), provider: z.string().max(120), environment: z.string().max(80),
     public_url: z.string().max(2048), external_id: z.string().max(200).nullable() }).strict().nullable().default(null),
   publication: z.object({ published: z.boolean(), title: z.string().max(200), body: z.string().max(20000) }).strict().nullable().default(null),
   references: z.record(z.string().max(80), z.string().max(512)).default({}),
+  checklist: z.array(z.object({ id: z.string().uuid(), text: z.string().trim().min(1).max(500),
+    done: z.boolean() }).strict()).max(100).default([]),
 
 }).strict();
 export const createProjectItem = z.object({
   idempotency_key: z.string().uuid(), kind: z.enum(["task", "deliverable", "note", "resource", "ticket", "comment"]),
+  sync_id: z.string().uuid().optional(),
+  sync_author_id: z.string().uuid().optional(),
+  sync_created_at: z.iso.datetime({ offset: true }).optional(),
   data: projectFields,
 }).strict();
 const patchFields = z.object(Object.fromEntries(Object.entries(projectFields.shape).map(([key, field]) =>
@@ -43,7 +50,7 @@ export const projectAction = z.object({
   idempotency_key: z.string().uuid(), revision: z.number().int().positive(),
   action: z.enum(["approve", "changes", "reopen"]),
 }).strict();
-export type ProjectActor = UserRecord & { projectInternal?: boolean; projectPlan?: boolean };
+export type ProjectActor = UserRecord & { projectInternal?: boolean; projectPlan?: boolean; projectSync?: boolean };
 export const internalAccess = (actor: ProjectActor) => actor.projectInternal ?? actor.role === "admin";
 export type ProjectItem = { id: string; kind: string; revision: number; data: z.infer<typeof projectFields>; author_id: string; created_at: string; updated_at: string };
 function requireActive(actor: ProjectActor) {
@@ -118,14 +125,23 @@ export class ProjectStore {
       const old: ProjectItem | undefined = operation === "create" ? undefined : (await client.query("SELECT * FROM project_items WHERE id=$1", [id])).rows[0];
       if (operation !== "create") { readable(actor, old); await this.get(actor, id!, client); }
       const submitted = "data" in parsed ? parsed.data : {};
-      if (!internalAccess(actor) && (submitted.publication != null || old?.data.publication))
+      if ("sync_id" in parsed && parsed.sync_id && !actor.projectSync)
+        throw new ProjectError(403, "sync_scope_required", "A sync credential is required to preserve item identity.");
+      if ("sync_author_id" in parsed && parsed.sync_author_id && !actor.projectSync)
+        throw new ProjectError(403, "sync_scope_required", "A sync credential is required to preserve item authorship.");
+      if ("sync_created_at" in parsed && parsed.sync_created_at && !actor.projectSync)
+        throw new ProjectError(403, "sync_scope_required", "A sync credential is required to preserve item history.");
+      const kind = "kind" in parsed ? parsed.kind : old!.kind;
+      if (["task", "note", "comment"].includes(kind) &&
+          (submitted.visibility === "internal" || submitted.publication != null))
+        throw new ProjectError(422, "shared_tasks_required", "Workspace tasks, notes, and comments are shared with all members.");
+      if (!internalAccess(actor) && !["task", "note", "comment"].includes(kind) && (submitted.publication != null || old?.data.publication))
         throw new ProjectError(403, "planning_required", "Published work is managed by the project team.");
       if (old && "revision" in parsed && Number(old.revision) !== parsed.revision)
         throw new ProjectError(409, "revision_conflict", "This item changed. Reload before saving.");
       if (old && ["comment", "note"].includes(old.kind) && old.author_id !== actor.id && !internalAccess(actor))
         throw new ProjectError(403, "author_required", "Only the author or an administrator may edit this note or comment.");
       const data = projectFields.parse({ ...old?.data, ...("data" in parsed ? parsed.data : {}) });
-      const kind = "kind" in parsed ? parsed.kind : old!.kind;
       if (data.visibility === "internal" && !internalAccess(actor)) throw new ProjectError(403, "internal_access_required", "Administrator access is required.");
       if (data.starts_on && data.due_on && data.starts_on > data.due_on) throw new ProjectError(422, "invalid_dates", "Start date must precede due date.");
       if (data.assignee && data.assignee === data.reviewer) throw new ProjectError(422, "separate_reviewer", "Choose a separate reviewer.");
@@ -143,11 +159,12 @@ export class ProjectStore {
         }
         if (data.parent_id === id) throw new ProjectError(422, "invalid_parent", "An item cannot contain itself.");
         const parent = await this.get(actor, data.parent_id, client);
-        if (parent.data.archived || parent.kind === "comment")
+        if (parent.data.archived || parent.data.deleted || parent.kind === "comment")
           throw new ProjectError(422, "invalid_parent", "Select an open top-level item.");
-        if (parent.data.visibility === "internal" && data.visibility !== "internal")
+        if ((parent.data.visibility === "internal" || parent.data.publication?.published === false) && data.visibility !== "internal")
           throw new ProjectError(422, "invalid_visibility", "Internal replies must remain internal.");
       } else if (kind === "comment") throw new ProjectError(422, "parent_required", "A comment requires a project item.");
+      if (kind === "comment" && !data.body.trim()) throw new ProjectError(422, "comment_required", "Write a comment.");
       if (old && data.visibility !== old.data.visibility && (await client.query("SELECT id FROM project_items WHERE data->>'parent_id'=$1 LIMIT 1", [old.id])).rowCount)
         throw new ProjectError(409, "visibility_has_children", "Update child visibility before changing the parent visibility.");
       if ("action" in parsed) {
@@ -160,9 +177,61 @@ export class ProjectStore {
           data.state = "doing";
         } else data.state = "todo";
       }
-      const itemId = id ?? randomUUID();
+      if (kind === "task") {
+        let status = (await client.query(
+          submitted.status_id ? "SELECT * FROM project_statuses WHERE id=$1" :
+          (submitted.state || "action" in parsed) ? "SELECT * FROM project_statuses WHERE legacy_state=$1" :
+          old?.data.status_id ? "SELECT * FROM project_statuses WHERE id=$1" : "SELECT * FROM project_statuses WHERE is_default AND NOT retired",
+          submitted.status_id ? [submitted.status_id] : (submitted.state || "action" in parsed) ? [data.state] : old?.data.status_id ? [old.data.status_id] : []
+        )).rows[0];
+        const seen = new Set<string>();
+        while (status?.retired && !submitted.status_id && !seen.has(status.id)) {
+          seen.add(status.id);
+          status = (await client.query("SELECT * FROM project_statuses WHERE id=$1", [status.replacement_id])).rows[0];
+        }
+        if (!status || status.retired) throw new ProjectError(422, "invalid_status", "Choose an active board status.");
+        data.status_id = status.id;
+        data.state = status.legacy_state || status.category;
+      }
+      const itemId = id ?? ("sync_id" in parsed ? parsed.sync_id : undefined) ?? randomUUID();
+      const authorId = "sync_author_id" in parsed && parsed.sync_author_id ? parsed.sync_author_id : actor.id;
+      if (authorId !== actor.id && !(await client.query("SELECT 1 FROM users WHERE id=$1 AND status='active'", [authorId])).rowCount)
+        throw new ProjectError(422, "invalid_author", "The imported author must be an active workspace member.");
+      if (!old && "sync_id" in parsed && parsed.sync_id
+          && (await client.query("SELECT 1 FROM project_items WHERE id=$1", [itemId])).rowCount)
+        throw new ProjectError(409, "sync_identity_conflict", "An item already uses this sync identity.");
       const result = old ? await client.query(`UPDATE project_items SET data=$2, revision=revision+1, updated_at=now() WHERE id=$1 RETURNING *`, [itemId, data])
-        : await client.query(`INSERT INTO project_items(id,kind,data,author_id) VALUES($1,$2,$3,$4) RETURNING *`, [itemId, kind, data, actor.id]);
+        : await client.query(`INSERT INTO project_items(id,kind,data,author_id,created_at) VALUES($1,$2,$3,$4,COALESCE($5::timestamptz,now())) RETURNING *`,
+          [itemId, kind, data, authorId, "sync_created_at" in parsed ? parsed.sync_created_at ?? null : null]);
+      if (kind === "comment" && data.parent_id) {
+        const parent = await this.get(actor, data.parent_id, client);
+        if (parent.kind === "task" && data.visibility === "shared"
+            && !data.deleted && parent.data.visibility === "shared" && !parent.data.deleted
+            && (!parent.data.publication || parent.data.publication.published)
+            && new Date(result.rows[0].created_at) >= new Date(storage.channel_history_started_at)) {
+          const channelId = await ensurePrimaryChannel(client, actor.id);
+          await client.query(`INSERT INTO team_messages(id,channel_id,author_kind,author_user_id,body,project_item_id)
+            VALUES($1,$2,'user',$3,$4,$5) ON CONFLICT(project_item_id) DO UPDATE SET body=EXCLUDED.body`,
+          [randomUUID(), channelId, old?.author_id ?? authorId, data.body, itemId]);
+        } else await client.query("DELETE FROM team_messages WHERE project_item_id=$1", [itemId]);
+      }
+      if (kind === "task" && old && (data.visibility !== old.data.visibility
+          || data.deleted !== old.data.deleted || JSON.stringify(data.publication) !== JSON.stringify(old.data.publication))) {
+        const visible = data.visibility === "shared" && !data.deleted && (!data.publication || data.publication.published);
+        if (!visible) {
+          await client.query(`DELETE FROM team_messages WHERE project_item_id IN
+            (SELECT id FROM project_items WHERE kind='comment' AND data->>'parent_id'=$1)`, [itemId]);
+        } else {
+          const channelId = await ensurePrimaryChannel(client, actor.id);
+          await client.query(`INSERT INTO team_messages(id,channel_id,author_kind,author_user_id,body,project_item_id,created_at)
+            SELECT gen_random_uuid(),$1,'user',author_id,data->>'body',id,created_at
+            FROM project_items WHERE kind='comment' AND data->>'parent_id'=$2
+              AND created_at >= (SELECT channel_history_started_at FROM project_storage WHERE singleton)
+              AND data->>'visibility'='shared' AND data->>'deleted'!='true'
+              AND char_length(data->>'body') BETWEEN 1 AND 32000
+            ON CONFLICT(project_item_id) DO NOTHING`, [channelId, itemId]);
+        }
+      }
       await client.query(`INSERT INTO project_requests(actor_id,request_id,fingerprint,item_id) VALUES($1,$2,$3,$4)`, [actor.id, parsed.idempotency_key, fingerprint, itemId]);
       await client.query(`INSERT INTO project_events(item_id,actor_id,operation) VALUES($1,$2,$3)`, [itemId, actor.id, "action" in parsed ? parsed.action : operation]);
       await client.query("UPDATE project_storage SET revision=revision+1 WHERE singleton");

@@ -4,6 +4,8 @@ import type { Pool, PoolClient, QueryResultRow } from "pg";
 
 import { hashToken, randomToken } from "./crypto.js";
 import type { UserRecord } from "./types.js";
+import { ensurePrimaryChannel } from "./teamPrimary.js";
+import { ProjectStore } from "./projects.js";
 
 export const TEAM_CHAT_LIMITS = {
   attachmentsPerMessage: 100,
@@ -44,6 +46,7 @@ export type TeamChannel = {
   updatedAt: string;
   canManage: boolean;
   canPin: boolean;
+  primary?: boolean;
 };
 
 export type TeamMessage = {
@@ -57,6 +60,9 @@ export type TeamMessage = {
   attachments: ChannelAttachment[];
   mentions: string[];
   agentRunId?: string;
+  projectItemId?: string;
+  projectTaskTitle?: string;
+  projectTaskId?: string;
   activities: TeamRunActivity[];
   createdAt: string;
 };
@@ -98,6 +104,7 @@ interface ChannelRow extends QueryResultRow {
   audience: ChannelAudience;
   owner_user_id: string;
   source_session_key: string | null;
+  import_source: string | null;
   pinned_at: Date | null;
   pinned_by: string | null;
   created_at: Date;
@@ -114,6 +121,9 @@ interface MessageRow extends QueryResultRow {
   body: string;
   attachments: unknown;
   agent_run_id: string | null;
+  project_item_id: string | null;
+  project_task_title: string | null;
+  project_task_id: string | null;
   created_at: Date;
   handle: string | null;
   display_name: string | null;
@@ -217,6 +227,9 @@ function mapMessage(row: MessageRow): TeamMessage {
     attachments: attachments(row.attachments),
     mentions: row.mentions ?? [],
     ...(row.agent_run_id ? { agentRunId: row.agent_run_id } : {}),
+    ...(row.project_item_id ? { projectItemId: row.project_item_id } : {}),
+    ...(row.project_task_id ? { projectTaskId: row.project_task_id } : {}),
+    ...(row.project_task_title ? { projectTaskTitle: row.project_task_title } : {}),
     activities: teamRunActivities(row.activities),
     ...(row.model_settings ? { modelSettings: row.model_settings } : {}),
     createdAt: row.created_at.toISOString(),
@@ -264,12 +277,26 @@ function assertAttachments(input: ChannelAttachment[], native = false): ChannelA
 
 const MESSAGE_SELECT = `
   SELECT m.*, u.handle, u.display_name, u.role,
+    (SELECT data->>'parent_id' FROM project_items WHERE id=m.project_item_id) AS project_task_id,
+    (SELECT COALESCE(task.data->'publication'->>'title',task.data->>'title') FROM project_items comment
+      JOIN project_items task ON task.id=(comment.data->>'parent_id')::uuid
+      WHERE comment.id=m.project_item_id) AS project_task_title,
     COALESCE(array_agg(mm.user_id::text) FILTER (WHERE mm.user_id IS NOT NULL), '{}') AS mentions,
     COALESCE((SELECT r.activities FROM team_agent_runs r WHERE r.id = m.agent_run_id), '[]'::jsonb) AS activities
   FROM team_messages m
   LEFT JOIN users u ON u.id = m.author_user_id
   LEFT JOIN team_message_mentions mm ON mm.message_id = m.id
 `;
+
+const VISIBLE_PROJECT_MESSAGE = `(m.project_item_id IS NULL OR EXISTS (
+  SELECT 1 FROM project_items comment JOIN project_items task
+    ON task.id=(comment.data->>'parent_id')::uuid
+  WHERE comment.id=m.project_item_id AND comment.kind='comment'
+    AND comment.data->>'visibility'='shared' AND comment.data->>'deleted'!='true'
+    AND task.kind='task' AND task.data->>'visibility'='shared' AND task.data->>'deleted'!='true'
+    AND (task.data->'publication' IS NULL OR task.data->'publication'='null'::jsonb
+      OR task.data->'publication'->>'published'='true')
+))`;
 
 export class CollaborationStore {
   constructor(readonly pool: Pool) {}
@@ -322,6 +349,7 @@ export class CollaborationStore {
   }
 
   async listChannels(actor: UserRecord): Promise<TeamChannel[]> {
+    await ensurePrimaryChannel(this.pool, actor.id);
     const result = await this.pool.query<QueryResultRow & ChannelRow & {
       member_count: string;
       unread_count: string;
@@ -335,17 +363,20 @@ export class CollaborationStore {
          END::text AS member_count,
          (SELECT count(*) FROM team_messages m
           WHERE m.channel_id = c.id
+            AND ${VISIBLE_PROJECT_MESSAGE}
             AND m.sequence > COALESCE((SELECT r.last_read_sequence FROM team_channel_reads r WHERE r.channel_id = c.id AND r.user_id = $1), 0)
             AND m.author_user_id IS DISTINCT FROM $1)::text AS unread_count,
          (SELECT count(*) FROM team_messages m
           JOIN team_message_mentions mm ON mm.message_id = m.id AND mm.user_id = $1
           WHERE m.channel_id = c.id
+            AND ${VISIBLE_PROJECT_MESSAGE}
             AND m.sequence > COALESCE((SELECT r.last_read_sequence FROM team_channel_reads r WHERE r.channel_id = c.id AND r.user_id = $1), 0))::text AS mention_count,
-         (SELECT max(m.created_at) FROM team_messages m WHERE m.channel_id = c.id) AS last_message_at
+         (SELECT max(m.created_at) FROM team_messages m WHERE m.channel_id = c.id AND ${VISIBLE_PROJECT_MESSAGE}) AS last_message_at
        FROM team_channels c
        WHERE c.audience = 'everyone' OR c.owner_user_id = $1
           OR EXISTS (SELECT 1 FROM team_channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = $1)
-       ORDER BY c.pinned_at DESC NULLS LAST, COALESCE((SELECT max(m.created_at) FROM team_messages m WHERE m.channel_id = c.id), c.updated_at) DESC`,
+       ORDER BY c.pinned_at DESC NULLS LAST, COALESCE((SELECT max(m.created_at) FROM team_messages m
+         WHERE m.channel_id = c.id AND ${VISIBLE_PROJECT_MESSAGE}), c.updated_at) DESC`,
       [actor.id],
     );
     return result.rows.map((row) => ({
@@ -361,8 +392,9 @@ export class CollaborationStore {
       ...(row.last_message_at ? { lastMessageAt: row.last_message_at.toISOString() } : {}),
       createdAt: row.created_at.toISOString(),
       updatedAt: row.updated_at.toISOString(),
-      canManage: actor.role === "admin" || row.owner_user_id === actor.id,
+      canManage: actor.role === "admin",
       canPin: actor.role === "admin",
+      primary: row.import_source === "workspace:primary",
     }));
   }
 
@@ -410,7 +442,7 @@ export class CollaborationStore {
   private async requireManager(client: Pool | PoolClient, channelId: string, actor: UserRecord): Promise<ChannelRow> {
     const channel = await this.channelRow(client, channelId);
     if (!channel) throw new CollaborationError(404, "channel_not_found", "Team channel not found.");
-    if (actor.role !== "admin" && channel.owner_user_id !== actor.id) {
+    if (actor.role !== "admin") {
       throw new CollaborationError(403, "channel_manager_required", "Only the channel creator or an administrator can make this change.");
     }
     return channel;
@@ -425,104 +457,11 @@ export class CollaborationStore {
     importedMessages?: Array<{ role: "user" | "assistant"; body: string; createdAt?: string | undefined;
       authorUserId?: string; attachments?: ChannelAttachment[] }> | undefined;
   }): Promise<{ channel: TeamChannel; messages: TeamMessage[] }> {
-    const client = await this.pool.connect();
-    try {
-      await client.query("BEGIN");
-      if (input.importSource) {
-        await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [input.importSource]);
-        const existing = await client.query<{ id: string }>("SELECT id FROM team_channels WHERE import_source=$1", [input.importSource]);
-        if (existing.rows[0]) {
-          const channel = (await this.listChannels(actor)).find(item => item.id === existing.rows[0]!.id);
-          if (!channel) throw new CollaborationError(404, "channel_not_found", "Imported channel not found.");
-          await client.query("COMMIT");
-          return { channel, messages: await this.listMessages(actor, channel.id) };
-        }
-        if ((input.importedMessages?.length ?? 0) > TEAM_CHAT_LIMITS.importedMessages)
-          throw new CollaborationError(422, "history_too_large", "History must be imported without truncation.");
-      }
-      if (input.sourceSessionKey) {
-        await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [JSON.stringify([actor.id, input.sourceSessionKey])]);
-        const existing = await client.query<{ id: string }>("SELECT id FROM team_channels WHERE owner_user_id=$1 AND source_session_key=$2", [actor.id, input.sourceSessionKey]);
-        if (existing.rows[0]) {
-          const channel = (await this.listChannels(actor)).find(item => item.id === existing.rows[0]!.id);
-          if (!channel) throw new CollaborationError(404, "channel_not_found", "Team channel not found.");
-          await client.query("COMMIT");
-          return { channel, messages: await this.listMessages(actor, channel.id) };
-        }
-      }
-      const memberIds = [...new Set(input.memberIds.filter((id) => id !== actor.id))];
-      if (input.audience === "restricted" && memberIds.length === 0) {
-        throw new CollaborationError(422, "members_required", "Invite at least one teammate to a restricted channel.");
-      }
-      if (memberIds.length > TEAM_CHAT_LIMITS.membersPerChannel) {
-        throw new CollaborationError(422, "too_many_members", `A channel can invite up to ${TEAM_CHAT_LIMITS.membersPerChannel} teammates at once.`);
-      }
-      if (memberIds.length) {
-        const active = await client.query<{ id: string }>("SELECT id FROM users WHERE status = 'active' AND id = ANY($1::uuid[])", [memberIds]);
-        if (active.rows.length !== memberIds.length) throw new CollaborationError(422, "invalid_members", "One or more invited accounts are not active.");
-      }
-      const id = randomUUID();
-      await client.query(
-        `INSERT INTO team_channels(id, name, audience, owner_user_id, source_session_key, import_source)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [id, input.name.trim(), input.audience, actor.id, input.sourceSessionKey ?? null, input.importSource ?? null],
-      );
-      const allMembers = [actor.id, ...memberIds];
-      await client.query(
-        `INSERT INTO team_channel_members(channel_id, user_id, added_by)
-         SELECT $1, value::uuid, $2 FROM unnest($3::text[]) value`,
-        [id, actor.id, allMembers],
-      );
-      const createdMessages: TeamMessage[] = [];
-      if (input.importedMessages?.length) {
-        const system = await this.insertMessage(client, {
-          channelId: id,
-          authorKind: "system",
-          body: input.importSource ? "Imported from the workspace’s shared Alshival history." : `Imported from a private Alshival chat by @${actor.handle}.`,
-          attachments: [],
-        });
-        createdMessages.push(system);
-        for (const item of input.importedMessages.slice(-TEAM_CHAT_LIMITS.importedMessages)) {
-          const body = input.importSource ? item.body : item.body.trim().slice(0, TEAM_CHAT_LIMITS.messageCharacters);
-          if (!body) continue;
-          createdMessages.push(await this.insertMessage(client, {
-            channelId: id,
-            authorKind: item.role === "assistant" ? "imported_neura" : "imported_user",
-            ...(item.role === "user" ? { authorUserId: input.importSource ? item.authorUserId ?? actor.id : actor.id } : {}),
-            body,
-            attachments: input.importSource ? assertAttachments(item.attachments ?? []) : [],
-            ...(item.createdAt ? { createdAt: item.createdAt } : {}),
-          }));
-        }
-      } else {
-        createdMessages.push(await this.insertMessage(client, {
-          channelId: id,
-          authorKind: "system",
-          body: `@${actor.handle} created this channel.`,
-          attachments: [],
-        }));
-      }
-      const lastCreated = createdMessages.at(-1);
-      if (lastCreated) {
-        await client.query(
-          `INSERT INTO team_channel_reads(channel_id, user_id, last_read_sequence)
-           VALUES ($1, $2, $3)`,
-          [id, actor.id, lastCreated.sequence],
-        );
-      }
-      await client.query("COMMIT");
-      const channel = (await this.listChannels(actor)).find((item) => item.id === id)!;
-      return { channel, messages: createdMessages };
-    } catch (error) {
-      await client.query("ROLLBACK");
-      if (error instanceof CollaborationError) throw error;
-      if ((error as { code?: string }).code === "23505" && input.sourceSessionKey) {
-        throw new CollaborationError(409, "chat_already_shared", "This private chat has already been shared as a channel.");
-      }
-      throw error;
-    } finally {
-      client.release();
+    if (input.audience !== "everyone" || input.sourceSessionKey || input.importSource || input.importedMessages?.length) {
+      throw new CollaborationError(409, "single_workspace_channel", "Use the workspace Team channel. Importing private or old channel history is no longer supported.");
     }
+    const channel = (await this.listChannels(actor)).find(value => value.primary)!;
+    return { channel, messages: [] };
   }
 
   async updateChannel(actor: UserRecord, channelId: string, input: { name?: string | undefined; pinned?: boolean | undefined }): Promise<void> {
@@ -555,8 +494,8 @@ export class CollaborationStore {
   }
 
   async deleteChannel(actor: UserRecord, channelId: string): Promise<void> {
-    await this.requireManager(this.pool, channelId, actor);
-    await this.pool.query("DELETE FROM team_channels WHERE id = $1", [channelId]);
+    await this.requireAccess(this.pool, channelId, actor.id);
+    throw new CollaborationError(409, "primary_channel_required", "The workspace Team channel cannot be deleted.");
   }
 
   async members(actor: UserRecord, channelId: string): Promise<TeamDirectoryUser[]> {
@@ -636,11 +575,19 @@ export class CollaborationStore {
     const result = await this.pool.query<MessageRow>(
       `${MESSAGE_SELECT}
        WHERE m.channel_id = $1 AND ($2::bigint IS NULL OR m.sequence < $2)
+         AND ${VISIBLE_PROJECT_MESSAGE}
        GROUP BY m.sequence, m.id, u.id
        ORDER BY m.sequence DESC LIMIT $3`,
       [channelId, before ?? null, Math.min(Math.max(limit, 1), TEAM_CHAT_LIMITS.messagesPerPage)],
     );
     return result.rows.reverse().map(mapMessage);
+  }
+
+  async projectMessagesAfter(sequence: number): Promise<TeamMessage[]> {
+    const result = await this.pool.query<MessageRow>(`${MESSAGE_SELECT}
+      WHERE m.project_item_id IS NOT NULL AND m.sequence > $1 AND ${VISIBLE_PROJECT_MESSAGE}
+      GROUP BY m.sequence,m.id,u.id ORDER BY m.sequence LIMIT 100`, [sequence]);
+    return result.rows.map(mapMessage);
   }
 
   async latestRun(actor: UserRecord, channelId: string): Promise<TeamAgentRun | undefined> {
@@ -710,7 +657,24 @@ export class CollaborationStore {
     clientRequestId: string;
     // Voice transcripts are channel context, never implicit commands.
     invokeAgent?: boolean;
+    replyToId?: string | undefined;
   }): Promise<{ message: TeamMessage; run?: TeamAgentRun & { capability: string } }> {
+    if (input.replyToId) {
+      if (input.attachments.length) throw new CollaborationError(422, "reply_attachments", "Task replies cannot include attachments.");
+      await this.requireAccess(this.pool, input.channelId, actor.id);
+      const source = (await this.pool.query<{ project_item_id: string | null }>(
+        `SELECT m.project_item_id FROM team_messages m WHERE m.id=$1 AND m.channel_id=$2
+          AND ${VISIBLE_PROJECT_MESSAGE}`, [input.replyToId, input.channelId])).rows[0];
+      if (!source?.project_item_id) throw new CollaborationError(422, "task_message_required", "Reply to a task comment.");
+      const store = new ProjectStore(this.pool);
+      const original = await store.get(actor, source.project_item_id);
+      const comment = await store.mutate(actor, "create", null, { idempotency_key: input.clientRequestId,
+        kind: "comment", data: { title: "Reply", body: input.body.trim(), parent_id: original.data.parent_id,
+          visibility: original.data.visibility } });
+      const result = await this.pool.query<MessageRow>(`${MESSAGE_SELECT}
+        WHERE m.project_item_id=$1 GROUP BY m.sequence,m.id,u.id`, [comment.id]);
+      return { message: mapMessage(result.rows[0]!) };
+    }
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -802,7 +766,8 @@ export class CollaborationStore {
     const channel = await this.channelRow(this.pool, row.channel_id);
     if (!channel) return undefined;
     const messages = await this.pool.query<MessageRow>(
-      `${MESSAGE_SELECT} WHERE m.channel_id = $1 GROUP BY m.sequence, m.id, u.id ORDER BY m.sequence DESC LIMIT $2`,
+      `${MESSAGE_SELECT} WHERE m.channel_id = $1 AND ${VISIBLE_PROJECT_MESSAGE}
+        GROUP BY m.sequence, m.id, u.id ORDER BY m.sequence DESC LIMIT $2`,
       [channel.id, TEAM_CHAT_LIMITS.agentContextMessages],
     );
     const mapped = messages.rows.reverse().map(mapMessage);
@@ -839,6 +804,7 @@ export class CollaborationStore {
     if (!run.rows[0]) throw new CollaborationError(403, "agent_capability_invalid", "This Alshival channel capability is invalid or expired.");
     const result = await this.pool.query<MessageRow>(
       `${MESSAGE_SELECT} WHERE m.channel_id = $1 AND ($2::bigint IS NULL OR m.sequence < $2)
+        AND ${VISIBLE_PROJECT_MESSAGE}
        GROUP BY m.sequence, m.id, u.id ORDER BY m.sequence DESC LIMIT $3`,
       [run.rows[0].channel_id, before ?? null, Math.min(Math.max(limit, 1), TEAM_CHAT_LIMITS.messagesPerPage)],
     );

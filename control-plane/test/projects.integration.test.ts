@@ -8,6 +8,9 @@ import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Database } from "../src/database.js";
 import { ProjectStore } from "../src/projects.js";
+import { ProjectStatuses } from "../src/projectStatuses.js";
+import { ProjectGraph } from "../src/projectGraph.js";
+import { CollaborationStore } from "../src/collaboration.js";
 import type { UserRecord } from "../src/types.js";
 
 const url = process.env.TEST_DATABASE_URL;
@@ -27,12 +30,11 @@ const url = process.env.TEST_DATABASE_URL;
     owner.status = member.status = reviewer.status = "active";
   });
   afterAll(async () => { await database?.close(); if (root) { await root.query(`DROP SCHEMA ${schema} CASCADE`); await root.end(); } });
-  it("keeps internal records out of member list, reads, replies and history", async () => {
-    const item = await store.mutate(owner, "create", null, { idempotency_key: randomUUID(), kind: "note", data: { title: "Internal", visibility: "internal" } });
-    expect((await store.list(member)).find(value => value.id === item.id)).toBeUndefined();
-    await expect(store.get(member, item.id)).rejects.toMatchObject({ status: 404 });
-    await expect(store.history(member, item.id)).rejects.toMatchObject({ status: 404 });
-    await expect(store.mutate(member, "create", null, { idempotency_key: randomUUID(), kind: "comment", data: { title: "Reply", parent_id: item.id } })).rejects.toMatchObject({ status: 404 });
+  it("rejects private graph records for administrators and members", async () => {
+    for (const actor of [owner, member]) {
+      await expect(store.mutate(actor, "create", null, { idempotency_key: randomUUID(), kind: "task",
+        data: { title: "Internal", visibility: "internal" } })).rejects.toMatchObject({ code: "shared_tasks_required" });
+    }
   });
   it("serializes concurrent revisions and binds retry IDs to actor and payload", async () => {
     const request = { idempotency_key: randomUUID(), kind: "task", data: { title: "Concurrent" } };
@@ -50,6 +52,64 @@ const url = process.env.TEST_DATABASE_URL;
     expect(accepted.data.state).toBe("done");
     const edited = await store.mutate(member, "update", item.id, { revision: accepted.revision, idempotency_key: randomUUID(), data: { body: "Updated after acceptance" } });
     expect(edited.data.state).toBe("done");
+  });
+  it("stores task links locally, rejects dependency cycles, and filters private endpoints", async () => {
+    const graph = new ProjectGraph(pool, store);
+    const staff = { ...owner, projectInternal: true };
+    const task = async (title: string, visibility = "shared") => store.mutate(staff, "create", null,
+      { idempotency_key: randomUUID(), kind: "task", data: { title, visibility } });
+    const first = await task("First"); const second = await task("Second");
+    const requestId = randomUUID();
+    const link = await graph.create(staff, { idempotency_key: requestId, source_id: first.id, target_id: second.id, kind: "depends_on" });
+    expect((await graph.create(staff, { idempotency_key: requestId, source_id: first.id, target_id: second.id, kind: "depends_on" })).id).toBe(link.id);
+    await expect(graph.create(staff, { idempotency_key: randomUUID(), source_id: second.id, target_id: first.id, kind: "depends_on" })).rejects.toMatchObject({ code: "dependency_cycle" });
+    expect((await graph.list(member)).map(edge => edge.id)).toEqual([link.id]);
+    await graph.remove(staff, link.id);
+    expect((await graph.list(staff)).some(edge => edge.id === link.id)).toBe(false);
+  });
+  it("broadcasts task comments to the workspace channel and turns replies into comments", async () => {
+    const task = await store.mutate(member, "create", null, { idempotency_key: randomUUID(), kind: "task", data: { title: "Discuss" } });
+    const comment = await store.mutate(member, "create", null, { idempotency_key: randomUUID(), kind: "comment",
+      data: { title: "Reply", body: "First update", parent_id: task.id } });
+    const collaboration = new CollaborationStore(pool);
+    const channel = (await collaboration.listChannels(member)).find(row => row.primary)!;
+    const message = (await collaboration.listMessages(member, channel.id)).find(row => row.projectItemId === comment.id)!;
+    expect(message.body).toBe("First update");
+    const response = await collaboration.postMessage(member, { channelId: channel.id, body: "Follow up", attachments: [],
+      clientRequestId: randomUUID(), replyToId: message.id });
+    expect(response.message.projectItemId).toBeTruthy();
+    const linked = await store.get(member, response.message.projectItemId!);
+    expect(linked.kind).toBe("comment"); expect(linked.data.parent_id).toBe(task.id);
+  });
+  it("keeps imported historical comments off the fresh channel, including after edits", async () => {
+    const actor = { ...owner, projectSync: true };
+    const task = await store.mutate(actor, "create", null, { idempotency_key: randomUUID(), kind: "task", data: { title: "History" } });
+    const comment = await store.mutate(actor, "create", null, { idempotency_key: randomUUID(), kind: "comment",
+      sync_created_at: "2020-01-01T00:00:00Z", data: { title: "Old comment", body: "Retained", parent_id: task.id } });
+    await store.mutate(actor, "update", comment.id, { idempotency_key: randomUUID(), revision: comment.revision, data: { body: "Edited old comment" } });
+    const removed = await store.mutate(actor, "update", task.id, { idempotency_key: randomUUID(), revision: task.revision, data: { deleted: true } });
+    await store.mutate(actor, "update", task.id, { idempotency_key: randomUUID(), revision: removed.revision, data: { deleted: false } });
+    const collaboration = new CollaborationStore(pool);
+    const channel = (await collaboration.listChannels(member)).find(row => row.primary)!;
+    expect((await collaboration.listMessages(member, channel.id)).some(row => row.projectItemId === comment.id)).toBe(false);
+    expect((await store.get(member, comment.id)).data.body).toBe("Edited old comment");
+  });
+  it("shares durable sticky positions and rejects stale moves", async () => {
+    const note = await store.mutate(member, "create", null, { idempotency_key: randomUUID(), kind: "note", data: { title: "Sticky" } });
+    await store.mutate(member, "update", note.id, { idempotency_key: randomUUID(), revision: note.revision, data: { position: { x: 40, y: 80 } } });
+    expect((await store.get(reviewer, note.id)).data.position).toEqual({ x: 40, y: 80 });
+    await expect(store.mutate(member, "update", note.id, { idempotency_key: randomUUID(), revision: note.revision, data: { position: { x: 10, y: 20 } } })).rejects.toMatchObject({ code: "revision_conflict" });
+  });
+  it("reserves stable imported IDs for explicit sync authority", async () => {
+    const id = randomUUID(); const request = { idempotency_key: randomUUID(), sync_id: id,
+      sync_author_id: reviewer.id, kind: "task", data: { title: "Imported" } };
+    await expect(store.mutate(member, "create", null, request)).rejects.toMatchObject({ code: "sync_scope_required" });
+    const item = await store.mutate({ ...owner, projectSync: true }, "create", null, request);
+    expect(item.id).toBe(id);
+    expect(item.author_id).toBe(reviewer.id);
+    expect((await store.mutate({ ...owner, projectSync: true }, "create", null, request)).id).toBe(id);
+    await expect(store.mutate({ ...owner, projectSync: true }, "create", null,
+      { ...request, idempotency_key: randomUUID() })).rejects.toMatchObject({ code: "sync_identity_conflict" });
   });
   it("binds external credentials to their user, scopes, expiry and revocation", async () => {
     const app = express(); app.use(express.json());
@@ -75,23 +135,71 @@ const url = process.env.TEST_DATABASE_URL;
     await pool.query("UPDATE project_api_keys SET revoked_at=now() WHERE id=$1", [created.body.id]);
     expect((await request(app).get("/api/projects/items").auth(token, { type: "bearer" })).status).toBe(401);
   });
-  it("does not treat managed customer owners as internal staff", async () => {
-    const staff = { ...owner, projectInternal: true };
-    const customer = { ...owner, projectInternal: false };
-    const internal = await store.mutate(staff, "create", null, { idempotency_key: randomUUID(), kind: "task", data: { title: "Private", visibility: "internal" } });
-    await expect(store.get(customer, internal.id)).rejects.toMatchObject({ status: 404 });
-    const published = await store.mutate(staff, "create", null, { idempotency_key: randomUUID(), kind: "task", data: {
-      title: "Staff plan", body: "Staff details", details: { secret: "internal" }, publication: { published: true, title: "Customer title", body: "Customer summary" },
-    } });
-    const visible = await store.get(customer, published.id);
-    expect(visible.data.title).toBe("Customer title"); expect(visible.data.body).toBe("Customer summary");
-    expect(visible.data.details).toEqual({});
-    const draft = await store.mutate(staff, "create", null, { idempotency_key: randomUUID(), kind: "deliverable", data: {
-      title: "Draft", publication: { published: false, title: "", body: "" },
-    } });
-    const nested = await store.mutate(staff, "create", null, { idempotency_key: randomUUID(), kind: "note", data: { title: "Nested", parent_id: draft.id } });
-    await expect(store.get(customer, nested.id)).rejects.toMatchObject({ status: 404 });
-    expect((await store.list(customer)).some(item => item.id === nested.id)).toBe(false);
+  it("reserves sync credentials for current project administrators", async () => {
+    const app = express(); app.use(express.json());
+    registerProjectRoutes(app, database, {} as ControlPlaneConfig, {
+      active: async (req, res) => {
+        if (req.get("x-fixture-session") === "member") return { user: member } as SessionActor;
+        if (req.get("x-fixture-session") === "owner") return { user: owner } as SessionActor;
+        res.sendStatus(401); return undefined;
+      },
+      csrf: req => req.get("x-fixture-csrf") === "valid", sameOrigin: (_req, _res, next) => next(),
+    });
+    const input = { name: "Mirror", scopes: ["project:read", "project:write", "project:sync"] };
+    expect((await request(app).post("/api/projects/keys").set("x-fixture-session", "member")
+      .set("x-fixture-csrf", "valid").send(input)).status).toBe(403);
+    await pool.query("UPDATE users SET role='admin' WHERE id=$1", [owner.id]);
+    try {
+      const created = await request(app).post("/api/projects/keys").set("x-fixture-session", "owner")
+        .set("x-fixture-csrf", "valid").send(input);
+      expect(created.status).toBe(201);
+      const token = created.body.token;
+      expect((await request(app).get("/api/projects/sync/snapshot").auth(token, { type: "bearer" })).status).toBe(200);
+      await pool.query("UPDATE users SET role='user' WHERE id=$1", [owner.id]);
+      expect((await request(app).get("/api/projects/sync/snapshot").auth(token, { type: "bearer" })).status).toBe(403);
+    } finally { await pool.query("UPDATE users SET role='user' WHERE id=$1", [owner.id]); }
+  });
+  it("rejects the old publication split on shared tasks", async () => {
+    await expect(store.mutate({ ...owner, projectInternal: true }, "create", null,
+      { idempotency_key: randomUUID(), kind: "task", data: { title: "Plan", publication: { published: false, title: "", body: "" } } }
+    )).rejects.toMatchObject({ code: "shared_tasks_required" });
+  });
+  it("retires a status with revision checks and moves task state without losing task contents", async () => {
+    const catalog = new ProjectStatuses(pool), manager = { ...owner, role: "admin" as const };
+    const status = await catalog.save(manager, { revision: 0, data: { name: "QA", color: "teal", category: "doing", position: 20, is_default: false } });
+    const task = await store.mutate(member, "create", null, { idempotency_key: randomUUID(), kind: "task", data: { title: "QA task", status_id: status.id } });
+    const replacement = (await catalog.list()).find(row => row.legacy_state === "waiting");
+    await expect(catalog.save(member, { id: status.id, revision: status.revision, data: { ...status, name: "Changed" } })).rejects.toMatchObject({ status: 403 });
+    const data = { name: status.name, color: status.color, category: status.category, position: status.position, is_default: false, retired: true, replacement_id: replacement.id };
+    await catalog.save(manager, { id: status.id, revision: status.revision, data });
+    await expect(catalog.save(manager, { id: status.id, revision: status.revision, data })).rejects.toMatchObject({ status: 409 });
+    const moved = await store.get(member, task.id);
+    expect(moved.data).toMatchObject({ title: "QA task", state: "waiting", status_id: replacement.id });
+    expect(moved.revision).toBe(task.revision + 1);
+  });
+  it("rejects a stale sync link deletion after another member revives the link", async () => {
+    const graph = new ProjectGraph(pool);
+    const tasks = await Promise.all(["A", "B"].map(title => store.mutate(member, "create", null, { idempotency_key: randomUUID(), kind: "task", data: { title } })));
+    const payload = { source_id: tasks[0]!.id, target_id: tasks[1]!.id, kind: "related" };
+    const edge = await graph.create(member, { ...payload, idempotency_key: randomUUID() });
+    await graph.remove(member, edge.id);
+    const revived = await graph.create(member, { ...payload, idempotency_key: randomUUID() });
+    expect(revived.revision).toBeGreaterThan(edge.revision);
+    await expect(graph.remove({ ...owner, projectSync: true }, edge.id, edge.revision)).rejects.toMatchObject({ code: "revision_conflict" });
+    expect((await graph.list(member)).some(row => row.id === edge.id)).toBe(true);
+  });
+  it("serves graph context only to a trusted runtime for a currently active member", async () => {
+    const app = express(); app.use(express.json());
+    registerProjectRoutes(app, database, { workspace: { controlToken: "fixture-runtime-token" } } as ControlPlaneConfig, {
+      active: async () => undefined, csrf: () => false, sameOrigin: (_req, _res, next) => next(),
+    });
+    const body = { actorId: member.id };
+    expect((await request(app).post("/internal/projects/read").send(body)).status).toBe(401);
+    const result = await request(app).post("/internal/projects/read").auth("fixture-runtime-token", { type: "bearer" }).send(body);
+    expect(result.status).toBe(200); expect(result.body.items.length).toBeGreaterThan(0);
+    await pool.query("UPDATE users SET status='disabled' WHERE id=$1", [member.id]);
+    try { expect((await request(app).post("/internal/projects/read").auth("fixture-runtime-token", { type: "bearer" }).send(body)).status).toBe(403); }
+    finally { await pool.query("UPDATE users SET status='active' WHERE id=$1", [member.id]); }
   });
   it("does not serve a stale project after its export is committed", async () => {
     await pool.query("UPDATE project_storage SET state='exported'");

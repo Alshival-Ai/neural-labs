@@ -1,18 +1,11 @@
 # Team Chats
 
-Team Chats are durable, multi-user channels inside the Alshival desktop app. They
-are separate from private Alshival conversations. Team channels, messages, and
-run records live in the control-plane PostgreSQL database and have an explicit
-audience.
+Each workspace has one durable **Team Channel** in PostgreSQL, shared with every active member. Private Alshival conversations remain separate. Open conversation history in the compact Alshival widget to select the Team Channel or a private conversation.
 
-## Using Team Chats
+New task comments appear in this channel and task-message replies become task comments. Ordinary channel messages remain chats. Historical comments stay on their tasks without being backfilled into the fresh channel. See [Workspace task graph](project-management.md) for the one-time legacy channel reset and upgrade requirements.
 
-Open Alshival and use the **Team chats** section in the conversation sidebar.
+## Using the Team Channel
 
-- Create an **Invited teammates** channel by selecting at least one active
-  Neural Labs user.
-- Create an **Everyone** channel to include every active user, including users
-  approved later.
 - Use `@handle` to mention a channel member. Each user can edit their unique
   handle in Settings → Personalization.
 - Type `$` to open the same enabled-skill picker used in a private Alshival chat.
@@ -34,9 +27,7 @@ Open Alshival and use the **Team chats** section in the conversation sidebar.
 - Use the collapsed terminal rail on the right to see whether the channel has
   active terminals. Expand it to see session status, channel-member bubbles,
   and currently connected terminal participants. The plus action starts another
-  channel terminal; selecting a card joins that exact session. Restricted-channel
-  terminals are visible and joinable only by current channel members;
-  Everyone-channel terminals follow the active-user audience. The browser never
+  channel terminal; selecting a card joins that exact session. Channel terminals follow the active-user audience. The browser never
   supplies or widens the terminal member list.
 
 Messages, typing indicators, membership changes, agent status, unread counts,
@@ -50,23 +41,9 @@ inactive, and is restored in the channel snapshot after reconnecting. A single
 turn may work for up to 10 minutes, exceeding the five-minute inactivity window,
 before the execution timeout ends it.
 
-## Membership and channel management
+## Membership
 
-The channel creator and Neural Labs administrators can rename a channel,
-manage its members, and delete it. A member can leave a restricted channel.
-The creator cannot be removed. Everyone channels always follow the set of
-active users, so they do not have an editable member list.
-
-Only administrators can pin or unpin channels. Pinned channels appear first for
-every user who can access them; all other visible channels are ordered by recent
-activity. A restricted channel that a user cannot access is returned as not
-found, including through direct API or WebSocket requests.
-
-To turn a private Alshival conversation into a channel, open its action menu and
-choose **Share as Team Chat**. Neural Labs copies up to the last 250 user and
-assistant messages into a new channel and then archives the original private
-conversation. The private source remains creator-only and can be restored from
-the archive. A source conversation can be shared only once by its creator.
+The Team Channel includes current active workspace members. Restricted channels and channel creation/deletion are retired. Administrators can manage the channel’s supported settings. Member removal immediately removes channel access; private conversations and their histories are not imported into the channel. Channel terminals follow the same active workspace membership checks.
 
 ## Alshival execution path
 

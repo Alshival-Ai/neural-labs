@@ -58,7 +58,10 @@ function loadWindowState(storageNamespace: string | undefined, storageKey: strin
   } catch {
     // Use the centered default when old local state is invalid.
   }
-  const fallback = initialBounds(window.innerWidth, window.innerHeight);
+  const fallback = storageKey.startsWith("neura.") && window.innerWidth > 760
+    ? { width: Math.min(560, window.innerWidth - 40), height: Math.min(720, window.innerHeight - 120),
+        x: Math.max(20, window.innerWidth - 584), y: Math.max(20, window.innerHeight - Math.min(720, window.innerHeight - 120) - 90) }
+    : initialBounds(window.innerWidth, window.innerHeight);
   const offset = Math.max(0, (cascadeIndex - 1) % 6) * 24;
   return { bounds: clampBounds({ ...fallback, x: fallback.x + offset, y: fallback.y + offset }, window.innerWidth, window.innerHeight), placement: "freeform", preMaximize: "freeform" };
 }
@@ -297,7 +300,7 @@ export function DesktopWindow({ title, icon, children, onMinimize, onClose, onAc
       <section
         ref={windowElement}
         tabIndex={-1}
-        className={`desktop-window${maximized ? " is-maximized" : ""}${state.placement === "left" || state.placement === "right" ? " is-snapped" : ""}${narrow ? " is-mobile" : ""}${active || poppedOut ? " is-active" : ""}${poppedOut ? " is-popped-out" : ""}`}
+        className={`desktop-window${storageKey.startsWith("neura.") ? " alshival-widget" : ""}${maximized ? " is-maximized" : ""}${state.placement === "left" || state.placement === "right" ? " is-snapped" : ""}${narrow ? " is-mobile" : ""}${active || poppedOut ? " is-active" : ""}${poppedOut ? " is-popped-out" : ""}`}
         style={style}
         hidden={minimized}
         aria-label={`${title} application`}

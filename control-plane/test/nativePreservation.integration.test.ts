@@ -40,7 +40,7 @@ const url = process.env.TEST_DATABASE_URL;
     await pool.query("UPDATE update_runtime SET gate=true WHERE singleton");
     await expect(prepareNativeChatReset(pool, { ...input, expectedWorkspace: randomUUID() })).rejects.toThrow("matching workspace");
     const channel = randomUUID();
-    await pool.query("INSERT INTO team_channels(id,owner_user_id,name,audience) VALUES($1,$2,'Retained until reset','everyone')", [channel,user.id]);
+    await pool.query("INSERT INTO team_channels(id,owner_user_id,name,audience,import_source) VALUES($1,$2,'Retained until reset','everyone','workspace:primary')", [channel,user.id]);
     await pool.query("INSERT INTO team_messages(id,channel_id,author_kind,author_user_id,body) VALUES($1,$2,'user',$3,'Fixture message')", [randomUUID(),channel,user.id]);
     const receipt = await prepareNativeChatReset(pool, input);
     expect(receipt.channelsRemoved).toBe(1);
@@ -56,7 +56,7 @@ const url = process.env.TEST_DATABASE_URL;
   it("preserves customer Team Chat and notification references without inheriting pilot reset consent", async () => {
     const user = await database.createLocalUser({ email: "preserved-fixture@example.org", displayName: "Preserved", passwordHash: "fixture-only" });
     const channel = randomUUID(), message = randomUUID();
-    await pool.query("INSERT INTO team_channels(id,owner_user_id,name,audience) VALUES($1,$2,'Preserved','everyone')", [channel,user.id]);
+    await pool.query("INSERT INTO team_channels(id,owner_user_id,name,audience,import_source) VALUES($1,$2,'Preserved','everyone','workspace:primary')", [channel,user.id]);
     await pool.query("INSERT INTO team_messages(id,channel_id,author_kind,author_user_id,body) VALUES($1,$2,'user',$3,'Keep this message')", [message,channel,user.id]);
     await pool.query("UPDATE update_runtime SET gate=true WHERE singleton");
     const expectedRecords = await snapshotNativePreservation(pool), workspace = randomUUID();

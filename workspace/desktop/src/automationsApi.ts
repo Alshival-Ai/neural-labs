@@ -249,7 +249,8 @@ export function draftToNativeDefinition(draft: AutomationDraft, updating = false
   return {
     name: draft.name.trim(),
     description: draft.description.trim(),
-    enabled: true,
+    enabled: draft.startPaused !== "true",
+    ...(draft.proposalOnly === "true" ? { executionPolicy: { sandbox: "read-only", approval: "on-request" } } : {}),
     schedule,
     ...(draft.pacingMin.trim() || draft.pacingMax.trim() ? { pacing: { ...(draft.pacingMin.trim() ? { min: draft.pacingMin.trim() } : {}), ...(draft.pacingMax.trim() ? { max: draft.pacingMax.trim() } : {}) } } : {}),
     ...(draft.triggerScript.trim() && (draft.scheduleKind === "cron" || draft.scheduleKind === "every") ? { trigger: { script: draft.triggerScript.trim() } } : {}),

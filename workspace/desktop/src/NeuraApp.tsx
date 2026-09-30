@@ -1,6 +1,7 @@
 import { commandApproval, selectCommandApproval, type CommandApproval, requestAnthropicReconnect } from "./nativeApi";
 import { ANTHROPIC_RECONNECT, ANTHROPIC_ADMIN_RECONNECT } from "./nativeErrors";
 import "./minimal-apps.css";
+import "./alshival-widget.css";
 import { NotificationMessages, notificationRequest, type NotificationEntry, type NotificationPreferences } from "./notifications";
 import { captureTerminalContext } from "./terminalAgentApi";
 import {
@@ -184,7 +185,7 @@ export function insertTeamMention(value: string, trigger: SkillTrigger, mention:
 
 function neuraDeviceState(storageNamespace: string | undefined, storageArea: string): NeuraDeviceState {
   const stored = readDeviceState(storageNamespace, storageArea);
-  if (!stored || typeof stored !== "object") return { sidebarOpen: true, terminalSidebarOpen: false, showArchived: false };
+  if (!stored || typeof stored !== "object") return { sidebarOpen: false, terminalSidebarOpen: false, showArchived: false };
   const value = stored as Record<string, unknown>;
   return {
     selectedKey: typeof value.selectedKey === "string" ? value.selectedKey.slice(0, 500) : undefined,
@@ -434,8 +435,14 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
   }, [initialChannelId]);
   const [freshStartForActivityAt, setFreshStartForActivityAt] = useState<number | undefined>(initialUiState.freshStartForActivityAt);
   const [teamChannels, setTeamChannels] = useState<TeamChannel[]>([]);
+  useEffect(() => {
+    const primary = teamChannels.find(channel => channel.primary);
+    if (primary && selectedChannelId && selectedChannelId !== primary.id) setSelectedChannelId(primary.id);
+  }, [teamChannels, selectedChannelId]);
   const [teamDirectory, setTeamDirectory] = useState<TeamDirectoryUser[]>([]);
   const [teamMessages, setTeamMessages] = useState<TeamMessage[]>([]);
+  const [replyToTaskMessage, setReplyToTaskMessage] = useState<TeamMessage | null>(null);
+  useEffect(() => setReplyToTaskMessage(null), [selectedChannelId]);
   const [teamMembers, setTeamMembers] = useState<TeamDirectoryUser[]>([]);
   const [teamConnection, setTeamConnection] = useState<ConnectionState>("connecting");
   const [teamAgentPhase, setTeamAgentPhase] = useState<TeamAgentPhase>();
@@ -1215,8 +1222,8 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
   const displayedPrivateSessions = privateSessions.slice(0, privateChatLimit);
   const currentPrivateSession = !selectedChannelId && !displayedPrivateSessions.some((row) => row.key === selectedKey)
     ? privateSessions.find((row) => row.key === selectedKey) : undefined;
-  const pinnedTeamChannels = teamChannels.filter((channel) => channel.pinned && matchesHistory(channel.name));
-  const regularTeamChannels = teamChannels.filter((channel) => !channel.pinned && matchesHistory(channel.name));
+  const pinnedTeamChannels: TeamChannel[] = [];
+  const regularTeamChannels = teamChannels.filter((channel) => channel.primary && matchesHistory(channel.name));
   const matchingSkills = useMemo(() => matchingSkillSuggestions(skills, skillTrigger), [skillTrigger, skills]);
   const matchingTeamSkills = useMemo(() => matchingSkillSuggestions(teamSkills, teamSkillTrigger), [teamSkills, teamSkillTrigger]);
   const matchingTeamMentions = useMemo(() => matchingTeamMentionSuggestions(teamMembers, teamMentionTrigger), [teamMembers, teamMentionTrigger]);
@@ -1396,7 +1403,7 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
     }
   };
 
-  const postTeamMessage = async (body: string, messageAttachments: TeamAttachment[], channel = selectedChannel, invokeAgent = true): Promise<boolean> => {
+  const postTeamMessage = async (body: string, messageAttachments: TeamAttachment[], channel = selectedChannel, invokeAgent = true, replyToId?: string): Promise<boolean> => {
     if (!channel || (!body && messageAttachments.length === 0)) return false;
     const socket = teamSocket.current;
     if (!socket || socket.readyState !== WebSocket.OPEN) {
@@ -1423,6 +1430,7 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
       body,
       attachments: messageAttachments,
       invokeAgent,
+      ...(replyToId ? { replyToId } : {}),
       ...(terminalContextToken ? { terminalContextToken } : {}),
     }));
     socket.send(JSON.stringify({ type: "typing", channelId: channel.id, active: false }));
@@ -1435,13 +1443,15 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
     teamSubmittingRef.current = true;
     const body = teamDraft.trim();
     const outgoing = teamAttachments;
+    if (replyToTaskMessage && outgoing.length) { notify("Remove attachments before replying on a task."); teamSubmittingRef.current = false; return; }
     let sent;
-    try { sent = await postTeamMessage(body, outgoing); } finally { teamSubmittingRef.current = false; }
+    try { sent = await postTeamMessage(body, replyToTaskMessage ? [] : outgoing, selectedChannel, !replyToTaskMessage, replyToTaskMessage?.id); } finally { teamSubmittingRef.current = false; }
     if (!sent) return;
     setTeamDraft((current) => current.trim() === body ? "" : current);
     setTeamAttachments((current) => current.filter((item) => !outgoing.includes(item)));
     setTeamSkillTrigger(null);
     setTeamMentionTrigger(null);
+    setReplyToTaskMessage(null);
   };
 
   const teamVoice = useTeamVoiceMemo(selectedChannel, async (memo, transcribe, signal) => {
@@ -1812,7 +1822,7 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
           {channel.canManage && <button type="button" onClick={() => void renameTeamChannel(channel)}>Rename</button>}
           {channel.canPin && <button type="button" onClick={() => void togglePin(channel)}><Pin />{channel.pinned ? "Unpin" : "Pin"}</button>}
           {!channel.canManage && channel.audience === "restricted" && channel.ownerUserId !== currentUser.id && <button type="button" onClick={() => void leaveTeamChannel(channel)}>Leave</button>}
-          {channel.canManage && <button type="button" className="danger" onClick={() => void deleteTeamChannel(channel)}><Trash2 />Delete</button>}
+          {!channel.primary && channel.canManage && <button type="button" className="danger" onClick={() => void deleteTeamChannel(channel)}><Trash2 />Delete</button>}
         </div>
       </details>
     </div>
@@ -1827,7 +1837,6 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
                 <summary aria-label={`Actions for ${session.title}`}><MoreHorizontal /></summary>
                 <div>
                   <button type="button" onClick={() => void renameSession(session)}>Rename</button>
-                  {!session.archived && <button type="button" onClick={() => setTeamDialog({ source: session })}><Users />Share as Team Chat</button>}
                   <button type="button" onClick={() => void archiveSession(session)}>{session.archived ? <ArchiveRestore /> : <Archive />}{session.archived ? "Unarchive" : "Archive"}</button>
                   <button type="button" className="danger" onClick={() => void deleteSession(session)}><Trash2 />Delete</button>
                 </div>
@@ -1859,10 +1868,9 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
         </section>
         <section className="history-section team-chat-section" aria-labelledby="team-chat-heading">
           <h2 id="team-chat-heading">
-            <span className="team-section-title"><Users />Team chats</span>
-            <button type="button" className="team-chat-create-button" aria-label="New Team Chat" onClick={() => setTeamDialog({})}><MessageSquarePlus /><span>New</span></button>
+            <span className="team-section-title"><Users />Team channel</span>
           </h2>
-          {teamChannels.length === 0 && <div className="team-chat-empty"><p>Create a live channel with invited teammates or everyone.</p><button type="button" onClick={() => setTeamDialog({})}><MessageSquarePlus />New Team Chat</button></div>}
+          {teamChannels.length === 0 && <p className="history-empty">Connecting team channel…</p>}
           {pinnedTeamChannels.length > 0 && <p className="team-channel-label">Pinned</p>}
           {pinnedTeamChannels.map(teamChannelRow)}
           {pinnedTeamChannels.length > 0 && regularTeamChannels.length > 0 && <p className="team-channel-label">Channels</p>}
@@ -1977,6 +1985,7 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
               {neura && <div className="message-avatar">A</div>}
               <div className="message-body">
                 <span className="message-author">{author}{message.author && <small>@{message.author.handle}</small>}</span>
+                {message.projectTaskTitle && <small className="team-task-context">On task: {message.projectTaskTitle}</small>}
                 {message.attachments.length > 0 && <MessageAttachments attachments={message.attachments} className="message-attachments team-message-attachments" notify={notify} storageNamespace={storageNamespace} />}
                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
                   a: ({ href, children }) => {
@@ -1986,6 +1995,7 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
                   },
                   img: ({ src, alt }) => <img className="message-markdown-image" src={neura ? resolveNeuraMessageImage(src) : src} alt={alt ?? "Shared image"} loading="lazy" />,
                 }}>{message.body}</ReactMarkdown>
+                {message.projectItemId && <button type="button" className="button btn-frost" onClick={() => setReplyToTaskMessage(message)}>Reply on task</button>}
                 {(message.activities?.length ?? 0) > 0 && <NeuraActivityTimeline activities={message.activities!.map((activity, index) => ({ ...activity, id: `${message.id}:${index}`, sessionKey: `team:${message.channelId}`, runId: message.agentRunId }))} />}
                 <time dateTime={message.createdAt}>{new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(message.createdAt))}</time>
               </div>
@@ -2024,6 +2034,7 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
 
         {!creatingSession && selectedChannel && (
           <footer className="neura-composer-area team-composer-area">
+            {replyToTaskMessage && <div className="team-presence">Replying on task: {replyToTaskMessage.body.slice(0, 100)} <button type="button" onClick={() => setReplyToTaskMessage(null)}>Cancel</button></div>}
             {teamTyping.length > 0 && <div className="team-presence" role="status">
               {teamTyping.length > 0 && <span>{teamTyping.map((user) => `@${user.handle}`).join(", ")} {teamTyping.length === 1 ? "is" : "are"} typing…</span>}
             </div>}

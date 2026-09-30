@@ -1,67 +1,32 @@
-# Project Management app
+# Workspace task graph
 
-The Projects application stores its records in the environment's PostgreSQL
-volume. Open **Projects** from the desktop dock, or open
-`/workspace?app=projects` after signing in to the instance.
+Projects is native to every Neural Labs installation, including open-source self-hosted deployments. Tasks, relationships, sticky notes, comments and status catalogs live in the installation’s existing PostgreSQL database. No separate graph server or portal account is required.
 
-Tasks, deliverables, notes, resources, tickets and replies share one project
-service. Status edits use revisions; stale editors offer to load the current
-record instead of silently overwriting another person's changes. The WebSocket
-at `/api/projects/socket` invalidates both desktop and dedicated views and closes
-when the signed-in member loses access.
+Open **Projects** from the desktop. The board and graph use the same tasks. Directed dependencies reject cycles; related links are symmetric. Dependencies show context without preventing status changes. Task checklists and task-attached sticky notes retain their own identities. Drag a sticky note or use Alt + arrow keys to move it; its position is saved for the workspace.
 
-## External connections
+All tasks, notes and task comments are shared with current workspace members. There is no private task/publication switch. Administrators manage the status catalog, including names, colors, order, the default and retirement replacements. Retiring a status moves its tasks to an active replacement in the same reporting category. Done tasks remain editable; explicit review acceptance still requires a separate reviewer.
 
-In Projects, expand **API & MCP connections**. Create a credential and copy it
-before dismissing it. The token is shown once and stored only as a hash. The UI
-creates a 30-day read/write credential; the key API also supports read-only scopes
-and lifetimes from 1 to 90 days. Revoke unused credentials from the same panel.
+Each workspace has one Team Channel. New task comments also appear there in the same database transaction. Replying to a task message adds a comment to its task. Ordinary chat stays in the channel; mention `@Alshival` to invoke the agent. Private agent conversations remain separate.
 
-- REST base: `https://YOUR-INSTANCE/api/projects`
-- Streamable HTTP MCP: `https://YOUR-INSTANCE/api/projects/mcp`
-- Authorization: `Bearer ENVIRONMENT-CREDENTIAL`
-- Scopes: `project:read`, `project:write`
+## Optional integrations
 
-The MCP endpoint is for clients that support configuring bearer credentials. It
-does not provide an OAuth authorization flow. Existing Microsoft MCP configuration
-is separate. Credentials are bound to a local user; disabling that user prevents
-further use. Managed deployments also recheck membership, API service coverage
-and deployment generation. A generation change requires a new credential.
+Projects → API & MCP connections creates expiring, revocable user-bound credentials. Tokens appear once and are stored only as hashes. Ordinary keys support `project:read` and `project:write`; current project administrators can also issue `project:sync`. Role removal invalidates sync authority on the next request.
 
-`GET /items` returns up to 100 visible records and a `next` cursor. Send it as
-`?after=CURSOR` until `next` is null. Mutations require an `idempotency_key` UUID;
-updates/actions also require the record's current `revision`. Read the record
-again after a revision conflict before deciding whether to retry your edit.
+- REST: `https://YOUR-INSTANCE/api/projects`
+- MCP: `https://YOUR-INSTANCE/api/projects/mcp`
+- Authentication: `Authorization: Bearer CREDENTIAL`
+- `/items` pages up to 100 records using `next` as the following `after` cursor.
+- `/sync/snapshot` version 2 includes stable identities, tombstones, status catalogs and a graph revision. Discard snapshots whose revision changes between pages.
+- Item updates require the observed revision and an idempotency UUID. Sync edge creation/restoration also requires `expected_revision`; edge deletion requires `revision`.
 
-A credential does not grant shell, file or billing access. Project connections do
-not reuse a portal API key and do not forward project content to the portal.
+An optional integration can mirror the graph, but Neural Labs continues operating independently when it is disconnected. Billing, hosted plan eligibility and support policy belong to the integrating service. File, resource, service-ticket and billing migration are separate from task-graph sync.
 
-## Managed rollout status
+## Project-management proposal template
 
-This app is a new local project service, not yet a drop-in replacement for an
-existing portal board. Migration, custom statuses, publication rules, complete
-resource/file workflows and protected-mode controls are still pending. Embedded
-sign-in now uses a single-use handoff with partitioned secure cookies; direct
-customer-host ingress and browser acceptance remain rollout gates. Existing managed workspaces must remain portal-backed until those paths
-have been implemented and rehearsed. See [ADR 0038](adr/0038-environment-projects.md).
+Automations → Project management template opens **Alshival - Project Management**. It publishes paused with a 09:00 and 17:00 daily schedule in the selected timezone. Review the timezone, owner, connection and prompt before enabling. Runs use read-only execution and the `read_project_graph` tool; results are proposals with task IDs and revisions, for a member to apply manually. It does not automatically change tasks or notify external recipients.
 
-## Embedding and transfer protocol
+## Upgrade from the legacy task and channel model
 
-An operator can set `NEURAL_LABS_EMBED_ORIGINS` on the workspace container to a
-comma-separated list of HTTPS origins. Only `/workspace?app=projects` accepts
-those frame ancestors; the full desktop remains unframeable. Managed handoffs
-accept the fixed `app=projects` target, never an arbitrary redirect URL. If a
-browser disallows embedded authentication, open the project view directly.
+Migration 22 deletes all legacy Team Chat channels/messages on managed and self-hosted installations and creates one fresh everyone channel. Private agent conversations are unaffected. Legacy internal/unpublished task content and its task descendants are deleted. Published tasks retain their public text rather than exposing old staff text. Existing shared task comments remain on their tasks and are not backfilled into the fresh channel, including after comment edits or task restoration.
 
-The managed control plane exposes a private, instance-signed transfer protocol.
-It accepts bounded, idempotent batches, verifies a complete SHA-256 manifest and
-identity/parent references, and requires verification before activation. Imported
-historical authors are disabled identities, not login grants. Frozen exports
-include current items, original source records, authors and local events. The
-receiver must confirm the export hash before retirement; retired projects refuse
-ordinary reads and writes. Transfers currently support up to 100,000 records and
-64 MiB of serialized record content. Files require a separate verified transfer.
-
-This protocol does **not** migrate an existing portal workspace by itself. The
-source adapter, file/secret transfer, cleanup and subscription lifecycle must be
-implemented and rehearsed before it is used for a customer cutover.
+This is a destructive, one-time migration. Use the installation’s gated upgrade and recovery procedure with a verified pre-upgrade database copy. Do not downgrade over the migrated database or restore a copy over accepted new writes. Migration retries preserve messages created after the reset. Source publication alone does not upgrade an installation.
