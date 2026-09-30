@@ -624,15 +624,15 @@
 .skill-hub-detail > footer button.is-install { color: #fff; border-color: var(--skills-ink); background: var(--skills-ink); box-shadow: 2px 2px 0 var(--hub-detail-accent); }
 .skill-hub-detail > footer svg { width: .56rem; height: .56rem; }
 
-.skills-library { height: 100%; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.skills-catalog { width: 100%; height: 100%; min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); overflow: hidden; }
 .skills-library-installed-view { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(17rem, .8fr) minmax(0, 1.2fr); overflow: hidden; }
 .skills-library-installed { min-height: 0; padding: .85rem; overflow: auto; }
 .skills-library-installed-view > .skills-library-installed { border-right: 1px solid var(--skills-line); }
 .skills-library-installed > header { display: flex; align-items: end; justify-content: space-between; gap: 1rem; padding: 0 .1rem .7rem; }
 .skills-library-installed > header h2 { margin: .12rem 0 0; font-size: var(--desktop-font-subheading, 16px); }
 .skills-library-installed > header small { color: var(--skills-muted); font-size: var(--desktop-font-caption, 11px); }
-.skills-installed-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem; }
-.skill-installed-card { --installed-accent: var(--skills-cyan); min-width: 0; display: grid; grid-template-columns: 2.3rem minmax(0, 1fr) auto; align-items: center; gap: .55rem; padding: .62rem; border: 1px solid var(--skills-line); border-radius: 10px; color: var(--installed-accent); background: rgba(255, 255, 255, .67); cursor: pointer; text-align: left; }
+.skills-installed-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); gap: .55rem; }
+.skill-installed-card { width: 100%; --installed-accent: var(--skills-cyan); min-width: 0; display: grid; grid-template-columns: 2.3rem minmax(0, 1fr) auto; align-items: center; gap: .55rem; padding: .62rem; border: 1px solid var(--skills-line); border-radius: 10px; color: var(--installed-accent); background: rgba(255, 255, 255, .67); cursor: pointer; text-align: left; }
 .skill-installed-card:hover { border-color: color-mix(in srgb, var(--installed-accent) 28%, transparent); box-shadow: 0 8px 20px rgba(11, 12, 17, .05); }
 .skill-installed-card.is-selected { border-color: color-mix(in srgb, var(--installed-accent) 32%, transparent); box-shadow: inset 3px 0 var(--installed-accent), 0 8px 20px rgba(11, 12, 17, .05); }
 .skill-installed-card.is-violet { --installed-accent: var(--skills-violet); }
@@ -876,3 +876,5 @@
 .skill-history article { padding: 1.5rem; min-width: 0; }
 .skill-history pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .skill-history code { overflow-wrap: anywhere; }
+
+.skill-simple-card.is-library-note { grid-column: 1 / -1; }

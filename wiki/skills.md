@@ -1,20 +1,22 @@
 # Skills and graphical builder
 
-Skills is the canonical desktop app for reusable Alshival workflows and the
-automations that run them. It has five sections:
+Skills holds reusable Alshival workflows and automations for Codex and Claude.
 
-- **My Skills** contains managed skills owned by the signed-in developer.
-- **Team Skills** contains skills available to everyone in the workspace.
-- **Drafts** contains autosaved skill and automation work in progress.
-- **Automations** shows the OpenClaw scheduler and durable run history.
-- **OpenClaw** shows bundled, plugin, managed, and node-hosted skills and
-  provides ClawHub discovery.
+- **My Skills** contains your editable personal skills.
+- **Team Skills** contains workspace-managed skills shared with everyone.
+- **Library** contains read-only built-in and installed packages, including
+  `deploy`, plus ClawHub discovery. Installed packages are already usable by the
+  team; they do not need to be copied into Team Skills to run.
+- **Drafts** contains autosaved work in progress.
+- **Automations** shows the native scheduler and durable run history.
+- **Proposal history** preserves earlier workshop records for administrators.
 
-Neural Labs explicitly disables OpenClaw's autonomous Skill Workshop mode.
-Personal and Team skill publication remains user-driven through the Neural Labs
-builder, and upstream weekly per-agent collection-review monitors are not shown
-as user automations. Manual Workshop proposals remain available for advanced
-governance when deliberately invoked.
+To adapt a Library skill, choose **Customize a copy**. The copy appears in
+**My Skills**, where you can edit its instructions and publish changes. Choose
+**Share with team** to put that copy in **Team Skills**. It has its own command;
+the installed original stays available and can receive product updates without
+overwriting your customization. Neither version can change hosting permissions,
+workspace isolation, or administrator settings through skill instructions.
 
 The Automations dock icon is retained as a shortcut. It focuses the existing
 Skills window and selects Automations; it does not open a separate app.
