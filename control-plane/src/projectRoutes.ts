@@ -87,7 +87,11 @@ export function registerProjectRoutes(app: Express, database: Database, config: 
     const after = z.string().max(36).parse(req.query.after ?? "");
     const items = await store.list(actor, after);
     res.json({ revision: await store.revision(), items, next: items.length === 100 ? items.at(-1)!.id : null,
-      ...(after ? {} : { edges: await graph.list(actor) }) });
+      ...(after ? {} : { edges: await graph.list(actor),
+        principals: config.managed ? (await database.pool.query(`SELECT u.id,m.subject FROM users u
+          JOIN managed_identities m ON m.user_id=u.id
+          WHERE m.issuer=$1 AND m.workspace=$2 AND u.status='active'`,
+          [config.managed.portalOrigin, config.managed.workspace])).rows : [] }) });
   }));
   app.post("/api/projects/edges", wrap(async (req, res) => {
     const actor = await authenticate(req, res, "project:write"); if (actor) res.status(201).json(await graph.create(actor, req.body));

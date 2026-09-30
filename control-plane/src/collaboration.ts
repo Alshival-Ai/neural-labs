@@ -274,7 +274,7 @@ function assertAttachments(input: ChannelAttachment[], native = false): ChannelA
 
 const MESSAGE_SELECT = `
   SELECT m.*, u.handle, u.display_name, u.role,
-    (SELECT task.data->>'title' FROM project_items comment
+    (SELECT COALESCE(task.data->'publication'->>'title',task.data->>'title') FROM project_items comment
       JOIN project_items task ON task.id=(comment.data->>'parent_id')::uuid
       WHERE comment.id=m.project_item_id) AS project_task_title,
     COALESCE(array_agg(mm.user_id::text) FILTER (WHERE mm.user_id IS NOT NULL), '{}') AS mentions,
@@ -283,6 +283,16 @@ const MESSAGE_SELECT = `
   LEFT JOIN users u ON u.id = m.author_user_id
   LEFT JOIN team_message_mentions mm ON mm.message_id = m.id
 `;
+
+const VISIBLE_PROJECT_MESSAGE = `(m.project_item_id IS NULL OR EXISTS (
+  SELECT 1 FROM project_items comment JOIN project_items task
+    ON task.id=(comment.data->>'parent_id')::uuid
+  WHERE comment.id=m.project_item_id AND comment.kind='comment'
+    AND comment.data->>'visibility'='shared' AND comment.data->>'deleted'!='true'
+    AND task.kind='task' AND task.data->>'visibility'='shared' AND task.data->>'deleted'!='true'
+    AND (task.data->'publication' IS NULL OR task.data->'publication'='null'::jsonb
+      OR task.data->'publication'->>'published'='true')
+))`;
 
 export class CollaborationStore {
   constructor(readonly pool: Pool) {}
@@ -349,17 +359,20 @@ export class CollaborationStore {
          END::text AS member_count,
          (SELECT count(*) FROM team_messages m
           WHERE m.channel_id = c.id
+            AND ${VISIBLE_PROJECT_MESSAGE}
             AND m.sequence > COALESCE((SELECT r.last_read_sequence FROM team_channel_reads r WHERE r.channel_id = c.id AND r.user_id = $1), 0)
             AND m.author_user_id IS DISTINCT FROM $1)::text AS unread_count,
          (SELECT count(*) FROM team_messages m
           JOIN team_message_mentions mm ON mm.message_id = m.id AND mm.user_id = $1
           WHERE m.channel_id = c.id
+            AND ${VISIBLE_PROJECT_MESSAGE}
             AND m.sequence > COALESCE((SELECT r.last_read_sequence FROM team_channel_reads r WHERE r.channel_id = c.id AND r.user_id = $1), 0))::text AS mention_count,
-         (SELECT max(m.created_at) FROM team_messages m WHERE m.channel_id = c.id) AS last_message_at
+         (SELECT max(m.created_at) FROM team_messages m WHERE m.channel_id = c.id AND ${VISIBLE_PROJECT_MESSAGE}) AS last_message_at
        FROM team_channels c
        WHERE c.audience = 'everyone' OR c.owner_user_id = $1
           OR EXISTS (SELECT 1 FROM team_channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = $1)
-       ORDER BY c.pinned_at DESC NULLS LAST, COALESCE((SELECT max(m.created_at) FROM team_messages m WHERE m.channel_id = c.id), c.updated_at) DESC`,
+       ORDER BY c.pinned_at DESC NULLS LAST, COALESCE((SELECT max(m.created_at) FROM team_messages m
+         WHERE m.channel_id = c.id AND ${VISIBLE_PROJECT_MESSAGE}), c.updated_at) DESC`,
       [actor.id],
     );
     return result.rows.map((row) => ({
@@ -651,6 +664,7 @@ export class CollaborationStore {
     const result = await this.pool.query<MessageRow>(
       `${MESSAGE_SELECT}
        WHERE m.channel_id = $1 AND ($2::bigint IS NULL OR m.sequence < $2)
+         AND ${VISIBLE_PROJECT_MESSAGE}
        GROUP BY m.sequence, m.id, u.id
        ORDER BY m.sequence DESC LIMIT $3`,
       [channelId, before ?? null, Math.min(Math.max(limit, 1), TEAM_CHAT_LIMITS.messagesPerPage)],
@@ -660,7 +674,7 @@ export class CollaborationStore {
 
   async projectMessagesAfter(sequence: number): Promise<TeamMessage[]> {
     const result = await this.pool.query<MessageRow>(`${MESSAGE_SELECT}
-      WHERE m.project_item_id IS NOT NULL AND m.sequence > $1
+      WHERE m.project_item_id IS NOT NULL AND m.sequence > $1 AND ${VISIBLE_PROJECT_MESSAGE}
       GROUP BY m.sequence,m.id,u.id ORDER BY m.sequence LIMIT 100`, [sequence]);
     return result.rows.map(mapMessage);
   }
@@ -738,7 +752,8 @@ export class CollaborationStore {
       if (input.attachments.length) throw new CollaborationError(422, "reply_attachments", "Task replies cannot include attachments.");
       await this.requireAccess(this.pool, input.channelId, actor.id);
       const source = (await this.pool.query<{ project_item_id: string | null }>(
-        "SELECT project_item_id FROM team_messages WHERE id=$1 AND channel_id=$2", [input.replyToId, input.channelId])).rows[0];
+        `SELECT m.project_item_id FROM team_messages m WHERE m.id=$1 AND m.channel_id=$2
+          AND ${VISIBLE_PROJECT_MESSAGE}`, [input.replyToId, input.channelId])).rows[0];
       if (!source?.project_item_id) throw new CollaborationError(422, "task_message_required", "Reply to a task comment.");
       const store = new ProjectStore(this.pool);
       const original = await store.get(actor, source.project_item_id);
@@ -840,7 +855,8 @@ export class CollaborationStore {
     const channel = await this.channelRow(this.pool, row.channel_id);
     if (!channel) return undefined;
     const messages = await this.pool.query<MessageRow>(
-      `${MESSAGE_SELECT} WHERE m.channel_id = $1 GROUP BY m.sequence, m.id, u.id ORDER BY m.sequence DESC LIMIT $2`,
+      `${MESSAGE_SELECT} WHERE m.channel_id = $1 AND ${VISIBLE_PROJECT_MESSAGE}
+        GROUP BY m.sequence, m.id, u.id ORDER BY m.sequence DESC LIMIT $2`,
       [channel.id, TEAM_CHAT_LIMITS.agentContextMessages],
     );
     const mapped = messages.rows.reverse().map(mapMessage);
@@ -877,6 +893,7 @@ export class CollaborationStore {
     if (!run.rows[0]) throw new CollaborationError(403, "agent_capability_invalid", "This Alshival channel capability is invalid or expired.");
     const result = await this.pool.query<MessageRow>(
       `${MESSAGE_SELECT} WHERE m.channel_id = $1 AND ($2::bigint IS NULL OR m.sequence < $2)
+        AND ${VISIBLE_PROJECT_MESSAGE}
        GROUP BY m.sequence, m.id, u.id ORDER BY m.sequence DESC LIMIT $3`,
       [run.rows[0].channel_id, before ?? null, Math.min(Math.max(limit, 1), TEAM_CHAT_LIMITS.messagesPerPage)],
     );

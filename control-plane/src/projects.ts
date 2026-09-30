@@ -34,6 +34,7 @@ export const projectFields = z.object({
 export const createProjectItem = z.object({
   idempotency_key: z.string().uuid(), kind: z.enum(["task", "deliverable", "note", "resource", "ticket", "comment"]),
   sync_id: z.string().uuid().optional(),
+  sync_author_id: z.string().uuid().optional(),
   data: projectFields,
 }).strict();
 const patchFields = z.object(Object.fromEntries(Object.entries(projectFields.shape).map(([key, field]) =>
@@ -124,6 +125,8 @@ export class ProjectStore {
       const submitted = "data" in parsed ? parsed.data : {};
       if ("sync_id" in parsed && parsed.sync_id && !actor.projectSync)
         throw new ProjectError(403, "sync_scope_required", "A sync credential is required to preserve item identity.");
+      if ("sync_author_id" in parsed && parsed.sync_author_id && !actor.projectSync)
+        throw new ProjectError(403, "sync_scope_required", "A sync credential is required to preserve item authorship.");
       if (!internalAccess(actor) && (submitted.publication != null || old?.data.publication))
         throw new ProjectError(403, "planning_required", "Published work is managed by the project team.");
       if (old && "revision" in parsed && Number(old.revision) !== parsed.revision)
@@ -168,15 +171,39 @@ export class ProjectStore {
         } else data.state = "todo";
       }
       const itemId = id ?? ("sync_id" in parsed ? parsed.sync_id : undefined) ?? randomUUID();
+      const authorId = "sync_author_id" in parsed && parsed.sync_author_id ? parsed.sync_author_id : actor.id;
+      if (authorId !== actor.id && !(await client.query("SELECT 1 FROM users WHERE id=$1 AND status='active'", [authorId])).rowCount)
+        throw new ProjectError(422, "invalid_author", "The imported author must be an active workspace member.");
+      if (!old && "sync_id" in parsed && parsed.sync_id
+          && (await client.query("SELECT 1 FROM project_items WHERE id=$1", [itemId])).rowCount)
+        throw new ProjectError(409, "sync_identity_conflict", "An item already uses this sync identity.");
       const result = old ? await client.query(`UPDATE project_items SET data=$2, revision=revision+1, updated_at=now() WHERE id=$1 RETURNING *`, [itemId, data])
-        : await client.query(`INSERT INTO project_items(id,kind,data,author_id) VALUES($1,$2,$3,$4) RETURNING *`, [itemId, kind, data, actor.id]);
-      if (operation === "create" && kind === "comment" && data.parent_id) {
+        : await client.query(`INSERT INTO project_items(id,kind,data,author_id) VALUES($1,$2,$3,$4) RETURNING *`, [itemId, kind, data, authorId]);
+      if (kind === "comment" && data.parent_id) {
         const parent = await this.get(actor, data.parent_id, client);
-        if (parent.kind === "task") {
+        if (parent.kind === "task" && data.visibility === "shared"
+            && !data.deleted && parent.data.visibility === "shared" && !parent.data.deleted
+            && (!parent.data.publication || parent.data.publication.published)) {
           const channelId = await ensurePrimaryChannel(client, actor.id);
           await client.query(`INSERT INTO team_messages(id,channel_id,author_kind,author_user_id,body,project_item_id)
-            VALUES($1,$2,'user',$3,$4,$5) ON CONFLICT(project_item_id) DO NOTHING`,
-          [randomUUID(), channelId, actor.id, data.body, itemId]);
+            VALUES($1,$2,'user',$3,$4,$5) ON CONFLICT(project_item_id) DO UPDATE SET body=EXCLUDED.body`,
+          [randomUUID(), channelId, old?.author_id ?? authorId, data.body, itemId]);
+        } else await client.query("DELETE FROM team_messages WHERE project_item_id=$1", [itemId]);
+      }
+      if (kind === "task" && old && (data.visibility !== old.data.visibility
+          || data.deleted !== old.data.deleted || JSON.stringify(data.publication) !== JSON.stringify(old.data.publication))) {
+        const visible = data.visibility === "shared" && !data.deleted && (!data.publication || data.publication.published);
+        if (!visible) {
+          await client.query(`DELETE FROM team_messages WHERE project_item_id IN
+            (SELECT id FROM project_items WHERE kind='comment' AND data->>'parent_id'=$1)`, [itemId]);
+        } else {
+          const channelId = await ensurePrimaryChannel(client, actor.id);
+          await client.query(`INSERT INTO team_messages(id,channel_id,author_kind,author_user_id,body,project_item_id,created_at)
+            SELECT md5('project-comment:'||id::text)::uuid,$1,'user',author_id,data->>'body',id,created_at
+            FROM project_items WHERE kind='comment' AND data->>'parent_id'=$2
+              AND data->>'visibility'='shared' AND data->>'deleted'!='true'
+              AND char_length(data->>'body') BETWEEN 1 AND 32000
+            ON CONFLICT(project_item_id) DO NOTHING`, [channelId, itemId]);
         }
       }
       await client.query(`INSERT INTO project_requests(actor_id,request_id,fingerprint,item_id) VALUES($1,$2,$3,$4)`, [actor.id, parsed.idempotency_key, fingerprint, itemId]);

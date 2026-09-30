@@ -585,9 +585,13 @@ export const migrations: Migration[] = [
       ON CONFLICT(import_source) DO NOTHING;
     INSERT INTO team_messages(id,channel_id,author_kind,author_user_id,body,project_item_id,created_at)
       SELECT md5('project-comment:'||item.id::text)::uuid,channel.id,'user',item.author_id,item.data->>'body',item.id,item.created_at
-      FROM project_items item JOIN project_items parent ON parent.id=(item.data->>'parent_id')::uuid AND parent.kind='task'
+      FROM project_items item JOIN project_items parent ON parent.id=(item.data->>'parent_id')::uuid
+        AND parent.kind='task' AND parent.data->>'visibility'='shared' AND parent.data->>'deleted'!='true'
+        AND (parent.data->'publication' IS NULL OR parent.data->'publication'='null'::jsonb
+          OR parent.data->'publication'->>'published'='true')
       CROSS JOIN team_channels channel
-      WHERE item.kind='comment' AND channel.import_source='workspace:primary'
+      WHERE item.kind='comment' AND item.data->>'visibility'='shared' AND item.data->>'deleted'!='true'
+        AND channel.import_source='workspace:primary'
         AND char_length(item.data->>'body') BETWEEN 1 AND 32000
       ON CONFLICT(project_item_id) DO NOTHING;`,
   },

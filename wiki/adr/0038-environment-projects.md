@@ -11,8 +11,9 @@ Dependencies warn in the UI but do not block status changes or review actions.
 Checklists live on task records, while task-attached sticky notes remain separate
 note records so each can keep its own author, visibility and history.
 
-Task comments are also written into the installation's primary team channel in
-the same database transaction. Replying to such a channel message creates a
+Shared task comments are also written into the installation's primary team channel in
+the same database transaction. Internal comments and comments on unpublished tasks
+stay out of the everyone channel. Replying to such a channel message creates a
 comment on its original task. Ordinary channel messages remain chat messages.
 The channel and project database work without any managed portal connection;
 private agent conversations are separate.

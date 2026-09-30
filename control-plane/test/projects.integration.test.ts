@@ -82,12 +82,43 @@ const url = process.env.TEST_DATABASE_URL;
     const linked = await store.get(member, response.message.projectItemId!);
     expect(linked.kind).toBe("comment"); expect(linked.data.parent_id).toBe(task.id);
   });
+  it("keeps internal task comments out of the everyone channel", async () => {
+    const staff = { ...owner, projectInternal: true };
+    const task = await store.mutate(staff, "create", null, { idempotency_key: randomUUID(), kind: "task",
+      data: { title: "Private plan", visibility: "internal" } });
+    const comment = await store.mutate(staff, "create", null, { idempotency_key: randomUUID(), kind: "comment",
+      data: { title: "Private reply", body: "Internal detail", parent_id: task.id, visibility: "internal" } });
+    const collaboration = new CollaborationStore(pool);
+    const channel = (await collaboration.listChannels(member)).find(row => row.primary)!;
+    expect((await collaboration.listMessages(member, channel.id)).some(row => row.projectItemId === comment.id)).toBe(false);
+  });
+  it("removes task comments from the channel when publication is withdrawn", async () => {
+    const staff = { ...owner, projectInternal: true };
+    const task = await store.mutate(staff, "create", null, { idempotency_key: randomUUID(), kind: "task",
+      data: { title: "Published plan", publication: { published: true, title: "Public plan", body: "" } } });
+    const comment = await store.mutate(staff, "create", null, { idempotency_key: randomUUID(), kind: "comment",
+      data: { title: "Update", body: "Safe update", parent_id: task.id, visibility: "shared" } });
+    const collaboration = new CollaborationStore(pool);
+    const channel = (await collaboration.listChannels(member)).find(row => row.primary)!;
+    expect((await collaboration.listMessages(member, channel.id)).find(row => row.projectItemId === comment.id)?.projectTaskTitle)
+      .toBe("Public plan");
+    const withdrawn = await store.mutate(staff, "update", task.id, { idempotency_key: randomUUID(), revision: task.revision,
+      data: { publication: { published: false, title: "Public plan", body: "" } } });
+    expect((await collaboration.listMessages(member, channel.id)).some(row => row.projectItemId === comment.id)).toBe(false);
+    await store.mutate(staff, "update", task.id, { idempotency_key: randomUUID(), revision: withdrawn.revision,
+      data: { publication: { published: true, title: "Public plan", body: "" } } });
+    expect((await collaboration.listMessages(member, channel.id)).some(row => row.projectItemId === comment.id)).toBe(true);
+  });
   it("reserves stable imported IDs for explicit sync authority", async () => {
-    const id = randomUUID(); const request = { idempotency_key: randomUUID(), sync_id: id, kind: "task", data: { title: "Imported" } };
+    const id = randomUUID(); const request = { idempotency_key: randomUUID(), sync_id: id,
+      sync_author_id: reviewer.id, kind: "task", data: { title: "Imported" } };
     await expect(store.mutate(member, "create", null, request)).rejects.toMatchObject({ code: "sync_scope_required" });
     const item = await store.mutate({ ...owner, projectSync: true }, "create", null, request);
     expect(item.id).toBe(id);
+    expect(item.author_id).toBe(reviewer.id);
     expect((await store.mutate({ ...owner, projectSync: true }, "create", null, request)).id).toBe(id);
+    await expect(store.mutate({ ...owner, projectSync: true }, "create", null,
+      { ...request, idempotency_key: randomUUID() })).rejects.toMatchObject({ code: "sync_identity_conflict" });
   });
   it("binds external credentials to their user, scopes, expiry and revocation", async () => {
     const app = express(); app.use(express.json());
