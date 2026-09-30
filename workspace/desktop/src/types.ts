@@ -29,6 +29,7 @@ export type NeuraAttachment = {
   name: string;
   type: string;
   artifactId?: string;
+  sourceUrl?: string;
   url?: string;
   path?: string;
   size?: number;

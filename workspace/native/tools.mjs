@@ -7,11 +7,21 @@ const READ_TOOLS = new Set(["google_places_search", "google_place_details", "goo
 // One MCP application per live execution capability. Connector keys stay in
 // this trusted service; provider processes receive only a revocable turn token.
 export class NativeTools {
-  constructor({ origin, teamOrigin, createApplication, configuration, request = fetch }) {
-    this.origin = new URL(origin); this.createApplication = createApplication;
+  constructor({ origin, teamOrigin, createApplication, configuration, request = fetch, browser }) {
+    this.browser = browser; this.origin = new URL(origin); this.createApplication = createApplication;
     this.teamOrigin = teamOrigin; this.configuration = configuration; this.request = request; this.sessions = new Map();
   }
-  async mint(grant) {
+  async mint(grant, context) {
+    let browserSession, browserQueue = Promise.resolve();
+    const browserCall = this.browser && context ? input => {
+      const result = browserQueue.then(async () => {
+        await grant.revalidate();
+        if (!active) throw new Error('Execution ended');
+        browserSession ||= await this.browser.acquire(grant, context);
+        return browserSession.call(input);
+      });
+      browserQueue = result.catch(() => {}); return result;
+    } : undefined;
     await grant.revalidate();
     const token = randomBytes(32).toString("base64url");
     let active = true;
@@ -31,17 +41,18 @@ export class NativeTools {
     const authorizeTool = async name => {
       await grant.revalidate();
       if (!active) throw new Error("Execution ended");
-      if (grant.policy?.sandbox === "read-only" && !READ_TOOLS.has(name)) throw new Error("The saved execution policy does not allow this tool");
+      if (grant.policy?.sandbox === "read-only" && !READ_TOOLS.has(name) && name !== "browser") throw new Error("The saved execution policy does not allow this tool");
     };
-    const application = this.createApplication(this.configuration, transport, undefined, authorizeTool);
+    const application = this.createApplication(this.configuration, transport, undefined, authorizeTool, browserCall);
     const entry = { application, grant, revoke: () => { active = false; } }; this.sessions.set(token, entry);
     const url = new URL("/mcp", this.origin).href, headers = { Authorization: `Bearer ${token}` };
     const team = grant.team && this.teamOrigin ? { url: new URL("/team-mcp", this.origin).href, http_headers: headers } : undefined;
     return {
+      mediatedBrowser: Boolean(browserCall),
       codex: { url, http_headers: headers, ...(team ? { team } : {}) },
       claude: { mcpServers: { "neural-labs": { type: "http", url, headers },
         ...(team ? { "neural-labs-team": { type: "http", url: team.url, headers } } : {}) } },
-      release: async () => { active = false; this.sessions.delete(token); await application.close(); },
+      release: async () => { active = false; this.sessions.delete(token); await browserSession?.release(); await application.close(); },
     };
   }
   async handle(request, response) {
@@ -87,5 +98,6 @@ export class NativeTools {
     const entries = [...this.sessions.values()]; this.sessions.clear();
     for (const row of entries) row.revoke();
     await Promise.all(entries.map(row => row.application.close()));
+    await this.browser?.close();
   }
 }

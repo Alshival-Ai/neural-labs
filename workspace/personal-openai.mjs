@@ -5,8 +5,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-import { GatewayClient } from "@openclaw/gateway-client";
-import { PROTOCOL_VERSION } from "@openclaw/gateway-protocol/version";
 
 import { createProviderAuthController } from "./provider-auth.mjs";
 import { agentEnvironment } from "./provider-environment.mjs";
@@ -39,7 +37,13 @@ export function personalKeyProfileId(userId) {
 
 export function createGatewayAdminRequest({ url, password, timeoutMs = 15_000 }) {
   if (!url || !password) throw new Error("The internal Gateway URL and password are required");
-  return (method, params) => new Promise((resolve, reject) => {
+  // Historical adapters are not dependencies of the native runtime. Load the
+  // legacy client only when an explicitly retained legacy caller requests it.
+  return async (method, params) => {
+    const [{ GatewayClient }, { PROTOCOL_VERSION }] = await Promise.all([
+      import("@openclaw/gateway-client"), import("@openclaw/gateway-protocol/version"),
+    ]);
+    return new Promise((resolve, reject) => {
     let settled = false;
     let timer;
     const finish = (error, value) => {
@@ -68,7 +72,8 @@ export function createGatewayAdminRequest({ url, password, timeoutMs = 15_000 })
     timer = setTimeout(() => finish(new Error("Gateway admin request timed out")), timeoutMs);
     timer.unref?.();
     client.start();
-  });
+    });
+  };
 }
 
 function personalLoginProcess(agentId, profileId) {

@@ -47,7 +47,7 @@ describe("Team Chat personal Alshival runner", () => {
     let requestBody: Record<string, unknown> | undefined;
     const fetchFn = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
-      return new Response(JSON.stringify({ reply: "Ready", activities: [{ kind: "plan", title: "Plan updated", state: "done" }] }), { status: 200 });
+      return new Response(JSON.stringify({ reply: "Ready", attachments: [{ path: "", name: "screenshot.png", type: "image/png", artifactId: "11111111-1111-4111-8111-111111111111", url: "/workspace/api/native/artifacts/11111111-1111-4111-8111-111111111111" }], activities: [{ kind: "plan", title: "Plan updated", state: "done" }] }), { status: 200 });
     });
     const config = { workspace: {
       teamAgentUrl: new URL("http://workspace/internal/neura/team-run"),
@@ -63,6 +63,7 @@ describe("Team Chat personal Alshival runner", () => {
     expect(String(requestBody?.prompt)).toContain("@maya: @Alshival summarize this");
     expect(String(requestBody?.prompt)).toContain("chart.png (reports/chart.png · image/png)");
     expect(String(requestBody?.prompt)).toContain("neural_labs_post_channel_message");
+    expect(store.postAgentMessage).toHaveBeenCalledWith(run.capability, "Ready", [expect.objectContaining({ artifactId: "11111111-1111-4111-8111-111111111111" })], true);
     expect(saveRunActivities).toHaveBeenCalledWith(run.id, [{ kind: "plan", title: "Plan updated", state: "done" }]);
   });
 

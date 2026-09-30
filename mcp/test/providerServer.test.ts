@@ -74,7 +74,7 @@ describe("workspace provider MCP", () => {
     const application = createProviderApplication(providerConfig, transport as typeof fetch, undefined, authorize);
     try {
       const result = await callTool(application, "notify_workspace_user", { handle: "@member", message: "fixture" });
-      expect(authorize).toHaveBeenCalledWith("notify_workspace_user");
+      expect(authorize).toHaveBeenCalledWith("notify_workspace_user", expect.objectContaining({ message: "fixture" }));
       expect(transport).not.toHaveBeenCalled();
       expect(result.result).toMatchObject({ isError: true });
     } finally { await application.close(); }
@@ -483,5 +483,20 @@ it("returns terminal access errors without claiming a launch succeeded", async (
   try {
     const result = await callTool(application, "open_terminal", { contextToken: `nlt_${"a".repeat(43)}`, requestId: "request-1" });
     expect(result).toMatchObject({ result: { isError: true, content: [{ text: "Open the Neural Labs desktop" }] } });
+  } finally { await application.close(); }
+});
+
+it("returns a native browser screenshot as an image plus artifact metadata", async () => {
+  const browser = vi.fn().mockResolvedValue({ attachment: { artifactId: "fixture" }, image: { data: "Zml4dHVyZQ==", mimeType: "image/png" } });
+  const config = {} as ProviderConfig;
+  const authorize = vi.fn();
+  const application = createProviderApplication(config, fetch, undefined, authorize, browser);
+  try {
+    const result = await callTool(application, "browser", { action: "screenshot" });
+    expect(result.result).toMatchObject({ content: [{ type: "text" }, { type: "image", mimeType: "image/png" }] });
+    expect(authorize).toHaveBeenCalledWith("browser", { action: "screenshot" });
+    expect(browser).toHaveBeenCalledWith({ action: "screenshot" });
+    await callTool(application, "browser", { action: "upload" });
+    expect(browser).toHaveBeenCalledTimes(1);
   } finally { await application.close(); }
 });

@@ -4,11 +4,11 @@ import { projectGeneratedMedia } from "./neuraMedia";
 import { nativeRequest, nativeSelection, type NativeEvent } from "./nativeApi";
 import { settingsRequest } from "./settingsApi";
 import { terminalMessageContext } from "./terminalAgentApi";
-import type { ComposerAttachment, ConnectionState, GatewayEvent, NeuraMessage, SessionRow } from "./types";
+import type { ComposerAttachment, ConnectionState, GatewayEvent, NeuraAttachment, NeuraMessage, SessionRow } from "./types";
 import type { NeuraQuestion } from "./neuraMessages";
 import { mapAutomationsSnapshot, type AutomationsSnapshot } from "./automationsApi";
 
-type Subscription = { key: string; sessionKey: string; controller: AbortController; cursor: number; refs: number; output: Map<string, string> };
+type Subscription = { key: string; sessionKey: string; controller: AbortController; cursor: number; refs: number; artifacts: Map<string, NeuraAttachment[]>; output: Map<string, string> };
 export class NativeClient {
   private status: ConnectionState = "disconnected";
   private error?: string;
@@ -44,7 +44,7 @@ export class NativeClient {
   async subscribeSession(sessionKey: string): Promise<Subscription> {
     let sub = this.subscriptions.get(sessionKey);
     if (sub) { sub.refs++; return sub; }
-    sub = { key: sessionKey, sessionKey, controller: new AbortController(), cursor: 0, refs: 1, output: new Map() };
+    sub = { key: sessionKey, sessionKey, controller: new AbortController(), cursor: 0, refs: 1, artifacts: new Map(), output: new Map() };
     this.subscriptions.set(sessionKey, sub); void this.stream(sub); return sub;
   }
   async unsubscribeSession(sub: Subscription) {
@@ -80,6 +80,10 @@ export class NativeClient {
       const delta = String(data.delta ?? data.text ?? "");
       sub.output.set(runId, (sub.output.get(runId) || "") + delta);
       this.emit({ event: "chat", payload: { sessionKey, runId, state: "delta", deltaText: delta } });
+    } else if (event.type === "artifact-created") {
+      sub.artifacts.set(runId, [...(sub.artifacts.get(runId) || []), data.attachment as NeuraAttachment]);
+      this.emit({ event: "session.message", payload: { sessionKey, runId, phase: "update", messageId: `native:${runId}`,
+        message: { role: "assistant", content: [{ type: "text", text: sub.output.get(runId) || "" }], attachments: (sub.artifacts.get(runId) || []).map(item => ({ ...item, mimeType: item.type })) } } });
     } else if (event.type === "approval-required") {
       const request = data.request as { method: string; params: Record<string, unknown> };
       if (request.method === "item/tool/requestUserInput") {
@@ -96,9 +100,9 @@ export class NativeClient {
       for (const [id, question] of this.questions) if (question.sessionKey === sessionKey) this.questions.delete(id);
       const failed = !["succeeded", "cancelled"].includes(String(data.status));
       this.emit({ event: "session.message", payload: { sessionKey, runId, phase: failed ? "error" : "end", messageId: `native:${runId}`,
-        message: { role: "assistant", phase: "final_answer", content: [{ type: "text", text: sub.output.get(runId) || (failed ? `Turn ${data.status}.` : "") }] } } });
+        message: { role: "assistant", phase: "final_answer", attachments: (sub.artifacts.get(runId) || []).map(item => ({ ...item, mimeType: item.type })), content: [{ type: "text", text: sub.output.get(runId) || (failed ? `Turn ${data.status}.` : "") }] } } });
       this.emit({ event: "chat", payload: { sessionKey, runId, state: failed ? "error" : "final", errorMessage: failed ? `Turn ${data.status}` : undefined } });
-      sub.output.delete(runId);
+      sub.output.delete(runId); sub.artifacts.delete(runId);
     } else if (["item-started", "item-completed", "tool-output", "plan", "diff"].includes(event.type)) {
       const item = (data.item || data) as Record<string, unknown>;
       this.emit({ event: "session.tool", payload: { sessionKey, runId, stream: event.type === "plan" ? "plan" : "tool",
@@ -112,12 +116,13 @@ export class NativeClient {
       rows.push(...result.events); cursor = result.cursor;
       if (result.events.length < 1000) break;
     }
-    const messages: NeuraMessage[] = [], outputs = new Map<string, string>();
+    const messages: NeuraMessage[] = [], outputs = new Map<string, string>(), artifacts = new Map<string, NeuraAttachment[]>();
     for (const event of rows) {
       if (event.type === "turn-started") messages.push({ id: `user:${event.turn_id}`, role: "user", attachments: event.payload.attachments as NeuraMessage["attachments"],
         text: (event.payload.input as Array<{ text: string }>).map(row => row.text).join("\n") });
+      if (event.type === "artifact-created") artifacts.set(event.turn_id, [...(artifacts.get(event.turn_id) || []), event.payload.attachment as NeuraAttachment]);
       if (event.type === "output") outputs.set(event.turn_id, (outputs.get(event.turn_id) || "") + String(event.payload.delta ?? event.payload.text ?? ""));
-      if (event.type === "turn-completed") messages.push({ id: `native:${event.turn_id}`, role: "assistant", ...projectGeneratedMedia(outputs.get(event.turn_id) || `Turn ${event.payload.status}.`) });
+      if (event.type === "turn-completed") messages.push({ id: `native:${event.turn_id}`, role: "assistant", ...projectGeneratedMedia(outputs.get(event.turn_id) || `Turn ${event.payload.status}.`, artifacts.get(event.turn_id) || []) });
     }
     return messages;
   }

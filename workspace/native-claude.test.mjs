@@ -102,3 +102,14 @@ test("Claude cancellation during version verification cannot execute the prompt"
     spawnProcess: () => assert.fail("cancelled turn must not spawn") }));
   assert.equal(result.status, "cancelled");
 });
+
+test("Claude delegates only the managed browser permission to its action broker", async () => {
+  const request = { ...permission, request: { subtype: 'can_use_tool', tool_name: 'mcp__neural-labs__browser', input: { action: 'snapshot' } } };
+  const child = new FakeClaude((row, child) => {
+    if (row.type === 'user') child.output(request);
+    if (row.type === 'control_response') child.output({ type: 'result', is_error: false });
+  });
+  const result = await runClaudeTurn(context(child, { mediatedBrowser: true, mcpConfig: '{}', background: true, approve: async () => assert.fail('Browser broker owns approval') }));
+  assert.equal(result.status, 'succeeded');
+  assert.deepEqual(child.sent.find(row => row.type === 'control_response').response.response.updatedInput, { action: 'snapshot' });
+});

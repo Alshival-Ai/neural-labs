@@ -1,5 +1,9 @@
 # Alshival desktop app
 
+**Native runtime:** current installations use Codex CLI or Claude Code. See
+[native browsing](native-browsing.md) and the [native migration guide](native-migration.md).
+The Gateway protocol and browser details below describe retained legacy installations.
+
 Alshival is the Neural Labs desktop interface for each user's personal OpenClaw
 agent. It runs in the workspace image and connects directly to the version-
 matched OpenClaw Gateway browser protocol through the authenticated same-origin

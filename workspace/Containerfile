@@ -34,7 +34,7 @@ COPY workspace/native/release.json /usr/local/lib/neural-labs/native/release.jso
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
-      bash-completion bubblewrap build-essential ca-certificates chromium curl \
+      bash-completion bubblewrap build-essential ca-certificates chromium curl poppler-utils \
       ffmpeg fonts-liberation fonts-noto-color-emoji fonts-noto-core git \
       imagemagick jq less openssh-client procps python3 python3-pip ripgrep \
       rsync tini util-linux vim-tiny webp zsh zsh-autosuggestions zsh-syntax-highlighting \

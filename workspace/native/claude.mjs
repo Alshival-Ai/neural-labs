@@ -22,7 +22,7 @@ export function claudeArguments({ model, nativeSession, sessionId, policy, mcpCo
 // never connected to a browser. The runtime mediates every permission request.
 export async function runClaudeTurn({ command = "/usr/local/bin/claude", version = CLAUDE_PROTOCOL_VERSION,
   cwd, env, model, input, nativeSession, policy = { sandbox: "workspace-write", approval: "on-request" },
-  mcpConfig, effort, background = false, revalidate, onSession, onEvent, approve, signal,
+  mcpConfig, effort, background = false, mediatedBrowser = false, revalidate, onSession, onEvent, approve, signal,
   timeoutMs = 20 * 60_000, leaseCheckMs = 5000, executeVersion = promisify(execFile), spawnProcess = spawn,
 }) {
   if (!path.isAbsolute(cwd) || !Array.isArray(input) || !input.length
@@ -65,6 +65,13 @@ export async function runClaudeTurn({ command = "/usr/local/bin/claude", version
       void (async () => {
         if (!initialized || typeof row.request_id !== "string" || row.request?.subtype !== "can_use_tool") throw new Error("Unsupported Claude control request");
         await revalidate();
+        // Only the runtime-owned browser adapter delegates action approval to
+        // its broker. This is not a general MCP or CLI permission bypass.
+        if (mediatedBrowser && mcpConfig && row.request.tool_name === 'mcp__neural-labs__browser') {
+          send({ type: 'control_response', response: { subtype: 'success', request_id: row.request_id,
+            response: { behavior: 'allow', updatedInput: row.request.input } } });
+          return;
+        }
         if (background) {
           await onEvent("blocked", { code: "approval-required", tool: row.request.tool_name });
           interrupt(); finish({ status: "blocked", code: "approval-required" }); return;

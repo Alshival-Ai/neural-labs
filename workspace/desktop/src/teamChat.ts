@@ -22,7 +22,7 @@ export type TeamChannel = {
   canPin: boolean;
 };
 
-export type TeamAttachment = { path: string; name: string; type?: string; size?: number };
+export type TeamAttachment = { path: string; url?: string; sourceUrl?: string; artifactId?: string; name: string; type?: string; size?: number };
 export type TeamRunActivity = {
   kind: "thinking" | "command" | "plan" | "tool" | "file" | "operation";
   title: string;

@@ -170,7 +170,8 @@ export class NativeRuntime {
       const reply = events.filter(event => event.type === "output" && typeof event.payload?.text === "string")
         .map(event => event.payload.text).join("").trim();
       if (!reply) throw new Error("Team Chat native turn produced no reply");
-      return { reply };
+      const attachments = events.filter(event => event.type === "artifact-created").map(event => ({ ...event.payload.attachment, path: "" }));
+      return { reply, ...(attachments.length ? { attachments } : {}) };
     } finally { signal?.removeEventListener("abort", abort); this.teamExecutions.delete(run); this.executionGrants.delete(selection); }
   }
   async teamApprovals(run) {
@@ -229,6 +230,7 @@ export class NativeRuntime {
       if (this.turns.gated) throw new Error("Native runtime admission is closed");
       this.state.updateConversation(params.conversation, actor, authorization.binding,
         operation.endsWith("delete") ? { deleted: true } : params.patch);
+      if (operation.endsWith("delete")) await this.artifacts?.removeConversation(params.conversation);
       return { ok: true };
     }
     if (operation === "jobs.run") {

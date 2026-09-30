@@ -106,3 +106,7 @@ publication and pilot acceptance are unfinished. Protocol initialization
 and recovery rehearsal on native ARM64 do not establish real model inference or
 the representative four-job workload on an 8GB Pi. No native runtime image is
 approved for automatic migration by this ADR.
+
+Native browsing and private attachment delivery are specified in
+[ADR 0041](0041-native-browser-and-artifacts.md). This replaces the historical
+Gateway-managed browser/media path for native CLI turns.

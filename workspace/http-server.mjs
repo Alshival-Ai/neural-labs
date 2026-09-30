@@ -416,6 +416,7 @@ function voiceApiError(response, error, method) {
 export function createWorkspaceHttpServer({
   desktopRoot,
   nativeRuntime,
+  nativeArtifacts,
   requireSignedRequests = false,
   nativeEditors,
   workspaceRoot,
@@ -729,6 +730,42 @@ export function createWorkspaceHttpServer({
         sendPreview(response, file, method, assetSource);
       } catch (error) {
         fileApiError(response, error, method);
+      }
+      return;
+    }
+
+    if (pathname.startsWith('/workspace/api/native/artifacts/')) {
+      const actor = request.headers['x-forwarded-user'];
+      if (!actor || !nativeArtifacts || !['GET','HEAD','POST'].includes(method)) { sendJson(response, 404, { error: { code: 'artifact_unavailable' } }, method); return; }
+      if (method === 'POST' && request.headers.origin !== publicOrigin) { sendJson(response, 403, { error: { code: 'same_origin_required' } }, method); return; }
+      try {
+        const id = pathname.slice('/workspace/api/native/artifacts/'.length);
+        const artifact = await nativeArtifacts.get(id, actor);
+        if (method === 'POST') {
+          const body = await readJsonBody(request, 16384);
+          if (typeof body.destination !== 'string' || typeof body.name !== 'string' || body.conflict !== undefined && !['replace','keep-both'].includes(body.conflict)) throw new WorkspaceFileError(400, 'invalid_import', 'Choose a destination and filename');
+          await explorer.ready;
+          sendJson(response, 200, await explorer.upload(actor, body.destination, body.name, Readable.from([artifact.data]), { conflict: body.conflict }), method);
+        } else {
+          const inline = /^(image|audio|video)\//.test(artifact.type) && url.searchParams.get('download') !== '1';
+          const range = previewByteRange(request.headers.range, artifact.size);
+          response.setHeader('Cache-Control', 'private, no-store');
+          response.setHeader('X-Content-Type-Options', 'nosniff');
+          response.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+          response.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+          response.setHeader('Content-Type', artifact.type);
+          response.setHeader('Content-Disposition', inline ? 'inline' : contentDisposition(artifact.name));
+          response.setHeader('Accept-Ranges', 'bytes');
+          if (range === false) { response.writeHead(416, { 'Content-Range': `bytes */${artifact.size}` }); response.end(); }
+          else {
+            const data = range ? artifact.data.subarray(range.start, range.end + 1) : artifact.data;
+            if (range) response.setHeader('Content-Range', `bytes ${range.start}-${range.end}/${artifact.size}`);
+            response.setHeader('Content-Length', data.length); response.writeHead(range ? 206 : 200); response.end(method === 'HEAD' ? undefined : data);
+          }
+        }
+      } catch (error) {
+        if (error instanceof WorkspaceFileError) fileApiError(response, error, method);
+        else sendJson(response, 404, { error: { code: 'artifact_unavailable', message: 'This attachment is unavailable' } }, method);
       }
       return;
     }

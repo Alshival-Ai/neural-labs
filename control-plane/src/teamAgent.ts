@@ -99,14 +99,14 @@ export class TeamAgentProcessor {
         body: JSON.stringify({ channelId: run.channelId, ...(run.terminalContextToken ? { terminalContextToken: run.terminalContextToken } : {}), prompt: buildPrompt(context), trigger: context.trigger.body, capability: run.capability, userId: run.requestedBy, runId: run.id, ...(run.modelSettings ? { modelSettings: run.modelSettings } : {}) }),
         signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10 * 60 * 1000)]),
       });
-      const payload = await response.json().catch(() => undefined) as { reply?: unknown; activities?: unknown; error?: { message?: unknown } } | undefined;
+      const payload = await response.json().catch(() => undefined) as { reply?: unknown; attachments?: unknown; activities?: unknown; error?: { message?: unknown } } | undefined;
       if (!response.ok || typeof payload?.reply !== "string" || !payload.reply.trim()) {
         throw new Error(typeof payload?.error?.message === "string" ? payload.error.message : `Workspace Alshival runner returned HTTP ${response.status}`);
       }
       await this.store.saveRunActivities(run.id, payload.activities);
-      const message = await this.store.agentPosted(run.id)
+      const message = await this.store.agentPosted(run.id) && !(Array.isArray(payload.attachments) && payload.attachments.length)
         ? await this.store.agentMessage(run.id)
-        : await this.store.postAgentMessage(run.capability, payload.reply);
+        : await this.store.postAgentMessage(run.capability, payload.reply, Array.isArray(payload.attachments) ? payload.attachments : [], true);
       if (message) await this.publish({ type: "message.created", channelId: run.channelId, message });
       await this.publish({ type: "channels.changed", channelId: run.channelId });
       const completed = await this.store.finishRun(run.id);

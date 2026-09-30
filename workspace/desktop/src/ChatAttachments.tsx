@@ -11,6 +11,7 @@ import "./preview-app.css";
 
 export type ChatAttachment = NeuraAttachment | TeamAttachment;
 type RefreshAttachment = (attachment: ChatAttachment) => Promise<ChatAttachment>;
+const artifactPrefix = "/workspace/api/native/artifacts/";
 const mediaPrefix = "/workspace/api/neura/media/outgoing/";
 const errorCode = (error: unknown) => (error as { code?: string })?.code;
 const errorStatus = (error: unknown) => (error as { status?: number })?.status;
@@ -21,7 +22,7 @@ function sourceUrl(item: ChatAttachment): string | undefined {
   if (/^(data:|blob:)/i.test(item.url)) return item.url;
   let url: URL;
   try { url = new URL(item.url, window.location.origin); } catch { return undefined; }
-  if (url.origin === window.location.origin && (url.pathname.startsWith(mediaPrefix) || url.pathname === "/workspace/api/files/content" || url.pathname === "/workspace/api/files/download")) return url.pathname + url.search;
+  if (url.origin === window.location.origin && (url.pathname.startsWith(mediaPrefix) || url.pathname.startsWith(artifactPrefix) || url.pathname === "/workspace/api/files/content" || url.pathname === "/workspace/api/files/download")) return url.pathname + url.search;
   return undefined;
 }
 function isImage(item: ChatAttachment) { return item.type?.startsWith("image/") || /\.(avif|bmp|gif|jpe?g|png|svg|webp)$/i.test(item.name); }
@@ -113,7 +114,7 @@ function AttachmentCard({ attachment, notify, storageNamespace, refreshAttachmen
         if (current.path) { clickDownload(workspaceDownloadUrl(current.path), current.name); return; }
         const url = sourceUrl(current);
         if (!url) throw new Error("This attachment is still loading or no longer available.");
-        if (url.startsWith(mediaPrefix)) {
+        if (url.startsWith(mediaPrefix) || url.startsWith(artifactPrefix)) {
           const target = new URL(url, window.location.origin);
           target.searchParams.set("download", "1"); target.searchParams.set("name", current.name);
           const probe = await fetch(target, { method: "HEAD", credentials: "same-origin", signal: lifetime.current.signal });
@@ -146,6 +147,12 @@ function AttachmentCard({ attachment, notify, storageNamespace, refreshAttachmen
     }
     const url = sourceUrl(current);
     if (!url) throw new Error("This attachment is still loading or no longer available.");
+    if (url.startsWith(artifactPrefix)) {
+      const result = await requestJson<{ item: WorkspaceEntry }>(url, {
+        method: "POST", signal: lifetime.current.signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ destination: directory, name, conflict }),
+      });
+      return result.item.path;
+    }
     if (url.startsWith(mediaPrefix)) {
       const result = await requestJson<{ item: WorkspaceEntry }>("/workspace/api/files/import-neura", {
         method: "POST", signal: lifetime.current.signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mediaUrl: url, destination: directory, name, conflict }),
@@ -189,6 +196,7 @@ function AttachmentCard({ attachment, notify, storageNamespace, refreshAttachmen
       }
       if (event.key === "Tab") setMenu(false);
     }}><button role="menuitem" type="button" disabled={busy} onClick={() => { closeMenu(); setSave(true); }}>Download to Workspace</button><button role="menuitem" type="button" disabled={busy} onClick={() => void download()}>Download</button></div>, document.body)}
+    {item.sourceUrl && /^https?:\/\//.test(item.sourceUrl) && <a href={item.sourceUrl} target="_blank" rel="noopener noreferrer">Source</a>}
     {error && <p className="attachment-error" role="alert">{error}</p>}
     {preview && <ExplorerDialog title="Image preview" onClose={() => setPreview(false)}><div className="preview-canvas is-image chat-image-preview"><img src={url} alt={item.name} onError={() => void imageFailed()} /></div><footer>{actions}<button type="button" onClick={() => setPreview(false)}>Close</button></footer></ExplorerDialog>}
     {save && <SaveAttachmentDialog name={item.name} sourcePath={item.path} storageNamespace={storageNamespace} onClose={() => setSave(false)} onSave={saveToWorkspace} onSaved={(path) => notify(`Saved to Workspace: ${path}`)} />}

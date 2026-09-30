@@ -19,6 +19,8 @@ export type ChannelAudience = "restricted" | "everyone";
 export type ChannelAuthorKind = "user" | "neura" | "system" | "imported_user" | "imported_neura";
 
 export type ChannelAttachment = {
+  url?: string | undefined;
+  artifactId?: string | undefined;
   path: string;
   name: string;
   type?: string | undefined;
@@ -153,6 +155,7 @@ function attachments(value: unknown): ChannelAttachment[] {
     return [{
       path: row.path,
       name: row.name,
+      ...(typeof row.artifactId === "string" && row.url === `/workspace/api/native/artifacts/${row.artifactId}` ? { artifactId: row.artifactId, url: row.url as string } : {}),
       ...(typeof row.type === "string" ? { type: row.type } : {}),
       ...(typeof row.size === "number" ? { size: row.size } : {}),
     }];
@@ -238,11 +241,15 @@ export function invokesTeamAgent(body: string, invokeAgent = true): boolean {
     || /(?:^|[\s([{:;,])\$(?!(?:neura|nerua)(?=$|[^A-Za-z0-9_-]))[A-Za-z][A-Za-z0-9_-]*\b/i.test(body));
 }
 
-function assertAttachments(input: ChannelAttachment[]): ChannelAttachment[] {
+function assertAttachments(input: ChannelAttachment[], native = false): ChannelAttachment[] {
   if (input.length > TEAM_CHAT_LIMITS.attachmentsPerMessage) {
     throw new CollaborationError(422, "too_many_attachments", `A message can include up to ${TEAM_CHAT_LIMITS.attachmentsPerMessage} workspace files.`);
   }
   return input.map((item) => {
+    if (native && typeof item.artifactId === 'string' && /^[a-f0-9-]{36}$/.test(item.artifactId)
+      && item.url === `/workspace/api/native/artifacts/${item.artifactId}` && typeof item.name === 'string' && item.name.length <= 255) {
+      return { path: '', name: item.name, type: item.type, size: item.size, artifactId: item.artifactId, url: item.url };
+    }
     const path = item.path.trim();
     const name = item.name.trim();
     if (!path || path.length > 4096 || path.startsWith("/") || path.split("/").includes("..")) {
@@ -802,7 +809,7 @@ export class CollaborationStore {
     return { channel, trigger: mapped.find((item) => item.id === row.trigger_message_id)!, messages: mapped };
   }
 
-  async postAgentMessage(capability: string, body: string, messageAttachments: ChannelAttachment[] = []): Promise<TeamMessage> {
+  async postAgentMessage(capability: string, body: string, messageAttachments: ChannelAttachment[] = [], native = false): Promise<TeamMessage> {
     const result = await this.pool.query<RunRow>(
       `SELECT * FROM team_agent_runs WHERE capability_hash = $1 AND status = 'running' AND expires_at > now()`,
       [hashToken(capability)],
@@ -810,7 +817,7 @@ export class CollaborationStore {
     const run = result.rows[0];
     if (!run) throw new CollaborationError(403, "agent_capability_invalid", "This Alshival channel capability is invalid or expired.");
     const normalizedBody = body.trim().slice(0, TEAM_CHAT_LIMITS.messageCharacters);
-    const safeAttachments = assertAttachments(messageAttachments);
+    const safeAttachments = assertAttachments(messageAttachments, native);
     if (!normalizedBody && safeAttachments.length === 0) throw new CollaborationError(422, "message_required", "Alshival must write a message or attach a workspace file.");
     const message = await this.insertMessage(this.pool, {
       channelId: run.channel_id,

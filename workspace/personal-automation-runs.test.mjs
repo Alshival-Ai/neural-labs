@@ -6,7 +6,17 @@ import path from "node:path";
 import { PersonalAutomationRuns } from "./personal-automation-runs.mjs";
 import { personalAgentId } from "./personal-openai.mjs";
 import { notificationScheduler } from "./notification-scheduler.mjs";
-import { validateCronAddParams, validateCronUpdateParams } from "@openclaw/gateway-protocol";
+// The native image deliberately excludes Gateway packages. Keep these legacy
+// adapter behavior fixtures runnable after a clean native npm install; the
+// optional upstream schema check runs only in a retained legacy environment.
+const legacyProtocol = await import("@openclaw/gateway-protocol").catch(error => {
+  if (error.code !== 'ERR_MODULE_NOT_FOUND') throw error;
+  return null;
+});
+const { validateCronAddParams, validateCronUpdateParams } = legacyProtocol || {};
+test('retained Gateway schema checks are available in a legacy environment', { skip: !legacyProtocol }, () => {
+  assert.equal(typeof validateCronAddParams, 'function'); assert.equal(typeof validateCronUpdateParams, 'function');
+});
 
 const userId = "11111111-1111-1111-1111-111111111111";
 const actor = { userId, role: "admin", email: "developer@example.com" };
@@ -23,8 +33,8 @@ async function fixture(t, options = {}) {
     calls.push({ method, params });
     if (method === "cron.status") return { enabled: true };
     if (method === "cron.list") return { jobs: structuredClone(jobs), hasMore: false };
-    if (method === "cron.add") { assert.equal(validateCronAddParams(params), true, JSON.stringify(validateCronAddParams.errors)); const child = { ...params, id: "child", state: {} }; jobs.push(child); return { id: child.id }; }
-    if (method === "cron.update") { assert.equal(validateCronUpdateParams(params), true, JSON.stringify(validateCronUpdateParams.errors)); Object.assign(jobs.find(job => job.id === params.id), params.patch); return jobs[1]; }
+    if (method === "cron.add") { if (validateCronAddParams) assert.equal(validateCronAddParams(params), true, JSON.stringify(validateCronAddParams.errors)); const child = { ...params, id: "child", state: {} }; jobs.push(child); return { id: child.id }; }
+    if (method === "cron.update") { if (validateCronUpdateParams) assert.equal(validateCronUpdateParams(params), true, JSON.stringify(validateCronUpdateParams.errors)); Object.assign(jobs.find(job => job.id === params.id), params.patch); return jobs[1]; }
     if (method === "cron.run") { jobs[1].state.runningAtMs = 1000; if (options.uncertain) throw new Error("timeout"); return { ok: true, queued: true }; }
     if (method === "cron.runs") return { entries: entries.filter(row => params.scope !== "job" || row.jobId === params.jobId).slice(params.offset ?? 0, (params.offset ?? 0) + (params.limit ?? 200)) };
     throw new Error(`Unexpected method: ${method}`);

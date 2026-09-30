@@ -20,7 +20,7 @@ const mcpStatusFixture = (ready = true) => ({
   tools: ["google_places_search", "search_gif", "pexels_search_photos"],
 });
 
-async function fixture(ready = true, { nativeRuntime, gatewayAdminRequest, maxUploadBytes, maxTextBytes, mcpReady = true, codeServerReady = true, runTeamAgent, personalOpenAI, modelCatalog, modelPolicies, teamOpenAI, voiceService, turnCredentialProvider, teamChannelAuthorizer, terminalHeartbeatMs, mediaOrigin, mediaFetch, terminalActorResolver, gifProvider, apiProviderRuntime, claudeAccounts, modelAccounts } = {}) {
+async function fixture(ready = true, { nativeArtifacts, nativeRuntime, gatewayAdminRequest, maxUploadBytes, maxTextBytes, mcpReady = true, codeServerReady = true, runTeamAgent, personalOpenAI, modelCatalog, modelPolicies, teamOpenAI, voiceService, turnCredentialProvider, teamChannelAuthorizer, terminalHeartbeatMs, mediaOrigin, mediaFetch, terminalActorResolver, gifProvider, apiProviderRuntime, claudeAccounts, modelAccounts } = {}) {
   const desktopRoot = await mkdtemp(path.join(tmpdir(), "neural-labs-desktop-test-"));
   const workspaceRoot = path.join(desktopRoot, "workspace-root");
   await mkdir(path.join(desktopRoot, "assets"));
@@ -42,6 +42,7 @@ async function fixture(ready = true, { nativeRuntime, gatewayAdminRequest, maxUp
   const server = createWorkspaceHttpServer({
     desktopRoot,
     nativeRuntime,
+    nativeArtifacts,
     workspaceRoot,
     publicOrigin: "https://neural-labs.example.com",
     runtimeReady: async () => ready,
@@ -1441,4 +1442,25 @@ test("members can inspect held automations and run history before connecting an 
   assert.equal(snapshot.jobs[0].enabled, true); assert.equal(snapshot.jobs[0].payload.message, undefined);
   const history = await (await fetch(`${endpoint}/history?job=held-job`, { headers })).json();
   assert.deepEqual(history, { entries: [], next: null });
+});
+
+test("private native artifacts require access and save through confined Files uploads", async () => {
+  const id = "11111111-1111-4111-8111-111111111111";
+  const data = Buffer.from([137,80,78,71,13,10,26,10]);
+  const f = await fixture(true, { nativeArtifacts: { get: async (requested, actor) => {
+    if (requested !== id || actor !== "member") throw new Error("not permitted");
+    return { name: "screenshot.png", type: "image/png", data, size: data.length };
+  } } });
+  try {
+    const url = `${f.origin}/workspace/api/native/artifacts/${id}`;
+    assert.equal((await fetch(url)).status, 404);
+    assert.equal((await fetch(url, { headers: { "x-forwarded-user": "other" } })).status, 404);
+    const image = await fetch(url, { headers: { "x-forwarded-user": "member", range: "bytes=0-3" } });
+    assert.equal(image.status, 206); assert.equal(image.headers.get("cache-control"), "private, no-store");
+    assert.deepEqual(Buffer.from(await image.arrayBuffer()), data.subarray(0,4));
+    const body = JSON.stringify({ destination: "", name: "saved.png" });
+    assert.equal((await fetch(url, { method: "POST", headers: { "x-forwarded-user": "member", "content-type": "application/json" }, body })).status, 403);
+    const saved = await fetch(url, { method: "POST", headers: { "x-forwarded-user": "member", origin: "https://neural-labs.example.com", "content-type": "application/json" }, body });
+    assert.equal(saved.status, 200); assert.deepEqual(await readFile(path.join(f.workspaceRoot, "saved.png")), data);
+  } finally { await f.close(); }
 });

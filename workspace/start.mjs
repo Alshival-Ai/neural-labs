@@ -10,6 +10,9 @@ import { NativeInteractive, interactiveAuthority } from "./native/interactive.mj
 import { NativeEditors } from "./native/editors.mjs";
 import { NativeMaintenance, initializeNativeInstallation, nativePreservationReady } from "./native/maintenance.mjs";
 import { NativeTriggerLoop } from "./native/trigger-loop.mjs";
+import { NativeBrowser } from "./native/browser.mjs";
+import { NativeArtifacts } from "./native/artifacts.mjs";
+import { browserFile, browserPreviews } from "./native/browser-files.mjs";
 import { NativeTools } from "./native/tools.mjs";
 import { NativeSkills } from "./native/skills.mjs";
 import { createSkillsManager } from "./skills-manager.mjs";
@@ -65,6 +68,15 @@ const skills = new NativeSkills({ root: "/run/neural-labs/skills", manager: crea
 const runtime = new NativeRuntime({ stateRoot: root, workspaceRoot, authorize: controlPlaneAuthority({ origin: controlOrigin, token }),
   tools, skills, terminals, spawnPty: pty.spawn, resolveActor });
 runtime.state.recoverInterrupted();
+const artifacts = new NativeArtifacts({ root: path.join(root, 'artifacts'), state: runtime.state,
+  authorize: async (actor, channel) => { if (!await resolveActor(actor)) throw new Error('Workspace access revoked'); if (channel && !(await control('/internal/team-terminal/access', { actorId: actor, channelId: channel })).allowed) throw new Error('Channel access revoked'); } });
+const browser = new NativeBrowser({ root: '/run/neural-labs/browser', artifacts,
+  maxSessions: Number(process.env.NEURAL_LABS_BROWSER_MAX_SESSIONS || 2), maxTabs: Number(process.env.NEURAL_LABS_BROWSER_MAX_TABS || 4),
+  readWorkspaceFile: relative => browserFile(workspaceRoot, relative), preview: browserPreviews(workspaceRoot),
+  deniedHosts: (process.env.NEURAL_LABS_BROWSER_DENIED_HOSTS || '').split(',').map(value => value.trim().toLowerCase()).filter(Boolean),
+});
+await artifacts.reconcile();
+tools.browser = browser; runtime.artifacts = artifacts;
 const interactive = new NativeInteractive({ runtime, authorize: interactiveAuthority({ origin: controlOrigin, token }), resolveActor, spawnPty: pty.spawn });
 terminals.prepareProcess = input => interactive.prepareTerminal(input);
 const editors = new NativeEditors({ interactive });
@@ -87,9 +99,9 @@ await new Promise((resolve, reject) => { mcpServer.once("error", reject); mcpSer
 const mcpStatus = async () => ({ ready: mcpServer.listening, mode: "workspace-local", endpoint: `http://127.0.0.1:${toolsPort}/mcp`,
   transport: "streamable-http", agentServerName: "neural-labs", agentScope: "authenticated-execution", publicAccess: false,
   providerConfiguration: providers.status(), providers: { googlePlaces: providers.status()["google-maps"].available,
-    googleGeocoding: providers.status()["google-maps"].available, klipy: providers.status().klipy.available, pexels: providers.status().pexels.available }, tools: [] });
+    googleGeocoding: providers.status()["google-maps"].available, klipy: providers.status().klipy.available, pexels: providers.status().pexels.available }, tools: ["browser"] });
 const server = createWorkspaceHttpServer({ desktopRoot: "/usr/local/share/neural-labs/desktop", workspaceRoot, publicOrigin,
-  nativeRuntime: runtime, requireSignedRequests: true, nativeEditors: editors, updateMaintenance: maintenance,
+  nativeArtifacts: artifacts, nativeRuntime: runtime, requireSignedRequests: true, nativeEditors: editors, updateMaintenance: maintenance,
   skillLibraryRoots: [path.join(root, "installed-skills")],
   runtimeReady: async () => !stopping && triggers.status().ready, mcpStatus, apiProviderRuntime: providers, terminalManager: terminals,
   terminalActorResolver: resolveActor, workspaceControlToken: token, codexVersion: release.codex, claudeVersion: release.claude,
@@ -105,7 +117,7 @@ async function stop() {
   if (stopping) return; stopping = true;
   runtime.turns.gated = true; runtime.scheduler.closed = true;
   server.close(); providers.close();
-  await triggers.close(); await editors.close(); await runtime.close(); await tools.close();
+  await triggers.close(); await editors.close(); await runtime.close(); await tools.close(); artifacts.close();
   mcpServer.close();
 }
 process.once("SIGINT", () => void stop());

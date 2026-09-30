@@ -320,6 +320,7 @@ function attachmentFromRecord(value: unknown): NonNullable<NeuraMessage["attachm
     name: name ?? (mimeType?.startsWith("image/") ? "Generated image" : "Shared file"),
     type: mimeType ?? "application/octet-stream",
     ...(artifactId ? { artifactId } : {}),
+    ...(typeof record.sourceUrl === "string" && /^https?:\/\//.test(record.sourceUrl) ? { sourceUrl: record.sourceUrl } : {}),
     ...(url ? { url } : {}),
     ...(path ? { path } : {}),
     ...(size !== undefined ? { size } : {}),

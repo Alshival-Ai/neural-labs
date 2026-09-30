@@ -11,7 +11,9 @@
   },
   "dependencies": {
     "@emoji-mart/data": "1.2.1",
+    "ipaddr.js": "2.5.0",
     "node-pty": "1.1.0",
+    "playwright-core": "1.63.0",
     "ws": "8.21.3",
     "y-protocols": "1.0.7",
     "yazl": "3.3.1",

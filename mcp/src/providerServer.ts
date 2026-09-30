@@ -1,3 +1,4 @@
+import { registerBrowserTools, type BrowserAdapter } from "./browserTools.js";
 import { registerTerminalTools, TERMINAL_TOOLS } from "./terminalTools.js";
 import {
   createMcpHandler,
@@ -37,7 +38,8 @@ export function createProviderApplication(
   source: ProviderConfig | (() => ProviderConfig),
   fetchFn: typeof globalThis.fetch = globalThis.fetch,
   runtimeStatus?: () => unknown,
-  authorizeTool?: (name: string) => Promise<void>,
+  authorizeTool?: (name: string, input?: unknown) => Promise<void>,
+  browser?: BrowserAdapter,
 ): ProviderApplication {
   const app = createMcpExpressApp({
     host: "127.0.0.1",
@@ -68,6 +70,7 @@ export function createProviderApplication(
         pexels: pexelsConfigured,
       },
       tools: [
+        ...(browser ? ["browser"] : []),
         ...(googleConfigured ? GOOGLE_TOOLS : []),
         ...(klipyConfigured ? KLIPY_TOOLS : []),
         ...(pexelsConfigured ? PEXELS_TOOLS : []),
@@ -94,7 +97,7 @@ export function createProviderApplication(
         server.registerTool = ((...args: Parameters<McpServer["registerTool"]>) => {
           const [name, definition, callback] = args;
           return register(name, definition, async (...input: Parameters<typeof callback>) => {
-            await authorizeTool(name);
+            await authorizeTool(name, input[0]);
             return callback(...input);
           });
         }) as McpServer["registerTool"];
@@ -104,6 +107,7 @@ export function createProviderApplication(
       registerPexelsTools(server, config, fetchFn);
       registerSmsNotificationTool(server, config, fetchFn);
       registerTerminalTools(server, config, fetchFn);
+      registerBrowserTools(server, browser);
       return server;
     },
     {

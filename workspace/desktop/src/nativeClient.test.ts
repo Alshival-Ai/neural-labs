@@ -40,4 +40,18 @@ describe("native browser transport", () => {
     expect(history[1].attachments?.[0].path).toBe("reports/plot.png");
     expect(JSON.parse(String(request.mock.calls[0][1]?.body)).operation).toBe("events.read");
   });
+  it("replays native artifact events as private attachments", async () => {
+    configure();
+    const attachment = { artifactId: "fixture", name: "screenshot.png", type: "image/png", url: "/workspace/api/native/artifacts/fixture" };
+    const events = [
+      { id: 1, turn_id: "turn", type: "turn-started", payload: { input: [{ type: "text", text: "Screenshot" }] } },
+      { id: 2, turn_id: "turn", type: "artifact-created", payload: { attachment } },
+      { id: 3, turn_id: "turn", type: "turn-completed", payload: { status: "succeeded" } },
+    ];
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ events, cursor: 3 }), { status: 200 }));
+    const history = await new NativeClient().loadHistory("conversation");
+    expect(history[1].attachments).toEqual([attachment]);
+    expect(history[1].attachments?.[0].path).toBeUndefined();
+  });
+
 });
