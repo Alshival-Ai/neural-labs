@@ -19,10 +19,10 @@ export class ProjectGraph {
     // private parents. An edge is visible only when both endpoints are visible.
     await this.items.list(actor, "", 1);
     return (await this.pool.query(`WITH RECURSIVE hidden(id) AS (
-      SELECT id FROM project_items WHERE NOT $1 AND (data->>'visibility'='internal'
+      SELECT id FROM project_items WHERE (kind='board' AND data->>'archived'='true' AND NOT $2) OR NOT $1 AND (data->>'visibility'='internal'
         OR (data->'publication' IS NOT NULL AND data->'publication'<>'null'::jsonb
           AND data->'publication'->>'published'<>'true'))
-      UNION SELECT child.id FROM project_items child JOIN hidden parent ON child.data->>'parent_id'=parent.id::text
+      UNION SELECT child.id FROM project_items child JOIN hidden parent ON child.data->>'parent_id'=parent.id::text OR child.data->>'board_id'=parent.id::text
     ) SELECT edge.* FROM project_edges edge
       JOIN project_items source ON source.id=edge.source_id AND source.kind='task'
       JOIN project_items target ON target.id=edge.target_id AND target.kind='task'

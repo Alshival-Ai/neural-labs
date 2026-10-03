@@ -712,4 +712,12 @@ export const migrations: Migration[] = [
       ALTER TABLE connector_messages ADD COLUMN notification_event uuid REFERENCES notification_events(id);
       CREATE UNIQUE INDEX connector_notification ON connector_messages(notification_event,user_id,channel) WHERE notification_event IS NOT NULL;`,
   },
+  {
+    version: 26,
+    sql: `ALTER TABLE project_statuses ADD COLUMN board_id uuid REFERENCES project_items(id);
+      DROP INDEX project_status_legacy;
+      CREATE UNIQUE INDEX project_status_legacy ON project_statuses(COALESCE(board_id,'00000000-0000-0000-0000-000000000000'::uuid),legacy_state) WHERE legacy_state<>'';
+      CREATE INDEX project_board ON project_items((data->>'board_id'));
+      UPDATE project_storage SET revision=revision+1;`,
+  },
 ];

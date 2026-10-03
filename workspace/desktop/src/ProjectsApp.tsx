@@ -5,12 +5,12 @@ type ItemData = {
   title: string; body: string; status_id: string | null; state: string; visibility: string; priority: string; acceptance: string;
   assignee: string | null; reviewer: string | null; starts_on: string | null; due_on: string | null;
   position: { x: number; y: number } | null;
-  parent_id: string | null; archived: boolean; deleted: boolean; color: string;
+  board_id?: string | null; parent_id: string | null; archived: boolean; deleted: boolean; color: string;
   checklist: Array<{ id: string; text: string; done: boolean }>; details: Record<string, string>;
 };
 type Item = { id: string; kind: string; revision: number; data: ItemData; author_id: string; updated_at: string };
 type Edge = { id: string; source_id: string; target_id: string; kind: "depends_on" | "related" };
-type Status = { id: string; revision: number; name: string; color: string; category: string; legacy_state: string; position: number; is_default: boolean; retired: boolean; replacement_id: string | null };
+type Status = { board_id?: string | null; id: string; revision: number; name: string; color: string; category: string; legacy_state: string; position: number; is_default: boolean; retired: boolean; replacement_id: string | null };
 type Member = { id: string; display_name: string };
 const states = ["todo", "doing", "waiting", "review", "done"];
 const labels: Record<string, string> = { todo: "To do", doing: "In progress", waiting: "Waiting", review: "Review", done: "Done" };
@@ -46,6 +46,8 @@ export function ProjectsApp() {
   const [edges, setEdges] = useState<Edge[]>([]);
   const [view, setView] = useState<"board" | "graph" | "timeline" | "activity" | "trash">("board");
   const [members, setMembers] = useState<Member[]>([]);
+  const [activeBoard, setActiveBoard] = useState("");
+  const [boards, setBoards] = useState<Item[]>([]);
   const [kind, setKind] = useState("task");
   const [error, setError] = useState("");
   const [connected, setConnected] = useState(false);
@@ -66,8 +68,9 @@ export function ProjectsApp() {
         all.push(...page.items); after = page.next ?? "";
       } while (after);
       const links = await api<{ edges: Edge[] }>("/edges");
+      const boardList = await api<{ boards: Item[] }>("/boards");
       const catalog = await api<{ statuses: Status[]; can_manage: boolean }>("/statuses");
-      if (request === serial.current) { setItems(all); setEdges(links.edges ?? []); setStatuses(catalog.statuses); setManageStatuses(catalog.can_manage); }
+      if (request === serial.current) { setItems(all); setEdges(links.edges ?? []); setStatuses(catalog.statuses); setManageStatuses(catalog.can_manage); setBoards(boardList.boards ?? []); }
     } catch (reason) { if (request === serial.current) setError((reason as Error).message); }
   }, []);
   useEffect(() => {
@@ -84,11 +87,19 @@ export function ProjectsApp() {
     connect();
     return () => { stopped = true; clearTimeout(timer); socket?.close(); };
   }, [refresh]);
+  useEffect(() => {
+    const active = boards.filter(board => !board.data.archived);
+    const legacyItems = items.some(item => item.kind !== "board" && !item.data.board_id);
+    if ((activeBoard && !active.some(board => board.id === activeBoard)) || (!activeBoard && !legacyItems && active.length)) {
+      setActiveBoard(active[0]?.id ?? ""); setSelected(null); setNoteParent(null);
+    }
+  }, [boards, items, activeBoard]);
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError("");
     const fields = new FormData(event.currentTarget);
     const data: Record<string, unknown> = {};
     for (const [name, value] of fields) data[name] = ["assignee", "reviewer", "starts_on", "due_on", "parent_id"].includes(name) ? value || null : value;
+    data.board_id = data.board_id ?? selected?.data.board_id ?? (activeBoard || null);
     try {
       const item = selected ? await api<Item>(`/items/${selected.id}`, "PATCH", { idempotency_key: crypto.randomUUID(), revision: selected.revision, data })
         : await api<Item>("/items", "POST", { idempotency_key: crypto.randomUUID(), kind, data });
@@ -122,28 +133,31 @@ export function ProjectsApp() {
     catch (reason) { setError((reason as Error).message); }
     finally { setBusy(false); }
   }
-  const visible = items.filter(item => item.kind === kind && !item.data.deleted && item.data.archived === showArchived);
-  const tasks = items.filter(item => item.kind === "task" && !item.data.deleted && !item.data.archived);
-  const taskById = new Map(tasks.map(item => [item.id, item]));
+  const boardStatuses = statuses.filter(status => (status.board_id ?? "") === activeBoard);
+  const visible = items.filter(item => (item.data.board_id ?? "") === activeBoard && item.kind === kind && !item.data.deleted && item.data.archived === showArchived);
+  const allTasks = items.filter(item => item.kind === "task" && !item.data.deleted && !item.data.archived);
+  const tasks = allTasks.filter(item => (item.data.board_id ?? "") === activeBoard);
+  const taskById = new Map(allTasks.map(item => [item.id, item]));
   const links = selected?.kind === "task" ? edges.filter(edge => edge.source_id === selected.id || edge.target_id === selected.id) : [];
   const unresolved = selected?.kind === "task" ? edges.filter(edge => edge.kind === "depends_on" && edge.source_id === selected.id && taskById.get(edge.target_id)?.data.state !== "done") : [];
   const newest = selected && items.find(item => item.id === selected.id);
   return <section className="projects-app" aria-label="Project management">
     <header><div><h1>Projects</h1><span role="status">{connected ? "Live updates connected" : "Reconnecting to your environment…"}</span></div><button type="button" onClick={() => { setSelected(null); setEvents([]); }}>New {kind}</button></header>
+    <label>Project board<select value={activeBoard} onChange={event => { setActiveBoard(event.target.value); setSelected(null); setNoteParent(null); }}><option value="">Workspace board</option>{boards.filter(board => !board.data.archived).map(board => <option key={board.id} value={board.id}>{board.data.title}</option>)}</select></label>
     <nav aria-label="Project sections">{["board", "graph", "timeline", "activity", "trash"].map(value => <button type="button" key={value} aria-pressed={view === value} onClick={() => { setView(value as typeof view); setKind("task"); }}>{value[0].toUpperCase() + value.slice(1)}</button>)}{["deliverable", "note", "resource"].map(value => <button type="button" key={value} aria-pressed={kind === value && view === "board"} onClick={() => { setView("board"); setKind(value); setSelected(null); }}>{`${value[0].toUpperCase()}${value.slice(1)}s`}</button>)}<label><input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)} />Archived</label></nav>
     {error && <p role="alert">{error}</p>}
     <div className="projects-layout"><div className="projects-board">{view === "graph" ? <TaskGraph tasks={tasks} edges={edges} open={setSelected} />
       : view === "timeline" ? <div className="projects-timeline">{tasks.filter(task => task.data.starts_on || task.data.due_on).sort((a,b) => (a.data.starts_on ?? a.data.due_on ?? "").localeCompare(b.data.starts_on ?? b.data.due_on ?? "")).map(task => <button key={task.id} onClick={() => setSelected(task)}>{task.data.starts_on ?? "…"} → {task.data.due_on ?? "…"} · {task.data.title}</button>)}</div>
-      : view === "activity" ? <div className="projects-timeline">{items.slice().sort((a,b) => b.updated_at.localeCompare(a.updated_at)).map(item => <button key={item.id} onClick={() => setSelected(item)}>{new Date(item.updated_at).toLocaleString()} · {item.data.title}</button>)}</div>
-      : view === "trash" ? <div className="projects-timeline">{items.filter(item => item.data.deleted || item.data.archived).map(item => <button key={item.id} onClick={() => setSelected(item)}>{item.data.title} · {item.data.deleted ? "Deleted" : "Archived"}</button>)}</div>
+      : view === "activity" ? <div className="projects-timeline">{items.filter(item => item.kind !== "board" && (item.data.board_id ?? "") === activeBoard).slice().sort((a,b) => b.updated_at.localeCompare(a.updated_at)).map(item => <button key={item.id} onClick={() => setSelected(item)}>{new Date(item.updated_at).toLocaleString()} · {item.data.title}</button>)}</div>
+      : view === "trash" ? <div className="projects-timeline">{items.filter(item => (item.data.board_id ?? "") === activeBoard && (item.data.deleted || item.data.archived)).map(item => <button key={item.id} onClick={() => setSelected(item)}>{item.data.title} · {item.data.deleted ? "Deleted" : "Archived"}</button>)}</div>
       : kind === "note" ? <StickyCanvas move={(note, position) => void change(note, { position })} notes={visible.filter(note => !note.data.parent_id)} open={setSelected} />
-      : (kind === "task" ? statuses.filter(status => !status.retired).map(status => status.id) : [""]).map(state => <section className="projects-column" key={state}><h2>{statuses.find(status => status.id === state)?.name ?? `${kind[0].toUpperCase()}${kind.slice(1)}s`}</h2>{visible.filter(item => !state || item.data.status_id === state).map(item => <button className="projects-card" type="button" key={item.id} onClick={() => { setSelected(item); setEvents([]); }}><strong>{item.data.title}</strong><span>{item.data.body.slice(0, 160)}</span><small>{item.data.priority} {item.data.due_on && `· Due ${item.data.due_on}`}</small></button>)}</section>)}</div>
+      : (kind === "task" ? boardStatuses.filter(status => !status.retired).map(status => status.id) : [""]).map(state => <section className="projects-column" key={state}><h2>{statuses.find(status => status.id === state)?.name ?? `${kind[0].toUpperCase()}${kind.slice(1)}s`}</h2>{visible.filter(item => !state || item.data.status_id === state).map(item => <button className="projects-card" type="button" key={item.id} onClick={() => { setSelected(item); setEvents([]); }}><strong>{item.data.title}</strong><span>{item.data.body.slice(0, 160)}</span><small>{item.data.priority} {item.data.due_on && `· Due ${item.data.due_on}`}</small></button>)}</section>)}</div>
       <aside><h2>{selected ? "Edit item" : `New ${kind}`}</h2>
         {newest && newest.revision !== selected?.revision && <p role="alert">This item changed. <button type="button" onClick={() => setSelected(newest)}>Load current version</button></p>}
         <form key={selected ? `${selected.id}:${selected.revision}` : kind} onSubmit={save}>
           <label>Title<input required name="title" maxLength={200} defaultValue={selected?.data.title ?? ""} /></label>
           <label>Description<textarea name="body" maxLength={20000} defaultValue={selected?.data.body ?? ""} /></label>
-          {kind === "task" ? <label>Status<select name="status_id" defaultValue={selected?.data.status_id ?? statuses.find(status => status.is_default)?.id}>{statuses.filter(status => !status.retired).map(status => <option key={status.id} value={status.id}>{status.name}</option>)}</select></label> : <label>Status<select name="state" defaultValue={selected?.data.state ?? "todo"}>{states.map(value => <option key={value} value={value}>{labels[value]}</option>)}</select></label>}
+          {kind === "task" ? <label>Status<select name="status_id" defaultValue={selected?.data.status_id ?? boardStatuses.find(status => status.is_default)?.id}>{boardStatuses.filter(status => !status.retired).map(status => <option key={status.id} value={status.id}>{status.name}</option>)}</select></label> : <label>Status<select name="state" defaultValue={selected?.data.state ?? "todo"}>{states.map(value => <option key={value} value={value}>{labels[value]}</option>)}</select></label>}
           <label>Priority<select name="priority" defaultValue={selected?.data.priority ?? "normal"}>{["low", "normal", "high", "urgent"].map(value => <option key={value}>{value}</option>)}</select></label>
           {["assignee", "reviewer"].map(name => <label key={name}>{name === "assignee" ? "Assigned to" : "Reviewer"}<select name={name} defaultValue={selected?.data[name as "assignee" | "reviewer"] ?? ""}><option value="">Unassigned</option>{members.map(member => <option key={member.id} value={member.id}>{member.display_name}</option>)}</select></label>)}
           <label>Starts<input type="date" name="starts_on" defaultValue={selected?.data.starts_on ?? ""} /></label><label>Due<input type="date" name="due_on" defaultValue={selected?.data.due_on ?? ""} /></label>
@@ -152,12 +166,19 @@ export function ProjectsApp() {
           <button disabled={busy} type="submit">{busy ? "Saving…" : "Save"}</button>
         </form>
         {selected && <><div className="projects-actions"><button disabled={busy} onClick={() => void change(selected, { archived: !selected.data.archived })}>{selected.data.archived ? "Restore" : "Archive"}</button>{selected.data.state === "review" && <><button disabled={busy} onClick={() => void change(selected, {}, "approve")}>Accept review</button><button disabled={busy} onClick={() => void change(selected, {}, "changes")}>Request changes</button></>}<button onClick={() => void api<{ events: typeof events }>(`/items/${selected.id}/history`).then(value => setEvents(value.events)).catch(reason => setError(reason.message))}>History</button></div>
-        {selected.kind === "task" && <section className="projects-related"><h3>Task graph</h3>{unresolved.length > 0 && <p role="status">Waiting on {unresolved.length} linked task{unresolved.length === 1 ? "" : "s"}; status changes remain available.</p>}{links.map(edge => <p key={edge.id}>{edge.kind === "related" ? "Related" : edge.source_id === selected.id ? "Depends on" : "Required by"}: {taskById.get(edge.source_id === selected.id ? edge.target_id : edge.source_id)?.data.title ?? "Task"} <button disabled={busy} type="button" onClick={() => void unlink(edge.id)}>Remove</button></p>)}<form onSubmit={link}><label>Link task<select name="target_id" required defaultValue=""><option value="">Choose a task</option>{tasks.filter(task => task.id !== selected.id).map(task => <option key={task.id} value={task.id}>{task.data.title}</option>)}</select></label><label>Relationship<select name="kind"><option value="related">Related</option><option value="depends_on">Depends on</option></select></label><button disabled={busy}>Add link</button></form><h3>Checklist</h3>{(selected.data.checklist ?? []).map((entry, index) => <label key={entry.id}><input type="checkbox" checked={entry.done} onChange={() => void change(selected, { checklist: (selected.data.checklist ?? []).map((value, at) => at === index ? { ...value, done: !value.done } : value) })} />{entry.text}</label>)}<form onSubmit={event => { event.preventDefault(); const input = event.currentTarget.elements.namedItem("checklist_text") as HTMLInputElement; const value = input.value.trim(); if (value) void change(selected, { checklist: [...(selected.data.checklist ?? []), { id: crypto.randomUUID(), text: value, done: false }] }); input.value = ""; }}><label>Add checklist item<input name="checklist_text" maxLength={500} required /></label><button disabled={busy}>Add</button></form><h3>Sticky notes</h3><StickyCanvas move={(note, position) => void change(note, { position })} notes={items.filter(item => item.kind === "note" && item.data.parent_id === selected.id && !item.data.deleted)} open={note => { setKind("note"); setSelected(note); }} /><button onClick={() => { setNoteParent(selected.id); setKind("note"); setSelected(null); }}>Add task note</button></section>}
+        {selected.kind === "task" && <section className="projects-related"><h3>Task graph</h3>{unresolved.length > 0 && <p role="status">Waiting on {unresolved.length} linked task{unresolved.length === 1 ? "" : "s"}; status changes remain available.</p>}{links.map(edge => <p key={edge.id}>{edge.kind === "related" ? "Related" : edge.source_id === selected.id ? "Depends on" : "Required by"}: {taskById.get(edge.source_id === selected.id ? edge.target_id : edge.source_id)?.data.title ?? "Task"} <button disabled={busy} type="button" onClick={() => void unlink(edge.id)}>Remove</button></p>)}<form onSubmit={link}><label>Link task<select name="target_id" required defaultValue=""><option value="">Choose a task</option>{allTasks.filter(task => task.id !== selected.id).map(task => <option key={task.id} value={task.id}>{task.data.title}</option>)}</select></label><label>Relationship<select name="kind"><option value="related">Related</option><option value="depends_on">Depends on</option></select></label><button disabled={busy}>Add link</button></form><h3>Checklist</h3>{(selected.data.checklist ?? []).map((entry, index) => <label key={entry.id}><input type="checkbox" checked={entry.done} onChange={() => void change(selected, { checklist: (selected.data.checklist ?? []).map((value, at) => at === index ? { ...value, done: !value.done } : value) })} />{entry.text}</label>)}<form onSubmit={event => { event.preventDefault(); const input = event.currentTarget.elements.namedItem("checklist_text") as HTMLInputElement; const value = input.value.trim(); if (value) void change(selected, { checklist: [...(selected.data.checklist ?? []), { id: crypto.randomUUID(), text: value, done: false }] }); input.value = ""; }}><label>Add checklist item<input name="checklist_text" maxLength={500} required /></label><button disabled={busy}>Add</button></form><h3>Sticky notes</h3><StickyCanvas move={(note, position) => void change(note, { position })} notes={items.filter(item => item.kind === "note" && item.data.parent_id === selected.id && !item.data.deleted)} open={note => { setKind("note"); setSelected(note); }} /><button onClick={() => { setNoteParent(selected.id); setKind("note"); setSelected(null); }}>Add task note</button></section>}
         {events.map(event => <p key={event.sequence}>{event.operation} · {new Date(event.created_at).toLocaleString()}</p>)}
         <h3>Replies</h3>{items.filter(item => item.kind === "comment" && item.data.parent_id === selected.id).map(item => <p key={item.id}>{item.data.body}</p>)}
         <form onSubmit={event => { event.preventDefault(); const form = event.currentTarget; const body = String(new FormData(form).get("reply") ?? ""); setBusy(true); void api("/items", "POST", { idempotency_key: crypto.randomUUID(), kind: "comment", data: { title: "Reply", body, parent_id: selected.id, visibility: selected.data.visibility } }).then(() => { form.reset(); return refresh(); }).catch(reason => setError(reason.message)).finally(() => setBusy(false)); }}><label>Reply<textarea name="reply" required /></label><button disabled={busy}>Add reply</button></form></>}
       </aside></div>
-    {manageStatuses && <details><summary>Board statuses</summary><StatusEditor statuses={statuses} onSave={async (input) => { try { await api("/statuses", "POST", input); await refresh(); } catch (reason) { setError((reason as Error).message); } }} /></details>}
+    {manageStatuses && <details><summary>Manage project boards</summary><form onSubmit={event => {
+      event.preventDefault(); const name = String(new FormData(event.currentTarget).get("name") ?? "").trim();
+      void api<Item>("/items", "POST", { idempotency_key: crypto.randomUUID(), kind: "board", data: { title: name } })
+        .then(board => { setActiveBoard(board.id); return refresh(); }).catch(reason => setError(reason.message));
+    }}><label>Board name<input name="name" maxLength={120} required /></label><button disabled={busy}>Create board</button></form>
+      {boards.map(board => <p key={board.id}>{board.data.title} <button disabled={busy} onClick={() => void change(board, { archived: !board.data.archived })}>{board.data.archived ? "Restore board" : "Archive board"}</button></p>)}
+    </details>}
+    {manageStatuses && <details><summary>Board statuses</summary><StatusEditor key={activeBoard} statuses={statuses.filter(status => (status.board_id ?? "") === activeBoard)} onSave={async (input) => { try { await api("/statuses", "POST", { ...(input as Record<string, unknown>), data: { ...((input as { data: Record<string, unknown> }).data), board_id: activeBoard || null } }); await refresh(); } catch (reason) { setError((reason as Error).message); } }} /></details>}
     <details><summary>API &amp; MCP connections</summary><p>API: <code>{location.origin}/api/projects</code><br />MCP: <code>{location.origin}/api/projects/mcp</code></p><p>Credentials belong to your user and expire after 30 days.</p>
     <button onClick={() => void api<{ id: string; token: string }>("/keys", "POST", { name: "Project client", scopes: ["project:read", "project:write"] }).then(value => setKey(value.token)).catch(reason => setError(reason.message))}>Create credential</button>
     {manageStatuses && <button onClick={() => void api<{ id: string; token: string }>("/keys", "POST", { name: "Graph sync", scopes: ["project:read", "project:write", "project:sync"] }).then(value => setKey(value.token)).catch(reason => setError(reason.message))}>Create sync credential</button>}

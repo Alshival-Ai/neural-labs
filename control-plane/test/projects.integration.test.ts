@@ -30,6 +30,37 @@ const url = process.env.TEST_DATABASE_URL;
     owner.status = member.status = reviewer.status = "active";
   });
   afterAll(async () => { await database?.close(); if (root) { await root.query(`DROP SCHEMA ${schema} CASCADE`); await root.end(); } });
+  it("owns separate board workflows, hides archived contents and preserves cross-board links", async () => {
+    const admin = { ...owner, role: "admin" as const, projectPlan: true, projectInternal: true };
+    const createBoard = (title: string) => store.mutate(admin, "create", null, { idempotency_key: randomUUID(), kind: "board", data: { title } });
+    await expect(store.mutate(member, "create", null, { idempotency_key: randomUUID(), kind: "board", data: { title: "Forbidden" } }))
+      .rejects.toMatchObject({ code: "board_manager_required" });
+    const a = await createBoard("Board A"), b = await createBoard("Board B");
+    const statuses = new ProjectStatuses(pool);
+    const aDefault = (await statuses.list(admin)).find(row => row.board_id === a.id && row.is_default)!;
+    const bDefault = (await statuses.list(admin)).find(row => row.board_id === b.id && row.is_default)!;
+    expect(aDefault.id).not.toBe(bDefault.id);
+    const first = await store.mutate(member, "create", null, { idempotency_key: randomUUID(), kind: "task", data: { title: "First board task", board_id: a.id } });
+    const second = await store.mutate(member, "create", null, { idempotency_key: randomUUID(), kind: "task", data: { title: "Second board task", board_id: b.id } });
+    const note = await store.mutate(member, "create", null, { idempotency_key: randomUUID(), kind: "note", data: { title: "Following note", parent_id: first.id } });
+    expect(note.data.board_id).toBe(a.id);
+    await expect(store.mutate(member, "update", first.id, { idempotency_key: randomUUID(), revision: first.revision, data: { status_id: bDefault.id } }))
+      .rejects.toMatchObject({ code: "invalid_status" });
+    const graph = new ProjectGraph(pool, store);
+    const edge = await graph.create(member, { idempotency_key: randomUUID(), source_id: first.id, target_id: second.id, kind: "related" });
+    const moved = await store.mutate(member, "update", first.id, { idempotency_key: randomUUID(), revision: first.revision, data: { board_id: b.id, status_id: bDefault.id } });
+    expect(moved.id).toBe(first.id); expect((await store.get(member, note.id)).data.board_id).toBe(b.id);
+    const archived = await store.mutate(admin, "update", b.id, { idempotency_key: randomUUID(), revision: b.revision, data: { archived: true } });
+    expect((await store.list(member)).some(row => [first.id, second.id, note.id].includes(row.id))).toBe(false);
+    await expect(store.get(member, first.id)).rejects.toMatchObject({ code: "board_archived" });
+    expect((await graph.list(member)).some(row => row.id === edge.id)).toBe(false);
+    expect((await statuses.list(member)).some(row => row.board_id === b.id)).toBe(false);
+    expect((await store.list({ ...admin, projectSync: true })).some(row => row.id === first.id)).toBe(true);
+    await store.mutate(admin, "update", b.id, { idempotency_key: randomUUID(), revision: archived.revision, data: { archived: false } });
+    expect((await store.get(member, first.id)).id).toBe(first.id);
+    expect((await graph.list(member)).some(row => row.id === edge.id)).toBe(true);
+    await graph.remove(admin, edge.id);
+  });
   it("rejects private graph records for administrators and members", async () => {
     for (const actor of [owner, member]) {
       await expect(store.mutate(actor, "create", null, { idempotency_key: randomUUID(), kind: "task",
@@ -168,7 +199,7 @@ const url = process.env.TEST_DATABASE_URL;
     const catalog = new ProjectStatuses(pool), manager = { ...owner, role: "admin" as const };
     const status = await catalog.save(manager, { revision: 0, data: { name: "QA", color: "teal", category: "doing", position: 20, is_default: false } });
     const task = await store.mutate(member, "create", null, { idempotency_key: randomUUID(), kind: "task", data: { title: "QA task", status_id: status.id } });
-    const replacement = (await catalog.list()).find(row => row.legacy_state === "waiting");
+    const replacement = (await catalog.list()).find(row => !row.board_id && row.legacy_state === "waiting");
     await expect(catalog.save(member, { id: status.id, revision: status.revision, data: { ...status, name: "Changed" } })).rejects.toMatchObject({ status: 403 });
     const data = { name: status.name, color: status.color, category: status.category, position: status.position, is_default: false, retired: true, replacement_id: replacement.id };
     await catalog.save(manager, { id: status.id, revision: status.revision, data });

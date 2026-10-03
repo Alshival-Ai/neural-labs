@@ -17,6 +17,7 @@ export const projectFields = z.object({
   assignee: z.string().uuid().nullable().default(null), reviewer: z.string().uuid().nullable().default(null),
   starts_on: z.iso.date().nullable().default(null), due_on: z.iso.date().nullable().default(null),
   parent_id: z.string().uuid().nullable().default(null),
+  board_id: z.string().uuid().nullable().optional(),
   color: z.enum(["yellow", "blue", "pink", "green", "orange", "purple", "teal", "gray"]).default("gray"),
   details: z.record(z.string().max(120), z.string().max(2000)).default({}),
   archived: z.boolean().default(false),
@@ -33,7 +34,7 @@ export const projectFields = z.object({
 
 }).strict();
 export const createProjectItem = z.object({
-  idempotency_key: z.string().uuid(), kind: z.enum(["task", "deliverable", "note", "resource", "ticket", "comment"]),
+  idempotency_key: z.string().uuid(), kind: z.enum(["task", "deliverable", "note", "resource", "ticket", "comment", "board"]),
   sync_id: z.string().uuid().optional(),
   sync_author_id: z.string().uuid().optional(),
   sync_created_at: z.iso.datetime({ offset: true }).optional(),
@@ -78,24 +79,35 @@ export class ProjectStore {
     requireActive(actor);
     await this.requireReadable();
     return (await this.pool.query(`WITH RECURSIVE hidden(id) AS (
-      SELECT id FROM project_items WHERE NOT $1 AND (data->>'visibility'='internal'
+      SELECT id FROM project_items WHERE (kind='board' AND data->>'archived'='true' AND NOT $4) OR NOT $1 AND (data->>'visibility'='internal'
         OR (data->'publication' IS NOT NULL AND data->'publication'<>'null'::jsonb AND data->'publication'->>'published'<>'true'))
-      UNION SELECT child.id FROM project_items child JOIN hidden parent ON child.data->>'parent_id'=parent.id::text
+      UNION SELECT child.id FROM project_items child JOIN hidden parent ON child.data->>'parent_id'=parent.id::text OR child.data->>'board_id'=parent.id::text
     ) SELECT * FROM project_items WHERE id NOT IN (SELECT id FROM hidden)
-      AND id::text > $2 ORDER BY id::text LIMIT $3`, [internalAccess(actor), after, Math.min(100, Math.max(1, limit))])).rows.map(item => projectProjection(actor, item));
+      AND id::text > $2 ORDER BY id::text LIMIT $3`, [internalAccess(actor), after, Math.min(100, Math.max(1, limit)), actor.projectSync === true])).rows.map(item => projectProjection(actor, item));
   }
   async get(actor: ProjectActor, id: string, client: Pool | PoolClient = this.pool): Promise<ProjectItem> {
     requireActive(actor);
     await this.requireReadable(client);
     const item = (await client.query("SELECT * FROM project_items WHERE id=$1", [id])).rows[0];
     readable(actor, item);
+    if (item.data.board_id) {
+      const board = (await client.query("SELECT * FROM project_items WHERE id=$1 AND kind='board'", [item.data.board_id])).rows[0];
+      readable(actor, board);
+      if (board.data.archived && !actor.projectSync) throw new ProjectError(403, "board_archived", "This project board is archived.");
+    }
     let parent = item.data.parent_id;
     const visited = new Set([item.id]);
     while (parent) {
       if (visited.has(parent) || visited.size > 32) throw new ProjectError(409, "invalid_hierarchy", "Resolve the project hierarchy.");
       visited.add(parent);
       const ancestor = (await client.query("SELECT * FROM project_items WHERE id=$1", [parent])).rows[0];
-      readable(actor, ancestor); parent = ancestor.data.parent_id;
+      readable(actor, ancestor);
+      if (ancestor.data.board_id && !actor.projectSync) {
+        const board = (await client.query("SELECT * FROM project_items WHERE id=$1 AND kind='board'", [ancestor.data.board_id])).rows[0];
+        readable(actor, board);
+        if (board.data.archived) throw new ProjectError(403, "board_archived", "This project board is archived.");
+      }
+      parent = ancestor.data.parent_id;
     }
     return projectProjection(actor, item);
   }
@@ -142,6 +154,15 @@ export class ProjectStore {
       if (old && ["comment", "note"].includes(old.kind) && old.author_id !== actor.id && !internalAccess(actor))
         throw new ProjectError(403, "author_required", "Only the author or an administrator may edit this note or comment.");
       const data = projectFields.parse({ ...old?.data, ...("data" in parsed ? parsed.data : {}) });
+      if (kind === "board" && !(actor.projectPlan ?? actor.role === "admin"))
+        throw new ProjectError(403, "board_manager_required", "Board management permission is required.");
+      if (kind === "board" && (data.board_id || data.parent_id))
+        throw new ProjectError(422, "invalid_board", "A board cannot belong to another board or item.");
+      if (data.board_id) {
+        const board = await this.get(actor, data.board_id, client);
+        if (board.kind !== "board" || (board.data.archived && !actor.projectSync))
+          throw new ProjectError(422, "invalid_board", "Choose an active project board.");
+      }
       if (data.visibility === "internal" && !internalAccess(actor)) throw new ProjectError(403, "internal_access_required", "Administrator access is required.");
       if (data.starts_on && data.due_on && data.starts_on > data.due_on) throw new ProjectError(422, "invalid_dates", "Start date must precede due date.");
       if (data.assignee && data.assignee === data.reviewer) throw new ProjectError(422, "separate_reviewer", "Choose a separate reviewer.");
@@ -149,13 +170,26 @@ export class ProjectStore {
         if (userId && !(await client.query("SELECT id FROM users WHERE id=$1 AND status='active'", [userId])).rowCount)
           throw new ProjectError(422, "invalid_member", "Select an active member of this environment.");
       }
+      if (old && kind === "task" && (old.data.board_id ?? null) !== (data.board_id ?? null)) {
+        data.parent_id = null;
+        const nested = await client.query(`WITH RECURSIVE children AS (
+          SELECT id,kind FROM project_items WHERE data->>'parent_id'=$1
+          UNION SELECT i.id,i.kind FROM project_items i JOIN children c ON i.data->>'parent_id'=c.id::text
+        ) SELECT id FROM children WHERE kind='task' LIMIT 1`, [old.id]);
+        if (nested.rowCount) throw new ProjectError(422, "nested_task_move", "Move or detach nested tasks before moving their parent board.");
+      }
+      if (data.parent_id && submitted.board_id === undefined)
+        data.board_id = (await this.get(actor, data.parent_id, client)).data.board_id;
       if (data.parent_id) {
         let ancestor: string | null = data.parent_id;
         const seen = new Set<string>();
         while (ancestor) {
           if (ancestor === id || seen.has(ancestor) || seen.size > 32) throw new ProjectError(422, "invalid_parent", "Project hierarchy cannot contain cycles.");
           seen.add(ancestor);
-          ancestor = (await this.get(actor, ancestor, client)).data.parent_id;
+          const parent = await this.get(actor, ancestor, client);
+          if ((parent.data.board_id ?? null) !== (data.board_id ?? null))
+            throw new ProjectError(422, "different_board", "Parent and child must belong to the same board.");
+          ancestor = parent.data.parent_id;
         }
         if (data.parent_id === id) throw new ProjectError(422, "invalid_parent", "An item cannot contain itself.");
         const parent = await this.get(actor, data.parent_id, client);
@@ -179,10 +213,10 @@ export class ProjectStore {
       }
       if (kind === "task") {
         let status = (await client.query(
-          submitted.status_id ? "SELECT * FROM project_statuses WHERE id=$1" :
-          (submitted.state || "action" in parsed) ? "SELECT * FROM project_statuses WHERE legacy_state=$1" :
-          old?.data.status_id ? "SELECT * FROM project_statuses WHERE id=$1" : "SELECT * FROM project_statuses WHERE is_default AND NOT retired",
-          submitted.status_id ? [submitted.status_id] : (submitted.state || "action" in parsed) ? [data.state] : old?.data.status_id ? [old.data.status_id] : []
+          submitted.status_id ? "SELECT * FROM project_statuses WHERE id=$1 AND board_id IS NOT DISTINCT FROM $2::uuid" :
+          (submitted.state || "action" in parsed) ? "SELECT * FROM project_statuses WHERE legacy_state=$1 AND board_id IS NOT DISTINCT FROM $2::uuid" :
+          old?.data.status_id ? "SELECT * FROM project_statuses WHERE id=$1 AND board_id IS NOT DISTINCT FROM $2::uuid" : "SELECT * FROM project_statuses WHERE is_default AND NOT retired AND board_id IS NOT DISTINCT FROM $1::uuid",
+          submitted.status_id ? [submitted.status_id, data.board_id ?? null] : (submitted.state || "action" in parsed) ? [data.state, data.board_id ?? null] : old?.data.status_id ? [old.data.status_id, data.board_id ?? null] : [data.board_id ?? null]
         )).rows[0];
         const seen = new Set<string>();
         while (status?.retired && !submitted.status_id && !seen.has(status.id)) {
@@ -203,6 +237,20 @@ export class ProjectStore {
       const result = old ? await client.query(`UPDATE project_items SET data=$2, revision=revision+1, updated_at=now() WHERE id=$1 RETURNING *`, [itemId, data])
         : await client.query(`INSERT INTO project_items(id,kind,data,author_id,created_at) VALUES($1,$2,$3,$4,COALESCE($5::timestamptz,now())) RETURNING *`,
           [itemId, kind, data, authorId, "sync_created_at" in parsed ? parsed.sync_created_at ?? null : null]);
+      if (kind === "board" && !old && !actor.projectSync) {
+        await client.query(`INSERT INTO project_statuses(id,name,color,category,legacy_state,position,is_default,board_id)
+          SELECT gen_random_uuid(),name,color,category,legacy_state,position,legacy_state='todo',$1
+          FROM (VALUES ('todo','To do','blue','todo',0),('doing','In progress','purple','doing',1),
+            ('waiting','Waiting','orange','doing',2),('review','In review','teal','doing',3),
+            ('done','Done','green','done',4)) AS defaults(legacy_state,name,color,category,position)`, [itemId]);
+      }
+      if (old && kind === "task" && (old.data.board_id ?? null) !== (data.board_id ?? null)) {
+        await client.query(`WITH RECURSIVE children(id) AS (
+          SELECT id FROM project_items WHERE data->>'parent_id'=$1
+          UNION SELECT i.id FROM project_items i JOIN children c ON i.data->>'parent_id'=c.id::text
+        ) UPDATE project_items SET data=jsonb_set(data,'{board_id}',COALESCE(to_jsonb($2::text),'null'::jsonb)),
+          revision=revision+1,updated_at=now() WHERE id IN (SELECT id FROM children)`, [itemId, data.board_id ?? null]);
+      }
       if (kind === "comment" && data.parent_id) {
         const parent = await this.get(actor, data.parent_id, client);
         if (parent.kind === "task" && data.visibility === "shared"

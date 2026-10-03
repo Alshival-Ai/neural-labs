@@ -8,6 +8,14 @@ All tasks, notes and task comments are shared with current workspace members. Th
 
 Each workspace has one Team Channel. New task comments also appear there in the same database transaction. Replying to a task message adds a comment to its task. Ordinary chat stays in the channel; mention `@Alshival` to invoke the agent. Private agent conversations remain separate.
 
+## Project boards
+
+Use **Project board** to select a board. Administrators can create, archive and restore boards under **Manage project boards**. Each board owns its tasks, deliverables, notes and ordered status catalog. The original **Workspace board** remains available for existing records that have no board ID. Native installations impose no commercial board limits.
+
+A task uses a status from its own board. To move a task through the API, update both `board_id` and the destination `status_id` with the current revision. The task identity, attached notes and comments remain intact. Dependencies and related links may connect tasks across active boards. Archived boards retain their records and relationships; ordinary project reads and graph context hide their contents until restoration. Board management shows archive metadata.
+
+`GET /api/projects/boards` discovers board identities. Create a board through `/items` with `kind: "board"` and its title. Task, note and deliverable data accept `board_id`; status data accepts the same optional UUID. The optional sync snapshot remains version 2 and advertises `capabilities.project_boards: true`. Integrations must negotiate this capability before mirroring multiple boards; older peers keep their original single-board projection.
+
 ## Optional integrations
 
 Projects → API & MCP connections creates expiring, revocable user-bound credentials. Tokens appear once and are stored only as hashes. Ordinary keys support `project:read` and `project:write`; current project administrators can also issue `project:sync`. Role removal invalidates sync authority on the next request.

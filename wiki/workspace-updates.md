@@ -2,6 +2,8 @@
 
 The task-graph release includes a destructive PostgreSQL migration: legacy Team Chat channels/messages and internal task content are removed on every installation upgrading from that schema. Private agent conversations remain intact. See [Workspace task graph](project-management.md). Rehearse this schema boundary under the maintenance gate before promotion; older additive-migration evidence does not cover it. Never restore a pre-upgrade database over accepted new writes.
 
+Migration 26 adds project-board ownership and separate status catalogs. It is additive and retains existing unassigned records on the original Workspace board. This does not remove the earlier migration 22 boundary for installations that have not crossed it.
+
 Settings → Updates controls reviewed Neural Labs runtime releases. Codex and
 Claude Code are pinned together with their tested protocol adapters in
 `workspace/native/release.json`. Private Terminal and Neura use the same native

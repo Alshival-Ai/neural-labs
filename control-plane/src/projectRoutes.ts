@@ -96,14 +96,21 @@ export function registerProjectRoutes(app: Express, database: Database, config: 
     const items = await store.list(actor, input.after ?? "", 100);
     const edges = input.after ? [] : await graph.list(actor);
     if (revision !== await store.revision()) throw new ProjectError(409, "snapshot_changed", "The graph changed. Read it again.");
-    res.json({ revision, items, edges, statuses: input.after ? [] : await statuses.list(), next: items.length === 100 ? items.at(-1)!.id : null });
+    res.json({ revision, items, edges, statuses: input.after ? [] : await statuses.list(actor), next: items.length === 100 ? items.at(-1)!.id : null });
+  }));
+  app.get("/api/projects/boards", wrap(async (req, res) => {
+    const actor = await authenticate(req, res, "project:read"); if (!actor) return;
+    await store.list(actor, "", 1);
+    const boards = (await database.pool.query(`SELECT * FROM project_items WHERE kind='board'
+      AND ($1 OR data->>'archived'<>'true') AND ($2 OR data->>'visibility'='shared') ORDER BY created_at,id`, [syncAuthority(actor), internalAccess(actor)])).rows;
+    res.json({ boards });
   }));
   app.get("/api/projects/edges", wrap(async (req, res) => {
     const actor = await authenticate(req, res, "project:read"); if (actor) res.json({ edges: await graph.list(actor) });
   }));
   app.get("/api/projects/statuses", wrap(async (req, res) => {
     const actor = await authenticate(req, res, "project:read");
-    if (actor) res.json({ statuses: await statuses.list(), can_manage: syncAuthority(actor) });
+    if (actor) res.json({ statuses: await statuses.list(actor), can_manage: syncAuthority(actor) });
   }));
   app.post("/api/projects/statuses", wrap(async (req, res) => {
     const actor = await authenticate(req, res, "project:write");
@@ -115,13 +122,13 @@ export function registerProjectRoutes(app: Express, database: Database, config: 
     const revision = await store.revision();
     const after = z.string().max(36).parse(req.query.after ?? "");
     const items = await store.list(actor, after);
-    const extras = after ? {} : { edges: await graph.list(actor, true), statuses: await statuses.list(),
+    const extras = after ? {} : { edges: await graph.list(actor, true), statuses: await statuses.list(actor),
         principals: config.managed ? (await database.pool.query(`SELECT u.id,m.subject FROM users u
           JOIN managed_identities m ON m.user_id=u.id
           WHERE m.issuer=$1 AND m.workspace=$2`,
           [config.managed.portalOrigin, config.managed.workspace])).rows : [] };
     if (revision !== await store.revision()) throw new ProjectError(409, "snapshot_changed", "The graph changed during the snapshot. Retry.");
-    res.json({ version: 2, revision, items, next: items.length === 100 ? items.at(-1)!.id : null, ...extras });
+    res.json({ version: 2, capabilities: { project_boards: true }, revision, items, next: items.length === 100 ? items.at(-1)!.id : null, ...extras });
   }));
   app.post("/api/projects/edges", wrap(async (req, res) => {
     const actor = await authenticate(req, res, "project:write"); if (actor) res.status(201).json(await graph.create(actor, req.body));
