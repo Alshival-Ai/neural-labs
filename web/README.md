@@ -6,9 +6,17 @@ dependency on Alshival.Ai. Replace the copy, sections, navigation links, metadat
 and brand assets in `index.html`, or replace the entire site without rebuilding
 the workspace or control plane.
 
+## Product page and local starter
+
+The full public product page is maintained in `Alshival-Ai/website` at
+https://alshival.ai/neural-labs/. The neural-labs.ai domain serves that same page.
+This repository keeps only a small, replaceable entry page for each self-hosted
+installation, with local sign-in, access requests, and documentation links.
+It has no Alshival billing rules, shared accounts, or remote asset dependency.
+
 ## Appearance
 
-- `styles.css`: editorial layout and section styles.
+- `styles.css`: starter and authentication fallback layout.
 - `assets/ui/theme.css` and `theme.js`: warm-paper/jet-black surfaces, filled
   spectrum buttons, and the Light/Dark/System selector. The script runs before
   styles load. Preferences persist under `neural-labs-public-theme`; System

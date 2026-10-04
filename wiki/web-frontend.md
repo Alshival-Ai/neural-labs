@@ -1,6 +1,9 @@
 # Web frontend
 
-The public landing page lives in `web/`. The React login, signup, and pending-account interface lives in `console/`
+The small, replaceable landing page for each self-hosted installation lives in `web/`.
+The full public product page is maintained by the separate website project at
+https://alshival.ai/neural-labs/ and is also served at https://neural-labs.ai/.
+Self-hosted signup, login, assets, and account state remain local to the installation. The React login, signup, and pending-account interface lives in `console/`
 and is compiled into the `control-plane/` image. The authenticated desktop,
 including Settings, lives in `workspace/desktop/` and ships in the workspace
 image. First-run

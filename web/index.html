@@ -1,295 +1,64 @@
-<!doctype html>
+<!DOCTYPE html>
+
 <html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Neural Labs is an open-source workspace for teams to build with AI, work from shared project files, and reuse skills and automations.">
-    <meta name="robots" content="index,follow">
-    <meta name="theme-color" content="#f6f4ef">
-    <meta property="og:type" content="website">
-    <meta property="og:title" content="Neural Labs — One workspace. Every mode.">
-    <meta property="og:description" content="An open-source workspace for shared project files, AI, skills, automations, and collaborative development.">
-    <meta property="og:url" content="https://neural-labs.ai/">
-    <meta property="og:image" content="https://neural-labs.ai/assets/brand/neural-labs-social-preview.png">
-    <meta property="og:image:width" content="1200">
-    <meta property="og:image:height" content="630">
-    <meta property="og:image:alt" content="Neural Labs — One workspace. Every mode.">
-    <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="Neural Labs — One workspace. Every mode.">
-    <meta name="twitter:description" content="An open-source workspace for shared project files, AI, skills, automations, and collaborative development.">
-    <meta name="twitter:image" content="https://neural-labs.ai/assets/brand/neural-labs-social-preview.png">
-    <title>Neural Labs — One workspace. Every mode.</title>
-    <link rel="icon" href="/favicon.ico" sizes="any">
-    <link rel="icon" href="/assets/brand/neural-labs-favicon.svg" type="image/svg+xml">
-    <link rel="preload" href="/assets/fonts/public-sans-variable.ttf" as="font" type="font/ttf" crossorigin>
-    <script src="/assets/ui/theme.js?v=20260920-2"></script>
-    <link rel="stylesheet" href="/styles.css?v=20260929-workspace1">
-    <link rel="stylesheet" href="/assets/ui/theme.css?v=20260920-2">
-    <link rel="stylesheet" href="/assets/ui/navigation.css?v=20260920-compact1">
-    <script src="/assets/ui/navigation.js?v=20260920" defer></script>
-    <script src="/app.js?v=91ea48c4" defer></script>
-  </head>
-  <body class="public-navigation">
-    <a class="skip-link" href="#main">Skip to content</a>
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<meta content="Your self-hosted Neural Labs workspace. Sign in, request access, or read the deployment documentation." name="description"/>
+<meta content="index,follow" name="robots"/>
+<meta content="#f6f4ef" name="theme-color"/>
 
-  <aside class="public-sidebar" id="site-sidebar" aria-label="Site navigation" tabindex="-1">
-  <div class="sidebar-controls">
-    <button class="sidebar-toggle" type="button" aria-controls="primary-navigation" aria-expanded="false" aria-label="Expand menu" title="Expand menu" hidden><svg class="nav-icon nav-expansion-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></button>
-    <button class="sidebar-pin" type="button" aria-label="Pin menu open" aria-pressed="false" title="Pin menu open" hidden><svg class="nav-icon nav-pin-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 17v5M9 3h6M9 3v6l-3 3v3h12v-3l-3-3V3"/></svg></button>
-  </div>
-  <nav id="primary-navigation" aria-label="Primary navigation">
-      <a class="sidebar-link" href="#top" aria-label="Home" title="Home" aria-current="page"><span class="nav-selection-cube" aria-hidden="true"><span class="cube-face cube-face--front"></span><span class="cube-face cube-face--back"></span><span class="cube-face cube-face--right"></span><span class="cube-face cube-face--left"></span><span class="cube-face cube-face--top"></span><span class="cube-face cube-face--bottom"></span></span><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z"/></svg><span class="sidebar-label">Home</span></a>
-      <a class="sidebar-link" href="#workspace" aria-label="Workspace" title="Workspace"><span class="nav-selection-cube" aria-hidden="true"><span class="cube-face cube-face--front"></span><span class="cube-face cube-face--back"></span><span class="cube-face cube-face--right"></span><span class="cube-face cube-face--left"></span><span class="cube-face cube-face--top"></span><span class="cube-face cube-face--bottom"></span></span><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span class="sidebar-label">Workspace</span></a>
-      <a class="sidebar-link" href="#teamwork" aria-label="Teamwork" title="Teamwork"><span class="nav-selection-cube" aria-hidden="true"><span class="cube-face cube-face--front"></span><span class="cube-face cube-face--back"></span><span class="cube-face cube-face--right"></span><span class="cube-face cube-face--left"></span><span class="cube-face cube-face--top"></span><span class="cube-face cube-face--bottom"></span></span><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M2.5 20v-1.5a5.5 5.5 0 0 1 11 0V20Zm11 0h8v-1a4.5 4.5 0 0 0-6-4.24"/></svg><span class="sidebar-label">Teamwork</span></a>
-      <a class="sidebar-link" href="#principles" aria-label="Principles" title="Principles"><span class="nav-selection-cube" aria-hidden="true"><span class="cube-face cube-face--front"></span><span class="cube-face cube-face--back"></span><span class="cube-face cube-face--right"></span><span class="cube-face cube-face--left"></span><span class="cube-face cube-face--top"></span><span class="cube-face cube-face--bottom"></span></span><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 8 4v5c0 5-8 9-8 9s-8-4-8-9V7Z"/><path d="m8 12 3 3 5-6"/></svg><span class="sidebar-label">Principles</span></a>
-      <a class="sidebar-link" href="https://github.com/Alshival-Ai/neural-labs" aria-label="GitHub" title="GitHub"><span class="nav-selection-cube" aria-hidden="true"><span class="cube-face cube-face--front"></span><span class="cube-face cube-face--back"></span><span class="cube-face cube-face--right"></span><span class="cube-face cube-face--left"></span><span class="cube-face cube-face--top"></span><span class="cube-face cube-face--bottom"></span></span><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 5-7 7 7 7m8-14 7 7-7 7m-3-16-2 20"/></svg><span class="sidebar-label">GitHub</span></a>
-  </nav>
-  <a class="sidebar-link sidebar-account" href="/login" data-site-signin aria-label="Log in" title="Log in"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></svg><span class="sidebar-label" data-account-label>Log in</span></a>
+<title>Neural Labs — Your workspace</title>
+<link href="/favicon.ico" rel="icon" sizes="any"/>
+<link href="/assets/brand/neural-labs-favicon.svg" rel="icon" type="image/svg+xml"/>
+<link as="font" crossorigin="" href="/assets/fonts/public-sans-variable.ttf" rel="preload" type="font/ttf"/>
+<script src="/assets/ui/theme.js?v=20260920-2"></script>
+<link href="/styles.css?v=20261004-starter1" rel="stylesheet"/>
+<link href="/assets/ui/theme.css?v=20260920-2" rel="stylesheet"/>
+<link href="/assets/ui/navigation.css?v=20260920-compact1" rel="stylesheet"/>
+<script defer="" src="/assets/ui/navigation.js?v=20260920"></script>
+<script defer="" src="/app.js?v=91ea48c4"></script>
+</head>
+<body class="public-navigation">
+<a class="skip-link" href="#main">Skip to content</a>
+<aside aria-label="Site navigation" class="public-sidebar" id="site-sidebar" tabindex="-1">
+<div class="sidebar-controls">
+<button aria-controls="primary-navigation" aria-expanded="false" aria-label="Expand menu" class="sidebar-toggle" hidden="" title="Expand menu" type="button"><svg aria-hidden="true" class="nav-icon nav-expansion-icon" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" viewbox="0 0 24 24"><path d="m9 5 7 7-7 7"></path></svg></button>
+<button aria-label="Pin menu open" aria-pressed="false" class="sidebar-pin" hidden="" title="Pin menu open" type="button"><svg aria-hidden="true" class="nav-icon nav-pin-icon" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" viewbox="0 0 24 24"><path d="M12 17v5M9 3h6M9 3v6l-3 3v3h12v-3l-3-3V3"></path></svg></button>
+</div>
+<nav aria-label="Primary navigation" id="primary-navigation">
+<a aria-current="page" aria-label="Home" class="sidebar-link" href="#top" title="Home"><span aria-hidden="true" class="nav-selection-cube"><span class="cube-face cube-face--front"></span><span class="cube-face cube-face--back"></span><span class="cube-face cube-face--right"></span><span class="cube-face cube-face--left"></span><span class="cube-face cube-face--top"></span><span class="cube-face cube-face--bottom"></span></span><svg aria-hidden="true" class="nav-icon" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" viewbox="0 0 24 24"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z"></path></svg><span class="sidebar-label">Home</span></a>
+
+<a aria-label="GitHub" class="sidebar-link" href="https://github.com/Alshival-Ai/neural-labs" title="GitHub"><span aria-hidden="true" class="nav-selection-cube"><span class="cube-face cube-face--front"></span><span class="cube-face cube-face--back"></span><span class="cube-face cube-face--right"></span><span class="cube-face cube-face--left"></span><span class="cube-face cube-face--top"></span><span class="cube-face cube-face--bottom"></span></span><svg aria-hidden="true" class="nav-icon" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" viewbox="0 0 24 24"><path d="m8 5-7 7 7 7m8-14 7 7-7 7m-3-16-2 20"></path></svg><span class="sidebar-label">GitHub</span></a>
+</nav>
+<a aria-label="Log in" class="sidebar-link sidebar-account" data-site-signin="" href="/login" title="Log in"><svg aria-hidden="true" class="nav-icon" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" viewbox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 21v-2a8 8 0 0 1 16 0v2"></path></svg><span class="sidebar-label" data-account-label="">Log in</span></a>
 </aside>
-<button class="sidebar-backdrop" type="button" aria-label="Close menu" tabindex="-1" hidden></button>
-    <div class="public-page" id="public-page">
-    <header class="site-header">
-      <a class="brand" href="#top" aria-label="Neural Labs home">
-        <span class="spectrum-text">Neural Labs</span>
-      </a>
-
-      <div class="header-actions">
-        <div class="theme-control" data-theme-control role="radiogroup" aria-label="Color theme" hidden>
-          <button type="button" data-theme-choice="light" role="radio" aria-checked="false" aria-label="Light" tabindex="-1" title="Light mode">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg>
-          </button>
-          <button type="button" data-theme-choice="dark" role="radio" aria-checked="false" aria-label="Dark" tabindex="-1" title="Dark mode">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20.5 13A8.5 8.5 0 0 1 11 3.5 8.5 8.5 0 1 0 20.5 13Z"/></svg>
-          </button>
-          <button type="button" data-theme-choice="system" role="radio" aria-checked="true" aria-label="System" tabindex="0" title="System — follow device appearance">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/></svg>
-          </button>
-        </div>
-        <a class="header-entry" href="/signup" data-site-entry>
-          <span class="entry-spark" aria-hidden="true"></span>
-          <span data-account-label>Sign up</span><span aria-hidden="true">↗</span>
-        </a>
-      </div>
-    </header>
-
-    <main id="main">
-      <section class="hero" id="top" aria-labelledby="hero-title">
-        <div class="hero-copy" data-reveal>
-          <p class="overline"><span></span> Private AI workspace</p>
-          <h1 id="hero-title">One workspace.<br><span class="spectrum-text">Every mode.</span></h1>
-          <p class="hero-lede">
-            Work from shared project files, build with AI, and turn useful methods into skills and automations your team can reuse.
-          </p>
-          <div class="hero-actions">
-            <a class="button button-spectrum" href="https://alshival.ai/plans/?plan=pro">Get hosted with Alshival.Ai <span aria-hidden="true">↗</span></a>
-            <a class="button button-quiet" href="https://github.com/Alshival-Ai/neural-labs" target="_blank" rel="noopener noreferrer">View project on GitHub <span aria-hidden="true">↗</span></a>
-          </div>
-          <p class="hero-hosting-note">Neural Labs hosting is included with Alshival.Ai Pro.</p>
-          <div class="hero-notes" aria-label="Platform attributes">
-            <span>Self-hosted</span>
-            <span>Open source</span>
-            <span>Built for teams</span>
-          </div>
-        </div>
-
-      </section>
-
-      <figure class="desktop-showcase">
-        <a class="desktop-showcase-image" href="/assets/brand/neural-labs-social-preview.png" target="_blank" rel="noopener noreferrer" aria-label="View the Neural Labs workspace illustration at full size (opens in a new tab)">
-          <img src="/assets/brand/neural-labs-social-preview.png" width="1200" height="630" loading="lazy" decoding="async" alt="Illustration of Neural Labs bringing files, terminals, AI, and workspace controls together.">
-        </a>
-        <figcaption>
-          <span>Files, terminal, AI, and control in one workspace.</span>
-          <a href="/assets/brand/neural-labs-social-preview.png" target="_blank" rel="noopener noreferrer" aria-label="View workspace illustration at full size (opens in a new tab)">View full size <span aria-hidden="true">↗</span></a>
-        </figcaption>
-      </figure>
-
-      <section class="mode-strip" id="workspace" aria-label="Workspace modes">
-        <div><span class="mode-number">01</span><strong>Files</strong><small>Find the work.</small></div>
-        <div><span class="mode-number">02</span><strong>Terminal</strong><small>Run the work.</small></div>
-        <div><span class="mode-number">03</span><strong>Alshival</strong><small>Think through the work.</small></div>
-        <div><span class="mode-number">04</span><strong>Control</strong><small>Own the workspace.</small></div>
-      </section>
-
-      <section class="teamwork-section" id="teamwork" aria-labelledby="teamwork-title">
-        <div class="teamwork-intro" data-reveal>
-          <p class="section-label">The way we work</p>
-          <h2 id="teamwork-title">Good work travels<br><span>with the team.</span></h2>
-          <p class="teamwork-lede">
-            Keep project context close to the people and tools using it. Neural Labs brings conversations, files, shared skills, and scheduled work into one place.
-          </p>
-          <a class="text-action text-action-dark" href="https://github.com/Alshival-Ai/neural-labs" target="_blank" rel="noopener noreferrer">Explore the open-source project <span aria-hidden="true">↗</span></a>
-        </div>
-
-        <div class="teamwork-capabilities">
-          <article class="teamwork-capability capability-coral" data-reveal>
-            <span class="capability-index">01</span>
-            <div>
-              <p class="capability-kicker">Automate workflows</p>
-              <h3>Keep repeatable work moving.</h3>
-              <p>Schedule work, review what ran, and keep the next step visible to the team.</p>
-            </div>
-          </article>
-
-          <article class="teamwork-capability capability-violet" data-reveal>
-            <span class="capability-index">02</span>
-            <div>
-              <p class="capability-kicker">Share skills</p>
-              <h3>Teach it once. Use it together.</h3>
-              <p>Turn useful team practices into reusable skills that teammates can find and improve.</p>
-            </div>
-          </article>
-
-          <article class="teamwork-capability capability-cyan" data-reveal>
-            <span class="capability-index">03</span>
-            <div>
-              <p class="capability-kicker">Develop together</p>
-              <h3>Build from the same context.</h3>
-              <p>Move between shared files, terminals, AI conversations, and teammates without losing the work in progress.</p>
-            </div>
-          </article>
-        </div>
-
-        <div class="teamwork-flow" aria-label="Neural Labs collaboration model" data-reveal>
-          <div><span>01</span><strong>Your team</strong><small>People + context</small></div>
-          <i aria-hidden="true">→</i>
-          <div class="flow-neural"><span>02</span><strong>Neural Labs</strong><small>Shared workspace</small></div>
-          <i aria-hidden="true">→</i>
-          <div class="flow-tools"><span>03</span><strong>Connected tools</strong><small>Files + AI + skills</small></div>
-          <i aria-hidden="true">→</i>
-          <div><span>04</span><strong>Work in motion</strong><small>Projects + automations</small></div>
-        </div>
-      </section>
-
-      <section class="system-section" id="system" aria-labelledby="system-title">
-        <div class="section-intro" data-reveal>
-          <p class="section-label">The system</p>
-          <h2 id="system-title">Your tools are better<br>when they share a thread.</h2>
-          <p>Move between building, asking, reviewing, and controlling without rebuilding your context every time.</p>
-        </div>
-
-        <div class="feature-grid">
-          <article class="feature-card feature-cyan" data-reveal>
-            <div class="feature-top"><span>01</span><i>◇</i></div>
-            <h3>Files that stay close.</h3>
-            <p>Browse the project, open the source, and keep the current artifact in view.</p>
-            <div class="mini-file-list" aria-hidden="true"><span>project/</span><b>brief.md</b><span>research.json</span></div>
-          </article>
-
-          <article class="feature-card feature-coral" data-reveal>
-            <div class="feature-top"><span>02</span><i>›_</i></div>
-            <h3>A terminal in the room.</h3>
-            <p>Run commands where the conversation and the files already live.</p>
-            <code aria-hidden="true"><span>$</span> ship the idea<span class="code-cursor"></span></code>
-          </article>
-
-          <article class="feature-card feature-violet" data-reveal>
-            <div class="feature-top"><span>03</span><i>✦</i></div>
-            <h3>AI with a point of view.</h3>
-            <p>Ask, inspect, and iterate with the current workspace close at hand.</p>
-            <div class="mini-thread" aria-hidden="true"><span></span><span></span><span></span></div>
-          </article>
-
-          <article class="feature-card feature-amber" data-reveal>
-            <div class="feature-top"><span>04</span><i>◎</i></div>
-            <h3>Control you can see.</h3>
-            <p>Keep account, access, and provider controls in one deliberate layer.</p>
-            <div class="mini-toggle-row" aria-hidden="true"><span>Private</span><i></i><b>On</b></div>
-          </article>
-        </div>
-      </section>
-
-      <section class="social-terminal" id="social-terminal" aria-labelledby="social-terminal-title">
-        <div class="social-terminal-intro">
-          <div>
-            <p class="section-label">The social team terminal</p>
-            <h2 id="social-terminal-title">Serious tools.<br>Unserious reactions.</h2>
-          </div>
-          <div class="social-terminal-copy">
-            <p>Run commands together, join voice, and react with GIFs and stickers—all in the same shared terminal.</p>
-            <ul aria-label="Team terminal features">
-              <li>Shared live input</li>
-              <li>Voice</li>
-              <li>GIFs &amp; stickers</li>
-            </ul>
-          </div>
-        </div>
-        <figure class="terminal-fan">
-          <div class="terminal-fan-cards">
-            <a class="terminal-fan-card terminal-fan-sticker" href="/assets/media/terminal-demo-sticker.png" target="_blank" rel="noopener noreferrer" aria-label="View the shared terminal sticker screenshot at full size (opens in a new tab)">
-              <img src="/assets/media/terminal-demo-sticker.webp" width="1402" height="952" loading="lazy" decoding="async" alt="Shared team terminal with a fire sticker reaction, live input, and a Join voice control.">
-            </a>
-            <a class="terminal-fan-card terminal-fan-gif" href="/assets/media/terminal-demo-gif.png" target="_blank" rel="noopener noreferrer" aria-label="View the shared terminal GIF screenshot at full size (opens in a new tab)">
-              <img src="/assets/media/terminal-demo-gif.webp" width="1400" height="954" loading="lazy" decoding="async" alt="A teammate's GIF reaction appears over command output in the shared terminal.">
-            </a>
-          </div>
-          <figcaption>A little personality in the command line.</figcaption>
-        </figure>
-      </section>
-
-      <section class="flow-section" aria-labelledby="flow-title">
-        <div class="flow-heading" data-reveal>
-          <p class="section-label">Keep the thread</p>
-          <h2 id="flow-title">One project.<br>One continuous flow.</h2>
-        </div>
-        <ol class="flow-list">
-          <li data-reveal><span>01</span><div><h3>Open the project.</h3><p>Files and working state arrive together.</p></div><i>◇</i></li>
-          <li data-reveal><span>02</span><div><h3>Build in place.</h3><p>The terminal stays beside the source.</p></div><i>›_</i></li>
-          <li data-reveal><span>03</span><div><h3>Ask with context.</h3><p>Bring the current work into the conversation.</p></div><i>✦</i></li>
-          <li data-reveal><span>04</span><div><h3>Stay in control.</h3><p>Review the system without leaving the workspace.</p></div><i>◎</i></li>
-        </ol>
-      </section>
-
-      <section class="principles-section" id="principles" aria-labelledby="principles-title">
-        <div class="principles-heading" data-reveal>
-          <p class="section-label">Designed for ownership</p>
-          <h2 id="principles-title">Your work.<br><span class="spectrum-text">Your infrastructure.</span></h2>
-        </div>
-        <div class="principles-summary" data-reveal>
-          <p>Neural Labs is open source and built to run where you choose. Keep projects, providers, and working context inside systems your team controls.</p>
-          <a class="text-action" href="https://github.com/Alshival-Ai/neural-labs" target="_blank" rel="noreferrer">Explore the source <span aria-hidden="true">↗</span></a>
-          <p>Prefer a managed workspace? Get Neural Labs hosted through Alshival.Ai Pro, or talk with us about Enterprise hosting and support.</p>
-          <div class="hero-actions"><a class="button button-primary" href="https://alshival.ai/plans/?plan=pro">Get managed hosting <span aria-hidden="true">↗</span></a><a class="button button-quiet" href="https://alshival.ai/support/">Talk about Enterprise <span aria-hidden="true">↗</span></a></div>
-        </div>
-        <ol class="principles-list" aria-label="Product principles">
-          <li data-reveal><span>01</span><div><h3>Self-hosted</h3><p>Deploy on infrastructure you control.</p></div></li>
-          <li data-reveal><span>02</span><div><h3>Open source</h3><p>Inspect, adapt, and contribute to the code.</p></div></li>
-          <li data-reveal><span>03</span><div><h3>Focused</h3><p>One working surface without attention theater.</p></div></li>
-          <li data-reveal><span>04</span><div><h3>Extensible</h3><p>Bring the tools and providers your team already uses.</p></div></li>
-        </ol>
-      </section>
-
-      <section class="maker-section" aria-labelledby="maker-title" data-reveal>
-        <p class="maker-index">Neural Labs / 01</p>
-        <div class="maker-copy">
-          <p class="section-label">The team behind the platform</p>
-          <h2 id="maker-title">Built by <span class="brand-wordmark spectrum-text">Alshival.Ai</span>.</h2>
-          <p>A Texas-based AI, data science, and automation team turning ambitious ideas into useful intelligence.</p>
-        </div>
-        <a class="maker-link" href="https://alshival.ai/" target="_blank" rel="noreferrer">
-          Meet the team <span aria-hidden="true">↗</span>
-        </a>
-      </section>
-
-      <section class="closing-section" aria-labelledby="closing-title">
-        <div class="closing-copy" data-reveal>
-          <p class="section-label">Ready when you are</p>
-          <h2 id="closing-title">Make room<br>for the work.</h2>
-        </div>
-        <div class="closing-action" data-reveal>
-          <p>Bring the files, the terminal, the conversation, and the controls into one place.</p>
-          <a class="button button-spectrum" href="/login">Open your workspace <span aria-hidden="true">→</span></a>
-        </div>
-      </section>
-    </main>
-
-    <footer>
-      <a class="brand footer-brand" href="#top" aria-label="Back to the top">
-        <span class="spectrum-text">Neural Labs</span>
-      </a>
-      <p>One private working surface.</p>
-      <div><a href="https://alshival.ai/" target="_blank" rel="noreferrer">Alshival.Ai ↗</a><a href="https://github.com/Alshival-Ai/neural-labs" target="_blank" rel="noreferrer">GitHub ↗</a><a href="#top">Top ↑</a></div>
-    </footer>
-    </div>
-  </body>
+<button aria-label="Close menu" class="sidebar-backdrop" hidden="" tabindex="-1" type="button"></button>
+<div class="public-page" id="public-page">
+<header class="site-header">
+<a aria-label="Neural Labs home" class="brand" href="#top">
+<span class="spectrum-text">Neural Labs</span>
+</a>
+<div class="header-actions">
+<div aria-label="Color theme" class="theme-control" data-theme-control="" hidden="" role="radiogroup">
+<button aria-checked="false" aria-label="Light" data-theme-choice="light" role="radio" tabindex="-1" title="Light mode" type="button">
+<svg aria-hidden="true" fill="none" focusable="false" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"></path></svg>
+</button>
+<button aria-checked="false" aria-label="Dark" data-theme-choice="dark" role="radio" tabindex="-1" title="Dark mode" type="button">
+<svg aria-hidden="true" fill="none" focusable="false" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24"><path d="M20.5 13A8.5 8.5 0 0 1 11 3.5 8.5 8.5 0 1 0 20.5 13Z"></path></svg>
+</button>
+<button aria-checked="true" aria-label="System" data-theme-choice="system" role="radio" tabindex="0" title="System — follow device appearance" type="button">
+<svg aria-hidden="true" fill="none" focusable="false" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24"><rect height="13" rx="2" width="18" x="3" y="4"></rect><path d="M8 21h8m-4-4v4"></path></svg>
+</button>
+</div>
+<a class="header-entry" data-site-entry="" href="/signup">
+<span aria-hidden="true" class="entry-spark"></span>
+<span data-account-label="">Sign up</span><span aria-hidden="true">↗</span>
+</a>
+</div>
+</header>
+<main id="main"><section aria-labelledby="starter-title" class="starter" id="top"><p class="overline">Your Neural Labs installation</p><h1 id="starter-title">A place for<br/><span class="spectrum-text">your work.</span></h1><p class="starter-lede">Files, terminal, and AI in one shared workspace. Sign in to continue, or request access to join this installation.</p><div class="starter-actions"><a class="button button-spectrum" href="/login">Open workspace <span aria-hidden="true">→</span></a><a class="button button-quiet" href="/signup">Request access</a></div><p class="starter-note">Installing or customizing Neural Labs? <a href="https://github.com/Alshival-Ai/neural-labs/wiki">Read the documentation</a>.</p></section></main>
+<footer class="site-footer"><span>Neural Labs · Your infrastructure.</span><a href="https://github.com/Alshival-Ai/neural-labs">Source on GitHub ↗</a></footer>
+</div>
+</body>
 </html>
