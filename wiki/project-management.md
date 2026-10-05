@@ -2,7 +2,7 @@
 
 Projects is native to every Neural Labs installation, including open-source self-hosted deployments. Tasks, relationships, sticky notes, comments and status catalogs live in the installation’s existing PostgreSQL database. No separate graph server or portal account is required.
 
-Open **Projects** from the desktop. The board and graph use the same tasks. Directed dependencies reject cycles; related links are symmetric. Dependencies show context without preventing status changes. Task checklists and task-attached sticky notes retain their own identities. Drag a sticky note or use Alt + arrow keys to move it; its position is saved for the workspace.
+Open **Projects** from the desktop. The board and graph use the same tasks. Directed dependencies reject cycles; related links are symmetric. Dependencies show context without preventing status changes. Task checklists and task-attached sticky notes retain their own identities. Drag a sticky note or use Alt + arrow keys to move it; its position is a personal preference saved in this browser, separately for each account and project board. Moving a note does not edit the shared record or change its revision. Task-attached notes follow the same rule. Existing shared positions are ignored; an unset personal layout starts in a grid.
 
 All tasks, notes and task comments are shared with current workspace members. There is no private task/publication switch. Administrators manage the status catalog, including names, colors, order, the default and retirement replacements. Retiring a status moves its tasks to an active replacement in the same reporting category. Done tasks remain editable; explicit review acceptance still requires a separate reviewer.
 
@@ -26,6 +26,8 @@ Projects → API & MCP connections creates expiring, revocable user-bound creden
 - `/items` pages up to 100 records using `next` as the following `after` cursor.
 - `/sync/snapshot` version 2 includes stable identities, tombstones, status catalogs and a graph revision. Discard snapshots whose revision changes between pages.
 - Item updates require the observed revision and an idempotency UUID. Sync edge creation/restoration also requires `expected_revision`; edge deletion requires `revision`.
+
+Note positions are not part of shared content synchronization. Integrations should omit legacy `position` values when comparing or applying note content; local arrangements belong to each application.
 
 An optional integration can mirror the graph, but Neural Labs continues operating independently when it is disconnected. Billing, hosted plan eligibility and support policy belong to the integrating service. File, resource, service-ticket and billing migration are separate from task-graph sync.
 

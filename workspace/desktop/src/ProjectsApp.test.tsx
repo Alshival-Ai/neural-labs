@@ -45,3 +45,24 @@ it("switches project tasks and workflows with the selected board", async () => {
   expect(screen.getByRole("heading", { name: "B workflow" })).toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "A workflow" })).not.toBeInTheDocument();
 });
+
+it("keeps each person's note arrangement local without patching shared notes", async () => {
+  localStorage.clear();
+  vi.stubGlobal("WebSocket", Socket);
+  const request = vi.fn(async (path: string, _options?: RequestInit) => ({ ok: true, status: 200, json: async () =>
+    path.endsWith("/members") ? { members: [] } : path.endsWith("/boards") ? { boards: [] } : path.endsWith("/edges") ? { edges: [] } :
+    path.endsWith("/statuses") ? { can_manage: false, statuses: [] } : { items: [{ id: "note-a", kind: "note", revision: 3,
+      data: { title: "Personal placement", body: "Shared text", position: { x: 999, y: 999 }, parent_id: null, archived: false } }], next: null } }));
+  vi.stubGlobal("fetch", request);
+  const view = render(<ProjectsApp storageNamespace="person-one" />);
+  fireEvent.click(await screen.findByRole("button", { name: "Notes" }));
+  const note = (await screen.findByText("Personal placement")).closest("button")!;
+  expect(note.style.left).toBe("12px");
+  fireEvent.keyDown(note, { key: "ArrowRight", altKey: true });
+  expect(note.style.left).toBe("32px");
+  expect(request.mock.calls.every(call => !(call[1] as RequestInit | undefined)?.method || (call[1] as RequestInit).method === "GET")).toBe(true);
+  view.rerender(<ProjectsApp storageNamespace="person-two" />);
+  await waitFor(() => expect(note.style.left).toBe("12px"));
+  view.rerender(<ProjectsApp storageNamespace="person-one" />);
+  await waitFor(() => expect(note.style.left).toBe("32px"));
+});
