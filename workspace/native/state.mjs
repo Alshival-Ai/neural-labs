@@ -285,11 +285,15 @@ export class NativeState {
       return expectedRevision + 1;
     });
   }
-  createConversation(actor, binding) {
+  createConversation(actor, binding, requestedId) {
     identity(actor); identity(binding.owner);
     if (!["codex", "claude"].includes(binding.provider) || !Number.isSafeInteger(binding.generation) || binding.generation < 0
         || !["subscription", "api-key"].includes(binding.method)) throw new Error("Explicit connection binding required");
-    const id = randomUUID();
+    const id = requestedId || randomUUID();
+    identity(id);
+    if (requestedId && this.db.prepare("SELECT id FROM conversations WHERE id=?").get(id)) {
+      this.conversation(id, actor, binding); return id;
+    }
     this.db.prepare("INSERT INTO conversations VALUES (?,?,?,NULL,?)").run(id, actor, canonical(binding), this.now());
     this.db.prepare("INSERT INTO conversation_profiles(conversation,updated_at) VALUES(?,?)").run(id, this.now());
     return id;

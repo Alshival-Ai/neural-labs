@@ -737,4 +737,25 @@ export const migrations: Migration[] = [
       CREATE TRIGGER project_edge_clock BEFORE INSERT OR UPDATE ON project_edges FOR EACH ROW EXECUTE FUNCTION project_source_edit_clock();
       CREATE TRIGGER project_status_clock BEFORE INSERT OR UPDATE ON project_statuses FOR EACH ROW EXECUTE FUNCTION project_source_edit_clock();`,
   },
+  {
+    version: 28,
+    sql: `CREATE TABLE collaboration_credentials (
+      id uuid PRIMARY KEY, user_id uuid NOT NULL REFERENCES users(id), name text NOT NULL,
+      token_hash text UNIQUE NOT NULL, connection_id uuid NOT NULL REFERENCES native_connections(id),
+      generation integer NOT NULL, model text NOT NULL, scopes jsonb NOT NULL,
+      managed_source uuid,
+      expires_at timestamptz NOT NULL, revoked_at timestamptz, created_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE UNIQUE INDEX collaboration_managed_source ON collaboration_credentials(user_id,managed_source) WHERE managed_source IS NOT NULL;
+    CREATE TABLE collaboration_sessions (
+      id uuid PRIMARY KEY, credential_id uuid NOT NULL REFERENCES collaboration_credentials(id),
+      request_id uuid NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), UNIQUE(credential_id,request_id)
+    );
+    CREATE TABLE collaboration_leases (
+      id uuid PRIMARY KEY, session_id uuid NOT NULL REFERENCES collaboration_sessions(id),
+      purpose text NOT NULL, expires_at timestamptz NOT NULL,
+      managed_turn uuid, managed_attempt uuid, runtime_generation integer
+    );`,
+  },
+
 ];

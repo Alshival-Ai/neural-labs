@@ -29,11 +29,11 @@ export class NativeTurns extends EventEmitter {
     await grant.revalidate();
     return grant;
   }
-  async create(actor, selection) {
+  async create(actor, selection, requestedId) {
     if (this.gated) throw new Error("Native runtime admission is closed");
     const grant = await this.context(actor, selection, "conversation-create");
     if (this.gated) throw new Error("Native runtime admission closed during authorization");
-    return { id: this.state.createConversation(actor, grant.binding) };
+    return { id: this.state.createConversation(actor, grant.binding, requestedId) };
   }
   async start(actor, selection, { conversation, requestId, input, attachments = [], effort }) {
     if (this.gated) throw new Error("Native runtime admission is closed");
@@ -56,9 +56,21 @@ export class NativeTurns extends EventEmitter {
     };
     // Persist receipt and user input before spawning a provider. A disconnect
     // never cancels accepted work or converts it into a new request.
-    emit("turn-started", { input, attachments, approvalPolicy: grant.policy?.approval || "on-request" });
+    if (grant.collaboration) {
+      const { principal, name, kind } = grant.collaboration;
+      emit("collaboration-participant", { principal, name, kind });
+    }
+    emit("turn-started", { requestId, input, attachments, approvalPolicy: grant.policy?.approval || "on-request" });
     execution.done = Promise.resolve().then(async () => {
       let outcome, toolSession, prepared, providerStarted = false;
+      let heartbeat, renewing = false;
+      if (grant.collaboration) heartbeat = setInterval(async () => {
+        if (renewing || controller.signal.aborted) return;
+        renewing = true;
+        try { await grant.revalidate(); }
+        catch { controller.abort(); }
+        finally { renewing = false; }
+      }, 10000).unref();
       try {
         prepared = await grant.prepareLaunch?.(input);
         const launch = prepared?.launch || grant.launch;
@@ -101,6 +113,7 @@ export class NativeTurns extends EventEmitter {
         });
       } catch { outcome = { status: providerStarted ? "unknown" : controller.signal.aborted ? "cancelled" : "blocked", code: "native-execution-unavailable" }; }
       finally {
+        clearInterval(heartbeat);
         execution.finished = true;
         // Revocation removes the capability before transport cleanup. A cleanup
         // failure must not erase a provider outcome that is already known.

@@ -1,3 +1,5 @@
+import { ExternalCollaboration } from "./externalCollaboration.js";
+import { registerCollaborationRoutes } from "./collaborationRoutes.js";
 import { Connectors } from "./connectors.js";
 import { registerConnectorRoutes } from "./connectorRoutes.js";
 import { registerNativeRuntime } from "./nativeRuntime.js";
@@ -932,6 +934,7 @@ export function createApplication(input: {
     workerToken: config.updates?.workerToken, workspaceToken: config.workspace.controlToken });
   registerProjectTransferRoutes(app, database, config);
   registerProjectRoutes(app, database, config, { active: requireActiveJson, csrf: requireCsrfJson, sameOrigin });
+  registerCollaborationRoutes(app, new ExternalCollaboration(database, config, workspaceFetch), { sameOrigin, active: requireActiveJson, csrf: requireCsrfJson });
   registerNativeRuntime(app, database, sessions, config, { sameOrigin, active: requireActiveJson, csrf: requireCsrfJson, fetch: workspaceFetch });
   registerConnectorRoutes(app, connectors, { sameOrigin, active: requireActiveJson, admin: requireAdminJson, csrf: requireCsrfJson, token: config.workspace.controlToken });
   registerNotificationRoutes(app, notifications, { sameOrigin, active: requireActiveJson, admin: requireAdminJson, csrf: requireCsrfJson, token: config.workspace.controlToken });

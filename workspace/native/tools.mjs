@@ -59,7 +59,8 @@ export class NativeTools {
     } : undefined);
     const entry = { application, grant, revoke: () => { active = false; } }; this.sessions.set(token, entry);
     const url = new URL("/mcp", this.origin).href, headers = { Authorization: `Bearer ${token}` };
-    const team = grant.team && this.teamOrigin ? { url: new URL("/team-mcp", this.origin).href, http_headers: headers } : undefined;
+    const portal = grant.collaboration?.portal && this.teamOrigin;
+    const team = portal ? { url: new URL("/portal-mcp", this.origin).href, http_headers: headers } : grant.team && this.teamOrigin ? { url: new URL("/team-mcp", this.origin).href, http_headers: headers } : undefined;
     return {
       mediatedBrowser: Boolean(browserCall),
       codex: { url, http_headers: headers, ...(team ? { team } : {}) },
@@ -71,12 +72,13 @@ export class NativeTools {
   async handle(request, response) {
     const token = request.headers.authorization?.replace(/^Bearer\s+/i, "");
     const session = typeof token === "string" ? this.sessions.get(token) : undefined;
-    if (!session || !["/mcp", "/team-mcp"].includes(request.url)) { response.writeHead(401, { "Cache-Control": "no-store" }).end(); return; }
+    if (!session || !["/mcp", "/team-mcp", "/portal-mcp"].includes(request.url)) { response.writeHead(401, { "Cache-Control": "no-store" }).end(); return; }
     try {
       await session.grant.revalidate();
       if (this.sessions.get(token) !== session) throw new Error("Execution ended");
-      if (request.url === "/team-mcp") {
-        if (!session.grant.team || !this.teamOrigin || request.method !== "POST") throw new Error("Team Chat tool unavailable");
+      if (["/team-mcp", "/portal-mcp"].includes(request.url)) {
+        const portal = request.url === "/portal-mcp";
+        if (!(portal ? session.grant.collaboration?.portal : session.grant.team) || !this.teamOrigin || request.method !== "POST") throw new Error("Team Chat tool unavailable");
         const chunks = []; let size = 0;
         for await (const chunk of request) {
           size += chunk.length;
@@ -84,9 +86,9 @@ export class NativeTools {
           chunks.push(chunk);
         }
         await session.grant.revalidate();
-        const upstream = await this.request(new URL("/internal/team-mcp", this.teamOrigin), {
+        const upstream = await this.request(new URL(portal ? "/internal/collaboration/portal-tools" : "/internal/team-mcp", this.teamOrigin), {
           method: "POST", redirect: "error", signal: AbortSignal.timeout(65000),
-          headers: { Authorization: `Bearer ${session.grant.team.capability}`, "Content-Type": "application/json" },
+          headers: { Authorization: `Bearer ${portal ? session.grant.collaboration.lease : session.grant.team.capability}`, "Content-Type": "application/json" },
           body: Buffer.concat(chunks),
         });
         const responseChunks = []; let total = 0;

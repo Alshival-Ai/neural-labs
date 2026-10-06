@@ -1,3 +1,4 @@
+import { CollaborationSettings } from "./CollaborationSettings";
 import { NotificationSettings, NotificationEmailSettings } from "./notifications";
 import {
   browserSupportsWebAuthn,
@@ -358,6 +359,7 @@ function AccountSettingsPanel({ user, providers: initialProviders, csrfToken, in
           )}
       </section>}
 
+      {security && <CollaborationSettings csrfToken={csrfToken} />}
       {!security && <NotificationSettings />}
       {!security && user.role === "admin" && <NotificationEmailSettings />}
       <PhoneSettings csrfToken={csrfToken} view={security ? "phone" : "notifications"} onOpenSecurity={onOpenSecurity} />

@@ -19,12 +19,13 @@ function session(row) {
 export function controlPlaneAuthority({ origin, token, request = fetch }) {
   return async lease => {
     const scheduled = typeof lease === "object" && lease?.job;
+    const collaboration = typeof lease === "object" && lease?.collaboration;
     const connector = typeof lease === "object" && lease?.connector;
     const team = typeof lease === "object" && lease?.team;
-    if (!scheduled && !team && !connector) identity(lease);
-    const url = new URL(connector ? "/internal/connectors/authorize" : scheduled ? "/internal/native/background" : team ? "/internal/native/team" : "/internal/native/lease", origin);
+    if (!scheduled && !team && !connector && !collaboration) identity(lease);
+    const url = new URL(collaboration ? "/internal/native/collaboration" : connector ? "/internal/connectors/authorize" : scheduled ? "/internal/native/background" : team ? "/internal/native/team" : "/internal/native/lease", origin);
     const response = await request(url, { method: "POST", redirect: "error", signal: AbortSignal.timeout(5000),
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(scheduled || team || connector ? lease : { lease }) });
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(scheduled || team || connector || collaboration ? lease : { lease }) });
     if (!response.ok) throw new Error("Native execution authorization was revoked or is unavailable");
     return response.json();
   };
@@ -120,10 +121,11 @@ export class NativeRuntime {
     if (original.binding.owner !== original.connection) throw new Error("Native credential owner binding failed");
     const binding = canonical(original.binding);
     const accountRoot = path.join(this.root, "accounts", original.connection);
+    if (original.collaboration) identity(original.collaboration.session);
     if (original.connector) identity(original.connector.message);
     if (isolatedRun) identity(isolatedRun);
-    const homeRoot = isolatedRun ? path.join(this.root, "light-homes", isolatedRun) : original.connector ? path.join(this.root, "connector-homes", original.connector.message) : accountRoot;
-    if ((original.connector || isolatedRun) && original.binding.method === "subscription") await prepareConnectorHome(accountRoot, homeRoot, original.binding.provider);
+    const homeRoot = isolatedRun ? path.join(this.root, "light-homes", isolatedRun) : original.connector ? path.join(this.root, "connector-homes", original.connector.message) : original.collaboration ? path.join(this.root, "collaboration-homes", original.collaboration.session) : accountRoot;
+    if ((original.connector || original.collaboration || isolatedRun) && original.binding.method === "subscription") await prepareConnectorHome(accountRoot, homeRoot, original.binding.provider);
     await prepareNativeHome(homeRoot);
     const policy = { ...original.policy,
       sandbox: savedPolicy?.sandbox === "read-only" ? "read-only" : original.policy?.sandbox };
@@ -134,7 +136,7 @@ export class NativeRuntime {
       if (current.actor !== actor || current.actorRole !== original.actorRole || current.scope !== original.scope
           || current.connection !== original.connection || canonical(current.binding) !== binding
           || current.model !== original.model || current.background !== original.background || current.authorityGeneration !== original.authorityGeneration
-          || canonical(current.connector ?? null) !== canonical(original.connector ?? null) || canonical(current.team ?? null) !== canonical(original.team ?? null) || canonical(current.policy) !== canonical(original.policy)) {
+          || canonical(current.collaboration ?? null) !== canonical(original.collaboration ?? null) || canonical(current.connector ?? null) !== canonical(original.connector ?? null) || canonical(current.team ?? null) !== canonical(original.team ?? null) || canonical(current.policy) !== canonical(original.policy)) {
         throw new Error("Native execution binding changed");
       }
     };
@@ -263,10 +265,18 @@ export class NativeRuntime {
     return { ok: true };
   }
   async handle({ actor, lease, operation, params = {} }) {
-    identity(actor); identity(lease);
+    identity(actor); if (!lease?.collaboration) identity(lease);
     const authorization = await this.authorize(lease);
     if (authorization.actor !== actor || authorization.purpose !== operation) throw new Error("Native request authority mismatch");
     if (!params || Array.isArray(params) || typeof params !== "object") throw new Error("Invalid native request parameters");
+    if (authorization.collaboration) {
+      const sessionId = authorization.collaboration.session;
+      identity(sessionId);
+      if (!["conversations.create", "turns.start", "events.read", "turns.cancel", "approvals.resolve"].includes(operation)) throw new Error("Collaboration operation unavailable");
+      if (["turns.start", "events.read"].includes(operation) && params.conversation !== sessionId) throw new Error("Collaboration session mismatch");
+      if (operation === "turns.cancel" && this.turns.active.get(params.turn)?.conversation !== sessionId) throw new Error("Collaboration turn mismatch");
+      if (operation === "approvals.resolve" && this.turns.approvals.get(params.approval)?.execution.conversation !== sessionId) throw new Error("Collaboration approval mismatch");
+    }
     if (operation === "models.list") {
       if (this.turns.gated) throw new Error("Native runtime admission is closed");
       const grant = await this.execution(actor, lease, operation);
@@ -283,7 +293,7 @@ export class NativeRuntime {
       return this.jobs[operation.split(".")[1]](authorization, params);
     }
     if (operation === "conversations.create") {
-      const created = await this.turns.create(actor, lease);
+      const created = await this.turns.create(actor, lease, authorization.collaboration?.session);
       this.state.updateConversation(created.id, actor, authorization.binding, { model: authorization.model });
       return { session: session(this.state.listConversations(actor, authorization.binding).find(row => row.id === created.id)) };
     }
