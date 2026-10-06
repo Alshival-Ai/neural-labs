@@ -1,8 +1,20 @@
-# Workspace task graph
+# Projects board, notes and timeline
 
-Projects is native to every Neural Labs installation, including open-source self-hosted deployments. Tasks, relationships, sticky notes, comments and status catalogs live in the installation’s existing PostgreSQL database. No separate graph server or portal account is required.
+Projects is native to every Neural Labs installation, including open-source self-hosted deployments. Tasks, relationships, sticky notes, resources, deliverables, comments and status catalogs live in the installation’s existing PostgreSQL database. No separate graph server or portal account is required.
 
-Open **Projects** from the desktop. The board and graph use the same tasks. Directed dependencies reject cycles; related links are symmetric. Dependencies show context without preventing status changes. Task checklists and task-attached sticky notes retain their own identities. Drag a sticky note or use Alt + arrow keys to move it; its position is a personal preference saved in this browser, separately for each account and project board. Moving a note does not edit the shared record or change its revision. Task-attached notes follow the same rule. Existing shared positions are ignored; an unset personal layout starts in a grid.
+Open **Projects** from the desktop. The board and graph use the same tasks. Directed dependencies reject cycles; related links are symmetric. Dependencies show context without preventing status changes. Task checklists and task-attached sticky notes retain their own identities. Drag a card by its handle or focus the handle and use arrow keys (Shift for larger steps) to move it; its position is a personal preference saved in this browser, separately for each account and project board. Moving a note does not edit the shared record or change its revision. Task-attached notes follow the same rule. Existing shared positions are ignored; an unset personal layout starts in a grid.
+
+## Shared project interface
+
+The native Projects app uses the portal board’s shared styles, responsive column controller and timeline controller in connected **and standalone** installations. It runs against the local project API; no embedded portal or connected account is required. The default board shows task columns, a schedule preview, and a combined **Notes & Resources** canvas. Board, Graph, Deliverables, Timeline, Activity and Trash remain available as views.
+
+- Move tasks by dragging or using **Move to…**, and assign members directly on a card. Narrow app windows use swipe navigation and a status selector.
+- Notes save inline after typing stops. A failed save retains the draft and offers retry or reload; changing boards or views warns before discarding unsaved notes. Realtime updates do not replace an open item editor. Revision conflicts require reloading the saved version.
+- Resource cards open an editor for their type, lifecycle status, provider, environment and public URL. These are ordinary native resource records; portal-only infrastructure credentials, monitoring and billing are not copied into the open-source UI or graph replication.
+- Schedule bars support dragging and edge resizing on desktop, with an accessible date editor and a compact list on narrow windows. Writes carry the revision observed when editing began, including when a background update arrives during an edit.
+- **Tidy cards** resets only your current board’s browser layout. It does not move other members’ cards or modify shared content.
+
+The asset provenance manifest lives at `workspace/desktop/src/project-board/portal/provenance.json`. Keep these assets synchronized with the source board; transport adapters preserve each host’s authentication and authorization. `GET /api/projects/members` includes the authenticated `actor.id` for author-only note editing and the Assigned to me filter. Server authorization remains authoritative.
 
 All tasks, notes and task comments are shared with current workspace members. There is no private task/publication switch. Administrators manage the status catalog, including names, colors, order, the default and retirement replacements. Retiring a status moves its tasks to an active replacement in the same reporting category. Done tasks remain editable; explicit review acceptance still requires a separate reviewer.
 
@@ -10,7 +22,7 @@ Each workspace has one Team Channel. New task comments also appear there in the 
 
 ## Project boards
 
-Use **Project board** to select a board. Administrators can create, archive and restore boards under **Manage project boards**. Each board owns its tasks, deliverables, notes and ordered status catalog. The original **Workspace board** remains available for existing records that have no board ID. Native installations impose no commercial board limits.
+Use **Project board** to select a board. Administrators can create, archive and restore boards under **Board settings**. Each board owns its tasks, deliverables, notes and ordered status catalog. The original **Workspace board** remains available for existing records that have no board ID. Native installations impose no commercial board limits.
 
 A task uses a status from its own board. To move a task through the API, update both `board_id` and the destination `status_id` with the current revision. The task identity, attached notes and comments remain intact. Dependencies and related links may connect tasks across active boards. Archived boards retain their records and relationships; ordinary project reads and graph context hide their contents until restoration. Board management shows archive metadata.
 
@@ -18,7 +30,7 @@ A task uses a status from its own board. To move a task through the API, update 
 
 ## Optional integrations
 
-Projects → API & MCP connections creates expiring, revocable user-bound credentials. Tokens appear once and are stored only as hashes. Ordinary keys support `project:read` and `project:write`; current project administrators can also issue `project:sync`. Role removal invalidates sync authority on the next request.
+Projects → Board settings → API & MCP connections creates expiring, revocable user-bound credentials. Tokens appear once and are stored only as hashes. Ordinary keys support `project:read` and `project:write`; current project administrators can also issue `project:sync`. Role removal invalidates sync authority on the next request.
 
 - REST: `https://YOUR-INSTANCE/api/projects`
 - MCP: `https://YOUR-INSTANCE/api/projects/mcp`

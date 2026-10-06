@@ -150,6 +150,11 @@ const url = process.env.TEST_DATABASE_URL;
       csrf: req => req.get("x-fixture-csrf") === "valid", sameOrigin: (_req, _res, next) => next(),
     });
     expect((await request(app).get("/api/projects")).status).toBe(401);
+    expect((await request(app).get("/api/projects/members")).status).toBe(401);
+    const people = await request(app).get("/api/projects/members").set("x-fixture-session", "member");
+    expect(people.status).toBe(200);
+    expect(people.body.actor).toEqual({ id: member.id });
+    expect(people.body.members).toContainEqual({ id: member.id, display_name: member.displayName });
     const created = await request(app).post("/api/projects/keys").set("x-fixture-session", "member").set("x-fixture-csrf", "valid")
       .send({ name: "Reader", scopes: ["project:read"] });
     expect(created.status).toBe(201);

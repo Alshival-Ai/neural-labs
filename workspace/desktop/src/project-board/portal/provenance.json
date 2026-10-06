@@ -1,0 +1,17 @@
+{
+  "source": "Alshival.ai project board",
+  "revision": "a68486d2ccc46ddd59fd1a09155ce793b19d191b",
+  "files": {
+    "flexible-board.css": "7339171002d8b2b58f968f962c773f5f39c9f71689718260d95c8de2ab5b2103",
+    "gantt.css": "ec0071a139b6487dcdbee36538f61dd07d96dff9c2f49f967eec6a536f9b2b05",
+    "gantt.js": "8ca73a6886ee78ce1d481d531abed2edebc3e8f83ffe7ad9e07c341e37cc294a",
+    "note-relationships.css": "3a65b14cf5a5a921eb0a43055caf670f98bfad9deba06f9d10e1fd1a25d1cd88",
+    "public-sans-OFL.txt": "157a9e77f7580246e97c769490e2e977ae94399f9d30f4556015c41fe8c28bac",
+    "public-sans-variable.ttf": "d75a7dc1a27eb9e336d5b33f55489d2ecb5621bf694d5c43b2415bce2ca830a8",
+    "resource-pane.css": "04b2178ecc2f729b504c7530c960d83860f49322588346155d9bac18a30d889d",
+    "responsive-board.js": "9f3a5c4a1e08e7b3601247cdf069589daab95293a3a355cb3e7227a6ddef963f",
+    "scrapbook.css": "f8e0607731456223300e7fb1dc8c5f40f7ad4852f7f922cb0c45ca511aa875b4",
+    "shared-project.css": "cf18f4ef8c26df07cc462632b867c7714ce6ed766f03b29c6c5ab488796e3fd8",
+    "task-details.css": "3df384151330a08132fbc7f9df072bea362ccc7c75e812601c7d87b8b214be29"
+  }
+}

@@ -1,47 +1,409 @@
-.projects-app { height:100%; overflow:auto; background:var(--surface,#111); color:var(--text,#eee); padding:20px; font:14px/1.5 system-ui; box-sizing:border-box; }
-.projects-app header,.projects-app nav,.projects-actions { display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between; }
-.projects-app h1,.projects-app h2 { margin:0 0 10px; } .projects-app h2 { font-size:16px; }
-.projects-app button { background:#30343b; color:#fff; border:1px solid #62666c; border-radius:8px; padding:8px 12px; cursor:pointer; }
-.projects-app button[aria-pressed=true],.projects-app button[type=submit] { background:#fff; color:#111; }
-.projects-app button:disabled { opacity:.6; cursor:wait; }
-.projects-app nav { justify-content:flex-start; margin:18px 0; }
-.projects-layout { display:grid; grid-template-columns:minmax(0,1fr) 280px; gap:20px; }
-.projects-board { display:flex; gap:12px; overflow:auto; align-items:flex-start; }
-.projects-column { flex:1; min-width:190px; background:#ffffff08; border:1px solid #8885; border-radius:12px; padding:12px; }
-.projects-app .projects-card { width:100%; text-align:left; margin:0 0 10px; display:grid; gap:8px; overflow-wrap:anywhere; }
-.projects-card small,.projects-app header span { opacity:.7; }
-.projects-app label { display:grid; gap:4px; margin:10px 0; }
-.projects-app nav label { display:flex; }
-.projects-app input,.projects-app textarea,.projects-app select { box-sizing:border-box; max-width:100%; width:100%; background:#191b20; color:#eee; border:1px solid #8888; border-radius:6px; padding:8px; font:inherit; }
-.projects-app input[type=checkbox] { width:auto; }
-.projects-app textarea { min-height:85px; resize:vertical; }
-.projects-app [role=alert] { padding:12px; border:1px solid #ffbd66; border-radius:8px; }
-.projects-app details { margin-top:24px; border-top:1px solid #8885; padding-top:14px; }
-.projects-graph { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:16px; width:100%; align-content:start; }
-.projects-app .projects-graph-node { min-height:100px; text-align:left; display:grid; gap:8px; border-color:#78c7ba; background:#18302e; }
-.projects-graph-node span { font-size:12px; opacity:.8; }
-.projects-timeline { display:grid; gap:8px; width:100%; align-content:start; }
-.projects-timeline button { text-align:left; }
-.projects-related { margin-top:18px; border-top:1px solid #8885; }
-.projects-related p { overflow-wrap:anywhere; }
-.projects-related p button { padding:3px 7px; margin-left:8px; }
-.projects-sticky-canvas { position:relative; min-height:340px; width:100%; min-width:190px; overflow:auto; border:1px dashed #8886; border-radius:12px; margin:10px 0; }
-.projects-app .projects-sticky { position:absolute; display:grid; align-content:start; gap:4px; width:170px; min-height:145px; text-align:left; margin:0; background:#fff1ab; color:#241c12; border-color:#d1b85f; cursor:grab; box-shadow:2px 3px 12px #0004; }
-.projects-app .projects-sticky small { white-space:pre-wrap; overflow-wrap:anywhere; }
-.projects-app .projects-sticky[data-color=blue] { background:#b9e2f3; }
-.projects-app .projects-sticky[data-color=pink] { background:#f5c9da; }
-.projects-app .projects-sticky[data-color=green] { background:#ccebc8; }
-.projects-app .projects-sticky[data-color=orange] { background:#f7d0ac; }
-.projects-app .projects-sticky[data-color=purple] { background:#d9c9ef; }
-.projects-app .projects-sticky[data-color=teal] { background:#b9e9e2; }
-.projects-app .projects-sticky[data-color=gray] { background:#e3e3e3; }
-@media(max-width:760px) { .projects-layout { grid-template-columns:1fr; } .projects-board { max-height:50vh; } }
-@media(prefers-color-scheme:light) { .projects-app { background:#fff; color:#111; } .projects-app input,.projects-app textarea,.projects-app select { background:#f6f6f6; color:#111; } .projects-app .projects-card { background:#f3f3f3; color:#111; } }
+@import "./project-board/portal/shared-project.css";
+@import "./project-board/portal/flexible-board.css";
+@import "./project-board/portal/scrapbook.css";
+@import "./project-board/portal/gantt.css";
+@import "./project-board/portal/task-details.css";
+@import "./project-board/portal/note-relationships.css";
+@import "./project-board/portal/resource-pane.css";
+@font-face {
+  font-family: "Project Public Sans";
+  src: url("./project-board/portal/public-sans-variable.ttf") format("truetype");
+  font-weight: 100 900;
+  font-display: swap;
+}
+.projects-app {
+  --paper: #f6f4ef;
+  --bright: #fffef9;
+  --ink: #0b0c11;
+  --muted: #62636b;
+  --line: #dedcd6;
+  --surface: #eeece6;
+  --matrix-color-b: #7b4dff;
+  --app-muted: var(--muted);
+  --app-paper: var(--paper);
+  --app-ink: var(--ink);
+  --app-card: var(--surface);
+  --sp-accent: var(--matrix-color-b);
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  container-type: inline-size;
+  background: var(--paper);
+  color: var(--ink);
+  font:
+    14px/1.5 "Project Public Sans",
+    sans-serif;
+  color-scheme: light;
+}
+.projects-app a {
+  color: inherit;
+  text-decoration: none;
+}
+.projects-app button {
+  font-family: inherit;
+  cursor: pointer;
+}
+.projects-app .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-decoration: none;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+  font-weight: 600;
+  cursor: pointer;
+}
+.projects-app .button.matrix-btn {
+  color: #fff;
+  background: var(--matrix-color-b);
+  border-color: var(--matrix-color-b);
+}
+.projects-app .button.btn-frost {
+  background: color-mix(in srgb, var(--ink) 8%, var(--paper));
+  color: var(--ink);
+}
+.projects-app button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.projects-app .project-parity-board {
+  margin: 0;
+  height: 100%;
+  overflow: auto;
+  border: 0;
+  border-radius: 0;
+}
+.projects-app .project-columns-adapter {
+  padding: 0;
+}
+.projects-app .project-text-button {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.projects-app h4 .project-text-button,
+.projects-app h3 .project-text-button {
+  font-weight: 650;
+}
+.projects-app .project-text-button:hover {
+  text-decoration: underline;
+}
+.projects-app .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.projects-app .project-board-picker {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0;
+  font-size: 12px;
+}
+.projects-app .project-board-picker select {
+  width: auto;
+  max-width: 70%;
+}
+.projects-app .project-add-menu {
+  position: relative;
+}
+.projects-app .project-add-menu > summary {
+  list-style: none;
+}
+.projects-app .project-add-menu[open] > button {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  white-space: nowrap;
+  z-index: 10;
+}
+.projects-app .sp-card .project-assignee select {
+  padding: 2px;
+  border: 0;
+  font-size: 10px;
+  color: var(--muted);
+  background: transparent;
+  max-width: 140px;
+}
+.projects-app .sp-move {
+  border: 0;
+  border-radius: 6px;
+  padding: 4px 7px;
+  background: var(--paper);
+  color: var(--muted);
+  font-size: 10px;
+}
+.projects-app .project-move-menu {
+  display: block;
+  margin: 8px 0;
+  font-size: 11px;
+}
+.projects-app .project-note-canvas {
+  position: relative;
+  min-height: 355px;
+}
+.projects-app .project-note-canvas .sp-note-slot {
+  min-width: 0;
+}
+.projects-app .project-resource-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 12px 0;
+}
+.projects-app .project-resource-filters label {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+  flex: 1;
+  min-width: 130px;
+}
+.projects-app .project-item-pane {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: min(720px, 60%);
+  height: 100%;
+  max-height: 100%;
+  margin: 0;
+  z-index: 50;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: -12px 0 40px #0002;
+}
+.projects-app .project-item-pane.resource-pane {
+  inset: 0 0 0 auto;
+  animation: none;
+  padding: 0;
+}
+.projects-app .task-detail-header {
+  top: 0;
+  background: var(--paper);
+}
+.projects-app .task-detail-header .button {
+  flex: 0 0 auto;
+}
+.projects-app .project-item-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.projects-app .project-item-form > label:has(textarea),
+.projects-app .project-item-form > fieldset,
+.projects-app .project-item-form > button {
+  grid-column: 1/-1;
+}
+.projects-app .project-item-form label {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+.projects-app .project-item-form textarea {
+  min-height: 100px;
+}
+.projects-app .project-item-form input[type="checkbox"] {
+  width: auto;
+}
+.projects-app fieldset {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+}
+.projects-app .project-item-pane form ~ form,
+.projects-app .project-item-pane section {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+.projects-app .projects-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0;
+}
+.projects-app .project-item-pane button:not(.project-text-button):not(.button),
+.projects-app .project-settings button {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: var(--paper);
+  color: var(--ink);
+}
+.projects-app .project-item-pane button[type="submit"],
+.projects-app .project-settings button[type="submit"] {
+  background: var(--matrix-color-b);
+  color: #fff;
+}
+.projects-app .project-settings {
+  clear: both;
+  margin-top: 30px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+.projects-app .project-settings label {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0;
+}
+.projects-app .project-settings > form {
+  max-width: 640px;
+}
+.projects-app .project-settings input[type="checkbox"] {
+  width: auto;
+}
+.projects-app .project-settings h2 {
+  font-size: 18px;
+  margin-top: 24px;
+}
+.projects-app .projects-graph-scroll {
+  overflow: auto;
+  max-height: 65vh;
+  color: var(--matrix-color-b);
+}
+.projects-app .projects-graph-task {
+  cursor: pointer;
+  outline: none;
+}
+.projects-app .projects-graph-task rect {
+  fill: var(--paper);
+  stroke: var(--line);
+}
+.projects-app .projects-graph-task:focus rect,
+.projects-app .projects-graph-task:hover rect {
+  stroke: var(--matrix-color-b);
+  stroke-width: 3;
+}
+.projects-app .projects-graph-task text {
+  fill: var(--ink);
+  font-size: 14px;
+}
+.projects-app .projects-graph-task .graph-state {
+  font-size: 12px;
+  opacity: 0.7;
+}
+.project-drag-ghost {
+  padding: 16px;
+  max-width: 220px;
+  background: #f6f4ef;
+  color: #0b0c11;
+  box-shadow: 0 8px 30px #0004;
+  border: 1px solid #dedcd6;
+  border-radius: 10px;
+  font: 14px/1.5 sans-serif;
+}
+.projects-app .sp-filter-toggle {
+  display: none;
+}
+@media (prefers-color-scheme: dark) {
+  .projects-app {
+    --paper: #000;
+    --bright: #000;
+    --ink: #f4f2ed;
+    --muted: #a5a7b3;
+    --line: #2b2b2b;
+    --surface: #000;
+    color-scheme: dark;
+  }
+  .projects-app select,
+  .projects-app option,
+  .projects-app optgroup {
+    background: #0f172a;
+    color: #e2e8f0;
+  }
+}
+:root[data-theme="light"] .projects-app {
+  --paper: #f6f4ef;
+  --ink: #0b0c11;
+  --muted: #62636b;
+  --line: #dedcd6;
+  --surface: #eeece6;
+  color-scheme: light;
+}
+:root[data-theme="dark"] .projects-app {
+  --paper: #000;
+  --ink: #f4f2ed;
+  --muted: #a5a7b3;
+  --line: #2b2b2b;
+  --surface: #000;
+  color-scheme: dark;
+}
+@container (max-width:900px) {
+  .projects-app .project-item-pane {
+    width: 100%;
+    height: 100%;
+    max-height: 100%;
+    margin: 0;
+  }
+  .projects-app .sp-section-heading {
+    flex-wrap: wrap;
+  }
+  .projects-app .sp-view-select {
+    display: block;
+  }
+  .projects-app .sp-tabs {
+    display: none;
+  }
+  .projects-app .sp-heading > div:first-child {
+    display: none;
+  }
+  .projects-app .sp-filter-toggle {
+    display: inline-flex;
+  }
+  .projects-app [data-project-enhanced]:not([data-filters-open]) > .sp-toolbar {
+    display: none;
+  }
+  .projects-app .sp-heading {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .projects-app .project-item-form {
+    grid-template-columns: 1fr;
+  }
+  .projects-app .sp-gantt {
+    display: none !important;
+  }
+  .projects-app .sp-schedule-fallback {
+    display: block !important;
+  }
+}
+@container (max-width:600px) {
+  .projects-app .sp-sticky.is-placed {
+    position: relative;
+    left: auto !important;
+    top: auto !important;
+    width: auto !important;
+  }
+  .projects-app .sp-note-handle {
+    display: none;
+  }
+  .projects-app .sp-scrapbook-note-grid {
+    grid-template-columns: 1fr;
+  }
+  .projects-app .project-note-canvas {
+    min-height: 0 !important;
+  }
+}
 
-.projects-graph-surface { min-width:0; width:100%; }
-.projects-graph-scroll { overflow:auto; max-height:65vh; color:var(--accent,#69b99b); }
-.projects-graph-task { cursor:pointer; outline:none; }
-.projects-graph-task rect { fill:var(--surface-raised,#24332f); stroke:var(--border,#52665e); }
-.projects-graph-task:focus rect,.projects-graph-task:hover rect { stroke:var(--accent,#69b99b); stroke-width:3; }
-.projects-graph-task text { fill:var(--text,#eee); font-size:14px; }
-.projects-graph-task .graph-state { font-size:12px; opacity:.7; }
+:root[data-theme="light"] .projects-app :is(select, option, optgroup) {
+  background: var(--paper);
+  color: var(--ink);
+}
+:root[data-theme="dark"] .projects-app :is(select, option, optgroup) {
+  background: #0f172a;
+  color: #e2e8f0;
+}

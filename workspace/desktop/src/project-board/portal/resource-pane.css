@@ -1,0 +1,19 @@
+.sp-resource { --note-paper: #d4e4e1; border-radius: 3px 3px 14px 3px; border-top: 5px solid #588d88; }
+.sp-resource .sp-pill { display: inline-flex; align-items: center; gap: 5px; }
+.sp-resource .sp-pill svg { width: 14px; height: 14px; }
+.resource-card-meta { display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 12px 0; font-size: 11px; }
+.resource-board-filters { margin: 0 0 18px; }
+.resource-board-filters form { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin: 12px 0; }
+.resource-board-filters label { display: grid; gap: 5px; font-size: 12px; }
+.resource-pane { position: fixed; inset: 70px 0 0 auto; width: min(760px, 65vw); z-index: 2200; box-sizing: border-box; background: var(--paper, #f6f4ef); color: var(--ink, #24212b); border-left: 1px solid #8884; box-shadow: -12px 0 40px #0002; overflow: auto; padding: 22px; animation: resource-slide .2s ease-out; }
+.resource-pane[hidden] { display: none; }
+.resource-pane > header { display: flex; justify-content: space-between; gap: 12px; position: sticky; top: -22px; padding: 12px 0; background: inherit; z-index: 2; }
+.resource-pane-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 24px; }
+.resource-pane form { max-width: 100%; }
+.resource-pane :is(input:not([type=checkbox]):not([type=radio]), textarea, select) { max-width: 100%; box-sizing: border-box; }
+.resource-pane pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.dark-style .resource-pane { background: #161a24; color: #e2e8f0; }
+.dark-style .resource-pane .form-select, .dark-style .resource-pane option, .dark-style .resource-pane optgroup { background: #0f172a; color: #e2e8f0; }
+@keyframes resource-slide { from { transform: translateX(100%); } to { transform: translateX(0); } }
+@media (max-width: 1000px) { .resource-pane { inset: 0; width: 100%; } }
+@media (prefers-reduced-motion: reduce) { .resource-pane { animation: none; } }

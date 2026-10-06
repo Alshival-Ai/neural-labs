@@ -83,7 +83,7 @@ export function registerProjectRoutes(app: Express, database: Database, config: 
   }));
   app.get("/api/projects/members", wrap(async (req, res) => {
     const actor = await authenticate(req, res, "project:read"); if (!actor) return;
-    res.json({ members: (await database.pool.query("SELECT id,display_name FROM users WHERE status='active' ORDER BY display_name")).rows });
+    res.json({ actor: { id: actor.id }, members: (await database.pool.query("SELECT id,display_name FROM users WHERE status='active' ORDER BY display_name")).rows });
   }));
   // Trusted runtime transport: provider processes never receive the service token.
   app.post("/internal/projects/read", wrap(async (req, res) => {
