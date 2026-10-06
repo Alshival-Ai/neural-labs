@@ -140,3 +140,5 @@ Use `bin/neural-labs help` for lifecycle commands. Run `make validate` before
 committing. Current release: **v0.3.2**; see [release record](wiki/releases/v0.3.2.md).
 See the [project tracker](tracker.md) for planning and the
 [documentation index](wiki/README.md#architecture-decisions) for architecture records.
+
+The native **Projects** board includes Markdown sticky notes, expandable paper notes and resources, searchable task/note/resource connections, and resource mentions typed with `!`. Notes can live on the board or inside a resource. Tasks retain the side editor. See [Projects](wiki/project-management.md) for sharing and synchronization boundaries.

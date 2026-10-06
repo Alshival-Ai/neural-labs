@@ -7,6 +7,12 @@ import {
   type Edge,
   labels,
 } from "./project-board/types";
+import { projectApi as api } from "./project-board/api";
+import {
+  PaperCard,
+  Relations,
+  type Connect,
+} from "./project-board/ConnectedCards";
 import { Canvas } from "./project-board/Canvas";
 import { TaskColumns } from "./project-board/TaskColumns";
 import { Timeline } from "./project-board/Timeline";
@@ -21,38 +27,7 @@ const views = [
   "trash",
 ] as const;
 type View = (typeof views)[number];
-async function api<T>(
-  path: string,
-  method = "GET",
-  body?: unknown,
-): Promise<T> {
-  const csrf =
-    document.cookie
-      .split(";")
-      .map((value) => value.trim())
-      .find((value) => value.startsWith("neural-labs-csrf="))
-      ?.split("=")
-      .slice(1)
-      .join("=") ?? "";
-  const response = await fetch(`/api/projects${path}`, {
-    method,
-    credentials: "same-origin",
-    cache: "no-store",
-    headers: {
-      "Content-Type": "application/json",
-      "X-CSRF-Token": decodeURIComponent(csrf),
-    },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
-  if (response.status === 204) return undefined as T;
-  const value = await response.json().catch(() => null);
-  if (!response.ok || value === null)
-    throw new Error(
-      value?.error?.message ??
-        "Project service is unavailable. Your changes have not been discarded.",
-    );
-  return value;
-}
+
 export function ProjectsApp({
   storageNamespace,
 }: { storageNamespace?: string } = {}) {
@@ -70,6 +45,8 @@ export function ProjectsApp({
     [showArchived, setShowArchived] = useState(false),
     [expanded, setExpanded] = useState(false),
     [filters, setFilters] = useState(false);
+  const [opened, setOpened] = useState<string[]>([]),
+    [focused, setFocused] = useState("");
   const [selected, setSelected] = useState<Item | null>(null),
     [editorOpen, setEditorOpen] = useState(false),
     [kind, setKind] = useState("task"),
@@ -189,6 +166,17 @@ export function ProjectsApp({
   const leave = () =>
     !dirty.current || window.confirm("Discard your unsaved changes?");
   const open = (item: Item) => {
+    if (noteDrafts.current.has(item.id)) {
+      setError(
+        "Wait for this note to save before expanding it. If saving failed, retry or reload the saved note.",
+      );
+      return;
+    }
+    if (["note", "resource"].includes(item.kind)) {
+      setOpened((ids) => (ids.includes(item.id) ? ids : [...ids, item.id]));
+      setFocused(item.id);
+      return;
+    }
     if (!leave()) return;
     dirty.current = false;
     setKind(item.kind);
@@ -232,12 +220,22 @@ export function ProjectsApp({
     setEditorOpen(false);
     setSelected(null);
   };
+  const retries = useRef(new Map<string, string>());
   async function change(item: Item, data: Partial<ItemData>): Promise<Item> {
+    const retryKey = JSON.stringify([item.id, item.revision, data]);
+    if (!retries.current.has(retryKey))
+      retries.current.set(retryKey, crypto.randomUUID());
     const updated = await api<Item>(`/items/${item.id}`, "PATCH", {
-      idempotency_key: crypto.randomUUID(),
+      idempotency_key: retries.current.get(retryKey),
       revision: item.revision,
       data,
     });
+    retries.current.delete(retryKey);
+    if (
+      (item.kind === "note" && data.body !== undefined) ||
+      item.kind === "resource"
+    )
+      void refresh().catch(() => {});
     if (alive.current) {
       setItems((current) =>
         current.map((row) => (row.id === updated.id ? updated : row)),
@@ -338,30 +336,20 @@ export function ProjectsApp({
       creating.current = false;
     }
   }
-  async function link(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!selected) return;
-    const form = event.currentTarget,
-      fields = new FormData(form);
-    setBusy(true);
-    try {
-      await api("/edges", "POST", {
-        idempotency_key: crypto.randomUUID(),
-        source_id: selected.id,
-        target_id: fields.get("target_id"),
-        kind: fields.get("kind"),
-      });
-      await refresh();
-      form.reset();
-    } catch (reason) {
-      setError((reason as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
+  const connect: Connect = async (source, target, kind = "related") => {
+    await api("/edges", "POST", {
+      idempotency_key: crypto.randomUUID(),
+      source_id: source.id,
+      target_id: target.id,
+      kind,
+    });
+    await refresh();
+  };
   async function unlink(id: string) {
     try {
-      await api(`/edges/${id}`, "DELETE");
+      await api(`/edges/${id}`, "DELETE", {
+        revision: edges.find((edge) => edge.id === id)?.revision,
+      });
       await refresh();
     } catch (reason) {
       setError((reason as Error).message);
@@ -397,13 +385,6 @@ export function ProjectsApp({
           : !item.data.assignee)),
   );
   const taskById = new Map(allTasks.map((item) => [item.id, item]));
-  const links =
-    selected?.kind === "task"
-      ? edges.filter(
-          (edge) =>
-            edge.source_id === selected.id || edge.target_id === selected.id,
-        )
-      : [];
   const unresolved =
     selected?.kind === "task"
       ? edges.filter(
@@ -655,6 +636,7 @@ export function ProjectsApp({
                     open={open}
                     create={(next) => void create(next)}
                     onDirty={noteDirty}
+                    expandedIds={opened}
                   />
                 </div>
               </>
@@ -797,6 +779,58 @@ export function ProjectsApp({
             )}
           </>
         )}
+        <div className="connected-switcher">
+          {opened.map((id) => {
+            const item = items.find((i) => i.id === id);
+            return (
+              item && (
+                <button
+                  type="button"
+                  key={id}
+                  aria-pressed={focused === id}
+                  onClick={() => setFocused(id)}
+                >
+                  {item.data.title}
+                </button>
+              )
+            );
+          })}
+        </div>
+        {opened.map((id) => {
+          const item = items.find((i) => i.id === id);
+          return (
+            item &&
+            !item.data.deleted &&
+            !item.data.archived && (
+              <PaperCard
+                key={id}
+                item={item}
+                items={items}
+                edges={edges}
+                change={change}
+                connect={connect}
+                unlink={unlink}
+                open={open}
+                actor={actor}
+                manager={manageStatuses}
+                namespace={storageNamespace}
+                onDirty={noteDirty}
+                focused={focused === id}
+                focus={() => setFocused(id)}
+                close={() => {
+                  if (
+                    noteDrafts.current.has(id) &&
+                    !confirm("Discard unsaved note changes?")
+                  )
+                    return;
+                  setOpened((ids) => ids.filter((i) => i !== id));
+                  if (focused === id)
+                    setFocused(opened.filter((i) => i !== id).at(-1) ?? "");
+                }}
+              />
+            )
+          );
+        })}
         {editorOpen && (
           <aside
             className={`project-item-pane${kind === "resource" ? " resource-pane" : ""}`}
@@ -1127,51 +1161,14 @@ export function ProjectsApp({
                           remain available.
                         </p>
                       )}
-                      {links.map((edge) => (
-                        <p key={edge.id}>
-                          {edge.kind === "related"
-                            ? "Related"
-                            : edge.source_id === selected.id
-                              ? "Depends on"
-                              : "Required by"}
-                          :{" "}
-                          {taskById.get(
-                            edge.source_id === selected.id
-                              ? edge.target_id
-                              : edge.source_id,
-                          )?.data.title ?? "Task"}{" "}
-                          <button
-                            disabled={busy}
-                            type="button"
-                            onClick={() => void unlink(edge.id)}
-                          >
-                            Remove
-                          </button>
-                        </p>
-                      ))}
-                      <form onSubmit={link}>
-                        <label>
-                          Link task
-                          <select name="target_id" required defaultValue="">
-                            <option value="">Choose a task</option>
-                            {allTasks
-                              .filter((task) => task.id !== selected.id)
-                              .map((task) => (
-                                <option key={task.id} value={task.id}>
-                                  {task.data.title}
-                                </option>
-                              ))}
-                          </select>
-                        </label>
-                        <label>
-                          Relationship
-                          <select name="kind">
-                            <option value="related">Related</option>
-                            <option value="depends_on">Depends on</option>
-                          </select>
-                        </label>
-                        <button disabled={busy}>Add link</button>
-                      </form>
+                      <Relations
+                        item={selected}
+                        items={items}
+                        edges={edges}
+                        connect={connect}
+                        unlink={unlink}
+                        open={open}
+                      />
                       <h3>Checklist</h3>
                       {(selected.data.checklist ?? []).map((entry, index) => (
                         <label key={entry.id}>

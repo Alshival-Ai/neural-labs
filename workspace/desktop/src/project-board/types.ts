@@ -21,6 +21,7 @@ export type ItemData = {
   position?: { x: number; y: number } | null;
   board_id?: string | null;
   parent_id: string | null;
+  resource_id?: string | null;
   archived: boolean;
   deleted: boolean;
   color: string;
@@ -38,6 +39,7 @@ export type Item = {
   updated_at: string;
 };
 export type Edge = {
+  revision?: number;
   id: string;
   source_id: string;
   target_id: string;

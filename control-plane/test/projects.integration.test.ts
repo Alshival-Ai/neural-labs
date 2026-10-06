@@ -61,6 +61,49 @@ const url = process.env.TEST_DATABASE_URL;
     expect((await graph.list(member)).some(row => row.id === edge.id)).toBe(true);
     await graph.remove(admin, edge.id);
   });
+  it("links notes and resources without admitting them to task-only sync or dependencies", async () => {
+    const graph = new ProjectGraph(pool, store);
+    const create = (kind:string,title:string) => store.mutate(member,"create",null,{idempotency_key:randomUUID(),kind,data:{title}});
+    const note=await create("note","Related note"), resource=await create("resource","Related resource"), task=await create("task","Related task");
+    const input={idempotency_key:randomUUID(),source_id:note.id,target_id:resource.id,kind:"related"};
+    const edge=await graph.create(member,input);
+    expect((await graph.create(member,input)).id).toBe(edge.id);
+    await graph.create(member,{...input,idempotency_key:randomUUID(),source_id:task.id});
+    expect((await graph.list(member)).filter(e=>e.source_id===resource.id||e.target_id===resource.id)).toHaveLength(2);
+    expect((await graph.list({...owner,projectSync:true},true)).some(e=>e.id===edge.id)).toBe(false);
+    await expect(graph.create(member,{...input,idempotency_key:randomUUID(),kind:"depends_on"})).rejects.toMatchObject({code:"tasks_required"});
+    await pool.query("UPDATE project_items SET data=jsonb_set(data,'{visibility}','\"internal\"') WHERE id=$1",[resource.id]);
+    expect((await graph.list(member)).some(e=>e.id===edge.id)).toBe(false);
+    await expect(graph.create(member,input)).rejects.toBeDefined();
+  });
+  it("keeps note ownership, validates resource homes, and detaches notes when a resource is archived", async () => {
+    const create=(kind:string,title:string)=>store.mutate(member,"create",null,{idempotency_key:randomUUID(),kind,data:{title}});
+    const note=await create("note","Attached note"), resource=await create("resource","Note home"), task=await create("task","Wrong home");
+    const update=(item:typeof note,data:Record<string,unknown>,actor=member)=>store.mutate(actor,"update",item.id,{revision:item.revision,idempotency_key:randomUUID(),data});
+    await expect(update(note,{resource_id:task.id})).rejects.toMatchObject({code:"invalid_resource_home"});
+    await expect(update(task,{resource_id:resource.id})).rejects.toMatchObject({code:"invalid_resource_home"});
+    await expect(update(note,{resource_id:resource.id},reviewer)).rejects.toBeDefined();
+    const attached=await update(note,{resource_id:resource.id});
+    expect(attached.data.resource_id).toBe(resource.id);
+    expect(attached.author_id).toBe(member.id);
+    await update(resource,{archived:true});
+    const detached=await store.get(member,note.id);
+    expect(detached.data.resource_id).toBeUndefined();
+    expect(detached.revision).toBe(attached.revision+1);
+    expect(detached.data.deleted).toBe(false);
+    await expect(update(attached,{body:"stale"})).rejects.toMatchObject({code:"revision_conflict"});
+  });
+  it("adds accessible resource mentions as relations while ignoring inaccessible references", async () => {
+    const graph=new ProjectGraph(pool,store);
+    const resource=await store.mutate(member,"create",null,{idempotency_key:randomUUID(),kind:"resource",data:{title:"Mentioned"}});
+    const hidden=await store.mutate(member,"create",null,{idempotency_key:randomUUID(),kind:"resource",data:{title:"Hidden"}});
+    await pool.query("UPDATE project_items SET data=jsonb_set(data,'{visibility}','\"internal\"') WHERE id=$1",[hidden.id]);
+    const note=await store.mutate(member,"create",null,{idempotency_key:randomUUID(),kind:"note",data:{title:"Mentions",body:`[Visible](#resource-${resource.id}) [Hidden](#resource-${hidden.id})`}});
+    const links=(await graph.list(member)).filter(e=>e.source_id===note.id||e.target_id===note.id);
+    expect(links).toHaveLength(1);
+    expect([links[0]!.source_id,links[0]!.target_id]).toContain(resource.id);
+    await graph.remove(member,links[0]!.id);
+  });
   it("rejects private graph records for administrators and members", async () => {
     for (const actor of [owner, member]) {
       await expect(store.mutate(actor, "create", null, { idempotency_key: randomUUID(), kind: "task",

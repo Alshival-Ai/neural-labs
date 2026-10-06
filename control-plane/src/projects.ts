@@ -19,6 +19,7 @@ export const projectFields = z.object({
   starts_on: z.iso.date().nullable().default(null), due_on: z.iso.date().nullable().default(null),
   parent_id: z.string().uuid().nullable().default(null),
   board_id: z.string().uuid().nullable().optional(),
+  resource_id: z.string().uuid().nullable().optional(),
   color: z.enum(["yellow", "blue", "pink", "green", "orange", "purple", "teal", "gray"]).default("gray"),
   details: z.record(z.string().max(120), z.string().max(2000)).default({}),
   archived: z.boolean().default(false),
@@ -184,6 +185,18 @@ export class ProjectStore {
       }
       if (data.parent_id && submitted.board_id === undefined)
         data.board_id = (await this.get(actor, data.parent_id, client)).data.board_id;
+      if (data.resource_id) {
+        const home = await this.get(actor, data.resource_id, client);
+        if (kind !== "note" || home.kind !== "resource" || home.data.archived || home.data.deleted
+            || home.data.resource?.status === "retired" || (home.data.board_id ?? null) !== (data.board_id ?? null)
+            || home.data.visibility !== "shared" || home.data.publication?.published === false)
+          throw new ProjectError(422, "invalid_resource_home", "Choose an active shared resource on this board.");
+      }
+      if (old && kind === "resource" && (data.deleted || data.archived || data.resource?.status === "retired" || data.visibility !== "shared" || data.publication?.published === false
+          || (old.data.board_id ?? null) !== (data.board_id ?? null))) {
+        await client.query(`UPDATE project_items SET data=data-'resource_id', revision=revision+1,updated_at=now()
+          WHERE kind='note' AND data->>'resource_id'=$1`, [old.id]);
+      }
       if (data.parent_id) {
         let ancestor: string | null = data.parent_id;
         const seen = new Set<string>();
@@ -248,11 +261,22 @@ export class ProjectStore {
             ('waiting','Waiting','orange','doing',2),('review','In review','teal','doing',3),
             ('done','Done','green','done',4)) AS defaults(legacy_state,name,color,category,position)`, [itemId]);
       }
+      if (kind === "note") {
+        const mentioned = [...data.body.matchAll(/\]\(#resource-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\)/gi)].map(match => match[1]!);
+        for (const target of new Set(mentioned)) {
+          let resource: ProjectItem;
+          try { resource = await this.get(actor, target, client); } catch (error) { if (error instanceof ProjectError) continue; throw error; }
+          if (resource.kind !== "resource" || resource.data.deleted || resource.data.archived) continue;
+          const [sourceId,targetId]=[itemId,target].sort();
+          await client.query(`INSERT INTO project_edges(id,source_id,target_id,kind,actor_id)
+            VALUES($1,$2,$3,'related',$4) ON CONFLICT(source_id,target_id,kind) DO NOTHING`, [randomUUID(),sourceId,targetId,actor.id]);
+        }
+      }
       if (old && kind === "task" && (old.data.board_id ?? null) !== (data.board_id ?? null)) {
         await client.query(`WITH RECURSIVE children(id) AS (
           SELECT id FROM project_items WHERE data->>'parent_id'=$1
           UNION SELECT i.id FROM project_items i JOIN children c ON i.data->>'parent_id'=c.id::text
-        ) UPDATE project_items SET data=jsonb_set(data,'{board_id}',COALESCE(to_jsonb($2::text),'null'::jsonb)),
+        ) UPDATE project_items SET data=jsonb_set(data-'resource_id','{board_id}',COALESCE(to_jsonb($2::text),'null'::jsonb)),
           revision=revision+1,updated_at=now() WHERE id IN (SELECT id FROM children)`, [itemId, data.board_id ?? null]);
       }
       if (kind === "comment" && data.parent_id) {

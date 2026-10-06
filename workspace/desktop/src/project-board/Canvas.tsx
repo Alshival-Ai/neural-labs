@@ -1,193 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { readDeviceState, writeDeviceState } from "../deviceState";
-import { type Item, type Change, type Member, colors } from "./types";
+import { type Item, type Change, type Member } from "./types";
+import { NoteEditor } from "./ConnectedCards";
 type Position = { x: number; y: number };
 type Positions = Record<string, Position>;
-function Note({
-  item,
-  change,
-  open,
-  author,
-  canEdit,
-  onDirty,
-}: {
-  item: Item;
-  change: Change;
-  open: () => void;
-  author: string;
-  canEdit: boolean;
-  onDirty: (id: string, dirty: boolean) => void;
-}) {
-  const [draft, setDraft] = useState({
-    title: item.data.title,
-    body: item.data.body,
-    color: item.data.color,
-  });
-  const [base, setBase] = useState(item),
-    [dirty, setDirty] = useState(false),
-    [saving, setSaving] = useState(false),
-    [error, setError] = useState("");
-  const [palette, setPalette] = useState(false);
-  const latest = useRef(draft);
-  latest.current = draft;
-  useEffect(() => {
-    if (!dirty && !saving) {
-      setBase(item);
-      setDraft({
-        title: item.data.title,
-        body: item.data.body,
-        color: item.data.color,
-      });
-    }
-  }, [item, dirty, saving]);
-  async function save() {
-    if (saving || !dirty) return;
-    const submitted = { ...draft, title: draft.title.trim() || "Sticky note" };
-    setSaving(true);
-    setError("");
-    try {
-      const result = await change(base, submitted);
-      setBase(result);
-      if (latest.current === draft) setDirty(false);
-    } catch (reason) {
-      setError((reason as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  }
-  useEffect(() => {
-    if (!dirty || saving || error) return;
-    const timer = setTimeout(() => void save(), 750);
-    return () => clearTimeout(timer);
-  }, [draft, dirty, saving, error]);
-  useEffect(() => {
-    if (!dirty) return;
-    const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [dirty]);
-  useEffect(() => {
-    onDirty(item.id, dirty);
-    return () => onDirty(item.id, false);
-  }, [item.id, dirty, onDirty]);
-  const edit = (values: Partial<typeof draft>) => {
-    setDraft({ ...draft, ...values });
-    setDirty(true);
-  };
-  return (
-    <>
-      <div className="sp-note-heading">
-        <span className="sp-pill">Shared</span>
-        <span className="sp-note-author">{author}</span>
-      </div>
-      {canEdit ? (
-        <>
-          <div className="sp-note-controls">
-            <button
-              type="button"
-              className="sp-note-tool"
-              aria-label={`Note color: ${item.data.title}`}
-              aria-expanded={palette}
-              onClick={() => setPalette(!palette)}
-            >
-              <span className="sp-note-color-preview" />
-            </button>
-            {palette && (
-              <div
-                className="sp-note-options sp-note-palette"
-                role="group"
-                aria-label="Note color"
-              >
-                {colors.map((color) => (
-                  <button
-                    key={color}
-                    type="button"
-                    className="sp-note-swatch"
-                    data-note-color={color}
-                    aria-label={color}
-                    aria-pressed={draft.color === color}
-                    onClick={() => {
-                      edit({ color });
-                      setPalette(false);
-                    }}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-          <div className="sp-note-editor">
-            <input
-              aria-label={`Note title: ${item.data.title}`}
-              placeholder="Title"
-              maxLength={200}
-              value={draft.title}
-              onChange={(e) => edit({ title: e.target.value })}
-            />
-            <textarea
-              aria-label={`Note text: ${item.data.title}`}
-              placeholder="Write a note…"
-              maxLength={20000}
-              value={draft.body}
-              onChange={(e) => edit({ body: e.target.value })}
-            />
-            <p className="sp-note-save-status" role="status">
-              {error ||
-                (saving ? "Saving…" : dirty ? "Unsaved changes" : "Saved")}
-            </p>
-            {error && (
-              <div className="sp-note-recovery">
-                <button type="button" onClick={() => void save()}>
-                  Retry save
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDirty(false);
-                    setError("");
-                    setBase(item);
-                    setDraft({
-                      title: item.data.title,
-                      body: item.data.body,
-                      color: item.data.color,
-                    });
-                  }}
-                >
-                  Reload saved note
-                </button>
-              </div>
-            )}
-          </div>
-        </>
-      ) : (
-        <>
-          <h3>
-            <button
-              className="project-text-button"
-              type="button"
-              onClick={open}
-            >
-              {item.data.title}
-            </button>
-          </h3>
-          <p>{item.data.body}</p>
-        </>
-      )}
-      {item.data.parent_id && (
-        <span className="sp-related-button sp-pill">Related task</span>
-      )}
-      <button
-        type="button"
-        className="sp-note-open project-text-button"
-        onClick={open}
-      >
-        Open note ↗
-      </button>
-    </>
-  );
-}
 export function Canvas({
   items,
   members,
@@ -199,7 +15,9 @@ export function Canvas({
   open,
   create,
   onDirty,
+  expandedIds,
 }: {
+  expandedIds: string[];
   items: Item[];
   members: Member[];
   actor?: string;
@@ -282,7 +100,11 @@ export function Canvas({
         (!resourceKind || item.data.resource?.kind === resourceKind) &&
         (!resourceStatus || item.data.resource?.status === resourceStatus),
     ),
-    ...notes,
+    ...notes.filter(
+      (n) =>
+        !n.data.resource_id ||
+        !resources.some((r) => r.id === n.data.resource_id),
+    ),
   ];
   const bound = (point: Position) => ({
     x: Math.max(
@@ -396,6 +218,13 @@ export function Canvas({
             <div className="sp-note-slot" key={item.id}>
               <article
                 className={`sp-sticky${resource ? " sp-resource" : ""}${point ? " is-placed" : ""}${moving?.id === item.id ? " is-dragging" : ""}`}
+                draggable={!resource && canEdit}
+                onDragStart={(event) => {
+                  event.dataTransfer.setData(
+                    "application/x-neural-note",
+                    item.id,
+                  );
+                }}
                 data-color={resource ? "blue" : item.data.color ?? "yellow"}
                 data-note-editable={!resource && canEdit ? "" : undefined}
                 style={
@@ -505,17 +334,34 @@ export function Canvas({
                     </button>
                   </>
                 ) : (
-                  <Note
-                    item={item}
-                    change={change}
-                    open={() => open(item)}
-                    author={
-                      members.find((member) => member.id === item.author_id)
-                        ?.display_name ?? "Workspace member"
-                    }
-                    canEdit={canEdit}
-                    onDirty={onDirty}
-                  />
+                  <>
+                    <div className="sp-note-heading">
+                      <span className="sp-pill">Shared</span>
+                      <button
+                        type="button"
+                        aria-label="Expand note"
+                        onClick={() => open(item)}
+                      >
+                        ↗
+                      </button>
+                    </div>
+                    {!expandedIds.includes(item.id) && (
+                      <NoteEditor
+                        item={item}
+                        items={items}
+                        change={change}
+                        open={open}
+                        editable={canEdit}
+                        compact
+                        onDirty={onDirty}
+                      />
+                    )}
+                    {expandedIds.includes(item.id) && (
+                      <button type="button" onClick={() => open(item)}>
+                        {item.data.title} ↗
+                      </button>
+                    )}
+                  </>
                 )}
               </article>
             </div>

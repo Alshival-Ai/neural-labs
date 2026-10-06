@@ -3,6 +3,7 @@ import {
   cleanup,
   fireEvent,
   render,
+  within,
   screen,
   waitFor,
 } from "@testing-library/react";
@@ -358,9 +359,7 @@ it("shows tasks, notes, resources and timeline together without a sync action", 
     screen.getByRole("heading", { name: "Notes & Resources" }),
   ).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "Timeline" })).toBeInTheDocument();
-  expect(screen.getByLabelText("Note text: Launch ideas")).toHaveValue(
-    "Keep it simple",
-  );
+  expect(screen.getByText("Keep it simple")).toBeInTheDocument();
   expect(screen.getByText("Project site")).toBeInTheDocument();
   expect(
     screen.queryByRole("button", { name: /sync/i }),
@@ -371,7 +370,10 @@ it("autosaves a note with its observed revision and preserves a conflicting draf
   const fixture = projectFixture();
   fixture.fail();
   render(<ProjectsApp />);
-  const text = await screen.findByLabelText("Note text: Launch ideas");
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Edit note text" }),
+  );
+  const text = screen.getByLabelText("Note text: Launch ideas");
   fireEvent.change(text, { target: { value: "My unsaved idea" } });
   await screen.findByText(
     "Someone changed this item. Your draft is still here.",
@@ -387,6 +389,7 @@ it("autosaves a note with its observed revision and preserves a conflicting draf
   fireEvent.click(screen.getByRole("link", { name: "Graph" }));
   expect(confirm).toHaveBeenCalled();
   expect(text).toBeInTheDocument();
+  confirm.mockReturnValue(true);
   fireEvent.click(screen.getByText("Reload saved note"));
   expect(text).toHaveValue("Keep it simple");
 });
@@ -407,10 +410,11 @@ it("moves a task using the selected status and current revision", async () => {
   });
 });
 
-it("edits native resource fields in the shared board pane", async () => {
+it("edits native resource fields inside the expanded paper card", async () => {
   const fixture = projectFixture();
   render(<ProjectsApp />);
   fireEvent.click(await screen.findByText("Project site"));
+  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
   fireEvent.change(screen.getByLabelText("Provider"), {
     target: { value: "New hosting" },
   });
@@ -423,4 +427,39 @@ it("edits native resource fields in the shared board pane", async () => {
       resource: { provider: "New hosting", public_url: "https://example.test" },
     },
   });
+});
+
+it("opens paper notes and resource mentions, keeps tasks in the side pane, and attaches notes", async () => {
+  const fixture = projectFixture();
+  render(<ProjectsApp />);
+  fireEvent.click(await screen.findByRole("button", { name: "Expand note" }));
+  const note = screen.getByRole("article", { name: "note: Launch ideas" });
+  expect(note).toHaveClass("connected-paper");
+  fireEvent.click(within(note).getByRole("button", { name: "Edit note text" }));
+  const text = within(note).getByLabelText("Note text: Launch ideas");
+  fireEvent.change(text, {
+    target: { value: "See !Project", selectionStart: 12 },
+  });
+  fireEvent.click(within(note).getByRole("option", { name: "Project site" }));
+  expect(text).toHaveValue("See [Project site](#resource-resource)");
+  await waitFor(() => expect(fixture.writes).toHaveLength(1));
+  fireEvent.blur(text);
+  fireEvent.click(within(note).getByRole("link", { name: "Project site" }));
+  const resource = screen.getByRole("article", {
+    name: "resource: Project site",
+  });
+  expect(resource).toHaveClass("connected-paper");
+  fireEvent.click(within(resource).getByRole("button", { name: "Notes" }));
+  fireEvent.change(within(resource).getByLabelText("Attach a note"), {
+    target: { value: "note" },
+  });
+  await waitFor(() =>
+    expect(
+      fixture.writes.some((write) => write.data.resource_id === "resource"),
+    ).toBe(true),
+  );
+  fireEvent.click(screen.getByText("Plan the release"));
+  expect(screen.getByRole("complementary", { name: "Edit task" })).toHaveClass(
+    "project-item-pane",
+  );
 });

@@ -26,10 +26,11 @@ export class ProjectGraph {
           AND data->'publication'->>'published'<>'true'))
       UNION SELECT child.id FROM project_items child JOIN hidden parent ON child.data->>'parent_id'=parent.id::text OR child.data->>'board_id'=parent.id::text
     ) SELECT edge.* FROM project_edges edge
-      JOIN project_items source ON source.id=edge.source_id AND source.kind='task'
-      JOIN project_items target ON target.id=edge.target_id AND target.kind='task'
+      JOIN project_items source ON source.id=edge.source_id AND source.kind IN ('task','note','resource')
+      JOIN project_items target ON target.id=edge.target_id AND target.kind IN ('task','note','resource')
       WHERE source.id NOT IN (SELECT id FROM hidden) AND target.id NOT IN (SELECT id FROM hidden)
         AND ($2 OR edge.deleted_at IS NULL)
+        AND (NOT $2 OR (source.kind='task' AND target.kind='task'))
       ORDER BY edge.created_at,edge.id`, [internalAccess(actor), includeDeleted && actor.projectSync === true])).rows;
   }
 
@@ -51,13 +52,16 @@ export class ProjectGraph {
         if (prior.fingerprint !== fingerprint) throw new ProjectError(409, "idempotency_conflict", "Request identifier was reused.");
         const edge = (await client.query("SELECT * FROM project_edges WHERE id=$1", [prior.edge_id])).rows[0];
         if (!edge || edge.deleted_at) throw new ProjectError(409, "link_removed", "This link has since been removed.");
+        await this.items.get(actor, edge.source_id, client);
+        await this.items.get(actor, edge.target_id, client);
         await client.query("COMMIT"); return edge;
       }
       const left = await this.items.get(actor, source, client);
       const right = await this.items.get(actor, target, client);
-      if (left.kind !== "task" || right.kind !== "task" || left.data.deleted || right.data.deleted || left.data.archived || right.data.archived)
-        throw new ProjectError(422, "tasks_required", "Choose two active tasks.");
+      if (!["task", "note", "resource"].includes(left.kind) || !["task", "note", "resource"].includes(right.kind) || left.data.deleted || right.data.deleted || left.data.archived || right.data.archived)
+        throw new ProjectError(422, "tasks_required", "Choose two active tasks, notes or resources.");
       if (parsed.kind === "depends_on") {
+        if (left.kind !== "task" || right.kind !== "task") throw new ProjectError(422, "tasks_required", "Dependencies require two tasks.");
         const cycle = await client.query(`WITH RECURSIVE reachable(id) AS (
           SELECT target_id FROM project_edges WHERE source_id=$1 AND kind='depends_on' AND deleted_at IS NULL
           UNION SELECT edge.target_id FROM project_edges edge JOIN reachable path ON edge.source_id=path.id

@@ -10,7 +10,7 @@ The native Projects app uses the portal board’s shared styles, responsive colu
 
 - Move tasks by dragging or using **Move to…**, and assign members directly on a card. Narrow app windows use swipe navigation and a status selector.
 - Notes save inline after typing stops. A failed save retains the draft and offers retry or reload; changing boards or views warns before discarding unsaved notes. Realtime updates do not replace an open item editor. Revision conflicts require reloading the saved version.
-- Resource cards open an editor for their type, lifecycle status, provider, environment and public URL. These are ordinary native resource records; portal-only infrastructure credentials, monitoring and billing are not copied into the open-source UI or graph replication.
+- Notes and resources expand into movable, resizable paper cards; tasks open in the right-side editor. Resource cards organize Overview, Notes, Activity and Settings, including type, lifecycle status, provider, environment and public URL. These are ordinary native resource records; portal-only infrastructure credentials, monitoring and billing are not copied into the open-source UI or graph replication.
 - Schedule bars support dragging and edge resizing on desktop, with an accessible date editor and a compact list on narrow windows. Writes carry the revision observed when editing began, including when a background update arrives during an edit.
 - **Tidy cards** resets only your current board’s browser layout. It does not move other members’ cards or modify shared content.
 
@@ -61,18 +61,12 @@ Migration 22 deletes all legacy Team Chat channels/messages on managed and self-
 
 This is a destructive, one-time migration. Use the installation’s gated upgrade and recovery procedure with a verified pre-upgrade database copy. Do not downgrade over the migrated database or restore a copy over accepted new writes. Migration retries preserve messages created after the reset. Source publication alone does not upgrade an installation.
 
-## Connected cards in the Alshival portal
+## Connected notes and resources
 
-The Alshival portal adds a presentation layer with multiple expandable task, note,
-and resource cards, searchable cross-type links, and resource mentions in notes.
-Typing `!` chooses a resource and inserts a navigable link; it does not relocate
-the note. Moving a note into a resource gives it one shared home, while card
-geometry remains a personal browser preference. Returning it to the board keeps
-its identity and relationships.
+Native notes render Markdown, including lists, code, tables and links. Select the text to edit; typing `!` opens a searchable resource picker with arrow-key and Enter selection. Choosing a resource inserts a navigable mention and creates an authorized related link. Raw HTML is escaped and remote images are displayed as their alt text.
 
-These resource relationships and note homes are portal-only metadata. They do not
-extend the native Neural Labs project schema or the graph synchronization wire
-format. Existing task and note content continues to synchronize; incoming graph
-updates preserve portal resource associations. Neither a link nor a resource home
-grants access or changes the note's sharing rules. Native installations remain
-independent and retain their existing project interactions.
+Expanded notes and resources keep the paper appearance, with quiet scrollbars, browser-local move/resize controls and a compact mobile card switcher. Task editing stays in the right-side pane. Small board cards omit relationship lists; expand an item and open **Connections** to search for tasks, notes or resources. Related links are symmetric; dependencies remain task-only and reject cycles. Neither linking nor moving a note changes access or authorship.
+
+A note has one optional resource home on the same board. Select **Move to resource** on an expanded note, or attach/drop it in the resource's **Notes** section. **Return to board** preserves its identity, text and links. Archiving, retiring, hiding, deleting or moving its resource to another board returns attached notes to the board. Only the note author or a project manager can move or edit it. Conflicting edits retain the draft and require retry or explicit reload.
+
+Resource records, resource homes, and cross-type relations are local to each installation. The existing connected graph bridge still synchronizes task-to-task edges and the supported task/note fields; it does not replicate resources or resource-home IDs. Portal associations and native associations remain independent. The optional portal integration does not add billing, infrastructure credentials, monitoring or alert delivery policy to the native board.
