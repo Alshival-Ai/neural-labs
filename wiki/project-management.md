@@ -31,6 +31,14 @@ Note positions are not part of shared content synchronization. Integrations shou
 
 An optional integration can mirror the graph, but Neural Labs continues operating independently when it is disconnected. Billing, hosted plan eligibility and support policy belong to the integrating service. File, resource, service-ticket and billing migration are separate from task-graph sync.
 
+## Automatic connected graph replication
+
+A configured managed connection may use the signed `POST /api/projects/sync/bridge` transport without a browser session or a user-created key. Standalone installations do not expose this bridge. Each call is bound to the configured workspace/instance and reauthorized by the connected service for the current generation. It only supports graph snapshots and revision-checked item, status and edge writes; it grants no approval actions, account login or tools.
+
+The snapshot advertises `automatic_sync` and `source_edit_clocks`. Migration 27 adds `sync_edited_at` to items, statuses and edges. Native writes receive database timestamps, including bulk writes. Authorized replication preserves the source timestamp using the optional `sync_edited_at` write field; ordinary user writes cannot supply it. Source timestamps are separate from arrival timestamps so copying data never makes it the latest edit.
+
+The Alshival adapter provisions verified member subjects on first synchronization, including members who have never signed in. Its dedicated graph principal has no login identity and is disabled outside the authenticated service transport. Hosting eligibility, retry policy and conflict decisions remain in the integrating portal. The portal selects the newest conflicting version, retains the overwritten version, and handles exceptions through administrator diagnostics without requiring a user sync screen.
+
 ## Project-management proposal template
 
 Automations → Project management template opens **Alshival - Project Management**. It publishes paused with a 09:00 and 17:00 daily schedule in the selected timezone. Review the timezone, owner, connection and prompt before enabling. Runs use read-only execution and the `read_project_graph` tool; results are proposals with task IDs and revisions, for a member to apply manually. It does not automatically change tasks or notify external recipients.

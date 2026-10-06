@@ -1,3 +1,4 @@
+import { preserveSourceClock } from "./projectSyncClock.js";
 /** Workspace-local task relationships. ProjectStore remains the visibility authority. */
 import { createHash, randomUUID } from "node:crypto";
 import type { Pool } from "pg";
@@ -6,6 +7,7 @@ import { internalAccess, ProjectError, ProjectStore, type ProjectActor } from ".
 
 export const edgeInput = z.object({
   idempotency_key: z.string().uuid(), source_id: z.string().uuid(), target_id: z.string().uuid(),
+  sync_edited_at: z.iso.datetime({ offset: true }).optional(),
   kind: z.enum(["depends_on", "related"]), expected_revision: z.number().int().nonnegative().optional(),
 }).strict();
 export type ProjectEdge = { id: string; source_id: string; target_id: string; kind: "depends_on" | "related";
@@ -40,6 +42,7 @@ export class ProjectGraph {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      await preserveSourceClock(client, actor, parsed.sync_edited_at);
       const storage = (await client.query("SELECT state FROM project_storage WHERE singleton FOR UPDATE")).rows[0];
       if (storage?.state !== "active") throw new ProjectError(423, "project_paused", "Project changes are paused.");
       const prior = (await client.query("SELECT fingerprint,edge_id FROM project_edge_requests WHERE actor_id=$1 AND request_id=$2",
@@ -78,10 +81,11 @@ export class ProjectGraph {
     finally { client.release(); }
   }
 
-  async remove(actor: ProjectActor, id: string, revision?: number): Promise<void> {
+  async remove(actor: ProjectActor, id: string, revision?: number, editedAt?: string): Promise<void> {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      await preserveSourceClock(client, actor, editedAt);
       const storage = (await client.query("SELECT state FROM project_storage WHERE singleton FOR UPDATE")).rows[0];
       if (storage?.state !== "active") throw new ProjectError(423, "project_paused", "Project changes are paused.");
       const edge = (await client.query("SELECT * FROM project_edges WHERE id=$1", [id])).rows[0] as ProjectEdge | undefined;

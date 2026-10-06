@@ -720,4 +720,21 @@ export const migrations: Migration[] = [
       CREATE INDEX project_board ON project_items((data->>'board_id'));
       UPDATE project_storage SET revision=revision+1;`,
   },
+  {
+    version: 27,
+    sql: `ALTER TABLE project_items ADD COLUMN sync_edited_at timestamptz;
+      ALTER TABLE project_edges ADD COLUMN sync_edited_at timestamptz;
+      ALTER TABLE project_statuses ADD COLUMN sync_edited_at timestamptz;
+      UPDATE project_items SET sync_edited_at=updated_at;
+      UPDATE project_edges SET sync_edited_at=COALESCE(deleted_at,created_at);
+      UPDATE project_statuses SET sync_edited_at='1970-01-01T00:00:00Z';
+      CREATE FUNCTION project_source_edit_clock() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        NEW.sync_edited_at := COALESCE(NULLIF(current_setting('neural_labs.sync_edited_at',true),'')::timestamptz,clock_timestamp());
+        RETURN NEW;
+      END $$;
+      CREATE TRIGGER project_item_clock BEFORE INSERT OR UPDATE ON project_items FOR EACH ROW EXECUTE FUNCTION project_source_edit_clock();
+      CREATE TRIGGER project_edge_clock BEFORE INSERT OR UPDATE ON project_edges FOR EACH ROW EXECUTE FUNCTION project_source_edit_clock();
+      CREATE TRIGGER project_status_clock BEFORE INSERT OR UPDATE ON project_statuses FOR EACH ROW EXECUTE FUNCTION project_source_edit_clock();`,
+  },
 ];

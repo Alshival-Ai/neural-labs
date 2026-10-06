@@ -1,3 +1,4 @@
+import { preserveSourceClock } from "./projectSyncClock.js";
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
 import { z } from "zod";
@@ -20,11 +21,12 @@ export class ProjectStatuses {
   async save(actor: ProjectActor, input: unknown) {
     if (!internalAccess(actor) || !(actor.projectPlan ?? actor.role === "admin"))
       throw new ProjectError(403, "board_manager_required", "Workspace board management is required.");
-    const parsed = z.object({ id: z.string().uuid().optional(), revision: z.number().int().nonnegative(), data: statusFields }).strict().parse(input);
+    const parsed = z.object({ id: z.string().uuid().optional(), revision: z.number().int().nonnegative(), data: statusFields, sync_edited_at: z.iso.datetime({ offset: true }).optional() }).strict().parse(input);
     const data = parsed.data;
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      await preserveSourceClock(client, actor, parsed.sync_edited_at);
       const storage = (await client.query("SELECT state FROM project_storage WHERE singleton FOR UPDATE")).rows[0];
       if (storage.state !== "active") throw new ProjectError(423, "project_paused", "The board is paused.");
       const id = parsed.id ?? randomUUID();

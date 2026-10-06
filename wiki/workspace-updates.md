@@ -4,6 +4,8 @@ The task-graph release includes a destructive PostgreSQL migration: legacy Team 
 
 Migration 26 adds project-board ownership and separate status catalogs. It is additive and retains existing unassigned records on the original Workspace board. This does not remove the earlier migration 22 boundary for installations that have not crossed it.
 
+Migration 27 adds source edit clocks to graph records and leaves existing content intact. The optional connection-authenticated graph bridge requires a compatible integrating service.
+
 Settings → Updates controls reviewed Neural Labs runtime releases. Codex and
 Claude Code are pinned together with their tested protocol adapters in
 `workspace/native/release.json`. Private Terminal and Neura use the same native

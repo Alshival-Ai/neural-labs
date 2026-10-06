@@ -1,3 +1,4 @@
+import { preserveSourceClock } from "./projectSyncClock.js";
 /** Environment-local project domain shared by browser, automation and external transports. */
 import { createHash, randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
@@ -38,6 +39,7 @@ export const createProjectItem = z.object({
   sync_id: z.string().uuid().optional(),
   sync_author_id: z.string().uuid().optional(),
   sync_created_at: z.iso.datetime({ offset: true }).optional(),
+  sync_edited_at: z.iso.datetime({ offset: true }).optional(),
   data: projectFields,
 }).strict();
 const patchFields = z.object(Object.fromEntries(Object.entries(projectFields.shape).map(([key, field]) =>
@@ -46,6 +48,7 @@ const patchFields = z.object(Object.fromEntries(Object.entries(projectFields.sha
   }).strict();
 export const updateProjectItem = z.object({
   idempotency_key: z.string().uuid(), revision: z.number().int().positive(), data: patchFields,
+  sync_edited_at: z.iso.datetime({ offset: true }).optional(),
 }).strict();
 export const projectAction = z.object({
   idempotency_key: z.string().uuid(), revision: z.number().int().positive(),
@@ -127,6 +130,7 @@ export class ProjectStore {
       await client.query("BEGIN");
       const storage = (await client.query("SELECT * FROM project_storage WHERE singleton FOR UPDATE")).rows[0];
       if (storage.state !== "active") throw new ProjectError(423, "project_paused", "Project changes are paused for migration.");
+      await preserveSourceClock(client, actor, "sync_edited_at" in parsed ? parsed.sync_edited_at : undefined);
       const fingerprint = digest({ operation, id, parsed });
       const prior = (await client.query("SELECT * FROM project_requests WHERE actor_id=$1 AND request_id=$2", [actor.id, parsed.idempotency_key])).rows[0];
       if (prior) {

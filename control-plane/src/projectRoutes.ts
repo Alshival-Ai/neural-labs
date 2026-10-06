@@ -1,3 +1,4 @@
+import { registerProjectSyncBridge } from "./projectSyncBridge.js";
 import { randomBytes, randomUUID, createHash, timingSafeEqual } from "node:crypto";
 import type { Express, Request, Response, RequestHandler } from "express";
 import { z } from "zod";
@@ -69,6 +70,7 @@ export function registerProjectRoutes(app: Express, database: Database, config: 
     if (req.get("origin") && req.get("origin") !== `${req.protocol}://${req.get("host")}`) { res.sendStatus(403); return; }
     next();
   });
+  registerProjectSyncBridge(app, database, config);
   app.get("/api/projects", wrap(async (req, res) => {
     const actor = await authenticate(req, res, "project:read"); if (!actor) return;
     res.json({ version: 1, revision: await store.revision(), api: "/api/projects", mcp: "/api/projects/mcp", storage: "environment" });
