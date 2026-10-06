@@ -418,13 +418,15 @@ it("edits native resource fields inside the expanded paper card", async () => {
   fireEvent.change(screen.getByLabelText("Provider"), {
     target: { value: "New hosting" },
   });
+  fireEvent.click(screen.getByRole("radio", { name: "Database" }));
+  fireEvent.change(screen.getByLabelText(/Tags/), { target: { value: "Production, Client-facing" } });
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(fixture.writes).toHaveLength(1));
   expect(fixture.writes[0]).toMatchObject({
     id: "resource",
     revision: 1,
     data: {
-      resource: { provider: "New hosting", public_url: "https://example.test" },
+      resource: { provider: "New hosting", public_url: "https://example.test", sticker: "database", tags: ["Production", "Client-facing"] },
     },
   });
 });

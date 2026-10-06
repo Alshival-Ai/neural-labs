@@ -159,22 +159,8 @@ export function TaskColumns({
               Stacked
             </button>
           </div>
-          <label className="sp-status-select">
-            <span className="sr-only">Task status</span>
-            <select data-board-status-select aria-label="Task status">
-              {statuses.map((status) => (
-                <option key={status.id} value={status.id}>
-                  {status.name} ·{" "}
-                  {
-                    tasks.filter((item) => item.data.status_id === status.id)
-                      .length
-                  }
-                </option>
-              ))}
-            </select>
-          </label>
           <p className="sp-gesture-hint">
-            Swipe to browse · Hold a task to move it
+            Swipe to browse · Hold a task, then drop on a status
           </p>
           <div
             className="sp-column-navigation"

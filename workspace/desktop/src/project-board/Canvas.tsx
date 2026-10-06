@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { readDeviceState, writeDeviceState } from "../deviceState";
 import { type Item, type Change, type Member } from "./types";
+import { stickerFor, ResourceTags } from "./ResourceSticker";
 import { NoteEditor } from "./ConnectedCards";
 type Position = { x: number; y: number };
 type Positions = Record<string, Position>;
@@ -217,7 +218,7 @@ export function Canvas({
           return (
             <div className="sp-note-slot" key={item.id}>
               <article
-                className={`sp-sticky${resource ? " sp-resource" : ""}${point ? " is-placed" : ""}${moving?.id === item.id ? " is-dragging" : ""}`}
+                className={`sp-sticky${resource ? " sp-resource resource-sticker" : ""}${point ? " is-placed" : ""}${moving?.id === item.id ? " is-dragging" : ""}`}
                 draggable={!resource && canEdit}
                 onDragStart={(event) => {
                   event.dataTransfer.setData(
@@ -225,6 +226,7 @@ export function Canvas({
                     item.id,
                   );
                 }}
+                data-sticker={resource ? stickerFor(item.data.resource) : undefined}
                 data-color={resource ? "blue" : item.data.color ?? "yellow"}
                 data-note-editable={!resource && canEdit ? "" : undefined}
                 style={
@@ -319,19 +321,10 @@ export function Canvas({
                         {item.data.title}
                       </button>
                     </h3>
-                    <p>{item.data.body || item.data.resource?.provider}</p>
-                    <div className="resource-card-meta">
-                      <span>{item.data.resource?.kind ?? "other"}</span>
-                      <span>{item.data.resource?.status ?? "planned"}</span>
-                      <span>{item.data.resource?.environment}</span>
-                    </div>
-                    <button
-                      className="sp-note-open project-text-button"
-                      type="button"
-                      onClick={() => open(item)}
-                    >
-                      Open resource ↗
-                    </button>
+                    <ResourceTags tags={item.data.resource?.tags} compact />
+                    <p className="resource-sticker-status" data-status={item.data.resource?.status ?? "planned"}>
+                      {(item.data.resource?.status ?? "planned").replace(/^./, c => c.toUpperCase())}
+                    </p>
                   </>
                 ) : (
                   <>

@@ -2,14 +2,14 @@
   "source": "Alshival.ai project board",
   "revision": "a68486d2ccc46ddd59fd1a09155ce793b19d191b",
   "files": {
-    "flexible-board.css": "7339171002d8b2b58f968f962c773f5f39c9f71689718260d95c8de2ab5b2103",
+    "flexible-board.css": "ecb1442d78aa1da21193817aa0686cb66fe4cd6fa235df208ceb135eac28a307",
     "gantt.css": "ec0071a139b6487dcdbee36538f61dd07d96dff9c2f49f967eec6a536f9b2b05",
     "gantt.js": "8ca73a6886ee78ce1d481d531abed2edebc3e8f83ffe7ad9e07c341e37cc294a",
     "note-relationships.css": "3a65b14cf5a5a921eb0a43055caf670f98bfad9deba06f9d10e1fd1a25d1cd88",
     "public-sans-OFL.txt": "157a9e77f7580246e97c769490e2e977ae94399f9d30f4556015c41fe8c28bac",
     "public-sans-variable.ttf": "d75a7dc1a27eb9e336d5b33f55489d2ecb5621bf694d5c43b2415bce2ca830a8",
     "resource-pane.css": "04b2178ecc2f729b504c7530c960d83860f49322588346155d9bac18a30d889d",
-    "responsive-board.js": "9f3a5c4a1e08e7b3601247cdf069589daab95293a3a355cb3e7227a6ddef963f",
+    "responsive-board.js": "15418d98cb6d1351c9168fed2341d3b68bafb5e9c6dc001145bfc1f7af6fcee9",
     "scrapbook.css": "f8e0607731456223300e7fb1dc8c5f40f7ad4852f7f922cb0c45ca511aa875b4",
     "shared-project.css": "cf18f4ef8c26df07cc462632b867c7714ce6ed766f03b29c6c5ab488796e3fd8",
     "task-details.css": "3df384151330a08132fbc7f9df072bea362ccc7c75e812601c7d87b8b214be29"
@@ -18,6 +18,42 @@
     "resource-spectrum.css": {
       "source": "Alshival.ai website: customer_hub/static/customer_hub/resource-spectrum.css",
       "sha256": "198a6aa2ca6bcb504394fd0a8f938b528312cff125504e8bbef12386500dd1f6"
+    },
+    "resource-stickers.css": {
+      "source": "Alshival.ai website: customer_hub/static/customer_hub/resource-stickers.css",
+      "sha256": "13d28ce945fddf353746054b7834b1ed9a0ac31083ae1528bcab1c6b9b2e3db8"
+    },
+    "stickers/other.svg": {
+      "source": "Alshival.ai website: customer_hub/static/customer_hub/stickers/other.svg",
+      "sha256": "0ef298c4545fe361c15051e2823781d5a3b8636d7c86d5ac2e6d8a3199e6d51a"
+    },
+    "stickers/server.svg": {
+      "source": "Alshival.ai website: customer_hub/static/customer_hub/stickers/server.svg",
+      "sha256": "2e71f258f288039646f7a8f13e30f3e9ef3652128e886c5a6286bf94141b19a8"
+    },
+    "stickers/database.svg": {
+      "source": "Alshival.ai website: customer_hub/static/customer_hub/stickers/database.svg",
+      "sha256": "339e5ba251607556557a4800092931ceda59ad719a9ee72acca09499b2650c07"
+    },
+    "stickers/storage.svg": {
+      "source": "Alshival.ai website: customer_hub/static/customer_hub/stickers/storage.svg",
+      "sha256": "c719dc4a89dfaf3de77ed0f17eeb3b9847b2ec302627a2d9f98c6e09b021556d"
+    },
+    "stickers/website.svg": {
+      "source": "Alshival.ai website: customer_hub/static/customer_hub/stickers/website.svg",
+      "sha256": "e0a71949002451091bdd4d14cbdde844e1f42302cdcb0b505a9cd40cc5917c8f"
+    },
+    "stickers/repository.svg": {
+      "source": "Alshival.ai website: customer_hub/static/customer_hub/stickers/repository.svg",
+      "sha256": "31dd238d0d1e5c80d0003aaa08df36333237b7a215f7c2f2bc257b9868a90a5f"
+    },
+    "stickers/domain.svg": {
+      "source": "Alshival.ai website: customer_hub/static/customer_hub/stickers/domain.svg",
+      "sha256": "5529dc4cb85fef1accf251023c16bec4ccd5219c9253e662b71304d10eedeba2"
+    },
+    "stickers/api.svg": {
+      "source": "Alshival.ai website: customer_hub/static/customer_hub/stickers/api.svg",
+      "sha256": "e6f9690714555ca28a3755ce218051e7cef2aa4d48551c34b7d0b13cb91a1a07"
     }
   }
 }

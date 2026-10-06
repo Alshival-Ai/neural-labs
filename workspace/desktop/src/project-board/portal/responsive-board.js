@@ -83,8 +83,6 @@ window.AlshivalResponsiveBoard = (root, lifecycle, actions) => {
       button.setAttribute('aria-pressed', String(button.dataset.boardLayoutChoice === preference));
     });
     const tabs = content.querySelector('.sp-mobile-filter');
-    const statusSelect = content.querySelector('[data-board-status-select]');
-    if (statusSelect && list.some(column => column.dataset.spState === selected)) statusSelect.value = selected;
     tabs?.setAttribute('role', layout === 'swipe' ? 'tablist' : 'group');
     content.querySelectorAll('[data-shared-status]').forEach(button => {
       const value = button.dataset.sharedStatus,
@@ -224,7 +222,7 @@ window.AlshivalResponsiveBoard = (root, lifecycle, actions) => {
     frame = 0;
     const surface = board();
     if (closed || !surface) return;
-    const next = (actions.availableWidth?.() ?? window.innerWidth) <= 760 ? preference : 'columns';
+    const next = window.innerWidth <= 760 ? preference : 'columns';
     if (next !== layout) {
       actions.cancel();
       // Before enhancement, the uncapped fallback cannot restore scrollTop yet.
@@ -327,6 +325,12 @@ window.AlshivalResponsiveBoard = (root, lifecycle, actions) => {
   }
   function dragTarget(x, y, states) {
     if (layout !== 'swipe') return undefined;
+    const tab = [...content.querySelectorAll('[data-shared-status]')].find(button => {
+      const rect = button.getBoundingClientRect();
+      const strip = button.parentElement.getBoundingClientRect();
+      return !button.hidden && x >= Math.max(rect.left, strip.left) && x <= Math.min(rect.right, strip.right) && y >= rect.top && y <= rect.bottom;
+    });
+    if (tab && states.includes(tab.dataset.sharedStatus)) return {target: tab, state: tab.dataset.sharedStatus};
     const bounds = board().getBoundingClientRect(),
       column = active();
     if (x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom || !states.includes(selected))
@@ -376,9 +380,6 @@ window.AlshivalResponsiveBoard = (root, lifecycle, actions) => {
     }
     const button = event.target.closest('[data-board-step]');
     if (button) step(Number(button.dataset.boardStep));
-  });
-  lifecycle.listen(root, 'change', event => {
-    if (event.target.matches('[data-board-status-select]')) select(event.target.value);
   });
   lifecycle.listen(root, 'keydown', event => {
     if (

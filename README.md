@@ -143,4 +143,4 @@ See the [project tracker](tracker.md) for planning and the
 
 The native **Projects** board includes Markdown sticky notes, expandable paper notes and resources, searchable task/note/resource connections, and resource mentions typed with `!`. Notes can live on the board or inside a resource. Tasks retain the side editor. See [Projects](wiki/project-management.md) for sharing and synchronization boundaries.
 
-Resource cards use a thin spectrum border in their compact and expanded views to distinguish them from notes.
+Resources use selectable object-shaped stickers with a spectrum edge, editable tags, and a matching floating detail sheet. Tablet task columns retain their desktop width; phones use touch status tabs and drag destinations.

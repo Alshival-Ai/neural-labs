@@ -6,6 +6,7 @@
 @import "./project-board/portal/note-relationships.css";
 @import "./project-board/portal/resource-pane.css";
 @import "./project-board/portal/resource-spectrum.css";
+@import "./project-board/portal/resource-stickers.css";
 @font-face {
   font-family: "Project Public Sans";
   src: url("./project-board/portal/public-sans-variable.ttf") format("truetype");

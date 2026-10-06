@@ -1,4 +1,6 @@
 export type Resource = {
+  sticker?: string;
+  tags?: string[];
   kind: string;
   status: string;
   provider: string;

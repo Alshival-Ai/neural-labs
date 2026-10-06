@@ -1188,6 +1188,13 @@ test("aborting a private media import removes staging without replacing the dest
     });
     const rejected = assert.rejects(request, { name: "AbortError" });
     await upstreamStarted;
+    // The fetch callback fires before the importer creates its staging file.
+    // Abort an actual staged import, not a request still entering the handler.
+    for (let i = 0; i < 100; i++) {
+      if ((await readdir(app.workspaceRoot)).some(name => name.startsWith(".neural-labs-upload-"))) break;
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    assert.equal((await readdir(app.workspaceRoot)).some(name => name.startsWith(".neural-labs-upload-")), true);
     controller.abort();
     await rejected;
     for (let i = 0; i < 50; i++) {

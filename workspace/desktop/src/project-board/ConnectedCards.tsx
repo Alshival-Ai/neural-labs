@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Change, Edge, Item } from "./types";
+import { stickerFor, ResourceTags, StickerPicker, parseTags } from "./ResourceSticker";
 import { colors } from "./types";
 import { readDeviceState, writeDeviceState } from "../deviceState";
 import "./connected-cards.css";
@@ -607,6 +608,7 @@ export function PaperCard({
       <div className="connected-paper-content">
         {resource ? (
           <>
+            <div className="resource-sticker-identity"><span className="resource-sticker-preview" data-sticker={stickerFor(item.data.resource)} aria-hidden="true" /><ResourceTags tags={item.data.resource?.tags} /></div>
             <h2>{item.data.title}</h2>
             <p className="connected-meta">
               {item.data.resource?.kind} · {item.data.resource?.status} ·{" "}
@@ -909,6 +911,8 @@ function ResourceSettings({
               provider: get("provider"),
               environment: get("environment"),
               public_url: get("public_url"),
+              sticker: get("sticker") || "auto",
+              tags: parseTags(get("tags")),
             },
           });
           setDirty(false);
@@ -952,6 +956,8 @@ function ResourceSettings({
           ))}
         </select>
       </label>
+      <StickerPicker value={base.data.resource?.sticker} />
+      <label>Tags<input name="tags" maxLength={500} defaultValue={(base.data.resource?.tags ?? []).join(", ")} placeholder="Production, Client-facing" /><small>Up to 12 comma-separated tags, 40 characters each.</small></label>
       <label>
         Resource status
         <select

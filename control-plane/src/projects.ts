@@ -28,7 +28,10 @@ export const projectFields = z.object({
   position: z.object({ x: z.number().min(0).max(100000), y: z.number().min(0).max(100000) }).strict().nullable().default(null),
   resource: z.object({ kind: z.enum(["website", "server", "database", "api", "repository", "domain", "storage", "other"]),
     status: z.enum(["planned", "active", "retired"]), provider: z.string().max(120), environment: z.string().max(80),
-    public_url: z.string().max(2048), external_id: z.string().max(200).nullable() }).strict().nullable().default(null),
+    public_url: z.string().max(2048), external_id: z.string().max(200).nullable(),
+    sticker: z.enum(["auto", "website", "server", "database", "api", "repository", "domain", "storage", "other"]).default("auto"),
+    tags: z.array(z.string().trim().min(1).max(40)).max(12).default([]).transform(tags =>
+      tags.filter((tag, index) => tags.findIndex(other => other.toLowerCase() === tag.toLowerCase()) === index)) }).strict().nullable().default(null),
   publication: z.object({ published: z.boolean(), title: z.string().max(200), body: z.string().max(20000) }).strict().nullable().default(null),
   references: z.record(z.string().max(80), z.string().max(512)).default({}),
   checklist: z.array(z.object({ id: z.string().uuid(), text: z.string().trim().min(1).max(500),

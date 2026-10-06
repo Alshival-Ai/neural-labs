@@ -1,0 +1,53 @@
+/* Resource stickers share artwork and geometry with the standalone workspace. */
+[data-sticker="website"] { --sticker-art: url("stickers/website.svg"); }
+[data-sticker="server"] { --sticker-art: url("stickers/server.svg"); }
+[data-sticker="database"] { --sticker-art: url("stickers/database.svg"); }
+[data-sticker="api"] { --sticker-art: url("stickers/api.svg"); }
+[data-sticker="repository"] { --sticker-art: url("stickers/repository.svg"); }
+[data-sticker="domain"] { --sticker-art: url("stickers/domain.svg"); }
+[data-sticker="storage"] { --sticker-art: url("stickers/storage.svg"); }
+[data-sticker="other"] { --sticker-art: url("stickers/other.svg"); }
+
+[data-sticker="auto"] { --sticker-art: url("stickers/other.svg"); }
+.sp-sticky.sp-resource.resource-sticker {
+  position: relative; background: transparent !important; border: 0 !important;
+  border-radius: 0; box-shadow: none !important; transform: none; rotate: none;
+  padding: 56px 36px 42px; height: 300px; min-height: 300px; box-sizing: border-box;
+  color: #273943; isolation: isolate; --note-paper: #f7f3e9;
+  filter: drop-shadow(0 5px 5px #26374620);
+}
+.resource-sticker::before { content: ''; position: absolute; inset: 0; z-index: -1; background: var(--sticker-art) center / 100% 100% no-repeat; pointer-events: none; }
+.sp-sticky.sp-resource.resource-sticker::after { content: none; }
+.resource-sticker .sp-note-handle { top: 19px; right: 40px; left: auto; width: 32px; color: #526674; background: transparent; }
+.resource-sticker .sp-pill { color: #526674; background: #e4e8e6; font-size: 10px; font-weight: 600; line-height: 1.4; letter-spacing: .06em; text-transform: uppercase; }
+.resource-sticker h3 { margin: 12px 0; font-size: 19px; line-height: 1.3; letter-spacing: -.025em; overflow-wrap: anywhere; }
+.resource-sticker h3 :is(a, button) { color: #273943 !important; font: inherit; text-align: left; }
+.resource-sticker-tags { display: flex; flex-wrap: wrap; gap: 5px; min-width: 0; }
+.resource-sticker-tags span { background: #6d849017; color: #435761; border-radius: 5px; padding: 3px 7px; font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; max-width: 100%; }
+.resource-sticker p.resource-sticker-status { font-size: 12px; color: #435761; margin: 10px 0 0; }
+.resource-sticker-status::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #829098; margin-right: 7px; }
+.resource-sticker-status[data-status="operational"]::before { background: #27846a; }
+.resource-sticker-status[data-status="degraded"]::before { background: #b7751f; }
+.resource-sticker-status[data-status="unavailable"]::before { background: #ba4c50; }
+.resource-sticker-status small { display: block; font-size: 10px; margin: 4px 0 0 13px; }
+.resource-sticker-identity { display: flex; align-items: center; gap: 16px; margin: 10px 0 18px; }
+.resource-sticker-preview { display: block; width: 72px; height: 60px; background: var(--sticker-art) center / contain no-repeat; flex: none; }
+.resource-sticker-picker { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 8px; margin: 8px 0 18px; }
+.resource-sticker-picker label { position: relative; display: flex !important; flex-direction: column; align-items: center; gap: 5px; padding: 8px; border-radius: 10px; background: #71818c12; border: 2px solid transparent; cursor: pointer; font-size: 12px; }
+.resource-sticker-picker label:has(input:checked) { background: #71818c20; border-color: var(--matrix-color-b, #5276af); }
+.resource-sticker-picker label:has(input:focus-visible) { outline: 2px solid currentColor; outline-offset: 2px; }
+.resource-sticker-picker input[type="radio"] { position: absolute; width: 1px !important; height: 1px; opacity: 0; }
+.resource-sticker-identity + h2 { margin-top: 0; }
+.resource-sticker :focus-visible { outline: 2px solid #2676ff; outline-offset: 3px; }
+@media (forced-colors: active) {
+  .sp-sticky.sp-resource.resource-sticker { border: 2px solid CanvasText !important; background: Canvas !important; color: CanvasText; filter: none; }
+  .resource-sticker::before { display: none; }
+  .resource-sticker h3 :is(a,button), .resource-sticker p.resource-sticker-status, .resource-sticker-tags span { color: CanvasText !important; }
+  .resource-sticker-picker label:has(input:checked) { border-color: Highlight; }
+}
+
+.sp-sticky.sp-resource.resource-sticker.is-placed { position: absolute; }
+.resource-sticker .resource-sticker-tags span { max-width: calc(50% - 3px); box-sizing: border-box; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 760px) { .sp-sticky.sp-resource.resource-sticker.is-placed { position: relative; } }
+
+.sp-note-slot:has(.resource-sticker) { min-height: 300px; }

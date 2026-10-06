@@ -70,3 +70,24 @@ Expanded notes and resources keep the paper appearance, with quiet scrollbars, b
 A note has one optional resource home on the same board. Select **Move to resource** on an expanded note, or attach/drop it in the resource's **Notes** section. **Return to board** preserves its identity, text and links. Archiving, retiring, hiding, deleting or moving its resource to another board returns attached notes to the board. Only the note author or a project manager can move or edit it. Conflicting edits retain the draft and require retry or explicit reload.
 
 Resource records, resource homes, and cross-type relations are local to each installation. The existing connected graph bridge still synchronizes task-to-task edges and the supported task/note fields; it does not replicate resources or resource-home IDs. Portal associations and native associations remain independent. The optional portal integration does not add billing, infrastructure credentials, monitoring or alert delivery policy to the native board.
+
+## Resource stickers and touch layout
+
+Resources use built-in object-shaped stickers with a spectrum edge. Automatic
+chooses the artwork from the resource type; Settings → Change sticker chooses a
+shared override. The collection includes a browser, server rack, database,
+connector, repository, globe, drive, and label. There are no custom image uploads.
+Tags are shared plain text: up to 12, each at most 40 characters. Compact stickers
+show Resource, name, three tags plus a remaining count, and lifecycle status.
+Expanded resource sheets keep a matching motif and show all tags and details.
+Existing records default to Automatic and no tags; API resource data accepts the
+optional `sticker` and `tags` properties. Board positions remain personal device
+state and are never changed by someone else's sticker selection.
+
+Desktop and tablet task columns keep a 280px width and scroll horizontally.
+Phones (760px and below) have tappable status tabs with counts, swipe navigation,
+and hold-to-drag task movement. Drop a held task on an allowed status tab, or hold
+near the board edge to reveal another column. Keyboard navigation, cancellation,
+and the optional stacked layout remain available. These presentation features
+have no dependency on a hosted portal plan; embedding portals enforce their own
+feature entitlements separately.

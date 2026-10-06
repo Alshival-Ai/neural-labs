@@ -1,3 +1,4 @@
+import { StickerPicker } from "./project-board/ResourceSticker";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   type Item,
@@ -287,6 +288,9 @@ export function ProjectsApp({
     data.board_id = selected?.data.board_id ?? (activeBoard || null);
     if (kind === "resource")
       data.resource = {
+        ...selected?.data.resource,
+        sticker: fields.get("resource_sticker") || selected?.data.resource?.sticker || "auto",
+        tags: String(fields.get("resource_tags") ?? (selected?.data.resource?.tags ?? []).join(",")).split(",").map(tag => tag.trim()).filter(Boolean),
         kind: fields.get("resource_kind"),
         status: fields.get("resource_status"),
         provider: fields.get("resource_provider"),
@@ -1073,6 +1077,8 @@ export function ProjectsApp({
                         ))}
                       </select>
                     </label>
+                    <StickerPicker name="resource_sticker" value={selected?.data.resource?.sticker} />
+                    <label>Tags<input name="resource_tags" maxLength={500} defaultValue={(selected?.data.resource?.tags ?? []).join(", ")} /><small>Up to 12 comma-separated tags, 40 characters each.</small></label>
                     <label>
                       Provider
                       <input
