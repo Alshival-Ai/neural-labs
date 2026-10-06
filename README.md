@@ -142,3 +142,5 @@ See the [project tracker](tracker.md) for planning and the
 [documentation index](wiki/README.md#architecture-decisions) for architecture records.
 
 The native **Projects** board includes Markdown sticky notes, expandable paper notes and resources, searchable task/note/resource connections, and resource mentions typed with `!`. Notes can live on the board or inside a resource. Tasks retain the side editor. See [Projects](wiki/project-management.md) for sharing and synchronization boundaries.
+
+Resource cards use a thin spectrum border in their compact and expanded views to distinguish them from notes.

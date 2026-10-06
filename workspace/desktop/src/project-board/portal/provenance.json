@@ -13,5 +13,11 @@
     "scrapbook.css": "f8e0607731456223300e7fb1dc8c5f40f7ad4852f7f922cb0c45ca511aa875b4",
     "shared-project.css": "cf18f4ef8c26df07cc462632b867c7714ce6ed766f03b29c6c5ab488796e3fd8",
     "task-details.css": "3df384151330a08132fbc7f9df072bea362ccc7c75e812601c7d87b8b214be29"
+  },
+  "additional_assets": {
+    "resource-spectrum.css": {
+      "source": "Alshival.ai website: customer_hub/static/customer_hub/resource-spectrum.css",
+      "sha256": "198a6aa2ca6bcb504394fd0a8f938b528312cff125504e8bbef12386500dd1f6"
+    }
   }
 }
