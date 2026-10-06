@@ -60,3 +60,19 @@ Automations → Project management template opens **Alshival - Project Managemen
 Migration 22 deletes all legacy Team Chat channels/messages on managed and self-hosted installations and creates one fresh everyone channel. Private agent conversations are unaffected. Legacy internal/unpublished task content and its task descendants are deleted. Published tasks retain their public text rather than exposing old staff text. Existing shared task comments remain on their tasks and are not backfilled into the fresh channel, including after comment edits or task restoration.
 
 This is a destructive, one-time migration. Use the installation’s gated upgrade and recovery procedure with a verified pre-upgrade database copy. Do not downgrade over the migrated database or restore a copy over accepted new writes. Migration retries preserve messages created after the reset. Source publication alone does not upgrade an installation.
+
+## Connected cards in the Alshival portal
+
+The Alshival portal adds a presentation layer with multiple expandable task, note,
+and resource cards, searchable cross-type links, and resource mentions in notes.
+Typing `!` chooses a resource and inserts a navigable link; it does not relocate
+the note. Moving a note into a resource gives it one shared home, while card
+geometry remains a personal browser preference. Returning it to the board keeps
+its identity and relationships.
+
+These resource relationships and note homes are portal-only metadata. They do not
+extend the native Neural Labs project schema or the graph synchronization wire
+format. Existing task and note content continues to synchronize; incoming graph
+updates preserve portal resource associations. Neither a link nor a resource home
+grants access or changes the note's sharing rules. Native installations remain
+independent and retain their existing project interactions.
