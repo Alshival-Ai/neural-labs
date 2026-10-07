@@ -23,7 +23,8 @@ async function fixture(t, extra = {}) {
     child.kill = signal => { try { process.kill(-child.pid, signal); return true; } catch { return false; } };
     return child;
   } });
-  const options = { root: path.join(root, 'state'), workspaceRoot: workspace, state, configuration: hostingConfig({}), launcher, healthTimeout: 1000, ...extra };
+  // Real Node/Python processes need room to start alongside the rest of validation.
+  const options = { root: path.join(root, 'state'), workspaceRoot: workspace, state, configuration: hostingConfig({}), launcher, healthTimeout: 5000, ...extra };
   const service = new Deployments(options); await service.restore();
   t.after(async () => { await service.close(); await rm(root, { recursive: true, force: true }); });
   return { root, workspace, service, options };

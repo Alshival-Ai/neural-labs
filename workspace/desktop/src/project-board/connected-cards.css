@@ -288,7 +288,7 @@
   position: sticky;
   top: 0;
   z-index: 46;
-  display: flex;
+  display: none;
   flex-wrap: wrap;
   gap: 5px;
 }
@@ -344,6 +344,9 @@
     left: 8px;
     right: 8px;
     top: 26px;
+  }
+  .projects-app .connected-switcher:has(> button:nth-child(2)) {
+    display: flex;
   }
 }
 @media (prefers-reduced-motion: reduce) {

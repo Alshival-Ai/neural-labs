@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Change, Edge, Item } from "./types";
-import { stickerFor, ResourceTags, StickerPicker, parseTags } from "./ResourceSticker";
+import { ResourceTags, StickerPicker, parseTags } from "./ResourceSticker";
 import { colors } from "./types";
 import { readDeviceState, writeDeviceState } from "../deviceState";
 import "./connected-cards.css";
@@ -608,8 +608,8 @@ export function PaperCard({
       <div className="connected-paper-content">
         {resource ? (
           <>
-            <div className="resource-sticker-identity"><span className="resource-sticker-preview" data-sticker={stickerFor(item.data.resource)} aria-hidden="true" /><ResourceTags tags={item.data.resource?.tags} /></div>
             <h2>{item.data.title}</h2>
+            {item.data.resource?.tags?.length ? <div className="resource-sticker-identity"><ResourceTags tags={item.data.resource.tags} /></div> : null}
             <p className="connected-meta">
               {item.data.resource?.kind} · {item.data.resource?.status} ·{" "}
               {item.data.resource?.environment}
