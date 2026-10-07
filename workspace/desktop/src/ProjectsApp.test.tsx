@@ -150,11 +150,13 @@ it("switches project tasks and workflows with the selected board", async () => {
   );
   render(<ProjectsApp />);
   expect(await screen.findByText("First board task")).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 1, name: "Board A" })).toBeInTheDocument();
   expect(screen.queryByText("Second board task")).not.toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("Project board"), {
     target: { value: "board-b" },
   });
   expect(await screen.findByText("Second board task")).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 1, name: "Board B" })).toBeInTheDocument();
   expect(screen.queryByText("First board task")).not.toBeInTheDocument();
   expect(
     screen.getByRole("heading", { name: "B workflow" }),

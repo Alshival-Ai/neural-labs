@@ -409,11 +409,10 @@ export function ProjectsApp({
       >
         <header className="sp-heading">
           <div>
-            <p className="sp-eyebrow">
+            <h1>
               {boards.find((board) => board.id === activeBoard)?.data.title ??
                 "Workspace"}
-            </p>
-            <h1>Board</h1>
+            </h1>
           </div>
           <label className="sp-view-select">
             <span className="sr-only">Project view</span>

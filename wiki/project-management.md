@@ -24,6 +24,8 @@ Each workspace has one Team Channel. New task comments also appear there in the 
 
 Use **Project board** to select a board. Administrators can create, archive and restore boards under **Board settings**. Each board owns its tasks, deliverables, notes and ordered status catalog. The original **Workspace board** remains available for existing records that have no board ID. Native installations impose no commercial board limits.
 
+The selected board's name is the main page heading, without a small duplicate label or a separate “Board” title. The original unnamed workspace view uses “Workspace”.
+
 A task uses a status from its own board. To move a task through the API, update both `board_id` and the destination `status_id` with the current revision. The task identity, attached notes and comments remain intact. Dependencies and related links may connect tasks across active boards. Archived boards retain their records and relationships; ordinary project reads and graph context hide their contents until restoration. Board management shows archive metadata.
 
 `GET /api/projects/boards` discovers board identities. Create a board through `/items` with `kind: "board"` and its title. Task, note and deliverable data accept `board_id`; status data accepts the same optional UUID. The optional sync snapshot remains version 2 and advertises `capabilities.project_boards: true`. Integrations must negotiate this capability before mirroring multiple boards; older peers keep their original single-board projection.
