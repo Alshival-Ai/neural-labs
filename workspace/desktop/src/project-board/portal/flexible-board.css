@@ -20,7 +20,7 @@
 .shared-project .sp-column .sp-status-dot { background: var(--status-color, #999b9e); }
 .shared-project .sp-column[data-status-color] { background: color-mix(in srgb, var(--status-color, #999b9e) 24%, var(--paper)); }
 @media (min-width: 701px) {
-  .shared-project[data-shared-project] .sp-columns { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(280px, 480px); grid-template-columns: none; grid-template-rows: minmax(0, 1fr); height: auto; min-height: 0; max-height: 75dvh; overflow-x: auto; gap: 12px; align-items: stretch; padding-bottom: 12px; }
+  .shared-project[data-shared-project] .sp-columns { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(280px, 640px); justify-content: safe center; grid-template-columns: none; grid-template-rows: minmax(0, 1fr); height: auto; min-height: 0; max-height: 75dvh; overflow-x: auto; gap: 12px; align-items: stretch; padding-bottom: 12px; }
   .shared-project[data-shared-project] .sp-column { display: flex; flex-direction: column; min-height: 0; height: auto; }
   .shared-project .sp-column > header { flex: 0 0 auto; }
   .shared-project[data-shared-project] .sp-stack { display: flex; flex-direction: column; align-items: stretch; min-height: 0; max-height: none; overflow-y: auto; overscroll-behavior-y: contain; flex: 1; padding: 2px; }
@@ -39,7 +39,7 @@
 .sp-gesture-hint { font-size: 11px; color: var(--muted); margin: 0; }
 .shared-project[data-board-layout] .sp-column-navigation button { min-width: 44px; min-height: 44px; font-size: 18px; }
 .shared-project[data-board-layout] button:disabled { opacity: .45; cursor: default; }
-.shared-project[data-board-layout] .sp-columns { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(280px, 480px); grid-template-columns: none; grid-template-rows: minmax(0, 1fr); align-items: stretch; height: auto; min-height: 0; max-height: var(--board-max-height, 65dvh); overflow: auto; gap: 12px; padding: 2px 2px 12px; scrollbar-width: thin; }
+.shared-project[data-board-layout] .sp-columns { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(280px, 640px); justify-content: safe center; grid-template-columns: none; grid-template-rows: minmax(0, 1fr); align-items: stretch; height: auto; min-height: 0; max-height: var(--board-max-height, 65dvh); overflow: auto; gap: 12px; padding: 2px 2px 12px; scrollbar-width: thin; }
 .shared-project[data-board-layout] .sp-column { display: flex; flex-direction: column; height: auto; min-height: 0; padding: 12px; }
 .shared-project[data-board-layout] .sp-column[hidden] { display: none !important; }
 .shared-project[data-board-layout] .sp-column > header { flex: 0 0 auto; }
@@ -139,3 +139,9 @@ body > .sp-drag-layer > .sp-drag-ghost { max-height: min(240px, 50dvh); overflow
 /* Expand in the existing canvas: all cards fit, with notes and timeline below. */
 .shared-project[data-shared-project][data-board-expanded] .sp-columns { max-height: none; }
 .shared-project[data-shared-project][data-board-expanded] .sp-stack { overflow: visible; }
+
+/* Let surplus ultrawide space frame the columns; overflowing boards start at the first task. */
+.shared-project[data-shared-project] :is(.sp-columns, .sp-stack) { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--status-color, #999b9e) 55%, var(--paper)) transparent; }
+.shared-project[data-shared-project] :is(.sp-columns, .sp-stack)::-webkit-scrollbar { width: 6px; height: 6px; }
+.shared-project[data-shared-project] :is(.sp-columns, .sp-stack)::-webkit-scrollbar-track { background: transparent; }
+.shared-project[data-shared-project] :is(.sp-columns, .sp-stack)::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--status-color, #999b9e) 55%, var(--paper)); border-radius: 6px; }

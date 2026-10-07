@@ -222,6 +222,8 @@ export function App() {
     toastTimer.current = window.setTimeout(() => setToast(undefined), action ? 12_000 : 3_200);
   }, []);
 
+  useEffect(() => () => window.clearTimeout(toastTimer.current), []);
+
   const takePopout = useCallback((windowId: string): ManagedPopout | undefined => {
     const target = popoutTargetsRef.current.get(windowId);
     if (!target) return undefined;

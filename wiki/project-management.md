@@ -84,7 +84,7 @@ Existing records default to Automatic and no tags; API resource data accepts the
 optional `sticker` and `tags` properties. Board positions remain personal device
 state and are never changed by someone else's sticker selection.
 
-Desktop and tablet task columns share the available board width evenly, from a 280px minimum to a 480px maximum. Columns stay left-aligned once they reach their maximum; horizontal scrolling appears only when their minimum widths cannot fit.
+Desktop and tablet task columns share the available board width evenly, from a 280px minimum to a 640px maximum. Columns are centered once they reach their maximum; horizontal scrolling starts at the first column when their minimum widths cannot fit.
 Phones (760px and below) have tappable status tabs with counts, swipe navigation,
 and hold-to-drag task movement. Drop a held task on an allowed status tab, or hold
 near the board edge to reveal another column. Keyboard navigation, cancellation,
@@ -93,3 +93,5 @@ have no dependency on a hosted portal plan; embedding portals enforce their own
 feature entitlements separately.
 
 Collapsed desktop and tablet columns now fit up to three typical task cards before scrolling when viewport height allows. Short columns keep their natural height, tall boards retain a viewport cap, and expanded boards show all cards. Mobile swipe and stacked layouts are unchanged. Run `node tests/board-height.cjs` with Playwright available to verify the shared board layout in an isolated browser.
+
+Column scrollbars are thin and blend with the status color.
