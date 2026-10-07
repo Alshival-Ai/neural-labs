@@ -84,7 +84,7 @@ Existing records default to Automatic and no tags; API resource data accepts the
 optional `sticker` and `tags` properties. Board positions remain personal device
 state and are never changed by someone else's sticker selection.
 
-Desktop and tablet task columns keep a 280px width and scroll horizontally.
+Desktop and tablet task columns share the available board width evenly, from a 280px minimum to a 480px maximum. Columns stay left-aligned once they reach their maximum; horizontal scrolling appears only when their minimum widths cannot fit.
 Phones (760px and below) have tappable status tabs with counts, swipe navigation,
 and hold-to-drag task movement. Drop a held task on an allowed status tab, or hold
 near the board edge to reveal another column. Keyboard navigation, cancellation,
