@@ -211,11 +211,11 @@ window.AlshivalResponsiveBoard = (root, lifecycle, actions) => {
     if (root.hasAttribute('data-board-expanded')) return Math.ceil(tallest + blockChrome(surface));
     const representative = demands.at(-2) ?? tallest;
     const cardHeight = median(measurements.flatMap(item => item.cards));
-    const twoCardFloor = cardHeight
-      ? median(measurements.map(item => item.chrome)) + cardHeight * 2 + median(measurements.map(item => item.gap))
+    const threeCardFloor = cardHeight
+      ? median(measurements.map(item => item.chrome)) + cardHeight * 3 + median(measurements.map(item => item.gap)) * 2
       : representative;
     // Ignore one outlying column, but never make a short board taller than its natural content.
-    const columnHeight = Math.min(tallest, Math.max(representative, twoCardFloor));
+    const columnHeight = Math.min(tallest, Math.max(representative, threeCardFloor));
     return Math.ceil(columnHeight + blockChrome(surface));
   }
   function measure() {

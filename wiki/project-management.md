@@ -91,3 +91,5 @@ near the board edge to reveal another column. Keyboard navigation, cancellation,
 and the optional stacked layout remain available. These presentation features
 have no dependency on a hosted portal plan; embedding portals enforce their own
 feature entitlements separately.
+
+Collapsed desktop and tablet columns now fit up to three typical task cards before scrolling when viewport height allows. Short columns keep their natural height, tall boards retain a viewport cap, and expanded boards show all cards. Mobile swipe and stacked layouts are unchanged. Run `node tests/board-height.cjs` with Playwright available to verify the shared board layout in an isolated browser.
