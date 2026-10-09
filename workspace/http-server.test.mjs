@@ -36,6 +36,7 @@ async function fixture(ready = true, { nativeArtifacts, nativeRuntime, gatewayAd
   await writeFile(path.join(desktopRoot, "assets", "wallpaper.png"), Buffer.from([137, 80, 78, 71]));
   await writeFile(path.join(desktopRoot, "assets", "wallpaper-tablet.png"), Buffer.from([137, 80, 78, 71]));
   await writeFile(path.join(desktopRoot, "assets", "wallpaper-mobile.png"), Buffer.from([137, 80, 78, 71]));
+  await writeFile(path.join(desktopRoot, "assets", "neural-labs-favicon.svg"), await readFile(new URL("./desktop/public/assets/neural-labs-favicon.svg", import.meta.url)));
   await mkdir(path.join(desktopRoot, "image-editor", "dist"), { recursive: true });
   await writeFile(path.join(desktopRoot, "image-editor", "index.html"), '<script src="dist/bundle.js"></script>');
   await writeFile(path.join(desktopRoot, "image-editor", "dist", "bundle.js"), '"use strict";');
@@ -263,6 +264,14 @@ test("serves the desktop shell and its allowlisted assets", async () => {
     assert.equal(asset.status, 200);
     assert.match(asset.headers.get("content-type"), /^text\/css/);
     assert.match(asset.headers.get("cache-control"), /immutable/);
+
+    const sourceIndex = await readFile(new URL("./desktop/index.html", import.meta.url), "utf8");
+    const faviconPath = sourceIndex.match(/rel="icon" href="([^"]+)"/)?.[1];
+    assert.ok(faviconPath);
+    const favicon = await fetch(`${app.origin}${faviconPath}`);
+    assert.equal(favicon.status, 200);
+    assert.equal(favicon.headers.get("content-type"), "image/svg+xml");
+    assert.equal(await favicon.text(), await readFile(new URL("./desktop/public/assets/neural-labs-favicon.svg", import.meta.url), "utf8"));
 
     const wallpaper = await fetch(`${app.origin}/workspace/assets/wallpaper.png`);
     assert.equal(wallpaper.status, 200);
