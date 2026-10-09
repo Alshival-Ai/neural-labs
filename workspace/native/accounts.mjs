@@ -8,8 +8,10 @@ const OPENAI_DEVICE_URL = "https://auth.openai.com/codex/device";
 function openAIDeviceCode(output) {
   const clean = output.replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/gu, "")
     .replace(/\x1b\[[0-?]*[ -/]*[@-~]/gu, "").replace(/\r/gu, "\n");
-  const url = clean.match(/URL:\s*(https:\/\/[^\s]+)/iu)?.[1];
-  const code = clean.match(/Code:\s*([A-Z0-9][A-Z0-9-]{3,31})/u)?.[1];
+  const url = clean.match(/URL:\s*(https:\/\/[^\s]+)/iu)?.[1]
+    ?? clean.match(/(?:^|\n)\s*(https:\/\/[^\s]+)\s*(?=\n|$)/u)?.[1];
+  const code = clean.match(/Code:\s*([A-Z0-9][A-Z0-9-]{2,30}[A-Z0-9])[ \t]*(?=\n)/u)?.[1]
+    ?? clean.match(/(?:^|\n)\s*2\. Enter this one-time code[^\n]*\n\s*([A-Z0-9][A-Z0-9-]{2,30}[A-Z0-9])[ \t]*(?=\n)/u)?.[1];
   if (!url || !code) return null;
   // A provider process must not supply an arbitrary destination to the browser.
   if (url !== OPENAI_DEVICE_URL) return null;

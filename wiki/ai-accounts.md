@@ -17,6 +17,12 @@ only user and the administrator.
 If the device-code attempt ends or expires, the card stops waiting and offers
 **Connect OpenAI** again for a fresh code.
 
+If OpenAI opens but the card never shows a code, the installed runtime must
+support the pinned Codex CLI's numbered device-login prompt. Upgrade that
+instance through its supported operator update process; changing portal routes
+alone does not update the native login adapter. The code stays private to the
+person who started sign-in.
+
 Additional personal, shared, Team, and background connections can be managed
 under **Advanced connections**. These require explicit owner and model choices.
 

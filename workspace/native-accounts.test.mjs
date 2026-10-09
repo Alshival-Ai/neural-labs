@@ -50,6 +50,22 @@ test("OpenAI device code is exposed only to its owner and can be cancelled", asy
   assert.deepEqual(pending.signIn, {
     verificationUrl: "https://auth.openai.com/codex/device", userCode: "ABCD-EFGH",
   });
+  session.backlog = [];
+  // The pinned Codex 0.155.1 CLI uses a numbered, ANSI-colored prompt,
+  // rather than the old URL:/Code: labels. PTY frames can split the code.
+  const prompt = "\r\nWelcome to Codex [v0.155.1]\r\n" +
+    "\r\n1. Open this link in your browser and sign in to your account\r\n" +
+    "   \x1b[34mhttps://auth.openai.com/codex/device\x1b[0m\r\n" +
+    "\r\n2. Enter this one-time code \x1b[90m(expires in 15 minutes)\x1b[0m\r\n   \x1b[34mABCD-";
+  terminals.recordOutput(session, prompt);
+  assert.equal(await accounts.deviceSignIn(grant), null);
+  terminals.recordOutput(session, "EFGH\x1b[0m\r\n\r\nContinue only if you started this login in Codex.\r\n");
+  assert.deepEqual((await accounts.status(grant, launch)).signIn, pending.signIn);
+  for (const unsafeUrl of ["https://attacker.example/codex/device", "https://auth.openai.com/codex/device?redirect=other"]) {
+    session.backlog = [];
+    terminals.recordOutput(session, prompt.replace("https://auth.openai.com/codex/device", unsafeUrl) + "EFGH\x1b[0m\r\n");
+    assert.equal(await accounts.deviceSignIn(grant), null);
+  }
   assert.equal(await accounts.deviceSignIn({ ...grant, actor: "other" }), null);
   assert.equal((await accounts.cancel(grant)).cancelled, true);
   assert.equal(await accounts.deviceSignIn(grant), null);

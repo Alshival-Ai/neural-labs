@@ -15,6 +15,7 @@ validate:
 	node --check tests/native-container-smoke.mjs
 	node --check tests/native-browser-smoke.mjs
 	node --check tests/native-guided-auth-smoke.mjs
+	node --check tests/native-openai-guided-auth-smoke.mjs
 	node --check tests/native-deployment-smoke.mjs
 	bash tests/public_boundary_test.sh
 	python3 bin/export-wiki.py --check

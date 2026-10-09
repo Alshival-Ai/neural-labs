@@ -11,6 +11,7 @@ RUN npm ci --include=dev
 
 COPY workspace/desktop/index.html workspace/desktop/tsconfig.json workspace/desktop/vite.config.ts ./
 COPY workspace/desktop/src ./src
+COPY workspace/desktop/public ./public
 COPY workspace/vendor/minipaint /vendor/minipaint
 COPY workspace/build-minipaint.mjs /build-minipaint.mjs
 RUN npm run build

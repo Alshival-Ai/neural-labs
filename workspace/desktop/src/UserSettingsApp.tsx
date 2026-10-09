@@ -279,7 +279,7 @@ function AccountSettingsPanel({ user, providers: initialProviders, csrfToken, in
           <dl className="user-settings-identity-list">
             <div><dt>Display name</dt><dd>{user.displayName}</dd></div>
             <div><dt>Email address</dt><dd>{user.email}</dd></div>
-            <div className="user-settings-handle"><dt>Team Chat handle</dt><dd><form onSubmit={saveHandle}><span>@</span><input aria-label="Team Chat handle" value={handle} minLength={2} maxLength={32} pattern="[a-z0-9][a-z0-9._-]{1,31}" onChange={(event) => setHandle(event.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ""))} /><button type="submit" disabled={savingHandle || handle === savedHandle}>{savingHandle ? "Saving…" : "Save"}</button></form><small>Teammates mention you with this unique handle.</small></dd></div>
+            <div className="user-settings-handle"><dt>Team Chat handle</dt><dd><form onSubmit={saveHandle}><span>@</span><input aria-label="Team Chat handle" value={handle} minLength={2} maxLength={32} pattern={"[a-z0-9][a-z0-9._\\-]{1,31}"} onChange={(event) => setHandle(event.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ""))} /><button type="submit" disabled={savingHandle || handle === savedHandle}>{savingHandle ? "Saving…" : "Save"}</button></form><small>Teammates mention you with this unique handle.</small></dd></div>
             <div><dt>Workspace role</dt><dd>{friendlyRole(user.role)}</dd></div>
           </dl>
       </section>
