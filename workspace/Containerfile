@@ -71,9 +71,6 @@ COPY --from=desktop-build /build/dist /usr/local/share/neural-labs/desktop
 COPY --chown=node:node --from=mcp-build /build/package.json /build/package-lock.json /usr/local/lib/neural-labs/mcp/
 COPY --chown=node:node --from=mcp-build /build/node_modules /usr/local/lib/neural-labs/mcp/node_modules
 COPY --chown=node:node --from=mcp-build /build/dist /usr/local/lib/neural-labs/mcp/dist
-COPY tmp/neural-labs-spectrum-paper-wallpaper.png /usr/local/share/neural-labs/desktop/assets/wallpaper.png
-COPY tmp/neural-labs-spectrum-paper-tablet.png /usr/local/share/neural-labs/desktop/assets/wallpaper-tablet.png
-COPY tmp/neural-labs-spectrum-paper-mobile.png /usr/local/share/neural-labs/desktop/assets/wallpaper-mobile.png
 
 RUN mkdir -p /home/node/workspace/projects /home/node/.local/state/neural-labs /run/neural-labs \
     && chown -R node:node /home/node /run/neural-labs \

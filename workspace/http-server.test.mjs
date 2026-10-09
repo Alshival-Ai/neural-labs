@@ -33,9 +33,10 @@ async function fixture(ready = true, { nativeArtifacts, nativeRuntime, gatewayAd
   await writeFile(path.join(desktopRoot, "index.html"), "<!doctype html><meta name=\"csp-nonce\" content=\"__NEURAL_LABS_CSP_NONCE__\"><title>Desktop · Neural Labs</title>");
   await writeFile(path.join(desktopRoot, "assets", "index-a1b2c3d4.css"), "body { color: white; }");
   await writeFile(path.join(desktopRoot, "assets", "index-a1b2c3d4.js"), "document.title = document.title;");
-  await writeFile(path.join(desktopRoot, "assets", "wallpaper.png"), Buffer.from([137, 80, 78, 71]));
-  await writeFile(path.join(desktopRoot, "assets", "wallpaper-tablet.png"), Buffer.from([137, 80, 78, 71]));
-  await writeFile(path.join(desktopRoot, "assets", "wallpaper-mobile.png"), Buffer.from([137, 80, 78, 71]));
+  for (const filename of ["wallpaper.png", "wallpaper-tablet.png", "wallpaper-mobile.png"]) {
+    await writeFile(path.join(desktopRoot, "assets", filename),
+      await readFile(new URL(`./desktop/public/assets/${filename}`, import.meta.url)));
+  }
   await writeFile(path.join(desktopRoot, "assets", "neural-labs-favicon.svg"), await readFile(new URL("./desktop/public/assets/neural-labs-favicon.svg", import.meta.url)));
   await mkdir(path.join(desktopRoot, "image-editor", "dist"), { recursive: true });
   await writeFile(path.join(desktopRoot, "image-editor", "index.html"), '<script src="dist/bundle.js"></script>');

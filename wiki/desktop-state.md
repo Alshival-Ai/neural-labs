@@ -143,3 +143,10 @@ with a seven-day stale-while-revalidate window. Desktop apps are separate
 lazy-loaded bundles, so xterm, Files, Settings, and Alshival code is fetched
 only when that app is first opened. HTML, authenticated APIs, terminal sockets,
 and live workspace data are never included in that static cache policy.
+
+The three responsive wallpaper PNGs are versioned in
+`workspace/desktop/public/assets/` and copied into `dist/assets/` by the standard
+desktop build. Container and desktop-only builds use the same complete artifact;
+no separate Docker-only wallpaper copy is required. If the background is blank,
+check that all three `/workspace/assets/wallpaper*.png` requests succeed with
+`image/png` from an authenticated desktop session.

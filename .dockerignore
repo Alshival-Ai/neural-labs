@@ -46,9 +46,6 @@
 
 # Local and generated artifacts
 tmp/*
-!tmp/neural-labs-spectrum-paper-wallpaper.png
-!tmp/neural-labs-spectrum-paper-tablet.png
-!tmp/neural-labs-spectrum-paper-mobile.png
 *.zip
 *.log
 Screenshot From *.png

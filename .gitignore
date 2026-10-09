@@ -21,9 +21,6 @@ id_ed25519*
 .ssh/
 **/.ssh/
 tmp/*
-!tmp/neural-labs-spectrum-paper-wallpaper.png
-!tmp/neural-labs-spectrum-paper-tablet.png
-!tmp/neural-labs-spectrum-paper-mobile.png
 
 # Private runtime content. Neural Labs is a public source repository; team
 # skills, agent memory, and OpenClaw state belong only in the workspace volume.
