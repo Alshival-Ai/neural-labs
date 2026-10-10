@@ -47,8 +47,9 @@ The SHA-1 collision weakness does not justify substituting an incompatible
 algorithm into that keyed protocol. Credentials remain short-lived and signed
 with the configured secret. Its regression test necessarily uses the same HMAC.
 
-The control-plane and MCP lockfiles include patched proxy-addr and source-map-js
-versions. MCP also updates Hono past the JSX boundary-component escaping advisory.
+The server lockfiles include patched proxy-addr. Server, console and desktop
+lockfiles include patched source-map-js. MCP also updates Hono past the JSX
+boundary-component escaping advisory.
 
 ## Reviewing remaining findings
 
