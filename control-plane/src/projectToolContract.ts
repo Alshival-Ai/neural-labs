@@ -24,4 +24,3 @@ export function parseProjectTool(name: string, input: unknown): Record<string, u
   if (!schema) throw new Error("Unknown project tool");
   return schema.parse(input) as Record<string, unknown>;
 }
-
