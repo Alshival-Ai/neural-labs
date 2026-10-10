@@ -20,6 +20,24 @@ export async function readCodexModels(grant, env, makeRpc = (...args) => new Std
   } finally { await rpc.close(); }
 }
 
+// API accounts do not receive the subscription's remote Codex catalog. Use
+// their own OpenAI inventory, restricted to agent-capable GPT reasoning families.
+// Image, audio, embeddings, moderation and specialized safety models are excluded.
+export async function readOpenAIModels(grant, fetchModels = fetch) {
+  await grant.revalidate();
+  const response = await fetchModels("https://api.openai.com/v1/models", {
+    headers: { Authorization: `Bearer ${grant.apiKey}` }, signal: AbortSignal.timeout(10000), redirect: "error",
+  });
+  if (!response.ok) throw new Error("OpenAI model inventory is unavailable");
+  const payload = await response.json();
+  if (!Array.isArray(payload.data) || payload.data.length > 5000) throw new Error("Invalid OpenAI model inventory");
+  await grant.revalidate();
+  return payload.data.filter(row => typeof row?.id === "string" &&
+    /^gpt-(?:[5-9]|\d{2,})(?:\.\d+)?(?:-[a-z0-9]+)*$/.test(row.id) &&
+    !/(?:^|-)(?:image|audio|realtime|transcribe|search|moderation|daybreak)(?:-|$)/.test(row.id))
+    .map(row => ({ model: row.id, displayName: row.id, inputModalities: ["text"] }));
+}
+
 export async function readClaudeModels(grant, env) {
   // Initialization reports the pinned CLI's supported models and effort
   // options. Never send a user message or start inference to discover models.
@@ -63,7 +81,7 @@ export async function readClaudeModels(grant, env) {
   }
 }
 
-export async function nativeModelCatalog(grant, { ready, readers = { codex: readCodexModels, claude: readClaudeModels } } = {}) {
+export async function nativeModelCatalog(grant, { ready, readers = { codex: readCodexModels, claude: readClaudeModels, openai: readOpenAIModels } } = {}) {
   const provider = grant.binding.provider;
   const env = providerEnvironment({ provider, home: grant.home, credentialHome: grant.credentialHome, method: grant.binding.method,
     ...(grant.apiKey ? { apiKey: grant.apiKey } : {}) });
@@ -72,7 +90,14 @@ export async function nativeModelCatalog(grant, { ready, readers = { codex: read
   const version = provider === "codex" ? CODEX_PROTOCOL_VERSION : CLAUDE_PROTOCOL_VERSION;
   const actual = await grant.launch.exec(command, ["--version"], { env, cwd: grant.cwd, timeout: 10000, maxBuffer: 65536 });
   if (provider === "codex" ? actual.stdout.trim() !== `codex-cli ${version}` : !actual.stdout.trim().startsWith(`${version} `)) throw new Error("Native catalog executable pin mismatch");
-  const rows = await readers[provider](grant, env);
+  let rows = await readers[provider](grant, env);
+  if (provider === "codex" && grant.binding.method === "api-key") {
+    const inventory = await (readers.openai || readOpenAIModels)(grant);
+    const available = new Set(inventory.map(row => row.model));
+    rows = rows.filter(row => available.has(row.model || row.id));
+    const known = new Set(rows.map(row => row.model || row.id));
+    rows = rows.concat(inventory.filter(row => !known.has(row.model)));
+  }
   await grant.revalidate();
   const models = [], ids = new Set(); let defaultModel = null;
   for (const row of rows) {

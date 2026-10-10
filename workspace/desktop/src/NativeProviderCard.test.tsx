@@ -48,3 +48,18 @@ describe('guided Anthropic card', () => {
     expect(vi.mocked(nativeRequest).mock.calls.every(([operation]) => operation === 'account.status')).toBe(true);
   });
 });
+
+it('refreshes models on focus without changing the saved selection', async () => {
+  const openai = { ...connection, provider: 'codex' as const };
+  const select = vi.fn(); let refreshed = false;
+  vi.mocked(nativeSelection).mockReturnValue({ connection: 'fixture', model: 'gpt-6-astra' });
+  vi.mocked(nativeRequest).mockImplementation(async operation => operation === 'account.status' ? { ready: true } : {
+    models: [{ id: 'gpt-6-astra', name: 'Astra', available: true }, ...(refreshed ? [{ id: 'gpt-6.1-sol', name: 'Sol', available: true }] : [])], defaultModel: 'gpt-6-astra'
+  });
+  render(<NativeProviderCard provider="codex" connection={openai} ensureConnection={async () => openai} onSelect={select} />);
+  await screen.findByRole('option', { name: 'Astra' });
+  refreshed = true; fireEvent(window, new Event('focus'));
+  await screen.findByRole('option', { name: 'Sol' });
+  expect(screen.getByLabelText('OpenAI model')).toHaveValue('gpt-6-astra');
+  expect(select).not.toHaveBeenCalled();
+});

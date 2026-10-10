@@ -28,10 +28,17 @@ export function useModelCatalog(scope: "account" | "admin/workspace", agentId?: 
     setCatalog(undefined);
     setError(undefined);
     const selected = nativeSelection();
-    void nativeRequest<ProviderCatalog>("models.list", {}, selected)
-      .then((value) => { if (active) setCatalog(value); })
-      .catch((error: unknown) => { if (active) setError(error instanceof Error ? error.message : "Models could not be loaded."); });
-    return () => { active = false; };
+    let pending = false;
+    const refresh = async () => {
+      if (!active || pending || document.visibilityState === "hidden") return;
+      pending = true;
+      try { const value = await nativeRequest<ProviderCatalog>("models.list", {}, selected); if (active) { setCatalog(value); setError(undefined); } }
+      catch (error) { if (active) setError(error instanceof Error ? error.message : "Models could not be loaded."); }
+      finally { pending = false; }
+    };
+    void refresh(); const timer = window.setInterval(() => void refresh(), 5 * 60_000);
+    window.addEventListener("focus", refresh); window.addEventListener("online", refresh); document.addEventListener("visibilitychange", refresh);
+    return () => { active = false; window.clearInterval(timer); window.removeEventListener("focus", refresh); window.removeEventListener("online", refresh); document.removeEventListener("visibilitychange", refresh); };
   }, [scope, agentId, selectionRevision]);
   return { catalog, error };
 }

@@ -1,3 +1,4 @@
+import { AppearanceContext, normalizeTheme, validWallpaper, wallpaperKey } from "./appearance";
 import { timing } from "./timings";
 import { ProjectsApp } from "./ProjectsApp";
 import { UpdateNotice } from "./UpdateNotice";
@@ -79,6 +80,7 @@ type DesktopDeviceState = {
 
 type AppearanceDeviceState = {
   fontScale: number;
+  theme: "light" | "dark";
 };
 
 const DESKTOP_APPS = new Set<DesktopApp>(["deployments", "projects", "neura", "files", "preview", "image-editor", "settings", "terminal", "vscode", "automations", "skills"]);
@@ -134,7 +136,7 @@ function desktopDeviceState(userId: string): DesktopDeviceState | undefined {
 function appearanceDeviceState(userId: string): AppearanceDeviceState {
   const stored = readDeviceState(userId, "appearance");
   const value = stored && typeof stored === "object" ? (stored as Record<string, unknown>).fontScale : undefined;
-  return { fontScale: normalizeDesktopFontScale(value) };
+  return { fontScale: normalizeDesktopFontScale(value), theme: normalizeTheme((stored as Record<string, unknown> | undefined)?.theme) };
 }
 
 function freshWindowId(app: DesktopApp): string {
@@ -198,6 +200,8 @@ export function App() {
   const [dockMenu, setDockMenu] = useState<{ app: DesktopApp; x: number; y: number }>();
   const [persistenceUserId, setPersistenceUserId] = useState<string>();
   const [fontScale, setFontScale] = useState(DESKTOP_FONT_SCALE_DEFAULT);
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [wallpaper, setWallpaper] = useState<string>();
   const [toast, setToast] = useState<ToastNotice>();
   const [neuraComposeRequest, setNeuraComposeRequest] = useState<{ id: string; targetWindowId: string; text: string }>();
   const [terminalDesktopId] = useState(() => crypto.randomUUID());
@@ -323,7 +327,9 @@ export function App() {
         const userId = payload.user?.id;
         if (userId) {
           const restored = desktopDeviceState(userId);
-          setFontScale(appearanceDeviceState(userId).fontScale);
+          const appearance = appearanceDeviceState(userId);
+          setFontScale(appearance.fontScale); setTheme(appearance.theme);
+          try { setWallpaper(validWallpaper(localStorage.getItem(wallpaperKey(userId)))); } catch { setWallpaper(undefined); }
           if (restored) {
             const allowedWindows = restored.windows;
             setWindows(allowedWindows);
@@ -356,8 +362,25 @@ export function App() {
 
   useEffect(() => {
     if (!persistenceUserId || session?.user?.id !== persistenceUserId) return;
-    writeDeviceState(persistenceUserId, "appearance", { fontScale } satisfies AppearanceDeviceState);
-  }, [fontScale, persistenceUserId, session?.user?.id]);
+    writeDeviceState(persistenceUserId, "appearance", { fontScale, theme } satisfies AppearanceDeviceState);
+  }, [fontScale, theme, persistenceUserId, session?.user?.id]);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    for (const target of popoutTargets.values()) {
+      if (!target.browserWindow.closed) target.browserWindow.document.documentElement.dataset.theme = theme;
+    }
+  }, [theme, popoutTargets]);
+
+  const changeWallpaper = (value?: string) => {
+    if (!persistenceUserId) throw new Error("Sign in to save your wallpaper.");
+    if (value && !validWallpaper(value)) throw new Error("Choose a PNG, JPEG, or WebP image under 2 MB.");
+    try {
+      if (value) localStorage.setItem(wallpaperKey(persistenceUserId), value);
+      else localStorage.removeItem(wallpaperKey(persistenceUserId));
+    } catch { throw new Error("Your browser could not save this wallpaper. Try a smaller image or allow local storage."); }
+    setWallpaper(value);
+  };
 
   useEffect(() => {
     const closeMenu = (event: MouseEvent) => {
@@ -695,6 +718,7 @@ export function App() {
   };
 
   return (
+    <AppearanceContext.Provider value={{ theme, setTheme, wallpaper, setWallpaper: changeWallpaper }}>
     <div
       className={`desktop${focusMode ? " has-maximized-window" : ""}${manipulatingWindow ? " is-window-manipulating" : ""}${dockMenu || touchDockOpen ? " is-dock-pinned" : ""}`}
       onPointerDownCapture={(event) => { if (!(event.target as HTMLElement).closest(".dock, .dock-touch-reveal, .dock-context-menu")) setTouchDockOpen(false); }}
@@ -702,9 +726,11 @@ export function App() {
     >
       {session?.authenticated && <UpdateNotice />}
       <picture className="desktop-wallpaper" aria-hidden="true">
+        {wallpaper ? <img src={wallpaper} alt="" draggable="false" /> : theme === "dark" ? <img src="/workspace/assets/wallpaper-dark.webp" alt="" fetchPriority="high" draggable="false" /> : <>
         <source media="(max-width: 760px)" srcSet="/workspace/assets/wallpaper-mobile.png" />
         <source media="(max-width: 1180px)" srcSet="/workspace/assets/wallpaper-tablet.png" />
         <img src="/workspace/assets/wallpaper.png" alt="" fetchPriority="high" draggable="false" />
+        </>}
       </picture>
       {focusMode && <button type="button" className="dock-touch-reveal" aria-label={touchDockOpen ? "Hide dock" : "Show dock"} aria-expanded={touchDockOpen} onClick={() => setTouchDockOpen((open) => !open)}>•••</button>}
       <a href="#desktop-canvas" className="skip-link">Skip to desktop</a>
@@ -779,6 +805,7 @@ export function App() {
           : toast.message}
       </div>}
     </div>
+    </AppearanceContext.Provider>
   );
 }
 

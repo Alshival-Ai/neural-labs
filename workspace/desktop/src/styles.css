@@ -169,18 +169,18 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, summary:focus-vis
 .window-titlebar {
   position: relative;
   overflow: hidden;
-  height: 2.7rem;
+  height: var(--window-titlebar-height, 32px);
   display: flex;
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid rgba(255, 255, 255, .12);
   border-radius: 18px 18px 0 0;
-  background: var(--ink);
+  background: var(--panel);
   cursor: move;
   user-select: none;
 }
 .window-titlebar::before { position: absolute; inset: 0 0 auto; height: 3px; content: ""; background: linear-gradient(90deg, var(--cyan), var(--accent), var(--pink), var(--coral), var(--amber)); }
-.window-identity { min-width: 0; display: flex; align-items: center; gap: .55rem; padding-left: .9rem; color: #f8f8fb; font-size: var(--desktop-font-subheading, 16px); font-weight: 680; }
+.window-identity { min-width: 0; display: flex; align-items: center; gap: .55rem; padding-left: .9rem; color: #f8f8fb; font-size: var(--desktop-font-control, 14px); font-weight: 680; }
 .window-identity strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .window-identity svg { width: .95rem; height: .95rem; flex: 0 0 auto; color: var(--cyan); }
 .window-controls { height: 100%; display: flex; flex: 0 0 auto; }
@@ -191,7 +191,7 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, summary:focus-vis
 .window-controls .window-close { border-radius: 0 17px 0 0; }
 .window-controls .window-close:hover { background: #b33a48; }
 .window-controls svg { width: .9rem; height: .9rem; }
-.window-content { height: calc(100% - 2.7rem); overflow: hidden; border-radius: 0 0 17px 17px; }
+.window-content { height: calc(100% - var(--window-titlebar-height, 32px)); overflow: hidden; border-radius: 0 0 17px 17px; }
 .app-loading { width: 100%; height: 100%; display: grid; place-content: center; justify-items: center; gap: .7rem; color: rgba(255, 255, 255, .58); background: radial-gradient(circle at 50% 40%, rgba(123, 77, 255, .16), transparent 16rem), #15161e; font-size: var(--desktop-font-subheading, 16px); }
 .app-loading::before { width: 1.5rem; height: 1.5rem; border: 2px solid rgba(255, 255, 255, .12); border-top-color: var(--cyan); border-right-color: var(--pink); border-radius: 50%; content: ""; animation: app-loading-spin .8s linear infinite; }
 @keyframes app-loading-spin { to { transform: rotate(1turn); } }
@@ -794,3 +794,5 @@ kbd { color: #87888f; font-family: inherit; font-size: var(--desktop-font-body, 
 @media (prefers-reduced-motion: reduce) {
   .desktop .dock, .desktop .shell-reveal-zone { transition: none; }
 }
+
+@media (pointer: coarse) { .desktop-window { --window-titlebar-height: 40px; } }

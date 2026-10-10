@@ -5,7 +5,7 @@ active user receives the **Settings** cog in the dock. The account menu is kept
 small and contains only the sign-out action.
 
 Members open Settings with **Personalization**, **Security**, **Model Provider**,
-and **Plugins**. Personalization controls device-local desktop font size, account
+and **Plugins**. Personalization controls per-user, device-local light/dark theme, custom wallpaper, desktop font size, account
 identity, and notification preferences. Security manages personal sign-in methods,
 passkeys, and verified phone numbers. Model Provider connects or pauses the personal
 ChatGPT account and configures private Alshival model/reasoning defaults. Plugins separates private,
@@ -186,3 +186,29 @@ and Twilio number. Open **Messaging settings** on that page for the designated
 workspace AI connection, messaging opt-ins, verification and test sends. The
 previous Connectors navigation entry redirects to Plugins.
 See [Email and SMS plugins](connectors.md) for provider setup and verification.
+
+## Desktop appearance
+
+Personalization offers Light and Dark themes. Dark uses a generated Neural Labs
+wallpaper; custom wallpapers take precedence in both themes. Upload a PNG, JPEG,
+or WebP up to 2 MB, or choose **Use Neural Labs wallpaper** to restore the theme's
+built-in background. Image decoding and browser storage failures leave the previous
+wallpaper intact and display an error. Theme, font size, and wallpaper are scoped
+to the signed-in user in browser storage; these preferences are local to the device.
+Pop-out windows follow theme changes. App title bars are 32px on desktop and 40px
+on touch devices so window controls remain usable.
+
+Native model pickers refresh every five minutes while visible and when the browser
+regains focus or connectivity. Refresh preserves the selected model and does not
+save a new default. Failed refreshes keep the last displayed list and report the
+failure. Subscription catalogs remain native, account-specific Codex catalogs;
+API-key accounts also retrieve their own OpenAI model inventory, filtered to GPT
+reasoning families suitable for agents. New inventory entries expose text input
+without inventing reasoning-level metadata. Existing native entries retain their
+reported capabilities. No workspace or shared credential is substituted for a
+personal connection. Native binaries remain pinned to reviewed releases.
+
+Theme colors apply to desktop chrome, Settings, Files and file dialogs, Alshival,
+Projects, Skills, Automations, Deployments, Terminal controls, and preview controls.
+Terminal output, embedded VS Code/miniPaint, and previewed documents retain their
+own content themes rather than recoloring user content.

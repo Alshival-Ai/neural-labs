@@ -36,6 +36,7 @@ export function openPopoutSurface(title: string, windowId: string): PopoutSurfac
     const document = browserWindow.document;
     document.documentElement.lang = globalThis.document.documentElement.lang || "en";
     document.documentElement.className = "popout-document";
+    document.documentElement.dataset.theme = globalThis.document.documentElement.dataset.theme || "light";
     document.head.replaceChildren();
     document.body.replaceChildren();
     document.body.className = "popout-body";

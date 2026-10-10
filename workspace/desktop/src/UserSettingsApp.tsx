@@ -1,3 +1,4 @@
+import { AppearanceControls } from "./appearance";
 import { CollaborationSettings } from "./CollaborationSettings";
 import { NotificationSettings, NotificationEmailSettings } from "./notifications";
 import {
@@ -259,6 +260,7 @@ function AccountSettingsPanel({ user, providers: initialProviders, csrfToken, in
       )}
 
       {!security && <>
+      <AppearanceControls />
       <section className="settings-card user-settings-card user-settings-appearance-card">
           <div className="user-settings-card__heading">
             <div><span>Appearance</span><h3>Font size</h3><p>Scale readable text across every desktop app on this device.</p></div>

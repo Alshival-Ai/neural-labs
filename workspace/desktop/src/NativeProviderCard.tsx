@@ -28,6 +28,8 @@ export function NativeProviderCard({ provider, connection, ensureConnection, onS
   const [connecting, setConnecting] = useState(false);
   const starting = useRef(false);
   const autoSelect = useRef(false), checking = useRef(false), loading = useRef(false);
+  const modelRef = useRef(model); modelRef.current = model;
+  const refreshModels = useRef<() => void>(() => {});
   const targetRef = useRef(connection); targetRef.current = connection || targetRef.current;
   const popup = useRef<Window | null>(null), openedUrl = useRef<string | undefined>(undefined);
   const name = provider === "codex" ? "OpenAI" : "Anthropic";
@@ -54,7 +56,7 @@ export function NativeProviderCard({ provider, connection, ensureConnection, onS
       if (targetRef.current?.id !== target.id) return;
       setCatalog(result);
       const saved = nativeSelection();
-      const preferred = [saved?.connection === target.id ? saved.model : "", preferredModel, result.defaultModel,
+      const preferred = [modelRef.current, saved?.connection === target.id ? saved.model : "", preferredModel, result.defaultModel,
         result.models.find(row => row.available)?.id].find(value => value && result.models.some(row => row.id === value && row.available)) || "";
       setModel(preferred); onModel?.(preferred);
       if (!preferred) { setNotice("No available models were returned. Try loading models again."); return; }
@@ -91,6 +93,21 @@ export function NativeProviderCard({ provider, connection, ensureConnection, onS
     const timer = window.setInterval(() => void check(connection), 2000);
     return () => window.clearInterval(timer);
   }, [pending, id, stage, catalog]);
+  refreshModels.current = () => {
+    if (!connection?.enabled || !status?.ready || busy || document.visibilityState === "hidden" || !navigator.onLine) return;
+    void loadModels(connection).catch(() => setNotice("Models could not be refreshed. Showing the last loaded list."));
+  };
+  useEffect(() => {
+    const refresh = () => refreshModels.current();
+    const timer = window.setInterval(refresh, 5 * 60_000);
+    window.addEventListener("focus", refresh);
+    window.addEventListener("online", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer); window.removeEventListener("focus", refresh);
+      window.removeEventListener("online", refresh); document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [id]);
   async function start() {
     starting.current = true; setBusy(true); setCode(""); setNotice(undefined); openedUrl.current = undefined;
     // Reserve the tab during the user's click; later navigation uses only the
@@ -144,6 +161,7 @@ export function NativeProviderCard({ provider, connection, ensureConnection, onS
     }}><option value="">Choose a model</option>{catalog?.models.map(row => <option key={row.id} value={row.id} disabled={!row.available}>{row.name}</option>)}</select></label>
       {autoActivate && !active && model && connection && <button className="settings-button" onClick={() => void onSelect({ connection: connection.id, model }, connection.generation).catch(() => setNotice("The model selection could not be saved. Try again."))}>Use for my chats</button>}
       {autoActivate && active && <button className="settings-button is-primary" onClick={() => window.dispatchEvent(new CustomEvent("neural-labs-open-chat"))}>Open Alshival</button>}
+      <small>Models update automatically while Settings is open.</small>
       <details><summary>Connection options</summary><button className="settings-button" onClick={() => connection && void loadModels(connection).catch(() => setNotice("Models could not be loaded. Try again."))}>Reload models</button>
         {canManage && <button className="settings-button" onClick={() => void start()}>Reconnect {name}</button>}</details>
     </div>}

@@ -169,6 +169,21 @@ describe("desktop admin navigation", () => {
     expect(await screen.findByText("ready")).toBeInTheDocument();
   });
 
+  it("restores account-scoped theme and wallpaper, then resets the wallpaper", async () => {
+    localStorage.setItem(deviceStateKey("user-id", "appearance"), JSON.stringify({ fontScale: 100, theme: "dark" }));
+    localStorage.setItem(deviceStateKey("user-id", "wallpaper"), "data:image/png;base64,YQ==");
+    const view = renderDesktop("user");
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("dark"));
+    expect(view.container.querySelector(".desktop-wallpaper img")).toHaveAttribute("src", "data:image/png;base64,YQ==");
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Use Neural Labs wallpaper" }));
+    expect(localStorage.getItem(deviceStateKey("user-id", "wallpaper"))).toBeNull();
+    expect(view.container.querySelector(".desktop-wallpaper img")).toHaveAttribute("src", "/workspace/assets/wallpaper-dark.webp");
+    fireEvent.click(screen.getByRole("button", { name: "Light" }));
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("light"));
+    expect(view.container.querySelector(".desktop-wallpaper img")).toHaveAttribute("src", "/workspace/assets/wallpaper.png");
+  });
+
   it("uses one browser-selected responsive wallpaper without speculative preloads", async () => {
     const view = renderDesktop("user");
     await waitForDesktop();
@@ -444,7 +459,7 @@ describe("desktop admin navigation", () => {
     expect(await screen.findByRole("button", { name: "Reset font size to 100%" })).toHaveTextContent("140%");
     fireEvent.click(screen.getByRole("button", { name: "Increase font size" }));
 
-    await waitFor(() => expect(JSON.parse(localStorage.getItem(deviceStateKey("user-id", "appearance")) ?? "{}")).toEqual({ fontScale: 150 }));
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(deviceStateKey("user-id", "appearance")) ?? "{}")).toEqual({ fontScale: 150, theme: "light" }));
     expect(view.container.querySelector<HTMLElement>(".desktop")?.style.getPropertyValue("--desktop-font-title")).toBe("30px");
   });
 

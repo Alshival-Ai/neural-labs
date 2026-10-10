@@ -156,7 +156,7 @@ function resolveAsset(pathname) {
 
 function assetCacheControl(filename) {
   if (/-[a-zA-Z0-9_-]{8,}\./.test(filename)) return "public, max-age=31536000, immutable";
-  if (/^wallpaper(?:-tablet|-mobile)?\.(?:png|webp)$/.test(filename)) {
+  if (/^wallpaper(?:-tablet|-mobile|-dark)?\.(?:png|webp)$/.test(filename)) {
     return "public, max-age=86400, stale-while-revalidate=604800";
   }
   return "public, max-age=3600, stale-while-revalidate=86400";
