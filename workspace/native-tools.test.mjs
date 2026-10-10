@@ -2,6 +2,21 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { NativeTools } from "./native/tools.mjs";
 
+test('shared project tools bind the actor and enforce read-only and revoked turns', async t => {
+  let invoke, authorized=true, calls=0;
+  const tools = new NativeTools({ origin:'http://127.0.0.1:8792', configuration:{},
+    createApplication: (...args) => { invoke=args[8]; return {app(){},async close(){}}; },
+    projectCall:async (actor,name,input) => { assert.equal(actor,'bound'); calls++; return {name,input}; },
+  });
+  t.after(()=>tools.close());
+  const session=await tools.mint({actor:'bound',policy:{sandbox:'read-only'},revalidate:async()=>{if(!authorized) throw Error('revoked');}});
+  await invoke('project_list',{});
+  await assert.rejects(invoke('project_create',{}),/policy/);
+  assert.equal(calls,1);
+  authorized=false; await assert.rejects(invoke('project_list',{}),/revoked/);
+  authorized=true;await session.release();await assert.rejects(invoke('project_list',{}),/ended/);
+});
+
 function fixture(t) {
   let authorized = true, closed = 0, dispatched = 0, transport, authorizeTool;
   const requests = [];

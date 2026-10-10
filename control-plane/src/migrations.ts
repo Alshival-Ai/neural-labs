@@ -772,4 +772,12 @@ export const migrations: Migration[] = [
       created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(session_id,event_id), UNIQUE(session_id,request_id)
     );`,
   },
+  {
+    version: 30,
+    sql: `CREATE TABLE project_tool_receipts (
+      actor_id uuid NOT NULL REFERENCES users(id), request_id uuid NOT NULL,
+      fingerprint text NOT NULL, result jsonb NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(actor_id,request_id)
+    );`,
+  },
 ];

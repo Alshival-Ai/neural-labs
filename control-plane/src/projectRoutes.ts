@@ -11,6 +11,8 @@ import { portalExchange } from "./managed.js";
 import { ProjectError, ProjectStore, internalAccess, type ProjectActor, createProjectItem, updateProjectItem, projectAction } from "./projects.js";
 import { ProjectGraph, edgeInput } from "./projectGraph.js";
 import { ProjectStatuses } from "./projectStatuses.js";
+import { ProjectTools } from "./projectTools.js";
+import { projectTools, projectToolSchemas, projectOutputSchemas, projectToolError } from "./projectToolContract.js";
 
 const hash = (token: string) => createHash("sha256").update(token).digest("hex");
 const scopesSchema = z.array(z.enum(["project:read", "project:write", "project:sync"])).min(1).max(3);
@@ -21,12 +23,13 @@ export async function authorizeProjectMember(database: Database, config: Control
   if (config.managed) {
     const identity = (await database.pool.query("SELECT subject FROM managed_identities WHERE user_id=$1", [user.id])).rows[0];
     if (!identity) throw new ProjectError(403, "member_inactive", "Managed membership is required.");
-    const result = z.object({ generation: z.number().int().positive(), members: z.array(z.object({ subject: z.string(), role: z.enum(["admin", "user"]), project_internal: z.boolean().default(false), project_plan: z.boolean().default(false) })) }).parse(
+    const result = z.object({ generation: z.number().int().positive(), members: z.array(z.object({ subject: z.string(), role: z.enum(["admin", "user"]), project_internal: z.boolean().default(false), project_plan: z.boolean().default(false), project_multiple_boards:z.boolean().default(true), project_default_board:z.string().uuid().nullable().default(null) })) }).parse(
       await portalExchange(config, external ? "project-members" : "project-ui-members", { subjects: [identity.subject] }));
     const member = result.members.find(entry => entry.subject === identity.subject);
     if (!member) throw new ProjectError(403, "member_inactive", "Managed membership has ended.");
     user.role = member.role;
-    return { ...user, authorizationGeneration: result.generation, projectInternal: member.project_internal, projectPlan: member.project_plan };
+    return { ...user, authorizationGeneration: result.generation, projectInternal: member.project_internal, projectPlan: member.project_plan,
+      projectMultipleBoards:member.project_multiple_boards, projectDefaultBoard:member.project_default_board };
   }
   return user;
 }
@@ -38,6 +41,7 @@ export function registerProjectRoutes(app: Express, database: Database, config: 
   const store = new ProjectStore(database.pool);
   const graph = new ProjectGraph(database.pool, store);
   const statuses = new ProjectStatuses(database.pool);
+  const tools = new ProjectTools(database, config);
   const wrap = (callback: (req: Request, res: Response) => Promise<void>): RequestHandler => async (req, res) => {
     try { await callback(req, res); }
     catch (error) {
@@ -100,6 +104,16 @@ export function registerProjectRoutes(app: Express, database: Database, config: 
     if (revision !== await store.revision()) throw new ProjectError(409, "snapshot_changed", "The graph changed. Read it again.");
     res.json({ revision, items, edges, statuses: input.after ? [] : await statuses.list(actor), next: items.length === 100 ? items.at(-1)!.id : null });
   }));
+  app.post("/internal/projects/tool", wrap(async (req, res) => {
+    const supplied = Buffer.from(req.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "");
+    const expected = Buffer.from(config.workspace.controlToken);
+    if (!supplied.length || supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
+      res.status(401).end(); return;
+    }
+    const input = z.object({ actorId: z.string().uuid(), name: z.string(), arguments: z.unknown() }).strict().parse(req.body);
+    const actor = await authorizeProjectMember(database, config, input.actorId, false);
+    res.json(await tools.call(actor, input.name, input.arguments));
+  }));
   app.get("/api/projects/boards", wrap(async (req, res) => {
     const actor = await authenticate(req, res, "project:read"); if (!actor) return;
     await store.list(actor, "", 1);
@@ -124,13 +138,13 @@ export function registerProjectRoutes(app: Express, database: Database, config: 
     const revision = await store.revision();
     const after = z.string().max(36).parse(req.query.after ?? "");
     const items = await store.list(actor, after);
-    const extras = after ? {} : { edges: await graph.list(actor, true), statuses: await statuses.list(actor),
+    const extras = after ? {} : { edges: await graph.list(actor, true, true), statuses: await statuses.list(actor),
         principals: config.managed ? (await database.pool.query(`SELECT u.id,m.subject FROM users u
           JOIN managed_identities m ON m.user_id=u.id
           WHERE m.issuer=$1 AND m.workspace=$2`,
           [config.managed.portalOrigin, config.managed.workspace])).rows : [] };
     if (revision !== await store.revision()) throw new ProjectError(409, "snapshot_changed", "The graph changed during the snapshot. Retry.");
-    res.json({ version: 2, capabilities: { project_boards: true }, revision, items, next: items.length === 100 ? items.at(-1)!.id : null, ...extras });
+    res.json({ version: 2, capabilities: { project_boards: true, shared_graph_v1: true }, revision, items, next: items.length === 100 ? items.at(-1)!.id : null, ...extras });
   }));
   app.post("/api/projects/edges", wrap(async (req, res) => {
     const actor = await authenticate(req, res, "project:write"); if (actor) res.status(201).json(await graph.create(actor, req.body));
@@ -184,22 +198,20 @@ export function registerProjectRoutes(app: Express, database: Database, config: 
         try { return { content: [{ type: "text" as const, text: JSON.stringify(await fn()) }] }; }
         catch (error) { return { isError: true, content: [{ type: "text" as const, text: error instanceof ProjectError ? error.message : "Project operation failed." }] }; }
       };
-      server.registerTool("project_list", { description: "List this environment's authorized project items. Follow the cursor until next is null.", inputSchema: z.object({ after: z.string().max(36).default("") }) }, args => result(async () => { const items = await store.list(actor, args.after); return { items, next: items.length === 100 ? items.at(-1)!.id : null }; }));
-      server.registerTool("project_get", { description: "Read a project item.", inputSchema: z.object({ id: z.string().uuid() }) }, args => result(() => store.get(actor, args.id)));
-      server.registerTool("project_edges", { description: "List authorized task dependencies and related links.", inputSchema: z.object({}) }, () => result(() => graph.list(actor)));
-      const write = async (operation: "create" | "update" | "action", id: string | null, data: unknown) => {
-        const writer = await authenticate(req, res, "project:write");
-        if (!writer) throw new ProjectError(403, "scope_required", "Write access required.");
-        return store.mutate(writer, operation, id, data);
-      };
-      server.registerTool("project_create", { description: "Create a task, note, resource, deliverable, ticket or comment.", inputSchema: createProjectItem }, args => result(() => write("create", null, args)));
-      server.registerTool("project_update", { description: "Update an item using its current revision and a unique request ID.", inputSchema: updateProjectItem.extend({ id: z.string().uuid() }) }, ({ id, ...args }) => result(() => write("update", id, args)));
-      server.registerTool("project_action", { description: "Accept reviewed work, request changes or reopen an item.", inputSchema: projectAction.extend({ id: z.string().uuid() }) }, ({ id, ...args }) => result(() => write("action", id, args)));
-      server.registerTool("project_link", { description: "Connect two tasks with a dependency or related link.", inputSchema: edgeInput }, args => result(async () => {
-        const writer = await authenticate(req, res, "project:write");
-        if (!writer) throw new ProjectError(403, "scope_required", "Write access required.");
-        return graph.create(writer, args);
-      }));
+      for (const tool of projectTools) {
+        server.registerTool(tool.name, { description: tool.description,
+          inputSchema: projectToolSchemas.get(tool.name)!, outputSchema: projectOutputSchemas.get(tool.name)!, annotations: { readOnlyHint: tool.readOnly } }, async input => {
+          try {
+            const current = await authenticate(req, res, tool.readOnly ? "project:read" : "project:write");
+            if (!current) throw new ProjectError(403, "scope_required", "Current workspace access is required.");
+            const value = await tools.call(current, tool.name, input);
+            return { content: [{ type: "text" as const, text: JSON.stringify(value) }], structuredContent: value };
+          } catch (error) {
+            const value = projectToolError(error instanceof ProjectError ? error.status : error instanceof z.ZodError ? 422 : 503);
+            return { isError: true, content: [{ type: "text" as const, text: JSON.stringify(value) }], structuredContent: value };
+          }
+        });
+      }
       return server;
     }, { legacy: "stateless", onerror: () => {} });
     await toNodeHandler(handler, { onerror: () => {} })(req, res, req.body);

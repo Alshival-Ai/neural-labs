@@ -2,12 +2,14 @@ import { randomBytes } from "node:crypto";
 
 const READ_TOOLS = new Set(["google_places_search", "google_place_details", "google_place_photo",
   "google_geocode_address", "google_reverse_geocode", "search_gif", "pexels_search_photos",
-  "read_project_graph", "pexels_search_videos", "get_automation_notification_context", "list_terminals", "read_terminal"]);
+  "read_project_graph", "project_list", "project_get", "project_edges", "project_boards", "project_members", "project_statuses", "project_comments",
+  "pexels_search_videos", "get_automation_notification_context", "list_terminals", "read_terminal"]);
 
 // One MCP application per live execution capability. Connector keys stay in
 // this trusted service; provider processes receive only a revocable turn token.
 export class NativeTools {
-  constructor({ origin, teamOrigin, createApplication, configuration, request = fetch, browser, projectRead, communications }) {
+  constructor({ origin, teamOrigin, createApplication, configuration, request = fetch, browser, projectRead, projectCall, communications }) {
+    this.projectCall = projectCall;
     this.communications = communications; this.projectRead = projectRead; this.browser = browser; this.origin = new URL(origin); this.createApplication = createApplication;
     this.teamOrigin = teamOrigin; this.configuration = configuration; this.request = request; this.sessions = new Map();
   }
@@ -56,6 +58,11 @@ export class NativeTools {
       if (grant.policy?.sandbox === 'read-only' && input.action === 'send') throw new Error('Read-only execution cannot send messages');
       const result = await this.communications(grant.actor, input);
       await grant.revalidate(); return result;
+    } : undefined, this.projectCall ? async (name, input) => {
+      await authorizeTool(name, input);
+      const result = await this.projectCall(grant.actor, name, input);
+      await grant.revalidate(); if (!active) throw new Error('Execution ended');
+      return result;
     } : undefined);
     const entry = { application, grant, revoke: () => { active = false; } }; this.sessions.set(token, entry);
     const url = new URL("/mcp", this.origin).href, headers = { Authorization: `Bearer ${token}` };

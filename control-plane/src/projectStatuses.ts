@@ -1,6 +1,6 @@
 import { preserveSourceClock } from "./projectSyncClock.js";
 import { randomUUID } from "node:crypto";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { z } from "zod";
 import { internalAccess, ProjectError, ProjectStore, type ProjectActor } from "./projects.js";
 
@@ -18,14 +18,14 @@ export class ProjectStatuses {
       WHERE s.board_id IS NULL OR ($1 OR (b.data->>'archived'<>'true' AND ($2 OR b.data->>'visibility'='shared')))
       ORDER BY s.position,s.id`, [actor?.projectSync === true, actor ? internalAccess(actor) : true])).rows;
   }
-  async save(actor: ProjectActor, input: unknown) {
+  async save(actor: ProjectActor, input: unknown, transaction?: PoolClient) {
     if (!internalAccess(actor) || !(actor.projectPlan ?? actor.role === "admin"))
       throw new ProjectError(403, "board_manager_required", "Workspace board management is required.");
     const parsed = z.object({ id: z.string().uuid().optional(), revision: z.number().int().nonnegative(), data: statusFields, sync_edited_at: z.iso.datetime({ offset: true }).optional() }).strict().parse(input);
     const data = parsed.data;
-    const client = await this.pool.connect();
+    const client = transaction ?? await this.pool.connect();
     try {
-      await client.query("BEGIN");
+      if (!transaction) await client.query("BEGIN");
       await preserveSourceClock(client, actor, parsed.sync_edited_at);
       const storage = (await client.query("SELECT state FROM project_storage WHERE singleton FOR UPDATE")).rows[0];
       if (storage.state !== "active") throw new ProjectError(423, "project_paused", "The board is paused.");
@@ -60,8 +60,8 @@ export class ProjectStatuses {
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(id) DO UPDATE SET
         name=$2,color=$3,position=$6,is_default=$7,retired=$8,replacement_id=$9,board_id=$10,revision=project_statuses.revision+1 RETURNING *`, values);
       await client.query("UPDATE project_storage SET revision=revision+1");
-      await client.query("COMMIT"); return result.rows[0];
-    } catch (error) { await client.query("ROLLBACK"); throw error; }
-    finally { client.release(); }
+      if (!transaction) await client.query("COMMIT"); return result.rows[0];
+    } catch (error) { if (!transaction) await client.query("ROLLBACK"); throw error; }
+    finally { if (!transaction) client.release(); }
   }
 }

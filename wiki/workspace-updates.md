@@ -165,3 +165,10 @@ The control plane and workspace runtime must come from the same published commit
 Active voice calls count as runtime activity and defer a managed upgrade. A source
 push does not update an installed workspace; apply the normal managed update
 procedure when that workspace's operator requests it.
+
+Migration 30 adds idempotency receipts for the shared project-tool contract.
+It is additive: existing project items, relationships, revision clocks, histories,
+skills, automations, and provider credentials remain in place. Built-in and
+external agents use the same [project tools](project-tools.md). Synchronization
+peers negotiate `shared_graph_v1` before exchanging resource relationships and
+note replies; older peers retain their task-only graph projection.

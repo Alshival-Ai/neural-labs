@@ -1,0 +1,1711 @@
+{
+  "version": "1.0.0",
+  "tools": [
+    {
+      "name": "project_list",
+      "description": "List visible board records, ordered by opaque ID. Follow next until null.",
+      "readOnly": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Select an authorized workspace for a multi-workspace connection; omit for an instance-local connection."
+          },
+          "after": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "kind": {
+            "enum": [
+              "task",
+              "deliverable",
+              "note",
+              "resource",
+              "comment",
+              "board"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "task",
+                    "note",
+                    "resource",
+                    "deliverable",
+                    "comment",
+                    "board"
+                  ]
+                },
+                "revision": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  ]
+                },
+                "data": {
+                  "type": "object"
+                },
+                "created_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "updated_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "revision",
+                "data"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "project_get",
+      "description": "Read a visible record and its current revision.",
+      "readOnly": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Select an authorized workspace for a multi-workspace connection; omit for an instance-local connection."
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "task",
+              "note",
+              "resource",
+              "deliverable",
+              "comment",
+              "board"
+            ]
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "string",
+                "minLength": 1
+              }
+            ]
+          },
+          "data": {
+            "type": "object"
+          },
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "revision",
+          "data"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "project_create",
+      "description": "Create a task, deliverable, note, resource, comment or permitted board. Comments use parent_id; reuse the request UUID on retry.",
+      "readOnly": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Select an authorized workspace for a multi-workspace connection; omit for an instance-local connection."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "enum": [
+              "task",
+              "deliverable",
+              "note",
+              "resource",
+              "comment",
+              "board"
+            ]
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "body": {
+                "type": "string",
+                "maxLength": 3000
+              },
+              "acceptance": {
+                "type": "string",
+                "maxLength": 4000
+              },
+              "state": {
+                "enum": [
+                  "todo",
+                  "doing",
+                  "waiting",
+                  "review",
+                  "done"
+                ]
+              },
+              "priority": {
+                "enum": [
+                  "low",
+                  "normal",
+                  "high",
+                  "urgent"
+                ]
+              },
+              "visibility": {
+                "enum": [
+                  "shared",
+                  "internal"
+                ]
+              },
+              "assignee": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "reviewer": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "starts_on": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "due_on": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "parent_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "board_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "status_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "color": {
+                "enum": [
+                  "yellow",
+                  "blue",
+                  "pink",
+                  "green",
+                  "orange",
+                  "purple",
+                  "teal",
+                  "gray"
+                ]
+              },
+              "archived": {
+                "type": "boolean"
+              },
+              "deleted": {
+                "type": "boolean"
+              },
+              "checklist": {
+                "type": "array",
+                "maxItems": 100,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "text": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 500
+                    },
+                    "done": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "text",
+                    "done"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "resource": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "website",
+                      "server",
+                      "database",
+                      "api",
+                      "repository",
+                      "domain",
+                      "storage",
+                      "other"
+                    ]
+                  },
+                  "status": {
+                    "enum": [
+                      "planned",
+                      "active",
+                      "retired"
+                    ]
+                  },
+                  "provider": {
+                    "type": "string",
+                    "maxLength": 120
+                  },
+                  "environment": {
+                    "type": "string",
+                    "maxLength": 80
+                  },
+                  "public_url": {
+                    "type": "string",
+                    "maxLength": 2048
+                  },
+                  "external_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 200
+                  },
+                  "sticker": {
+                    "enum": [
+                      "auto",
+                      "website",
+                      "server",
+                      "database",
+                      "api",
+                      "repository",
+                      "domain",
+                      "storage",
+                      "other"
+                    ]
+                  },
+                  "tags": {
+                    "type": "array",
+                    "maxItems": 12,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 40
+                    }
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "required": [
+          "idempotency_key",
+          "kind",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "task",
+              "note",
+              "resource",
+              "deliverable",
+              "comment",
+              "board"
+            ]
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "string",
+                "minLength": 1
+              }
+            ]
+          },
+          "data": {
+            "type": "object"
+          },
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "revision",
+          "data"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "project_update",
+      "description": "Update only supplied fields at the observed revision; assignment and status changes use data. Retry with the same request UUID.",
+      "readOnly": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Select an authorized workspace for a multi-workspace connection; omit for an instance-local connection."
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "idempotency_key": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              }
+            ]
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "body": {
+                "type": "string",
+                "maxLength": 3000
+              },
+              "acceptance": {
+                "type": "string",
+                "maxLength": 4000
+              },
+              "state": {
+                "enum": [
+                  "todo",
+                  "doing",
+                  "waiting",
+                  "review",
+                  "done"
+                ]
+              },
+              "priority": {
+                "enum": [
+                  "low",
+                  "normal",
+                  "high",
+                  "urgent"
+                ]
+              },
+              "visibility": {
+                "enum": [
+                  "shared",
+                  "internal"
+                ]
+              },
+              "assignee": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "reviewer": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "starts_on": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "due_on": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "parent_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "board_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "status_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "color": {
+                "enum": [
+                  "yellow",
+                  "blue",
+                  "pink",
+                  "green",
+                  "orange",
+                  "purple",
+                  "teal",
+                  "gray"
+                ]
+              },
+              "archived": {
+                "type": "boolean"
+              },
+              "deleted": {
+                "type": "boolean"
+              },
+              "checklist": {
+                "type": "array",
+                "maxItems": 100,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "text": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 500
+                    },
+                    "done": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "text",
+                    "done"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "resource": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "website",
+                      "server",
+                      "database",
+                      "api",
+                      "repository",
+                      "domain",
+                      "storage",
+                      "other"
+                    ]
+                  },
+                  "status": {
+                    "enum": [
+                      "planned",
+                      "active",
+                      "retired"
+                    ]
+                  },
+                  "provider": {
+                    "type": "string",
+                    "maxLength": 120
+                  },
+                  "environment": {
+                    "type": "string",
+                    "maxLength": 80
+                  },
+                  "public_url": {
+                    "type": "string",
+                    "maxLength": 2048
+                  },
+                  "external_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 200
+                  },
+                  "sticker": {
+                    "enum": [
+                      "auto",
+                      "website",
+                      "server",
+                      "database",
+                      "api",
+                      "repository",
+                      "domain",
+                      "storage",
+                      "other"
+                    ]
+                  },
+                  "tags": {
+                    "type": "array",
+                    "maxItems": 12,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 40
+                    }
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "required": [
+          "id",
+          "idempotency_key",
+          "revision",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "task",
+              "note",
+              "resource",
+              "deliverable",
+              "comment",
+              "board"
+            ]
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "string",
+                "minLength": 1
+              }
+            ]
+          },
+          "data": {
+            "type": "object"
+          },
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "revision",
+          "data"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "project_action",
+      "description": "Approve reviewed work, request changes, or reopen it. Current permissions and separate-reviewer checks apply.",
+      "readOnly": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Select an authorized workspace for a multi-workspace connection; omit for an instance-local connection."
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "idempotency_key": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              }
+            ]
+          },
+          "action": {
+            "enum": [
+              "approve",
+              "changes",
+              "reopen"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "idempotency_key",
+          "revision",
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "task",
+              "note",
+              "resource",
+              "deliverable",
+              "comment",
+              "board"
+            ]
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "string",
+                "minLength": 1
+              }
+            ]
+          },
+          "data": {
+            "type": "object"
+          },
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "revision",
+          "data"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "project_boards",
+      "description": "List the available project boards and board policy.",
+      "readOnly": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Select an authorized workspace for a multi-workspace connection; omit for an instance-local connection."
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "task",
+                    "note",
+                    "resource",
+                    "deliverable",
+                    "comment",
+                    "board"
+                  ]
+                },
+                "revision": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  ]
+                },
+                "data": {
+                  "type": "object"
+                },
+                "created_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "updated_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "revision",
+                "data"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "multiple_boards": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "multiple_boards"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "project_members",
+      "description": "List eligible task assignees and reviewers.",
+      "readOnly": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Select an authorized workspace for a multi-workspace connection; omit for an instance-local connection."
+          },
+          "after": {
+            "type": "string",
+            "maxLength": 2048
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "project_statuses",
+      "description": "Read board statuses and current configuration revision.",
+      "readOnly": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Select an authorized workspace for a multi-workspace connection; omit for an instance-local connection."
+          },
+          "board_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Omit to use the connected workspace default board."
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "statuses": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "category": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "integer"
+                },
+                "is_default": {
+                  "type": "boolean"
+                },
+                "retired": {
+                  "type": "boolean"
+                },
+                "legacy_state": {
+                  "type": "string"
+                },
+                "revision": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "category",
+                "color",
+                "position",
+                "is_default",
+                "retired",
+                "legacy_state",
+                "revision"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "revision": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "statuses",
+          "revision"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "project_status_write",
+      "description": "Create or edit a status, reorder statuses, set a default, or retire a status with a replacement.",
+      "readOnly": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Select an authorized workspace for a multi-workspace connection; omit for an instance-local connection."
+          },
+          "operation": {
+            "enum": [
+              "create",
+              "update",
+              "reorder",
+              "default",
+              "retire"
+            ]
+          },
+          "idempotency_key": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Opaque revision from project_statuses."
+          },
+          "board_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Omit to use the connected workspace default board."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
+          },
+          "color": {
+            "enum": [
+              "yellow",
+              "blue",
+              "pink",
+              "green",
+              "orange",
+              "purple",
+              "teal",
+              "gray"
+            ]
+          },
+          "category": {
+            "enum": [
+              "todo",
+              "doing",
+              "done"
+            ]
+          },
+          "order": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "replacement_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "operation",
+          "idempotency_key",
+          "revision"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "statuses": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "category": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "integer"
+                },
+                "is_default": {
+                  "type": "boolean"
+                },
+                "retired": {
+                  "type": "boolean"
+                },
+                "legacy_state": {
+                  "type": "string"
+                },
+                "revision": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "category",
+                "color",
+                "position",
+                "is_default",
+                "retired",
+                "legacy_state",
+                "revision"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "revision": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "statuses",
+          "revision"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "project_comments",
+      "description": "Read visible comments/replies belonging to a task or note.",
+      "readOnly": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Select an authorized workspace for a multi-workspace connection; omit for an instance-local connection."
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "after": {
+            "type": "string",
+            "maxLength": 2048
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "task",
+                    "note",
+                    "resource",
+                    "deliverable",
+                    "comment",
+                    "board"
+                  ]
+                },
+                "revision": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  ]
+                },
+                "data": {
+                  "type": "object"
+                },
+                "created_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "updated_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "revision",
+                "data"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "project_edges",
+      "description": "Read relationships visible at both endpoints. Dependencies connect tasks; related links connect tasks, notes, and resources.",
+      "readOnly": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Select an authorized workspace for a multi-workspace connection; omit for an instance-local connection."
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "edges": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "source_id": {
+                  "type": "string"
+                },
+                "target_id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "depends_on",
+                    "related"
+                  ]
+                },
+                "revision": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  ]
+                },
+                "deleted": {
+                  "type": "boolean"
+                },
+                "created_at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "source_id",
+                "target_id",
+                "kind",
+                "revision",
+                "deleted",
+                "created_at"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "edges"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "project_link",
+      "description": "Create or restore a relationship. source depends_on target; related links are undirected. Read the graph first; expected_revision is zero for a new link.",
+      "readOnly": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Select an authorized workspace for a multi-workspace connection; omit for an instance-local connection."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "source_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "target_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "enum": [
+              "depends_on",
+              "related"
+            ]
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "idempotency_key",
+          "source_id",
+          "target_id",
+          "kind",
+          "expected_revision"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "target_id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "depends_on",
+              "related"
+            ]
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "string",
+                "minLength": 1
+              }
+            ]
+          },
+          "deleted": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source_id",
+          "target_id",
+          "kind",
+          "revision",
+          "deleted",
+          "created_at"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "project_unlink",
+      "description": "Remove a relationship at its observed revision, retaining recovery and synchronization history.",
+      "readOnly": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Select an authorized workspace for a multi-workspace connection; omit for an instance-local connection."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "idempotency_key",
+          "revision"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "target_id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "depends_on",
+              "related"
+            ]
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "string",
+                "minLength": 1
+              }
+            ]
+          },
+          "deleted": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source_id",
+          "target_id",
+          "kind",
+          "revision",
+          "deleted",
+          "created_at"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "errorSchema": {
+    "type": "object",
+    "properties": {
+      "error": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "enum": [
+              "unauthorized",
+              "forbidden",
+              "not_found",
+              "conflict",
+              "invalid_arguments",
+              "paused",
+              "unavailable"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "status"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "error"
+    ],
+    "additionalProperties": false
+  }
+}

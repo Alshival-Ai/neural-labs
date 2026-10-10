@@ -32,6 +32,7 @@
 - [Authentication](authentication.md)
 - [Sharing and privacy](sharing-and-privacy.md)
 - [Provider tools](workspace-provider-mcp.md)
+- [Shared project tools](project-tools.md)
 - [Backup and restore](backup-restore.md)
 - [Runtime upgrades](openclaw-upgrades.md)
 - [Admin update settings and host worker](workspace-updates.md)

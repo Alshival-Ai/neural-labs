@@ -53,7 +53,7 @@ for (const [command, expected] of [[CODEX_APP_SERVER, `codex-cli ${release.codex
 async function control(endpoint, body, timeout = 5000) {
   const response = await fetch(new URL(endpoint, controlOrigin), { method: "POST", redirect: "error",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeout) });
-  if (!response.ok) throw new Error("Workspace authorization is unavailable"); return response.json();
+  if (!response.ok) throw Object.assign(new Error("Workspace authorization is unavailable"), {status:response.status}); return response.json();
 }
 const resolveActor = async actorId => (await control("/internal/terminal-actor", { actorId })).actor;
 const terminals = new WorkspaceTerminalManager({ workspaceRoot,
@@ -65,7 +65,8 @@ await providers.start();
 const tools = new NativeTools({ origin: `http://127.0.0.1:${toolsPort}`, teamOrigin: controlOrigin,
   createApplication: createProviderApplication, configuration: () => providers.snapshot(),
   communications: (actor, input) => control("/internal/connectors/tool", { actor, ...input }),
-  projectRead: (actorId, input) => control("/internal/projects/read", { ...input, actorId }) });
+  projectRead: (actorId, input) => control("/internal/projects/read", { ...input, actorId }),
+  projectCall: (actorId, name, input) => control("/internal/projects/tool", { actorId, name, arguments: input }) });
 const skills = new NativeSkills({ root: "/run/neural-labs/skills", manager: createSkillsManager({
   personalRoot: path.join(path.dirname(workspaceRoot), ".agents", "skills"), teamRoot: path.join(workspaceRoot, "skills"),
   libraryRoots: ["/usr/local/share/neural-labs/skills", path.join(root, "installed-skills")],

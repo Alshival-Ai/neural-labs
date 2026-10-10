@@ -102,3 +102,5 @@ API-key text-account decisions were superseded by 0028 and 0032; 0033's Septembe
 - [ADR 0046: Native automation completion](adr/0046-native-automation-completion.md)
 
 - [ADR 0048: Conversation-bound live voice](adr/0048-delegated-live-voice.md)
+
+- [ADR 0050: Shared project tools](adr/0050-shared-project-tools.md)

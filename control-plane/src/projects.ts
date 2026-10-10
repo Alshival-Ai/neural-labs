@@ -58,7 +58,8 @@ export const projectAction = z.object({
   idempotency_key: z.string().uuid(), revision: z.number().int().positive(),
   action: z.enum(["approve", "changes", "reopen"]),
 }).strict();
-export type ProjectActor = UserRecord & { projectInternal?: boolean; projectPlan?: boolean; projectSync?: boolean };
+export type ProjectActor = UserRecord & { projectInternal?: boolean; projectPlan?: boolean; projectSync?: boolean;
+  projectMultipleBoards?: boolean; projectDefaultBoard?: string | null };
 export const internalAccess = (actor: ProjectActor) => actor.projectInternal ?? actor.role === "admin";
 export type ProjectItem = { id: string; kind: string; revision: number; data: z.infer<typeof projectFields>; author_id: string; created_at: string; updated_at: string };
 function requireActive(actor: ProjectActor) {
@@ -126,12 +127,12 @@ export class ProjectStore {
   async revision(): Promise<string> {
     return String((await this.pool.query("SELECT revision FROM project_storage WHERE singleton")).rows[0].revision);
   }
-  async mutate(actor: ProjectActor, operation: "create" | "update" | "action", id: string | null, input: unknown): Promise<ProjectItem> {
+  async mutate(actor: ProjectActor, operation: "create" | "update" | "action", id: string | null, input: unknown, transaction?: PoolClient): Promise<ProjectItem> {
     requireActive(actor);
     const parsed = operation === "create" ? createProjectItem.parse(input) : operation === "update" ? updateProjectItem.parse(input) : projectAction.parse(input);
-    const client = await this.pool.connect();
+    const client = transaction ?? await this.pool.connect();
     try {
-      await client.query("BEGIN");
+      if (!transaction) await client.query("BEGIN");
       const storage = (await client.query("SELECT * FROM project_storage WHERE singleton FOR UPDATE")).rows[0];
       if (storage.state !== "active") throw new ProjectError(423, "project_paused", "Project changes are paused for migration.");
       await preserveSourceClock(client, actor, "sync_edited_at" in parsed ? parsed.sync_edited_at : undefined);
@@ -140,7 +141,7 @@ export class ProjectStore {
       if (prior) {
         if (prior.fingerprint !== fingerprint) throw new ProjectError(409, "idempotency_conflict", "This request identifier was already used.");
         const current = await this.get(actor, prior.item_id, client);
-        await client.query("COMMIT"); return current;
+        if (!transaction) await client.query("COMMIT"); return current;
       }
       const old: ProjectItem | undefined = operation === "create" ? undefined : (await client.query("SELECT * FROM project_items WHERE id=$1", [id])).rows[0];
       if (operation !== "create") { readable(actor, old); await this.get(actor, id!, client); }
@@ -314,8 +315,8 @@ export class ProjectStore {
       await client.query(`INSERT INTO project_requests(actor_id,request_id,fingerprint,item_id) VALUES($1,$2,$3,$4)`, [actor.id, parsed.idempotency_key, fingerprint, itemId]);
       await client.query(`INSERT INTO project_events(item_id,actor_id,operation) VALUES($1,$2,$3)`, [itemId, actor.id, "action" in parsed ? parsed.action : operation]);
       await client.query("UPDATE project_storage SET revision=revision+1 WHERE singleton");
-      await client.query("COMMIT"); return projectProjection(actor, result.rows[0]);
-    } catch (error) { await client.query("ROLLBACK"); throw error; }
-    finally { client.release(); }
+      if (!transaction) await client.query("COMMIT"); return projectProjection(actor, result.rows[0]);
+    } catch (error) { if (!transaction) await client.query("ROLLBACK"); throw error; }
+    finally { if (!transaction) client.release(); }
   }
 }

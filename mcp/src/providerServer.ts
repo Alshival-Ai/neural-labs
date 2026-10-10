@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { projectTools, projectToolSchemas, projectOutputSchemas, projectToolError } from "./projectToolContract.js";
 import { registerDeploymentTools, type DeploymentAdapter } from './deploymentTools.js';
 import { registerBrowserTools, type BrowserAdapter } from "./browserTools.js";
 import { registerTerminalTools, TERMINAL_TOOLS } from "./terminalTools.js";
@@ -45,6 +46,7 @@ export function createProviderApplication(
   deployments?: DeploymentAdapter,
   projectRead?: (input: { after?: string | undefined }) => Promise<unknown>,
   communications?: (input: { action: "status" | "history" | "send"; input?: unknown }) => Promise<unknown>,
+  projectCall?: (name: string, input: unknown) => Promise<Record<string, unknown>>,
 ): ProviderApplication {
   const app = createMcpExpressApp({
     host: "127.0.0.1",
@@ -78,6 +80,7 @@ export function createProviderApplication(
         ...(browser ? ["browser"] : []),
         ...(deployments ? ["deployments"] : []),
         ...(projectRead ? ["read_project_graph"] : []),
+        ...(projectCall ? projectTools.map(tool => tool.name) : []),
         ...(communications ? ["workspace_messages"] : []),
         ...(googleConfigured ? GOOGLE_TOOLS : []),
         ...(klipyConfigured ? KLIPY_TOOLS : []),
@@ -111,6 +114,18 @@ export function createProviderApplication(
         }) as McpServer["registerTool"];
       }
       registerGoogleTools(server, config, fetchFn);
+      if (projectCall) for (const tool of projectTools) {
+        server.registerTool(tool.name, { description: tool.description,
+          inputSchema: projectToolSchemas.get(tool.name)!, outputSchema: projectOutputSchemas.get(tool.name)!, annotations: { readOnlyHint: tool.readOnly } }, async input => {
+          try {
+            const value = await projectCall(tool.name, input);
+            return { content: [{ type: "text" as const, text: JSON.stringify(value) }], structuredContent: value };
+          } catch (error) {
+            const value = projectToolError(Number((error as {status?:number})?.status ?? 503));
+            return { isError:true, content:[{ type:'text' as const, text:JSON.stringify(value) }], structuredContent:value };
+          }
+        });
+      }
       registerKlipyTools(server, config, fetchFn);
       registerPexelsTools(server, config, fetchFn);
       registerSmsNotificationTool(server, config, fetchFn);

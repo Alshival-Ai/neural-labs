@@ -24,6 +24,8 @@ RUN npm ci
 COPY mcp/tsconfig.json mcp/tsconfig.build.json ./
 COPY mcp/src ./src
 COPY mcp/test ./test
+COPY contracts/project-tools.v1.json /contracts/project-tools.v1.json
+COPY control-plane/src/project-tools.v1.json /control-plane/src/project-tools.v1.json
 RUN npm run validate \
     && npm prune --omit=dev
 

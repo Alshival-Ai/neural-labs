@@ -54,11 +54,11 @@ export function registerProjectSyncBridge(app: Express, database: Database, conf
       if (input.method === "GET" && matched) {
         const revision = await store.revision(), after = matched[1] ?? "";
         const items = await store.list(actor, after);
-        const extras = after ? {} : { edges: await graph.list(actor, true), statuses: await statuses.list(actor),
+        const extras = after ? {} : { edges: await graph.list(actor, true, true), statuses: await statuses.list(actor),
           principals: [...(await database.pool.query(`SELECT user_id AS id,subject FROM managed_identities WHERE issuer=$1 AND workspace=$2`,
             [managed.portalOrigin, managed.workspace])).rows, { id, subject: null, system: true }] };
         if (revision !== await store.revision()) throw new ProjectError(409, "snapshot_changed", "Retry the graph snapshot.");
-        res.json({ version: 2, capabilities: { project_boards: true, automatic_sync: true, source_edit_clocks: true },
+        res.json({ version: 2, capabilities: { project_boards: true, automatic_sync: true, source_edit_clocks: true, shared_graph_v1: true },
           revision, items, next: items.length === 100 ? items.at(-1)!.id : null, ...extras }); return;
       }
       const fields = (input.data as { data?: { assignee?: string; reviewer?: string } } | null)?.data;
