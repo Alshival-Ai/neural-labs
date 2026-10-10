@@ -14,6 +14,7 @@ import { Notifications } from "./notifications.js";
 import { registerNotificationRoutes } from "./notificationRoutes.js";
 import { ProviderPluginService, providerIdSchema, providerSettingsSchema, providerRuntimeReportSchema, providerCheckSchema } from "./providerPlugins.js";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { rateLimit } from "express-rate-limit";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -360,6 +361,25 @@ export function createApplication(input: {
   // Host Nginx reaches the container through Docker's private bridge gateway.
   // Trust only loopback/private proxy hops so X-Forwarded-Proto reflects TLS.
   app.set("trust proxy", "loopback, linklocal, uniquelocal");
+  // Accept only the immediate private ingress hop. A private client must not
+  // extend the trusted chain with a forged X-Forwarded-For address.
+  const trustedIngress = app.get("trust proxy fn") as (address: string, hop: number) => boolean;
+  app.set("trust proxy", (address: string, hop: number) => hop === 0 && trustedIngress(address, hop));
+  // Coarse per-process flood protection runs before parsers and database work.
+  // Internal polling has a separate budget; existing actor/action limits remain.
+  app.use("/internal", rateLimit({ windowMs: 60_000, limit: 6000,
+    standardHeaders: "draft-8", legacyHeaders: false,
+    message: { error: { code: "rate_limited", message: "Too many internal requests. Try again shortly." } },
+  }));
+  app.use(rateLimit({ windowMs: 60_000, limit: 1200,
+    standardHeaders: "draft-8", legacyHeaders: false,
+    skip: request => request.path.startsWith("/internal/") || request.path.startsWith("/control-assets/"),
+    message: { error: { code: "rate_limited", message: "Too many requests. Try again shortly." } },
+  }));
+  app.use(["/api/auth", "/auth", "/setup"], rateLimit({ windowMs: 60_000, limit: 120,
+    standardHeaders: "draft-8", legacyHeaders: false,
+    message: { error: { code: "rate_limited", message: "Too many authentication requests. Try again shortly." } },
+  }));
   app.use(express.urlencoded({ extended: false, limit: "64kb" }));
   // Admit and count work before the asynchronous gate lookup so a cutover
   // cannot miss a request already waiting on PostgreSQL. Settings/auth remain

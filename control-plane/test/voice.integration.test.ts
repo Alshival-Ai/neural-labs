@@ -44,6 +44,13 @@ suite('voice session authority and delegation', () => {
   afterEach(async()=>{await database.close();await admin.query(`DROP SCHEMA ${schema} CASCADE`);await admin.end();});
   const start = () => request(app).post('/api/voice/sessions').set('x-csrf-token','fixture').send({requestId:sessionId,offer:'v=0',conversation:'fixture-chat',selection:{connection,model:'fixture'}});
   const callback = (body: Record<string,unknown>) => request(app).post('/internal/voice/callback').set('authorization','Bearer fixture-control-token-at-least-32-characters').send({id:sessionId,...body});
+  it('limits new sessions per actor without blocking heartbeats or ending', async () => {
+    await start().expect(201);
+    for (let i = 0; i < 5; i++) await start().expect(403);
+    await start().expect(429);
+    await request(app).post(`/api/voice/sessions/${sessionId}/heartbeat`).set('x-csrf-token','fixture').send({}).expect(200);
+    await request(app).post(`/api/voice/sessions/${sessionId}/end`).set('x-csrf-token','fixture').send({}).expect(200);
+  });
   it('delegates a transcript exactly once and reads the existing agent result',async()=>{
     await start().expect(201);
     const requestId=randomUUID(), body={operation:'request',requestId,event:'audio-1',body:'Create a task'};

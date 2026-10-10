@@ -1,3 +1,5 @@
+import { workspaceApiUrl } from "./attachmentUrls";
+
 export type WorkspaceEntry = {
   name: string;
   path: string;
@@ -53,7 +55,7 @@ export function workspaceFileCanPreview(name: string): boolean {
 export async function requestJson<T>(url: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
-  const response = await fetch(url, { ...init, headers, credentials: "same-origin" });
+  const response = await fetch(workspaceApiUrl(url), { ...init, headers, credentials: "same-origin", redirect: "error" });
   if (!response.ok) {
     const fallback = `File operation failed with HTTP ${response.status}`;
     let message = fallback;

@@ -1,3 +1,4 @@
+import { attachmentSourceUrl, attachmentCreditUrl } from "./attachmentUrls";
 import { createPortal } from "react-dom";
 import { MoreHorizontal, Paperclip } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -19,11 +20,7 @@ const messageFor = (error: unknown) => error instanceof Error ? error.message : 
 function sourceUrl(item: ChatAttachment): string | undefined {
   if (item.path) return workspaceContentUrl(item.path);
   if (!("url" in item) || !item.url) return undefined;
-  if (/^(data:|blob:)/i.test(item.url)) return item.url;
-  let url: URL;
-  try { url = new URL(item.url, window.location.origin); } catch { return undefined; }
-  if (url.origin === window.location.origin && (url.pathname.startsWith(mediaPrefix) || url.pathname.startsWith(artifactPrefix) || url.pathname === "/workspace/api/files/content" || url.pathname === "/workspace/api/files/download")) return url.pathname + url.search;
-  return undefined;
+  return attachmentSourceUrl(item.url);
 }
 function isImage(item: ChatAttachment) { return item.type?.startsWith("image/") || /\.(avif|bmp|gif|jpe?g|png|svg|webp)$/i.test(item.name); }
 function isVideo(item: ChatAttachment) {
@@ -51,7 +48,9 @@ function AttachmentVideo({ url, name, onError }: { url: string; name: string; on
     }} />;
 }
 function clickDownload(url: string, name: string) {
-  const link = document.createElement("a"); link.href = url; link.download = name;
+  const safeUrl = attachmentSourceUrl(url);
+  if (!safeUrl) throw new Error("Invalid attachment URL.");
+  const link = document.createElement("a"); link.href = safeUrl; link.download = name;
   document.body.append(link); link.click(); link.remove();
 }
 export function MessageAttachments({ attachments, className = "message-attachments", notify = () => {}, storageNamespace, refreshAttachment }: {
@@ -117,11 +116,11 @@ function AttachmentCard({ attachment, notify, storageNamespace, refreshAttachmen
         if (url.startsWith(mediaPrefix) || url.startsWith(artifactPrefix)) {
           const target = new URL(url, window.location.origin);
           target.searchParams.set("download", "1"); target.searchParams.set("name", current.name);
-          const probe = await fetch(target, { method: "HEAD", credentials: "same-origin", signal: lifetime.current.signal });
+          const probe = await fetch(target, { redirect: "error", method: "HEAD", credentials: "same-origin", signal: lifetime.current.signal });
           if (!probe.ok) throw Object.assign(new Error("This attachment is unavailable. Reload it and try again."), { status: probe.status });
           clickDownload(target.href, current.name);
         } else {
-          const response = await fetch(url, { signal: lifetime.current.signal });
+          const response = await fetch(url, { redirect: "error", credentials: "same-origin", signal: lifetime.current.signal });
           if (!response.ok) throw new Error("This attachment is unavailable.");
           const objectUrl = URL.createObjectURL(await response.blob());
           clickDownload(objectUrl, current.name); window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
@@ -159,7 +158,7 @@ function AttachmentCard({ attachment, notify, storageNamespace, refreshAttachmen
       });
       return result.item.path;
     }
-    const response = await fetch(url, { signal: lifetime.current.signal });
+    const response = await fetch(url, { redirect: "error", credentials: "same-origin", signal: lifetime.current.signal });
     if (!response.ok) throw new Error("This attachment is unavailable.");
     const result = await transferUpload(directory, await response.blob(), name, { conflict, signal: lifetime.current.signal });
     if (!result.item) throw new Error("The attachment was not saved.");
@@ -171,6 +170,7 @@ function AttachmentCard({ attachment, notify, storageNamespace, refreshAttachmen
     try { await fresh(); } catch (error) { setError(messageFor(error)); }
   };
   const url = sourceUrl(item);
+  const creditUrl = attachmentCreditUrl(item.sourceUrl);
   const videoFailed = async () => {
     if (!refreshingVideo.current && refreshAttachment && url?.startsWith(mediaPrefix)) {
       refreshingVideo.current = true;
@@ -196,7 +196,7 @@ function AttachmentCard({ attachment, notify, storageNamespace, refreshAttachmen
       }
       if (event.key === "Tab") setMenu(false);
     }}><button role="menuitem" type="button" disabled={busy} onClick={() => { closeMenu(); setSave(true); }}>Download to Workspace</button><button role="menuitem" type="button" disabled={busy} onClick={() => void download()}>Download</button></div>, document.body)}
-    {item.sourceUrl && /^https?:\/\//.test(item.sourceUrl) && <a href={item.sourceUrl} target="_blank" rel="noopener noreferrer">Source</a>}
+    {creditUrl && <a href={creditUrl} target="_blank" rel="noopener noreferrer">Source</a>}
     {error && <p className="attachment-error" role="alert">{error}</p>}
     {preview && <ExplorerDialog title="Image preview" onClose={() => setPreview(false)}><div className="preview-canvas is-image chat-image-preview"><img src={url} alt={item.name} onError={() => void imageFailed()} /></div><footer>{actions}<button type="button" onClick={() => setPreview(false)}>Close</button></footer></ExplorerDialog>}
     {save && <SaveAttachmentDialog name={item.name} sourcePath={item.path} storageNamespace={storageNamespace} onClose={() => setSave(false)} onSave={saveToWorkspace} onSaved={(path) => notify(`Saved to Workspace: ${path}`)} />}

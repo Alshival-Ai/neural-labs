@@ -72,6 +72,9 @@ export function registerVoice(app: Express, database: Database, sessions: Sessio
   }));
   app.post('/api/voice/sessions', options.sameOrigin, wrap(async (req, res) => {
     const actor = await options.active(req, res); if (!actor || !options.csrf(req, res, actor)) return;
+    if (!await database.consumeRateLimit(`voice-start:${actor.user.id}`, 6, 60)) {
+      res.set('Retry-After', '60').status(429).json({ error: { code: 'rate_limited', message: 'Wait a moment before starting another voice chat.' } }); return;
+    }
     const input = startSchema.parse(req.body), id = input.requestId;
     await admit(actor, id);
     const active = await database.pool.query("SELECT id FROM voice_sessions WHERE actor_id=$1 AND status IN ('connecting','live') AND expires_at>now() AND seen_at>now() - CASE WHEN status='connecting' THEN interval '45 seconds' ELSE interval '20 seconds' END", [actor.user.id]);

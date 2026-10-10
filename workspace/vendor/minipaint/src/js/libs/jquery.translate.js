@@ -44,7 +44,7 @@
 
 			var trn_key = $this.attr("data-trn-key");
 			if (!trn_key) {
-				trn_key = $this.html();
+				trn_key = $this.text();
 				$this.attr("data-trn-key", trn_key);
 			}
 			// Filtering attr
@@ -58,7 +58,7 @@
 					$this.attr(this.name, that.get(trn_attr_key));
 				}
 			});
-			$this.html(that.get(trn_key));
+			$this.text(that.get(trn_key));
 		});
 		return this;
 	};

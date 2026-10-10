@@ -22,6 +22,7 @@
     "@simplewebauthn/server": "14.0.0",
     "argon2": "0.45.1",
     "express": "5.2.1",
+    "express-rate-limit": "8.7.1",
     "jose": "6.2.10",
     "multer": "2.4.0",
     "pg": "8.23.0",

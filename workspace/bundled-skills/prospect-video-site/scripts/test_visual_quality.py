@@ -66,6 +66,13 @@ class DirectionTests(unittest.TestCase):
             validate_assets(self.root, self.doc, {'assets': [{'id': 'hero', 'origin': 'generated',
                 'sourceUrl': 'https://www.pexels.com/photo/1/'}]})
 
+    def test_pexels_policy_uses_the_hostname(self):
+        for source in ['https://pexels.com', 'https://images.pexels.com/photo', 'https://PEXELS.COM?photo=1']:
+            with self.subTest(source=source), self.assertRaisesRegex(QualityError, 'retain stock origin'):
+                validate_assets(self.root, self.doc, {'assets': [{'id': 'hero', 'origin': 'authentic', 'sourceUrl': source}]})
+        for source in ['https://notpexels.com/photo', 'https://example.com/pexels.com/photo', 'https://pexels.com.attacker.example/photo']:
+            validate_assets(self.root, self.doc, {'assets': [{'id': 'hero', 'origin': 'authentic', 'sourceUrl': source}]})
+
     def test_history_compatible_new_state_enforced(self):
         self.assertFalse(required(self.root, {'schemaVersion': 1}))
         self.assertTrue(required(self.root, {'qualityVersion': 2}))

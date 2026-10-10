@@ -10,6 +10,7 @@ import type { TwilioPluginService } from "./twilioPlugin.js";
 import type { SessionActor } from "./types.js";
 import type { SessionService } from "./sessions.js";
 
+// OAuth state is a uniformly random 256-bit token, not a password.
 const hash = (s: string) => createHash("sha256").update(s).digest("hex");
 export class ConnectorError extends Error { constructor(public status: number, message: string) { super(message); } }
 export const connectorSelection = z.object({connection:z.string().uuid(),generation:z.number().int().positive(),model:z.string().trim().min(1).max(160)}).strict();
@@ -97,18 +98,23 @@ export class Connectors {
     if(input.sms&&(!m.verified_at||!m.notifications_enabled||m.sms_opted_out))throw new ConnectorError(422,"Verify your phone and enable Agent SMS updates. Reply START to the number if you opted out.");
     await this.db.pool.query("INSERT INTO connector_members(user_id,email_enabled,sms_enabled) VALUES($1,$2,$3) ON CONFLICT(user_id) DO UPDATE SET email_enabled=$2,sms_enabled=$3",[id,input.email,input.sms]);
   }
+  private emailCodeHash(id: string, email: string, code: string): string {
+    // Low-entropy codes need a server-held key against offline DB guessing.
+    return createHmac("sha256", this.config.masterKey)
+      .update(JSON.stringify(["connector-email-v1", id, email.toLowerCase(), code])).digest("hex");
+  }
   async verifyEmailStart(id:string) {
     if(!await this.db.consumeRateLimit(`connector-email:${id}`,3,3600))throw new ConnectorError(429,"Please wait before requesting another verification email.");
     const m=await this.member(id),row=await this.settings();if(row.mailbox_paused)throw new ConnectorError(409,"The workspace mailbox is paused.");
     const code=String(100000+Math.floor(Number.parseInt(randomBytes(4).toString("hex"),16)/0x100000000*900000));
     await this.db.pool.query(`INSERT INTO connector_members(user_id,verification_hash,verification_expires) VALUES($1,$2,now()+interval '10 minutes')
-      ON CONFLICT(user_id) DO UPDATE SET verification_hash=$2,verification_expires=now()+interval '10 minutes'`,[id,hash(`${id}:${m.email.toLowerCase()}:${code}`)]);
+      ON CONFLICT(user_id) DO UPDATE SET verification_hash=$2,verification_expires=now()+interval '10 minutes'`,[id,this.emailCodeHash(id,m.email,code)]);
     await this.mail.send(row.mailbox_provider,await this.token(row),{to:m.email,subject:"Verify your Neural Labs agent email",text:`Your verification code is ${code}. It expires in 10 minutes.`,messageId:randomUUID()});
   }
   async verifyEmail(id:string,code:string) {
     if(!await this.db.consumeRateLimit(`connector-email-code:${id}`,8,600))throw new ConnectorError(429,"Too many attempts. Request a new code later.");
     const m=await this.member(id);const changed=await this.db.pool.query(`UPDATE connector_members SET verified_email=$2,verification_hash=NULL,verification_expires=NULL
-      WHERE user_id=$1 AND verification_hash=$3 AND verification_expires>now() RETURNING user_id`,[id,m.email.toLowerCase(),hash(`${id}:${m.email.toLowerCase()}:${code}`)]);
+      WHERE user_id=$1 AND verification_hash=$3 AND verification_expires>now() RETURNING user_id`,[id,m.email.toLowerCase(),this.emailCodeHash(id,m.email,code)]);
     if(!changed.rowCount)throw new ConnectorError(422,"The code is incorrect or expired.");
   }
   async history(id:string) {await this.member(id);return {messages:(await this.db.pool.query("SELECT id,channel,direction,thread_key,subject,body,status,error,created_at FROM connector_messages WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100",[id])).rows.reverse()};}

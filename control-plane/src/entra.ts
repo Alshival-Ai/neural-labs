@@ -108,11 +108,11 @@ export class MicrosoftOidcClient {
     const certificate = new X509Certificate(config.credential.certificatePem);
     const privateKey = createPrivateKey(config.credential.privateKeyPem);
     const pkcs8 = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
-    const key = await importPKCS8(pkcs8, "RS256");
+    const key = await importPKCS8(pkcs8, "PS256");
     const now = Math.floor(Date.now() / 1000);
-    const x5t = createHash("sha1").update(certificate.raw).digest("base64url");
+    const thumbprint = createHash("sha256").update(certificate.raw).digest("base64url");
     return new SignJWT({})
-      .setProtectedHeader({ alg: "RS256", typ: "JWT", x5t })
+      .setProtectedHeader({ alg: "PS256", typ: "JWT", "x5t#S256": thumbprint })
       .setIssuer(config.clientId)
       .setSubject(config.clientId)
       .setAudience(audience)

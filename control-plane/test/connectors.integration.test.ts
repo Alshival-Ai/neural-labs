@@ -12,7 +12,7 @@ const url=process.env.TEST_DATABASE_URL;
 (url?describe:describe.skip)('workspace connector persistence',()=>{
  const schema=`connectors_${randomUUID().replaceAll('-','')}`;let root:Pool,pool:Pool,db:Database,service:Connectors,member:string,other:string;const transport=vi.fn();const sms={accountSid:'AC'+'1'.repeat(32),authToken:'fixture-only',fromNumber:'+15555550100'};
  beforeAll(async()=>{root=new Pool({connectionString:url});await root.query(`CREATE SCHEMA ${schema}`);pool=new Pool({connectionString:url,options:`-c search_path=${schema}`});db=new Database(pool);await db.migrate();
-   service=new Connectors(db,{publicOrigin:new URL('https://fixture.example'),workspace:{controlUrl:new URL('http://runtime.fixture'),controlToken:'fixture-only'}} as ControlPlaneConfig,new CredentialCipher(Buffer.alloc(32,5)),{effectiveConfig:async()=>({config:sms})} as TwilioPluginService,{} as SessionService,transport);
+   service=new Connectors(db,{masterKey:Buffer.alloc(32,5),publicOrigin:new URL('https://fixture.example'),workspace:{controlUrl:new URL('http://runtime.fixture'),controlToken:'fixture-only'}} as ControlPlaneConfig,new CredentialCipher(Buffer.alloc(32,5)),{effectiveConfig:async()=>({config:sms})} as TwilioPluginService,{} as SessionService,transport);
    async function user(){const u=await db.createLocalUser({email:`${randomUUID()}@example.org`,displayName:'Fixture',passwordHash:'fixture'});await pool.query("UPDATE users SET status='active' WHERE id=$1",[u.id]);await pool.query('INSERT INTO connector_members(user_id,verified_email,email_enabled,sms_enabled) VALUES($1,$2,true,true)',[u.id,u.email]);return u.id;}member=await user();other=await user();
    await pool.query("INSERT INTO user_phones(user_id,phone_number,verified_at,notifications_enabled) VALUES($1,'+15555550101',now(),true)",[member]);
  });
@@ -46,6 +46,21 @@ const url=process.env.TEST_DATABASE_URL;
  });
  it('rejects oversized SMS without silently dropping content',async()=>{
    await expect(service.enqueue(member,{channel:'sms',member,subject:'',message:'a'.repeat(1601),requestId:randomUUID()})).rejects.toThrow('1600');expect(transport).not.toHaveBeenCalled();
+ });
+
+ it('binds email verification codes to the server key and consumes them once',async()=>{
+   vi.spyOn(service,'token').mockResolvedValue({accessToken:'fixture-access',refreshToken:'fixture-refresh',expiresAt:Date.now()+3600000});
+   const send=vi.spyOn(service.mail,'send').mockResolvedValue({} as never);
+   await pool.query("UPDATE connector_settings SET mailbox_paused=false,mailbox_provider='gmail'");
+   await service.verifyEmailStart(member);
+   const code=send.mock.calls[0]![2].text.match(/code is (\d{6})/)![1]!;
+   const email=(await pool.query('SELECT email FROM users WHERE id=$1',[member])).rows[0].email;
+   const saved=(await pool.query('SELECT verification_hash FROM connector_members WHERE user_id=$1',[member])).rows[0];
+   expect(saved.verification_hash).toBe(createHmac('sha256',Buffer.alloc(32,5)).update(JSON.stringify(['connector-email-v1',member,email.toLowerCase(),code])).digest('hex'));
+   await expect(service.verifyEmail(member,'000000')).rejects.toThrow('incorrect');
+   await service.verifyEmail(member,code);
+   await expect(service.verifyEmail(member,code)).rejects.toThrow('incorrect');
+   send.mockRestore();vi.mocked(service.token).mockRestore();
  });
 
  it('consumes OAuth state once and rechecks the initiating administrator',async()=>{

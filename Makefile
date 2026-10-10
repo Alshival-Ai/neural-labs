@@ -73,6 +73,7 @@ validate:
 	node --check workspace/terminal-guidance.mjs
 	node --check mcp/dist/local.js
 	npm --prefix workspace/desktop run validate
+	node --test tests/minipaint_security_test.mjs
 	node --test web/*.test.mjs web/*.test.cjs
 	npm --prefix workspace test
 	bash -n bin/neural-labs

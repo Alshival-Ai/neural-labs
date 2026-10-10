@@ -66,7 +66,7 @@ class GUI_information_class {
 			mouse_x = _this.Helper.get_user_unit(mouse_x, _this.units, _this.resolution);
 			mouse_y = _this.Helper.get_user_unit(mouse_y, _this.units, _this.resolution);
 
-			target.innerHTML = mouse_x + ', ' + mouse_y;
+			target.textContent = mouse_x + ', ' + mouse_y;
 		}, false);
 	}
 
@@ -84,16 +84,16 @@ class GUI_information_class {
 		var width = this.Helper.get_user_unit(config.WIDTH, this.units, this.resolution);
 		var height = this.Helper.get_user_unit(config.HEIGHT, this.units, this.resolution);
 
-		document.getElementById('mouse_info_size').innerHTML = width + ' x ' + height;
+		document.getElementById('mouse_info_size').textContent = width + ' x ' + height;
 
 		var resolution = this.Tools_settings.get_setting('resolution');
-		document.getElementById('mouse_info_resolution').innerHTML = resolution;
+		document.getElementById('mouse_info_resolution').textContent = resolution;
 
 		//show units
 		var default_units = this.Tools_settings.get_setting('default_units_short');
 		var targets = document.querySelectorAll('.id-mouse_info_units');
 		for (var i = 0; i < targets.length; i++) {
-			targets[i].innerHTML = default_units;
+			targets[i].textContent = default_units;
 		}
 
 		this.last_width = config.WIDTH;

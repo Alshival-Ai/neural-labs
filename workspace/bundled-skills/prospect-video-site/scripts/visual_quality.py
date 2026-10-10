@@ -8,6 +8,7 @@ import re
 import subprocess
 from fractions import Fraction
 from pathlib import Path
+from urllib.parse import urlsplit
 
 
 class QualityError(RuntimeError):
@@ -112,7 +113,11 @@ def validate_assets(root, doc, manifest):
         require(origin in {'authentic', 'generated', 'stock', 'original-ui'},
                 f"Record origin for asset {asset.get('id')}")
         source = str(asset.get('sourceUrl', '')).lower()
-        if 'pexels.com/' in source:
+        try:
+            source_host = urlsplit(source).hostname or ''
+        except ValueError:
+            source_host = ''
+        if source_host == 'pexels.com' or source_host.endswith('.pexels.com'):
             require(origin == 'stock', 'Pexels derivatives must retain stock origin')
         if origin == 'generated':
             local_file(root, asset.get('generationEvidencePath'), private=True)

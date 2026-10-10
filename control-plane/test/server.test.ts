@@ -816,3 +816,23 @@ describe('deployment control boundary', () => {
     await request(app).post('/internal/deployment-hosting').set('Authorization', `Bearer ${config.workspace.controlToken}`).send({}).expect(404);
   });
 });
+
+
+describe("request flood protection", () => {
+  it("throttles before database work and ignores forged forwarding chains", async () => {
+    const { app, database } = application();
+    for (let i = 0; i < 120; i++) {
+      await request(app).post("/api/auth/not-a-route")
+        .set("X-Forwarded-For", `198.51.100.${i + 1}, 10.0.0.9`);
+    }
+    vi.mocked(database.pool.query).mockClear();
+    const limited = await request(app).post("/api/auth/not-a-route")
+      .set("X-Forwarded-For", "203.0.113.8, 10.0.0.9").send({});
+    expect(limited.status).toBe(429);
+    expect(limited.headers["retry-after"]).toBeDefined();
+    expect(limited.body.error.code).toBe("rate_limited");
+    expect(database.pool.query).not.toHaveBeenCalled();
+    expect((await request(app).post("/api/auth/not-a-route").set("X-Forwarded-For", "10.0.0.10")).status).not.toBe(429);
+    expect((await request(app).post("/internal/voice/callback").set("X-Forwarded-For", "10.0.0.9").send({})).status).toBe(403);
+  });
+});

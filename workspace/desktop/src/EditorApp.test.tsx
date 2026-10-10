@@ -6,6 +6,12 @@ import { EditorApp } from "./EditorApp";
 afterEach(cleanup);
 
 describe("Editor app prototype", () => {
+  it.each(['"', "'", '`'])('renders unterminated escaped strings without exponential backtracking (%s)', quote => {
+    const content = quote + "\\".repeat(1000) + 'unfinished';
+    render(<EditorApp documents={[{ id: 'attack.ts', name: 'attack.ts', path: 'attack.ts', language: 'typescript', accent: 'violet', content }]} activeDocumentId="attack.ts" />);
+    expect(screen.getByRole('textbox', { name: 'Code editor for attack.ts' })).toHaveValue(content);
+  });
+
   it("tracks edits and exposes the save integration callback", () => {
     const onSave = vi.fn();
     render(<EditorApp onSave={onSave} />);

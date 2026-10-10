@@ -280,7 +280,7 @@ function highlightLine(line: string, language: EditorLanguage): ReactNode {
     if (heading) return <>{heading[1]}<span className="editor-token--keyword">{heading[2]}</span><span className="editor-token--type">{heading[3]}</span></>;
   }
 
-  const matcher = /(\/\/.*$|\/\*.*?\*\/|`(?:\\.|[^`])*`|"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|\b(?:import|from|export|default|async|await|function|return|const|let|var|new|class|interface|type|extends|implements|if|else|for|of|in|true|false|null|undefined)\b|\b\d+(?:\.\d+)?\b|\b[A-Z][A-Za-z0-9_]*\b)/g;
+  const matcher = /(\/\/.*$|\/\*.*?\*\/|`(?:\\.|[^`\\])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b(?:import|from|export|default|async|await|function|return|const|let|var|new|class|interface|type|extends|implements|if|else|for|of|in|true|false|null|undefined)\b|\b\d+(?:\.\d+)?\b|\b[A-Z][A-Za-z0-9_]*\b)/g;
   const parts: ReactNode[] = [];
   let cursor = 0;
   let match: RegExpExecArray | null;
