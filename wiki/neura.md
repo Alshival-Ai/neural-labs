@@ -39,9 +39,10 @@ the app. Shift+Enter adds a newline; the visible send controls also work on phon
 
 In a private chat, use **Commands** in the compact options row below the chat input, alongside **Mode**:
 
-- **Ask when needed** is the default. The CLI can request approval for commands
+- **Ask when needed** lets the CLI request approval for commands
   and edits.
-- **Do not ask** runs workspace commands and edits without approval prompts.
+- **Do not ask** is the default for signed-in accounts without a saved preference,
+  and runs workspace commands and edits without approval prompts.
   It applies to both Codex and Claude. Questions that need your input can still
   appear, and browser actions keep their own confirmation rules.
 

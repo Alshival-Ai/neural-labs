@@ -33,6 +33,7 @@ async function fixture(ready = true, { nativeArtifacts, nativeRuntime, gatewayAd
   await writeFile(path.join(desktopRoot, "index.html"), "<!doctype html><meta name=\"csp-nonce\" content=\"__NEURAL_LABS_CSP_NONCE__\"><title>Desktop · Neural Labs</title>");
   await writeFile(path.join(desktopRoot, "assets", "index-a1b2c3d4.css"), "body { color: white; }");
   await writeFile(path.join(desktopRoot, "assets", "index-a1b2c3d4.js"), "document.title = document.title;");
+  await writeFile(path.join(desktopRoot, "assets", "public-sans-variable-a1b2c3d4.ttf"), "fixture-font");
   for (const filename of ["wallpaper.png", "wallpaper-tablet.png", "wallpaper-mobile.png"]) {
     await writeFile(path.join(desktopRoot, "assets", filename),
       await readFile(new URL(`./desktop/public/assets/${filename}`, import.meta.url)));
@@ -262,6 +263,10 @@ test("serves the desktop shell and its allowlisted assets", async () => {
     assert.notEqual(secondNonce, nonce);
 
     const asset = await fetch(`${app.origin}/workspace/assets/index-a1b2c3d4.css`);
+    const font = await fetch(`${app.origin}/workspace/assets/public-sans-variable-a1b2c3d4.ttf`);
+    assert.equal(font.status, 200);
+    assert.equal(font.headers.get("content-type"), "font/ttf");
+    assert.equal(await font.text(), "fixture-font");
     assert.equal(asset.status, 200);
     assert.match(asset.headers.get("content-type"), /^text\/css/);
     assert.match(asset.headers.get("cache-control"), /immutable/);

@@ -38,6 +38,7 @@ const ASSET_TYPES = new Map([
   [".svg", "image/svg+xml"],
   [".webp", "image/webp"],
   [".woff2", "font/woff2"],
+  [".ttf", "font/ttf"],
 ]);
 
 const CSP_NONCE_MARKER = "__NEURAL_LABS_CSP_NONCE__";
