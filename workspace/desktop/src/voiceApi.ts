@@ -1,3 +1,4 @@
+import { nativeSelection, commandApproval } from "./nativeApi";
 type ErrorBody = { error?: { message?: string } };
 
 async function errorMessage(response: Response, fallback: string): Promise<string> {
@@ -9,19 +10,26 @@ async function errorMessage(response: Response, fallback: string): Promise<strin
   }
 }
 
-export async function exchangeRealtimeOffer(sdp: string, signal?: AbortSignal): Promise<{ answer: string; maxSeconds: number }> {
-  const response = await fetch("/workspace/api/neura/realtime/call", {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { "Content-Type": "application/sdp" },
-    body: sdp,
-    signal,
+export async function voiceControl(id: string, operation: 'end' | 'heartbeat', csrf: string): Promise<void> {
+  const response = await fetch(`/api/voice/sessions/${encodeURIComponent(id)}/${operation}`, {
+    method: 'POST', credentials: 'same-origin', keepalive: operation === 'end',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: '{}'
   });
-  if (!response.ok) throw new Error(await errorMessage(response, "Alshival voice is unavailable right now"));
-  const answer = await response.text();
-  if (!answer.startsWith("v=")) throw new Error("Alshival voice returned an invalid response");
-  const configuredSeconds = Number(response.headers.get("X-Neural-Labs-Voice-Max-Seconds"));
-  return { answer, maxSeconds: Number.isFinite(configuredSeconds) && configuredSeconds > 0 ? configuredSeconds : 300 };
+  if (!response.ok) throw new Error('Voice session ended or access changed.');
+}
+export async function exchangeRealtimeOffer(sdp: string, signal?: AbortSignal, context?: string, csrf = '', model?: string): Promise<{ id: string; answer: string; maxSeconds: number }> {
+  if (!context) throw new Error('Open a conversation before starting voice.');
+  const chosen = nativeSelection();
+  const channel = context.startsWith('team:') ? context.slice(5) : undefined;
+  const response = await fetch('/api/voice/sessions', {
+    method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+    body: JSON.stringify({ requestId: crypto.randomUUID(), offer: sdp,
+      ...(channel ? { channel } : { conversation: context, selection: chosen && { ...chosen, model: model || chosen.model }, approvalPolicy: commandApproval() }) }), signal
+  });
+  if (!response.ok) throw new Error(await errorMessage(response, 'Alshival voice is unavailable right now'));
+  const result = await response.json() as { id: string; answer: string; maxSeconds: number };
+  if (!result.answer?.startsWith('v=') || !result.id) throw new Error('Alshival voice returned an invalid response');
+  return result;
 }
 
 export async function transcribeVoiceMemo(audio: Blob, signal?: AbortSignal): Promise<string> {

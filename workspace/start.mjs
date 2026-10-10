@@ -1,3 +1,4 @@
+import { VoiceSessions } from "./voice-session.mjs";
 import { Deployments, hostingConfig } from './native/deployments.mjs';
 import { createServer } from "node:http";
 import { mkdir, access } from "node:fs/promises";
@@ -49,9 +50,9 @@ for (const [command, expected] of [[CODEX_APP_SERVER, `codex-cli ${release.codex
   const result = await probe.exec(command, ["--version"], { env: { HOME: NATIVE_HOME, PATH: "/usr/local/bin:/usr/bin:/bin", DISABLE_AUTOUPDATER: "1" }, timeout: 20000, maxBuffer: 65536 });
   if (result.stdout.trim() !== expected) throw new Error("The installed provider executable does not match the native release");
 }
-async function control(endpoint, body) {
+async function control(endpoint, body, timeout = 5000) {
   const response = await fetch(new URL(endpoint, controlOrigin), { method: "POST", redirect: "error",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(5000) });
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeout) });
   if (!response.ok) throw new Error("Workspace authorization is unavailable"); return response.json();
 }
 const resolveActor = async actorId => (await control("/internal/terminal-actor", { actorId })).actor;
@@ -113,6 +114,10 @@ const mcpStatus = async () => ({ ready: mcpServer.listening, mode: "workspace-lo
   transport: "streamable-http", agentServerName: "neural-labs", agentScope: "authenticated-execution", publicAccess: false,
   providerConfiguration: providers.status(), providers: { googlePlaces: providers.status()["google-maps"].available,
     googleGeocoding: providers.status()["google-maps"].available, klipy: providers.status().klipy.available, pexels: providers.status().pexels.available }, tools: ["browser", "deployments"] });
+const voiceService = createVoiceService({ safetySecret: token });
+const voiceSessions = new VoiceSessions({ open: input => voiceService.createRealtimeCall(input), key: process.env.OPENAI_API_KEY,
+  callback: input => control('/internal/voice/callback', input, 30000) });
+runtime.voiceSessions = voiceSessions;
 const server = createWorkspaceHttpServer({ desktopRoot: "/usr/local/share/neural-labs/desktop", workspaceRoot, publicOrigin,
   nativeArtifacts: artifacts, deployments, deploymentAuthorize: input => control('/internal/deployment-access', input), nativeRuntime: runtime, requireSignedRequests: true, nativeEditors: editors, updateMaintenance: maintenance,
   skillLibraryRoots: ["/usr/local/share/neural-labs/skills", path.join(root, "installed-skills")],
@@ -120,7 +125,7 @@ const server = createWorkspaceHttpServer({ desktopRoot: "/usr/local/share/neural
   terminalActorResolver: resolveActor, workspaceControlToken: token, codexVersion: release.codex, claudeVersion: release.claude,
   runTeamAgent: input => runtime.runTeam({ run: input.runId, channel: input.channelId,
     actor: input.userId, capability: input.capability, prompt: input.prompt, trigger: input.trigger, signal: input.signal }),
-  voiceService: createVoiceService({ safetySecret: token }),
+  voiceService, voiceSessions,
   maxUploadBytes: Number(process.env.NEURAL_LABS_WORKSPACE_MAX_UPLOAD_BYTES || 2 * 1024 ** 3),
 });
 let stopping = false;
@@ -130,6 +135,7 @@ async function stop() {
   if (stopping) return; stopping = true;
   runtime.turns.gated = true; runtime.scheduler.closed = true;
   clearInterval(hostingRefresh); server.close(); providers.close();
+  await voiceSessions.close();
   await deployments.close(); await triggers.close(); await editors.close(); await runtime.close(); await tools.close(); artifacts.close();
   mcpServer.close();
 }

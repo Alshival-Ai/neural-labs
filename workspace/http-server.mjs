@@ -440,6 +440,7 @@ export function createWorkspaceHttpServer({
     tools: [],
   }),
   voiceService,
+  voiceSessions,
   workspaceControlToken,
   codexVersion,
   claudeVersion,
@@ -828,6 +829,19 @@ export function createWorkspaceHttpServer({
       return;
     }
 
+    if (pathname === "/internal/voice/session") {
+      if (method !== "POST" || !voiceSessions || !workspaceControlToken || !validControlToken(request, workspaceControlToken) || updateMaintenance?.gated) {
+        sendJson(response, 403, { error: { message: "Voice is unavailable" } }, method); return;
+      }
+      try {
+        const input = await readJsonBody(request, 120000);
+        if (input.operation === 'end') { await voiceSessions.stop(input.id); sendJson(response, 200, { ended: true }, method); }
+        else if (input.operation === 'start') sendJson(response, 201, await voiceSessions.start(input), method);
+        else sendJson(response, 400, { error: { message: "Invalid voice operation" } }, method);
+      } catch { sendJson(response, 503, { error: { message: "Voice is unavailable" } }, method); }
+      return;
+    }
+
     if (pathname === "/workspace/api/neura/realtime/call" || pathname === "/workspace/api/neura/transcriptions") {
       const userId = typeof request.headers["x-forwarded-user"] === "string" ? request.headers["x-forwarded-user"].trim() : "";
       if (!userId) {
@@ -849,6 +863,7 @@ export function createWorkspaceHttpServer({
       }
       try {
         if (pathname.endsWith("/realtime/call")) {
+          if (nativeRuntime) { sendJson(response, 410, { error: { message: "Use the conversation-bound voice session endpoint" } }, method); return; }
           const bytes = await readBinaryBody(request, MAX_REALTIME_SDP_BYTES, "invalid_webrtc_offer", "The WebRTC voice offer is invalid");
           const answer = await voiceService.createRealtimeCall({ offer: bytes.toString("utf8"), userId });
           response.setHeader("Cache-Control", "no-store");

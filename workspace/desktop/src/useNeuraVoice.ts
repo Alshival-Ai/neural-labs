@@ -5,7 +5,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { exchangeRealtimeOffer, supportedRecorderMimeType } from "./voiceApi";
+import { exchangeRealtimeOffer, supportedRecorderMimeType, voiceControl } from "./voiceApi";
 import type { TeamAttachment, TeamChannel } from "./teamChat";
 
 export type VoiceMode = "tap" | "hold";
@@ -20,10 +20,13 @@ export function usePrivateNeuraVoice(
   context: string | undefined,
   mode: VoiceMode,
   notify: (message: string) => void,
+  options: { csrf?: string; model?: string } = {},
 ) {
   const [state, setState] = useState<"idle" | "connecting" | "live">("idle");
   const [muted, setMuted] = useState(false);
   const [holding, setHolding] = useState(false);
+  const session = useRef<{ id: string; csrf: string } | undefined>(undefined);
+  const heartbeat = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const phase = useRef(state);
   phase.current = state;
   const generation = useRef(0);
@@ -45,6 +48,8 @@ export function usePrivateNeuraVoice(
   }, []);
   const stop = useCallback(() => {
     generation.current++;
+    clearInterval(heartbeat.current);
+    if (session.current) { void voiceControl(session.current.id, 'end', session.current.csrf).catch(() => {}); session.current = undefined; }
     request.current?.abort();
     request.current = undefined;
     clearTimeout(timer.current);
@@ -70,8 +75,12 @@ export function usePrivateNeuraVoice(
   useEffect(() => {
     stop();
     return stop;
-  }, [context, stop]);
+  }, [context, options.model, options.csrf, stop]);
   useLayoutEffect(syncMic, [mode, syncMic]);
+  useEffect(() => {
+    window.addEventListener('pagehide', stop); window.addEventListener('neural-labs-native-selection', stop);
+    return () => { window.removeEventListener('pagehide', stop); window.removeEventListener('neural-labs-native-selection', stop); };
+  }, [stop]);
   const release = useCallback(() => {
     if (request.current && phase.current !== "live") {
       stop();
@@ -138,27 +147,19 @@ export function usePrivateNeuraVoice(
         )
           stop();
       };
-      const events = connection.createDataChannel("oai-events");
-      events.addEventListener("open", () => {
-        if (id === generation.current)
-          events.send(
-            JSON.stringify({
-              type: "response.create",
-              response: {
-                instructions:
-                  "Greet the user briefly as Alshival, then ask how you can help.",
-              },
-            }),
-          );
-      });
+      connection.createDataChannel("oai-events");
       const offer = await connection.createOffer();
       if (id !== generation.current) return;
       await connection.setLocalDescription(offer);
       const result = await exchangeRealtimeOffer(
         offer.sdp ?? "",
-        controller.signal,
+        controller.signal, context, options.csrf, options.model,
       );
-      if (id !== generation.current) return;
+      if (id !== generation.current) { void voiceControl(result.id, 'end', options.csrf || '').catch(() => {}); return; }
+      session.current = { id: result.id, csrf: options.csrf || '' };
+      heartbeat.current = setInterval(() => { void voiceControl(result.id, 'heartbeat', options.csrf || '').catch(() => {
+        if (id === generation.current) { stop(); current.current.notify('Voice session ended or access changed.'); }
+      }); }, 5000);
       await connection.setRemoteDescription({
         type: "answer",
         sdp: result.answer,

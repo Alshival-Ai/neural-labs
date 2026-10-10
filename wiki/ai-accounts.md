@@ -118,3 +118,28 @@ The separate terminal CLI can be connected with
 `bin/neural-labs workspace codex-login` when needed. It does not configure Alshival.
 For personal, background, or Team sign-in problems, start with
 [Troubleshooting](troubleshooting.md#neura-will-not-answer).
+
+## Live voice with your selected agent
+
+In a private Alshival conversation, press the wave button with an empty composer
+to start live voice. OpenAI handles speech while your selected agent answers
+requests and uses tools. Your conversation's model override and approval policy
+continue to apply. Approve pending actions in the chat UI; voice cannot approve
+on your behalf. Missing or paused provider connections do not fall back to the
+audio key.
+
+In a shared channel, **Talk to Alshival** starts a local audio call with the
+channel's configured Team agent. Transcripts and results are shared with channel
+members. The existing wave control still records voice memos.
+
+Mute or end the call using its controls. Calls last up to five minutes and may be
+restarted. Ending voice stops microphone capture without discarding accepted
+agent work. Request transcripts and task replies remain in normal history;
+spoken renderings and audio usage are recorded as session events, without raw
+call recordings. If a connection fails after an action starts, inspect the chat
+before retrying.
+
+The deployment's existing server `OPENAI_API_KEY` funds audio independently of
+personal provider credentials. Configure it through the protected deployment
+configuration. A managed installation can enforce an external admission policy;
+self-hosted installations do not require an Alshival commercial plan.

@@ -34,7 +34,7 @@ export class NativeMaintenance {
     const chatRuns = state.db.prepare("SELECT count(*) AS n FROM turns WHERE status IN ('running','unknown')").get().n;
     const cronRuns = state.db.prepare("SELECT count(*) AS n FROM occurrences WHERE status IN ('claimed','running','unknown')").get().n;
     const local = this.localActivity();
-    const activity = { ...local, terminals: local.terminals + (this.runtime.accounts.claude?.active || 0), chatRuns, cronRuns, tasks: this.runtime.scheduler.active.size,
+    const activity = { ...local, terminals: local.terminals + (this.runtime.accounts.claude?.active || 0), chatRuns: chatRuns + (this.runtime.voiceSessions?.sessions.size || 0), cronRuns, tasks: this.runtime.scheduler.active.size,
       background: (this.runtime.accounts.logins?.size || 0) + (this.runtime.deployments?.active || 0) + (this.runtime.sources?.active || 0) };
     if (Object.values(activity).some(value => !Number.isSafeInteger(value) || value < 0)) throw new Error("Native activity cannot be verified");
     return { protocol: 1, probation: this.probation, gated: this.gated, activity,

@@ -10,6 +10,7 @@ import type { TeamChannel } from "./teamChat";
 
 vi.mock("./voiceApi", () => ({
   exchangeRealtimeOffer: vi.fn(),
+  voiceControl: vi.fn(async () => {}),
   supportedRecorderMimeType: () => "audio/webm",
 }));
 const channel = { id: "release", name: "release" } as TeamChannel;
@@ -70,7 +71,7 @@ beforeEach(() => {
   URL.revokeObjectURL = vi.fn();
   vi.mocked(exchangeRealtimeOffer)
     .mockReset()
-    .mockResolvedValue({ answer: "v=answer", maxSeconds: 300 });
+    .mockResolvedValue({ id: "voice-test", answer: "v=answer", maxSeconds: 300 });
   FakePeer.instances = [];
   FakeRecorder.instances = [];
 });
@@ -137,7 +138,7 @@ describe("private Alshival voice", () => {
     expect(exchangeRealtimeOffer).not.toHaveBeenCalled();
   });
   it("aborts setup on chat switch and ignores a late answer", async () => {
-    let answer!: (value: { answer: string; maxSeconds: number }) => void;
+    let answer!: (value: { id: string; answer: string; maxSeconds: number }) => void;
     vi.mocked(exchangeRealtimeOffer).mockImplementation(
       () =>
         new Promise((resolve) => {
@@ -153,7 +154,7 @@ describe("private Alshival voice", () => {
     const signal = vi.mocked(exchangeRealtimeOffer).mock.calls[0][1];
     rerender({ context: "two" });
     expect(signal?.aborted).toBe(true);
-    await act(async () => answer({ answer: "v=late", maxSeconds: 300 }));
+    await act(async () => answer({ id: "voice-test", answer: "v=late", maxSeconds: 300 }));
     expect(result.current.state).toBe("idle");
     expect(FakePeer.instances[0].setRemoteDescription).not.toHaveBeenCalled();
   });

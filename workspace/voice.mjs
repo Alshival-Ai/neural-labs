@@ -86,7 +86,7 @@ export function createVoiceService({
       configuration = { realtimeModel: next.realtimeModel, transcriptionModel: next.transcriptionModel, realtimeVoice: next.realtimeVoice, revision: next.revision };
       return this.snapshot();
     },
-    async createRealtimeCall({ offer, userId }) {
+    async createRealtimeCall({ offer, userId, configuration: delegatedConfiguration, returnCall = false }) {
       const { realtimeModel, realtimeVoice } = configuration;
       requireKey();
       const sdp = String(offer || "");
@@ -100,6 +100,11 @@ export function createVoiceService({
         audio: { output: { voice: realtimeVoice } },
         max_output_tokens: 500,
       };
+      if (delegatedConfiguration) {
+        session.instructions = delegatedConfiguration.instructions; session.tools = delegatedConfiguration.tools;
+        session.audio.input = delegatedConfiguration.audio.input;
+        session.max_output_tokens = delegatedConfiguration.max_output_tokens;
+      }
       const form = new FormData();
       form.set("sdp", new Blob([sdp], { type: "application/sdp" }), "offer.sdp");
       form.set("session", new Blob([JSON.stringify(session)], { type: "application/json" }), "session.json");
@@ -121,7 +126,7 @@ export function createVoiceService({
       if (!answer.startsWith("v=")) {
         throw new VoiceError(502, "invalid_voice_response", "Alshival voice returned an invalid response");
       }
-      return answer;
+      return returnCall ? { answer, call: (upstream.headers.get("location") || "").split("/").at(-1) } : answer;
     },
 
     async transcribeVoiceMemo({ bytes, mimeType, userId }) {

@@ -29,7 +29,7 @@ const url=process.env.TEST_DATABASE_URL;
   expect(sms).not.toHaveBeenCalled();expect((await service.inbox(a)).entries).toHaveLength(1);
  });
  it('retires application-mail configuration without changing retained settings',async()=>{
-  await expect(service.saveEmailConfig({senderId:randomUUID(),senderAddress:'fixture@example.org',enabled:true})).rejects.toThrow('Settings → Connectors');
+  await expect(service.saveEmailConfig({senderId:randomUUID(),senderAddress:'fixture@example.org',enabled:true})).rejects.toThrow('Settings → Plugins');
  });
  it('does not retry a process-interrupted send',async()=>{const a=await user();await service.enqueue(notificationSchema.parse({userId:a,message:'Test'}));await pool.query("UPDATE notification_deliveries SET status='sending',updated_at=now()-interval '10 minutes' WHERE user_id=$1",[a]);await service.tick();expect((await pool.query('SELECT status FROM notification_deliveries WHERE user_id=$1',[a])).rows[0].status).toBe('unknown');});
 });

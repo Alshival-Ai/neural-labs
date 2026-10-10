@@ -57,7 +57,7 @@ COPY workspace/start.mjs workspace/http-server.mjs workspace/response-work.mjs \
      workspace/builder-manager.mjs workspace/vscode-proxy.mjs \
      workspace/file-manager.mjs workspace/explorer-manager.mjs \
      workspace/skills-manager.mjs workspace/package-files.mjs workspace/file-events.mjs \
-     workspace/voice.mjs workspace/terminal-agent.mjs workspace/terminal-manager.mjs \
+     workspace/voice.mjs workspace/voice-session.mjs workspace/terminal-agent.mjs workspace/terminal-manager.mjs \
      workspace/public-apps.mjs workspace/imported-history.mjs workspace/import-history.mjs ./
 COPY workspace/native ./native
 COPY workspace/bundled-skills/deploy /usr/local/share/neural-labs/skills/deploy

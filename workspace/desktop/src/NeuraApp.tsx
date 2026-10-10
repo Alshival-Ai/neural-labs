@@ -594,7 +594,7 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
   const latestPlan = latestActionablePlan(displayedMessages);
 
 
-  const privateVoice = usePrivateNeuraVoice(selectedChannelId ? undefined : selectedKey, voiceMode, notify);
+  const privateVoice = usePrivateNeuraVoice(selectedChannelId ? `team:${selectedChannelId}` : selectedKey, selectedChannelId ? 'tap' : voiceMode, notify, { csrf: csrfToken, model: selected?.modelOverride });
 
   selectedKeyRef.current = selectedKey;
   selectedActiveRef.current = Boolean(selected?.active);
@@ -2113,11 +2113,16 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
                   mode="hold" onModeChange={() => undefined} showModeToggle={false}
                   label={teamVoice.state === "recording" ? "Release to send Team Chat voice memo" : teamVoice.state === "starting" ? "Release to cancel microphone request" : teamVoice.state === "sending" ? "Sending voice memo" : "Hold to record a Team Chat voice memo"}
                   active={teamVoice.state === "recording"} busy={teamVoice.state === "starting" || teamVoice.state === "sending"}
-                  disabled={teamVoice.state === "sending" || (teamVoice.state === "idle" && (teamConnection !== "connected" || Boolean(teamVoice.pending)))}
+                  disabled={privateVoice.state !== "idle" || teamVoice.state === "sending" || (teamVoice.state === "idle" && (teamConnection !== "connected" || Boolean(teamVoice.pending)))}
                   onTap={() => { if (teamVoice.state === "recording" || teamVoice.state === "starting") teamVoice.finish(); else void teamVoice.start(); }}
                   onHoldStart={() => void teamVoice.start()} onHoldEnd={(cancelled) => cancelled ? teamVoice.cancel() : teamVoice.finish()}
                 /> : <button type="button" className="send-button" onClick={sendTeamMessage} disabled={teamConnection !== "connected"} aria-label="Send Team Chat message"><Send /></button>}
               </div>
+            </div>
+            <div className="neura-voice-status" role="region" aria-label="Talk to Alshival in this channel">
+              <button type="button" onClick={privateVoice.tap} disabled={teamVoice.state !== 'idle' || teamConnection !== 'connected'}>{privateVoice.state === 'idle' ? 'Talk to Alshival' : 'End voice'}</button>
+              <span>AI voice · Transcripts are shared with this channel</span>
+              {privateVoice.state !== 'idle' && <button type="button" onClick={privateVoice.toggleMute} aria-pressed={privateVoice.muted}>{privateVoice.muted ? 'Unmute' : 'Mute'}</button>}
             </div>
             {(teamVoice.state === "starting" || teamVoice.state === "recording") && <div className="neura-voice-status" role="status"><Mic /><span>{teamVoice.state === "starting" ? "Waiting for microphone access…" : `Recording · ${Math.floor(teamVoice.seconds / 60)}:${String(teamVoice.seconds % 60).padStart(2, "0")} · release to send`}</span><button type="button" onClick={teamVoice.cancel} aria-label="Cancel voice memo"><X /></button></div>}
             {teamVoice.pending && <section className="voice-memo-recovery" aria-label="Unsent voice memo">
@@ -2133,7 +2138,7 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
         {!creatingSession && selected && !selectedChannel && (
           <footer className="neura-composer-area">
             {privateVoice.state !== "idle" && <div className="neura-voice-status" role="status">
-              {privateVoice.transmitting ? <Mic /> : <MicOff />}<span>{privateVoice.state === "connecting" ? "Connecting voice…" : privateVoice.muted ? "Voice call · microphone muted" : voiceMode === "hold" && !privateVoice.holding ? "Voice call · hold mic to speak" : "Voice call · microphone on"}</span>
+              {privateVoice.transmitting ? <Mic /> : <MicOff />}<span>{privateVoice.state === "connecting" ? "Connecting voice…" : privateVoice.muted ? "Voice call · microphone muted" : voiceMode === "hold" && !privateVoice.holding ? "Voice call · hold mic to speak" : "AI voice · microphone on · Transcript saved"}</span>
               <button type="button" aria-label={privateVoice.muted ? "Unmute microphone" : "Mute microphone"} aria-pressed={privateVoice.muted} onClick={privateVoice.toggleMute}>{privateVoice.muted ? <MicOff /> : <Mic />}</button>
               <button type="button" onClick={privateVoice.stop} aria-label={privateVoice.state === "connecting" ? "Cancel private Alshival voice chat" : "End private Alshival voice chat"}><PhoneOff /></button>
             </div>}

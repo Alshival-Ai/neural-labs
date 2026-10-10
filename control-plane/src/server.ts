@@ -1,3 +1,4 @@
+import { registerVoice } from "./voice.js";
 import { ExternalCollaboration } from "./externalCollaboration.js";
 import { registerCollaborationRoutes } from "./collaborationRoutes.js";
 import { Connectors } from "./connectors.js";
@@ -936,6 +937,7 @@ export function createApplication(input: {
   registerProjectRoutes(app, database, config, { active: requireActiveJson, csrf: requireCsrfJson, sameOrigin });
   registerCollaborationRoutes(app, new ExternalCollaboration(database, config, workspaceFetch), { sameOrigin, active: requireActiveJson, csrf: requireCsrfJson });
   registerNativeRuntime(app, database, sessions, config, { sameOrigin, active: requireActiveJson, csrf: requireCsrfJson, fetch: workspaceFetch });
+  registerVoice(app, database, sessions, config, { sameOrigin, active: requireActiveJson, csrf: requireCsrfJson, fetch: workspaceFetch, store: collaboration, publish, enqueue: run => input.onAgentRun?.(run) });
   registerConnectorRoutes(app, connectors, { sameOrigin, active: requireActiveJson, admin: requireAdminJson, csrf: requireCsrfJson, token: config.workspace.controlToken });
   registerNotificationRoutes(app, notifications, { sameOrigin, active: requireActiveJson, admin: requireAdminJson, csrf: requireCsrfJson, token: config.workspace.controlToken });
   app.get("/api/account/phone", async (request, response) => {

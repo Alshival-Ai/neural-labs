@@ -758,4 +758,18 @@ export const migrations: Migration[] = [
     );`,
   },
 
+  {
+    version: 29,
+    sql: `CREATE TABLE voice_sessions (
+      id uuid PRIMARY KEY, actor_id uuid NOT NULL REFERENCES users(id), session_hash text NOT NULL,
+      context jsonb NOT NULL, status text NOT NULL, expires_at timestamptz NOT NULL,
+      seen_at timestamptz NOT NULL DEFAULT now(), created_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE UNIQUE INDEX voice_active_actor ON voice_sessions(actor_id) WHERE status IN ('connecting','live');
+    CREATE TABLE voice_events (
+      session_id uuid NOT NULL REFERENCES voice_sessions(id) ON DELETE CASCADE,
+      event_id text NOT NULL, request_id uuid, kind text NOT NULL, data jsonb NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(session_id,event_id), UNIQUE(session_id,request_id)
+    );`,
+  },
 ];
