@@ -18,6 +18,7 @@ export class NativeClient {
   private subscriptions = new Map<string, Subscription>();
   private activeTurns = new Map<string, string>();
   private questions = new Map<string, NeuraQuestion>();
+  private approvalMethods = new Map<string, string>();
   private started = false;
   private uploads = new Map<string, Promise<Array<{ path: string; name: string; type: string; size: number }>>>();
   private selectionChanged = () => { this.stopStreams(); if (this.started) void this.connect(); };
@@ -37,6 +38,7 @@ export class NativeClient {
   }
   private closeApproval(sub: Subscription, id: string) {
     sub.approvals.delete(id);
+    this.approvalMethods.delete(id);
     if (this.questions.delete(id)) this.emit({ event: "question.requested", payload: { sessionKey: sub.sessionKey } });
     this.emit({ event: "session.approval", payload: { sessionKey: sub.sessionKey, id, phase: "terminal" } });
   }
@@ -103,6 +105,7 @@ export class NativeClient {
       if (sub.completed.has(runId)) return;
       sub.approvals.set(String(data.id), runId);
       const request = data.request as { method: string; params: Record<string, unknown> };
+      this.approvalMethods.set(String(data.id), request.method);
       if (request.method === "item/tool/requestUserInput") {
         const questions = request.params.questions as Array<{ id: string; header: string; question: string; options?: Array<{ label: string; description?: string }>; isSecret?: boolean }>;
         this.questions.set(String(data.id), { id: String(data.id), sessionKey, expiresAtMs: Date.now() + 20 * 60_000,
@@ -182,7 +185,9 @@ export class NativeClient {
   async resolveMessageAttachments(_sessionKey: string, messages: NeuraMessage[]) { return messages; }
   async resolveApproval(id: string, _kind: string, decision: string) {
     if (!["allow-once", "deny"].includes(decision)) throw new Error("Choose an approval for this action only");
-    return nativeRequest("approvals.resolve", { approval: id, decision: { decision: decision === "allow-once" ? "accept" : "decline" } });
+    const action = decision === "allow-once" ? "accept" : "decline";
+    return nativeRequest("approvals.resolve", { approval: id, decision: this.approvalMethods.get(id) === "mcpServer/elicitation/request"
+      ? { action, content: action === "accept" ? {} : null } : { decision: action } });
   }
   async listQuestions(sessionKey: string) { return [...this.questions.values()].filter(row => row.sessionKey === sessionKey); }
   async resolveQuestion(id: string, answers: Record<string, string[]> | null) {

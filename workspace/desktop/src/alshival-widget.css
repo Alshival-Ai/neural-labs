@@ -2,12 +2,13 @@
    installation's native chat transport and desktop accessibility controls. */
 .desktop-window.alshival-widget {
   color-scheme: light;
-  --paper: #fafafa;
-  --bright: #fafafa;
+  --paper: #f6f4ef;
+  --bright: #fffef9;
   --ink: #0b0c11;
   --muted: #62636b;
   --line: #dedcd6;
-  --field: #fff;
+  --field: #fffefa;
+  --surface: #eeece6;
   --accent: #5840ba;
   --spectrum: linear-gradient(100deg,#08a9ef,#2676ff 22%,#7b4dff 44%,#f23aa9 65%,#ff6548 83%,#ffb80f);
   border-radius: 20px;
@@ -21,6 +22,10 @@
   border-bottom: 1px solid var(--line);
 }
 .alshival-widget .window-identity > svg { color: var(--accent); }
+.alshival-widget .window-identity { color: var(--ink); }
+.alshival-widget .window-controls button { color: var(--muted); }
+.alshival-widget .window-controls button:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 8%, transparent); }
+.alshival-widget .window-controls .window-close:hover { color: #fff; background: #b33a48; }
 .alshival-widget .neura-app {
   --surface: var(--paper);
   --text: var(--ink);
@@ -33,3 +38,12 @@
 .alshival-widget :is(.neura-composer,.team-composer) { border-color: var(--line); background: var(--paper); }
 .alshival-widget textarea { background: var(--field); color: var(--ink); border-color: var(--line); border-radius: 16px; }
 .alshival-widget .send-button { background: var(--accent); color: #fff; border-radius: 50%; }
+.alshival-widget .neura-composer-area { background: var(--paper); }
+.alshival-widget .composer-shell { border-color: var(--line); border-radius: 16px; background: var(--bright); }
+.alshival-widget :is(.sidebar-toggle, .neura-mobile-action, .attach-button, .stop-button, .voice-button, .neura-messages-button, .conversation-model-picker summary) {
+  color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+}
+.alshival-widget :is(.attach-button, .stop-button, .voice-button) { width: 44px; height: 44px; }
+.alshival-widget :is(.sidebar-toggle, .neura-mobile-action, .attach-button, .stop-button, .voice-button, .neura-messages-button, .conversation-model-picker summary):hover {
+  background: var(--line);
+}

@@ -75,6 +75,22 @@ test("approval is a scoped server request and lease is checked again after user 
   assert.ok(rpc.calls.some(row => row.method === "turn/interrupt"));
 });
 
+test("no-prompt mode accepts empty MCP confirmations but asks for required input", async () => {
+  for (const properties of [{}, { name: { type: "string" } }]) {
+    let asked = false;
+    const rpc = new FakeRpc(rpc => {
+      rpc.once("response", () => rpc.complete());
+      rpc.emit("message", {id:5,method:"mcpServer/elicitation/request",params:{threadId:"thread-1",turnId:"turn-1",
+        mode:"form",requestedSchema:{type:"object",properties}}});
+    });
+    const result = await runCodexTurn(context(rpc, {policy:{sandbox:"workspace-write",approval:"never"},
+      approve:async () => {asked=true;return {action:"decline",content:null};}}));
+    assert.equal(result.status, "succeeded");
+    assert.equal(asked, Object.keys(properties).length > 0);
+    assert.deepEqual(rpc.sent.find(row => row.id === 5).result, asked ? {action:"decline",content:null} : {action:"accept",content:{}});
+  }
+});
+
 test("interactive approvals cannot silently grant session-wide or policy amendments", async () => {
   const rpc = new FakeRpc(rpc => rpc.approval());
   const result = await runCodexTurn(context(rpc, { approve: async () => ({ decision: "acceptForSession" }) }));

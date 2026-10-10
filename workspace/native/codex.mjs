@@ -172,7 +172,11 @@ export async function runCodexTurn({
           rpc.send({ id: message.id, error: { code: -32601, message: "Unsupported provider request" } });
           return;
         }
-        const approval = await Promise.race([
+        const schema = params.requestedSchema;
+        const emptyConfirmation = message.method === MCP_REQUEST && params.mode === "form"
+          && schema?.type === "object" && schema.properties && Object.keys(schema.properties).length === 0
+          && (!schema.required || schema.required.length === 0);
+        const approval = policy.approval === "never" && emptyConfirmation ? { action: "accept", content: {} } : await Promise.race([
           approve({ id: String(message.id), method: message.method, params }),
           done.then(() => null),
         ]);

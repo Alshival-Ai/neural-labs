@@ -24,18 +24,18 @@ describe("native browser transport", () => {
     const [url, options] = request.mock.calls[0];
     expect(url).toBe("/api/runtime/request");
     expect(new Headers(options?.headers).get("X-CSRF-Token")).toBe("fixture-csrf");
-    expect(JSON.parse(String(options?.body))).toEqual({ operation: "turns.start", selection, approvalPolicy: "on-request",
+    expect(JSON.parse(String(options?.body))).toEqual({ operation: "turns.start", selection, approvalPolicy: "never",
       params: { conversation: "conversation", requestId: "same-request", attachments: [], input: [{ type: "text", text: "Please implement this plan" }] } });
   });
   it("keeps no-prompt consent per actor and applies it only to new chat turns", async () => {
-    configure(); expect(commandApproval()).toBe("on-request"); selectCommandApproval("never");
+    configure(); expect(commandApproval()).toBe("never"); selectCommandApproval("never");
     const request = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify({ id: "turn", events: [] }), { status: 200 }));
     const client = new NativeClient();
     await client.send({ key: "conversation", title: "Fixture", updatedAt: 0, archived: false, active: false, visibility: "draft" }, "pwd", [], "steer");
     expect(JSON.parse(String(request.mock.calls[0][1]?.body)).approvalPolicy).toBe("never");
     await client.loadHistory("conversation");
     expect(JSON.parse(String(request.mock.calls[1][1]?.body)).approvalPolicy).toBeUndefined();
-    configureNativeActor("other-member", "other-csrf"); expect(commandApproval()).toBe("on-request");
+    configureNativeActor("other-member", "other-csrf"); expect(commandApproval()).toBe("never");
     configure(); expect(commandApproval()).toBe("never"); selectCommandApproval("on-request"); expect(commandApproval()).toBe("on-request");
   });
   it("projects durable native history without spawning another turn", async () => {
@@ -114,5 +114,13 @@ describe("native approval lifecycle", () => {
       approval(3, "active", "live"), { id: 4, turn_id: "old", type: "turn-completed", payload: { status: "succeeded" } }]);
     expect([...f.cards.keys()]).toEqual(["live"]);
     await f.client.unsubscribeSession(f.subscription); expect(f.cards.size).toBe(0);
+  });
+  it.each([['allow-once', 'accept', {}], ['deny', 'decline', null]])('answers MCP confirmation %s with an elicitation action', async (decision, action, content) => {
+    const f = await replay([{id:1,turn_id:'active',type:'approval-required',payload:{id:'mcp',request:{method:'mcpServer/elicitation/request',params:{mode:'form',requestedSchema:{type:'object',properties:{}}}}}}]);
+    vi.mocked(fetch).mockResolvedValueOnce(new Response('{}', {status:200}));
+    await f.client.resolveApproval('mcp','exec',String(decision));
+    const body = JSON.parse(String(vi.mocked(fetch).mock.calls.at(-1)?.[1]?.body));
+    expect(body.params.decision).toEqual({action,content});
+    await f.client.unsubscribeSession(f.subscription);
   });
 });

@@ -9,5 +9,6 @@ export function nativeFailure(event: NativeEvent): string | undefined {
   if (data.code === 'usage-limit') return 'Your account has reached a usage limit. Try again when usage is available.';
   if (data.code === 'model-unavailable') return 'The selected model is unavailable. Choose a model in Settings → Model Provider.';
   if (data.code === 'provider-unavailable') return 'The provider is temporarily unavailable. Please try again.';
+  if (data.code === 'approval-or-lease-failed') return 'The permission response could not be completed, or your connection changed. Check the conversation before retrying.';
   return undefined;
 }

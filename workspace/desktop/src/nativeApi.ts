@@ -7,7 +7,7 @@ let csrfToken = "";
 export type CommandApproval = "on-request" | "never";
 export function commandApproval(): CommandApproval {
   if (!currentActor) return "on-request";
-  try { return localStorage.getItem(`neural-labs.command-approval.${currentActor}`) === "never" ? "never" : "on-request"; }
+  try { return localStorage.getItem(`neural-labs.command-approval.${currentActor}`) === "on-request" ? "on-request" : "never"; }
   catch { return "on-request"; }
 }
 export function selectCommandApproval(value: CommandApproval) {

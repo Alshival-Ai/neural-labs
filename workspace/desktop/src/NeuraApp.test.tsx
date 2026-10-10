@@ -145,7 +145,7 @@ describe("Alshival realtime conversation", () => {
     render(<NeuraApp gateway={gateway as unknown as NativeClient} notify={() => {}} />);
     const mode = await screen.findByRole("combobox", { name: "Command approvals" });
     await waitFor(() => expect(mode).toBeEnabled());
-    expect(mode).toHaveValue("on-request");
+    expect(mode).toHaveValue("never");
     fireEvent.change(mode, { target: { value: "never" } });
     expect(commandApproval()).toBe("never");
     expect(mode).toHaveValue("never");

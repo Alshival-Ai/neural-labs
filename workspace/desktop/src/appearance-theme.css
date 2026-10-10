@@ -17,6 +17,14 @@
 :root[data-theme="dark"] :is(.explorer, .explorer-dialog) { color-scheme: dark; }
 :root[data-theme="dark"] .desktop { background: #15171e; }
 :root[data-theme="dark"] .neura-sidebar { background: var(--panel); }
+:root[data-theme="dark"] .desktop-window.alshival-widget {
+  color-scheme: dark;
+  --paper: #191c24; --bright: #191c24; --ink: #eceef5;
+  --muted: #a6adbd; --line: #3a3f4d; --field: #2c303b; --surface: #2c303b; --accent: #ac95ff;
+}
+:root[data-theme="dark"] .neura-composer-area {
+  background: linear-gradient(180deg, transparent, var(--paper) 26%);
+}
 :root[data-theme="dark"] .skip-link { color: var(--ink); }
 :root[data-theme="dark"] .desktop { background: var(--surface-soft); }
 :root[data-theme="dark"] .dock-button:hover { background: rgba(35, 38, 47, .12); }
