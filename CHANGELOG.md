@@ -10,8 +10,8 @@ Versioning and Git tags in the form `vMAJOR.MINOR.PATCH`.
 - Hardened control-plane request throttling and proxy trust, added a voice-start
   quota, constrained attachment URLs, removed mutable MiniPaint HTML sinks, and
   fixed editor regex backtracking. Email codes now use keyed hashing; Microsoft
-  certificate assertions use PS256/SHA-256. Updated the control-plane proxy-addr
-  and source-map-js dependencies. See the [security review](wiki/security-review.md).
+  certificate assertions use PS256/SHA-256. Updated proxy-addr and source-map-js
+  in the control plane and MCP server, plus MCP's Hono dependency. See the [security review](wiki/security-review.md).
 
 - Updated the control-plane upload parser to Multer 2.4.0 and the console/desktop
   test dependency to Undici 8.11.2 to address published security advisories.
