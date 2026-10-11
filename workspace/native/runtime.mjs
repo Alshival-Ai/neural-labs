@@ -79,6 +79,8 @@ export class NativeRuntime {
         if (definition.payload?.kind !== "agentTurn" || typeof definition.payload.message !== "string"
             || !["read-only", "workspace-write"].includes(definition.executionPolicy?.sandbox)
             || definition.executionPolicy?.approval !== "on-request") throw new Error("Saved automation policy requires review");
+        if (/\b(?:read_project_graph|project_(?:list|read|create|update|delete|comment|link|unlink|search))\b/.test(definition.payload.message))
+          throw new Error("Projects was retired. Review this automation and select an external project connection.");
         const selection = manual ? connection : { job: job.id, actor: definition.actor, connection: selected?.owner,
           generation: selected?.generation, provider: selected?.provider, method: selected?.method,
           model: definition.model, policy: definition.executionPolicy };

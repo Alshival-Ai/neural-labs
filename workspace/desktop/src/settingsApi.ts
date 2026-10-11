@@ -86,7 +86,7 @@ export type PluginCatalog = {
     editable: boolean;
     ready: boolean;
     mcp: McpSettings;
-  } | TwilioPluginStatus | ApiProviderPlugin>;
+  } | { id: "alshival-ai"; name: string; description: string; type: "alshival"; scope: "private"; ownership: "system" | "user"; editable: boolean; configured: boolean; ready: boolean; managed: boolean } | TwilioPluginStatus | ApiProviderPlugin>;
 };
 
 export type WorkspaceStatus = {

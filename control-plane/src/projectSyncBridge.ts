@@ -22,7 +22,7 @@ export function validProjectSyncSignature(secret: string, stamp: string, payload
   return timingSafeEqual(expected, Buffer.from(signature, "hex"));
 }
 
-export function registerProjectSyncBridge(app: Express, database: Database, config: ControlPlaneConfig): void {
+export function registerProjectSyncBridge(app: Express, database: Database, config: ControlPlaneConfig, exportOnly = false): void {
   if (!config.managed) return;
   const managed = config.managed;
   const store = new ProjectStore(database.pool), graph = new ProjectGraph(database.pool), statuses = new ProjectStatuses(database.pool);
@@ -35,6 +35,9 @@ export function registerProjectSyncBridge(app: Express, database: Database, conf
     try {
       const input = inputSchema.parse(JSON.parse(payload));
       if (input.workspace !== managed.workspace || input.instance !== managed.instance) { res.sendStatus(403); return; }
+      if (exportOnly && (input.method !== "GET" || !/^sync\/snapshot(?:\?after=[0-9a-f-]{36})?$/.test(input.path))) {
+        res.status(410).json({ error: "projects_retired" }); return;
+      }
       const authorization = authorizationSchema.parse(await portalExchange(config, "graph-sync-authorize", { generation: input.generation, access: input.method === "GET" ? "read" : "write" }));
       if (authorization.generation !== input.generation) { res.sendStatus(403); return; }
       // Materialize verified members before snapshotting, including those who never signed in.
@@ -58,7 +61,7 @@ export function registerProjectSyncBridge(app: Express, database: Database, conf
           principals: [...(await database.pool.query(`SELECT user_id AS id,subject FROM managed_identities WHERE issuer=$1 AND workspace=$2`,
             [managed.portalOrigin, managed.workspace])).rows, { id, subject: null, system: true }] };
         if (revision !== await store.revision()) throw new ProjectError(409, "snapshot_changed", "Retry the graph snapshot.");
-        res.json({ version: 2, capabilities: { project_boards: true, automatic_sync: true, source_edit_clocks: true, shared_graph_v1: true },
+        res.json({ version: 2, capabilities: { project_boards: true, automatic_sync: !exportOnly, projects_retired: exportOnly, source_edit_clocks: true, shared_graph_v1: true },
           revision, items, next: items.length === 100 ? items.at(-1)!.id : null, ...extras }); return;
       }
       const fields = (input.data as { data?: { assignee?: string; reviewer?: string } } | null)?.data;

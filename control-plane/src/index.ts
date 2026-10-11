@@ -1,5 +1,3 @@
-import { attachProjectSocket } from "./projectSocket.js";
-import { ProjectStore } from "./projects.js";
 import { SessionService } from "./sessions.js";
 import { bindAuthenticationMode, reconcileManagedMembers } from "./managed.js";
 import { UpdateService } from "./updates.js";
@@ -62,20 +60,6 @@ if (process.argv[2] === "setup-reset") {
   // Keep policy records for preservation, without a recurring legacy discovery loop.
   let agentProcessor: TeamAgentProcessor | undefined;
   const socketHub = new CollaborationSocketHub(collaboration, (run) => agentProcessor?.enqueue(run), maintenance, delta => { updates.activeRequests += delta; });
-  let lastProjectMessage = Number((await database.pool.query("SELECT COALESCE(max(sequence),0) AS sequence FROM team_messages WHERE project_item_id IS NOT NULL")).rows[0]?.sequence ?? 0);
-  let pollingProjectMessages = false;
-  const projectMessageTimer = setInterval(() => {
-    if (pollingProjectMessages) return;
-    pollingProjectMessages = true;
-    void collaboration.projectMessagesAfter(lastProjectMessage).then(async messages => {
-      for (const message of messages) {
-        lastProjectMessage = message.sequence;
-        await socketHub.publish({ type: "message.created", channelId: message.channelId, message });
-      }
-    }).catch(() => console.warn("Task comments are awaiting team channel delivery"))
-      .finally(() => { pollingProjectMessages = false; });
-  }, 1000);
-  projectMessageTimer.unref();
   const application = createApplication({
     database,
     updates,
@@ -108,7 +92,6 @@ if (process.argv[2] === "setup-reset") {
   connectorTimer.unref();
   const server = createServer(application.app);
   socketHub.attach(server);
-  const projectSocket = attachProjectSocket(server, new SessionService(database, config), new ProjectStore(database.pool));
   server.listen(config.port, config.host, () => {
     console.log(`Neural Labs control plane listening on ${config.host}:${config.port}`);
   });
@@ -120,12 +103,10 @@ if (process.argv[2] === "setup-reset") {
     clearInterval(notificationTimer);
     clearInterval(connectorTimer);
     clearInterval(memberTimer);
-    clearInterval(projectMessageTimer);
     console.log(`Received ${signal}; shutting down control plane`);
     // Upgrade connections are not counted as ordinary HTTP requests, so close
     // them before waiting for the HTTP server to drain.
     socketHub.close();
-    projectSocket.close();
     server.close(async (error) => {
       if (error) {
         console.error("HTTP shutdown failed", error);

@@ -515,7 +515,10 @@ describe("control-plane JSON and role routing", () => {
   it("reports the display-safe plugin catalog to active members", async () => {
     const { app } = application(regular);
     const response = await request(app).get("/api/plugins").set("Cookie", cookies).expect(200);
-    expect(response.body.plugins).toHaveLength(5);
+    expect(response.body.plugins).toHaveLength(6);
+    expect(response.body.plugins.find((plugin: { id: string }) => plugin.id === "alshival-ai")).toMatchObject({
+      type: "alshival", scope: "private", ownership: "user", configured: false, ready: false,
+    });
     expect(response.body.plugins[0]).toMatchObject({
       id: "neural-labs-tools",
       type: "mcp",
@@ -526,7 +529,7 @@ describe("control-plane JSON and role routing", () => {
       mcp: { agentServerName: "neural-labs-tools", publicAccess: false },
     });
     expect(response.body.plugins[0].mcp.tools).toContain("search_gif");
-    expect(response.body.plugins[1]).toMatchObject({
+    expect(response.body.plugins.find((plugin: { id: string }) => plugin.id === "twilio-sms")).toMatchObject({
       id: "twilio-sms",
       type: "channel",
       scope: "global",

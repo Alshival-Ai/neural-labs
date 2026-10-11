@@ -1,3 +1,4 @@
+import { registerAlshivalConnection } from "./alshivalConnection.js";
 import { registerVoice } from "./voice.js";
 import { ExternalCollaboration } from "./externalCollaboration.js";
 import { registerCollaborationRoutes } from "./collaborationRoutes.js";
@@ -6,7 +7,7 @@ import { registerConnectorRoutes } from "./connectorRoutes.js";
 import { registerNativeRuntime } from "./nativeRuntime.js";
 import { workspaceAssertion } from "./workspaceAssertion.js";
 import { registerProjectTransferRoutes } from "./projectTransferRoutes.js";
-import { registerProjectRoutes } from "./projectRoutes.js";
+import { registerProjectSyncBridge } from "./projectSyncBridge.js";
 import { registerManagedChat } from "./managedChat.js";
 import { UpdateService } from "./updates.js";
 import { registerUpdateRoutes } from "./updateRoutes.js";
@@ -954,8 +955,12 @@ export function createApplication(input: {
   registerUpdateRoutes(app, updates, { admin: requireAdminJson, active: requireActiveJson, csrf: requireCsrfJson, sameOrigin,
     workerToken: config.updates?.workerToken, workspaceToken: config.workspace.controlToken });
   registerProjectTransferRoutes(app, database, config);
-  registerProjectRoutes(app, database, config, { active: requireActiveJson, csrf: requireCsrfJson, sameOrigin });
+  // The authenticated snapshot bridge remains for return-to-portal migration.
+  registerProjectSyncBridge(app, database, config, true);
+  app.use(["/api/projects", "/internal/projects/read", "/internal/projects/tool"], (_req, res) =>
+    res.status(410).json({ error: "projects_retired", message: "Use your project service or export retained data with bin/export-projects.mjs." }));
   registerCollaborationRoutes(app, new ExternalCollaboration(database, config, workspaceFetch), { sameOrigin, active: requireActiveJson, csrf: requireCsrfJson });
+  const alshivalConnection = registerAlshivalConnection(app, database, config, { sameOrigin, active: requireActiveJson, csrf: requireCsrfJson });
   registerNativeRuntime(app, database, sessions, config, { sameOrigin, active: requireActiveJson, csrf: requireCsrfJson, fetch: workspaceFetch });
   registerVoice(app, database, sessions, config, { sameOrigin, active: requireActiveJson, csrf: requireCsrfJson, fetch: workspaceFetch, store: collaboration, publish, enqueue: run => input.onAgentRun?.(run) });
   registerConnectorRoutes(app, connectors, { sameOrigin, active: requireActiveJson, admin: requireAdminJson, csrf: requireCsrfJson, token: config.workspace.controlToken });
@@ -1639,7 +1644,7 @@ export function createApplication(input: {
         editable: false,
         ready: mcp.ready,
         mcp,
-      }, await twilio.status(await twilioWebhookUrl(), actor.user.role === "admin"), ...providerCards],
+      }, await alshivalConnection.status(actor.user.id), await twilio.status(await twilioWebhookUrl(), actor.user.role === "admin"), ...providerCards],
     });
   });
 

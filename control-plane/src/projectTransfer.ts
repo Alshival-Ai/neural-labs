@@ -88,6 +88,13 @@ export class ProjectTransferStore {
         await client.query(`INSERT INTO project_transfer_records(transfer_id,key,payload,digest)
           SELECT $1,'event:'||sequence::text,jsonb_build_object('key','event:'||sequence::text,
             'source',jsonb_build_object('event',to_jsonb(project_events))),'' FROM project_events`, [input.id]);
+        // Preserve graph relations and custom statuses alongside items and history.
+        for (const table of ["project_edges", "project_statuses"]) {
+          await client.query(`INSERT INTO project_transfer_records(transfer_id,key,payload,digest)
+            SELECT $1,$2||':'||id::text,jsonb_build_object('key',$2||':'||id::text,
+              'source',jsonb_build_object($2,to_jsonb(record))),'' FROM ${table} record
+            ON CONFLICT DO NOTHING`, [input.id, table]);
+        }
         const records = (await client.query("SELECT key,payload FROM project_transfer_records WHERE transfer_id=$1 ORDER BY key COLLATE \"C\"", [input.id])).rows;
         const manifest = [];
         for (const record of records) {

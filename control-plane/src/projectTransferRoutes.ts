@@ -20,6 +20,9 @@ export function registerProjectTransferRoutes(app: Express, database: Database, 
     }
     const parsed = transferInput.safeParse(req.body);
     if (!parsed.success) { res.status(422).json({ error: "invalid_transfer" }); return; }
+    if (!["status", "freeze", "export", "retire"].includes(parsed.data.operation)) {
+      res.status(410).json({ error: "projects_retired" }); return;
+    }
     try { res.json(await store.execute(parsed.data)); }
     catch (error) { res.status(error instanceof ProjectError ? error.status : 503).json({ error: error instanceof ProjectError ? error.code : "transfer_unavailable" }); }
   });

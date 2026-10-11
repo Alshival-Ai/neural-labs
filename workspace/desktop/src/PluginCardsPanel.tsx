@@ -10,7 +10,7 @@ const labels = { unavailable: "Status unavailable", applying: "Applying…", dis
 const PLUGINS_CHANGED = "neural-labs:plugins-changed";
 function statusLabel(plugin: Plugin) { return plugin.type === "api-provider" ? labels[plugin.state] : plugin.ready ? "Connected" : plugin.type === "channel" && plugin.configured ? "Needs setup" : plugin.type === "channel" ? "Not configured" : "Offline"; }
 function PluginIcon({ plugin }: { plugin: Plugin }) {
-  const Icon = plugin.type === "channel" ? MessageSquareText : plugin.type === "mcp" ? PlugZap : plugin.id === "google-maps" ? MapPin : plugin.id === "klipy" ? Sparkles : Image;
+  const Icon = plugin.type === "channel" ? MessageSquareText : ["mcp", "alshival"].includes(plugin.type) ? PlugZap : plugin.id === "google-maps" ? MapPin : plugin.id === "klipy" ? Sparkles : Image;
   return <Icon aria-hidden="true" />;
 }
 
@@ -58,7 +58,7 @@ export function PluginCardsPanel({ administrator, csrfToken, renderSystem }: { a
     </> : selected ? <>
       {selected.type !== "channel" && <>
         <button className="settings-back-button" type="button" onClick={back}><ArrowLeft />All plugins</button>
-        {selected.type === "api-provider" ? <ProviderDetail key={selected.id} plugin={selected} csrfToken={csrfToken} onStatus={update} /> : renderSystem(selected)}
+        {selected.type === "api-provider" ? <ProviderDetail key={selected.id} plugin={selected} csrfToken={csrfToken} onStatus={update} /> : selected.type === "alshival" ? <AlshivalDetail plugin={selected} csrfToken={csrfToken} /> : renderSystem(selected)}
       </>}
     </> : catalog && <>
       <div className="settings-connectors-heading">{heading("Plugins", "Connect services, messaging and tools for your workspace.")}<button type="button" className="settings-button" onClick={() => setDetail("messaging")}>Messaging settings</button><button type="button" className="settings-button is-primary" onClick={() => setDetail("add")}><Plus />Add plugin</button></div>
@@ -116,4 +116,23 @@ function ProviderDetail({ plugin, csrfToken, onStatus }: { plugin: ApiProviderPl
     </section>
     <section className="settings-card plugin-provider-details"><h2>Capabilities</h2>{plugin.capabilities.map((name) => { const check = plugin.check?.capabilities.find((item) => item.name === name); return <div className="plugin-capability" key={name}><strong>{name}</strong><span>{check ? `${check.ok ? "✓ " : ""}${check.message}` : "Not checked"}</span></div>; })}</section>
   </>;
+}
+
+function AlshivalDetail({ plugin, csrfToken }: { plugin: Extract<Plugin, {type: "alshival"}>; csrfToken: string }) {
+  const [error, setError] = useState(""), [busy, setBusy] = useState(false);
+  async function action(disconnect = false) {
+    setBusy(true); setError("");
+    try {
+      const result = await settingsRequest<{url?: string}>("/api/plugins/alshival" + (disconnect ? "" : "/connect"), {
+        method: disconnect ? "DELETE" : "POST", headers: settingsMutationHeaders(csrfToken), ...(disconnect ? {} : {body: "{}"}),
+      });
+      if (result.url) window.location.assign(result.url); else window.location.reload();
+    } catch { setError("The account connection could not be updated. Try again."); setBusy(false); }
+  }
+  return <section className="settings-card"><h2>Alshival.Ai</h2><p>{plugin.description}</p>
+    {plugin.managed ? <p>Ready through your portal sign-in. Your agent uses your current workspace permissions; no additional connection is needed.</p> : <>
+      <p>{plugin.configured ? "Your account is connected." : "Connect your account to give your agents access to portal MCP tools."}</p>
+      <button className="settings-button is-primary" disabled={busy} onClick={() => void action()}>Connect Alshival.Ai account</button>
+      {plugin.configured && <button className="settings-button" disabled={busy} onClick={() => void action(true)}>Disconnect</button>}
+    </>}{error && <p role="alert">{error}</p>}</section>;
 }

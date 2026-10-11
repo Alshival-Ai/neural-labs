@@ -1,3 +1,5 @@
+import { AlshivalConnection } from "./alshivalConnection.js";
+import { CredentialCipher } from "./crypto.js";
 import { NativeAccessError } from "./nativeErrors.js";
 export { NativeAccessError } from "./nativeErrors.js";
 import { authorizeNativeBackground, nativeBackgroundSchema } from "./nativeBackground.js";
@@ -26,7 +28,7 @@ interface Connection {
 }
 
 export class NativeExecutionAuthority {
-  constructor(readonly database: Database, readonly sessions: SessionService) {}
+  constructor(readonly database: Database, readonly sessions: SessionService, readonly config?: ControlPlaneConfig) {}
   async connection(actor: SessionActor, id: string, purpose: string): Promise<Connection> {
     const row = (await this.database.pool.query<Connection>("SELECT * FROM native_connections WHERE id=$1", [id])).rows[0];
     const own = row?.scope === "personal" && row.user_id === actor.user.id;
@@ -70,6 +72,7 @@ export class NativeExecutionAuthority {
     return { actor: actor.user.id, actorRole: actor.user.role, lease: id, connection: connection.id,
       binding: { owner: connection.id, provider: connection.provider, generation: connection.generation, method: connection.method },
       scope: connection.scope, purpose, model: lease.model, background: false,
+      ...(purpose === "turns.start" && this.config && (this.config.managed || (await new AlshivalConnection(this.database, this.config).load(actor.user.id))?.credential.access) ? { alshival: { lease: id } } : {}),
       policy: { sandbox: "workspace-write", approval: lease.purpose === "turns.start:no-prompt" ? "never" : "on-request" } };
   }
 }
@@ -77,13 +80,39 @@ export class NativeExecutionAuthority {
 export function registerNativeRuntime(app: Express, database: Database, sessions: SessionService, config: ControlPlaneConfig,
   options: { sameOrigin: RequestHandler; active: (req: Request, res: Response) => Promise<SessionActor | undefined>;
     csrf: (req: Request, res: Response, actor: SessionActor) => boolean; fetch?: typeof fetch }) {
-  const authority = new NativeExecutionAuthority(database, sessions);
+  const authority = new NativeExecutionAuthority(database, sessions, config);
   const wrap = (callback: (req: Request, res: Response) => Promise<void>): RequestHandler => async (req, res) => {
     res.set("Cache-Control", "no-store");
     try { await callback(req, res); }
     catch (error) { res.status(error instanceof NativeAccessError ? error.status : 503).json({ error: {
       message: error instanceof NativeAccessError ? error.message : "Native execution is temporarily unavailable" } }); }
   };
+  app.post("/internal/native/alshival-mcp", wrap(async (req, res) => {
+    const leaseId = z.string().uuid().safeParse(req.get("authorization")?.replace(/^Bearer\s+/i, ""));
+    if (!leaseId.success) throw new NativeAccessError(403, "Alshival.Ai connection unavailable");
+    if ((await database.pool.query("SELECT gate FROM update_runtime WHERE singleton")).rows[0]?.gate !== false)
+      throw new NativeAccessError(503, "Workspace maintenance is in progress");
+    const grant = await authority.verify(leaseId.data);
+    if (grant.purpose !== "turns.start" || !grant.alshival) throw new NativeAccessError(403, "An active conversation is required");
+    const rpc = z.object({ jsonrpc: z.literal("2.0"), id: z.union([z.string(), z.number()]).optional(),
+      method: z.enum(["initialize", "notifications/initialized", "ping", "tools/list", "tools/call"]),
+      params: z.record(z.string(), z.unknown()).optional() }).strict().parse(req.body);
+    if (rpc.method === "notifications/initialized") { res.status(202).end(); return; }
+    let result: unknown = {};
+    if (rpc.method === "initialize") result = { protocolVersion: "2025-03-26", capabilities: { tools: {} },
+      serverInfo: { name: "Alshival.Ai", version: "1.0.0" } };
+    else if (rpc.method.startsWith("tools/")) {
+      if (config.managed) {
+      const row = (await database.pool.query(`SELECT s.portal_grant FROM native_execution_leases l
+        JOIN sessions s ON s.token_hash=l.session_hash WHERE l.id=$1 AND l.actor_id=$2 AND l.expires_at>now()`,
+      [leaseId.data, grant.actor])).rows[0];
+      const access = new CredentialCipher(config.masterKey).decrypt<{token: string}>(row?.portal_grant);
+      result = await portalExchange(config, "tools", { token: access.token, method: rpc.method, params: rpc.params || {} });
+      } else result = await new AlshivalConnection(database, config).invoke(grant.actor, rpc.method, rpc.params || {});
+      await authority.verify(leaseId.data);
+    }
+    res.json({ jsonrpc: "2.0", id: rpc.id, result });
+  }));
   for (const team of [false, true]) {
     const route = team ? "/api/admin/runtime/team-defaults" : "/api/runtime/defaults";
     const key = (actor: SessionActor) => team ? "workspace:team" : `user:${actor.user.id}`;

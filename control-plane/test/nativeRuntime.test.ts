@@ -4,14 +4,14 @@ import type { SessionService } from "../src/sessions.js";
 import type { SessionActor } from "../src/types.js";
 import { NativeExecutionAuthority } from "../src/nativeRuntime.js";
 
-function fixture() {
+function fixture(config?: import("../src/config.js").ControlPlaneConfig) {
   const actor = { user: { id: "member", role: "user", status: "active" }, session: { tokenHash: "session-hash" } } as SessionActor;
   const connection = { id: "connection", scope: "personal", user_id: "member", enabled: true, generation: 1, provider: "codex", method: "subscription" };
   const lease = { actor_id: "member", session_hash: "session-hash", connection_id: "connection", generation: 1, model: "fixture", purpose: "turns.start" };
   const query = vi.fn(async (sql: string, _args?: unknown[]) => ({ rows: sql.startsWith("SELECT * FROM native_connections") ? [connection]
     : sql.startsWith("SELECT * FROM native_execution_leases") ? [lease] : [{ id: "lease" }], rowCount: 1 }));
   const sessions = { actorByTokenHash: vi.fn(async () => actor as SessionActor | undefined) };
-  const authority = new NativeExecutionAuthority({ pool: { query } } as unknown as Database, sessions as unknown as SessionService);
+  const authority = new NativeExecutionAuthority({ pool: { query } } as unknown as Database, sessions as unknown as SessionService, config);
   return { actor, connection, lease, query, sessions, authority };
 }
 describe("native execution authority", () => {
@@ -60,5 +60,24 @@ describe("native execution authority", () => {
     await expect(f.authority.issue(f.actor, { connection: "connection", model: "fixture" }, "turns.start")).rejects.toThrow("unavailable");
     f.actor.user.role = "user";
     await expect(f.authority.issue(f.actor, { connection: "connection", model: "fixture" }, "jobs.review")).rejects.toThrow("unavailable");
+  });
+});
+
+describe("automatic portal connection", () => {
+  it("attaches the originating lease only to managed personal conversations", async () => {
+    const f = fixture({ managed: {} } as import("../src/config.js").ControlPlaneConfig);
+    expect((await f.authority.verify("lease")).alshival).toEqual({ lease: "lease" });
+    f.lease.purpose = "turns.start:no-prompt";
+    expect((await f.authority.verify("lease")).alshival).toEqual({ lease: "lease" });
+    f.lease.purpose = "models.list";
+    expect((await f.authority.verify("lease")).alshival).toBeUndefined();
+    f.lease.purpose = "turns.start";
+    f.sessions.actorByTokenHash.mockResolvedValue(undefined);
+    await expect(f.authority.verify("lease")).rejects.toThrow("revoked");
+  });
+  it("does not implicitly connect standalone installations", async () => {
+    const f = fixture({ masterKey: Buffer.alloc(32) } as import("../src/config.js").ControlPlaneConfig);
+    expect((await f.authority.verify("lease")).alshival).toBeUndefined();
+    expect(f.query).toHaveBeenCalledWith(expect.stringContaining("plugin_connections"), ["alshival:member"]);
   });
 });

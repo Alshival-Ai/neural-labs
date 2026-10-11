@@ -134,3 +134,34 @@ test("graph reads bind the execution actor and discard data after revocation", a
   await session.release();
   await assert.rejects(callback({}), /ended/);
 });
+
+test("Alshival MCP forwards only the active conversation lease and closes on revocation", async t => {
+  let authorized = true, upstream;
+  const tools = new NativeTools({ origin: "http://127.0.0.1:8792", teamOrigin: "http://control-plane:4174",
+    configuration: {}, createApplication: () => ({ app() {}, close: async () => {} }),
+    request: async (url, init) => { upstream = { url: String(url), init }; return new Response(JSON.stringify({ result: {} }),
+      { headers: { "Content-Type": "application/json" } }); } });
+  t.after(() => tools.close());
+  const session = await tools.mint({ alshival: { lease: "conversation-lease" },
+    revalidate: async () => { if (!authorized) throw new Error("revoked"); } });
+  assert.equal(session.codex.alshival.url, "http://127.0.0.1:8792/alshival-mcp");
+  const request = async () => {
+    const body = Buffer.from('{"jsonrpc":"2.0","method":"tools/list","id":1}');
+    return { url: "/alshival-mcp", method: "POST", headers: { authorization: session.codex.http_headers.Authorization },
+      async *[Symbol.asyncIterator]() { yield body; } };
+  };
+  const response = { status: 0, headers: {}, body: undefined,
+    writeHead(status, headers) { this.status = status; this.headers = headers; return this; },
+    end(body) { this.body = body; } };
+  await tools.handle(await request(), response);
+  assert.equal(response.status, 200);
+  assert.equal(upstream.url, "http://control-plane:4174/internal/native/alshival-mcp");
+  assert.equal(upstream.init.headers.Authorization, "Bearer conversation-lease");
+  assert.equal(upstream.init.body.toString(), '{"jsonrpc":"2.0","method":"tools/list","id":1}');
+  assert.equal(session.claude.mcpServers["alshival-ai"].url, session.codex.alshival.url);
+  authorized = false;
+  const denied = { ...response, status: 0, writeHead(status) { this.status = status; return this; }, end() {} };
+  await tools.handle(await request(), denied);
+  assert.equal(denied.status, 403);
+  await session.release();
+});

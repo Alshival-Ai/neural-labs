@@ -174,9 +174,9 @@ export function registerManagedRoutes(app: Express, config: ControlPlaneConfig, 
       if (!actor.token) throw new Error("Missing session grant");
       const userId = await syncManagedUser(database, managed, actor);
       await sessions.create(response, userId, { token: actor.token, expiresAt: new Date(actor.expires_at) });
-      const view = request.body.app === "projects" ? "projects" : request.body.view;
+      const view = request.body.app === "projects" ? "alshival" : request.body.view;
       const query = new URLSearchParams();
-      if (view === "files" || view === "alshival" || view === "projects") query.set("app", view);
+      if (view === "files" || view === "alshival") query.set("app", view);
       if (view === "alshival" && z.string().uuid().safeParse(request.body.channel).success) query.set("channel", request.body.channel);
       response.redirect(303, "/workspace" + (query.size ? `?${query}` : ""));
     } catch {

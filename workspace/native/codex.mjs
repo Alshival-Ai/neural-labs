@@ -128,6 +128,8 @@ export async function runCodexTurn({
   if (mcpConfig) {
     args.push("-c", "mcp_servers.neural-labs.tool_timeout_sec=420", "-c", `mcp_servers.neural-labs.url=${JSON.stringify(mcpConfig.url)}`,
       "-c", `mcp_servers.neural-labs.http_headers={${Object.entries(mcpConfig.http_headers).map(([key, value]) => `${JSON.stringify(key)}=${JSON.stringify(value)}`).join(",")}}`);
+    if (mcpConfig.alshival) args.push("-c", `mcp_servers.alshival-ai.url=${JSON.stringify(mcpConfig.alshival.url)}`,
+      "-c", `mcp_servers.alshival-ai.http_headers={${Object.entries(mcpConfig.alshival.http_headers).map(([key, value]) => `${JSON.stringify(key)}=${JSON.stringify(value)}`).join(",")}}`);
     if (mcpConfig.team) args.push("-c", `mcp_servers.neural-labs-team.url=${JSON.stringify(mcpConfig.team.url)}`,
       "-c", `mcp_servers.neural-labs-team.http_headers={${Object.entries(mcpConfig.team.http_headers).map(([key, value]) => `${JSON.stringify(key)}=${JSON.stringify(value)}`).join(",")}}`);
   }

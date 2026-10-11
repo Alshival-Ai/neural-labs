@@ -64,9 +64,7 @@ const providers = new ProviderRuntime(loadProviderConfig(process.env), new URL("
 await providers.start();
 const tools = new NativeTools({ origin: `http://127.0.0.1:${toolsPort}`, teamOrigin: controlOrigin,
   createApplication: createProviderApplication, configuration: () => providers.snapshot(),
-  communications: (actor, input) => control("/internal/connectors/tool", { actor, ...input }),
-  projectRead: (actorId, input) => control("/internal/projects/read", { ...input, actorId }),
-  projectCall: (actorId, name, input) => control("/internal/projects/tool", { actorId, name, arguments: input }) });
+  communications: (actor, input) => control("/internal/connectors/tool", { actor, ...input }) });
 const skills = new NativeSkills({ root: "/run/neural-labs/skills", manager: createSkillsManager({
   personalRoot: path.join(path.dirname(workspaceRoot), ".agents", "skills"), teamRoot: path.join(workspaceRoot, "skills"),
   libraryRoots: ["/usr/local/share/neural-labs/skills", path.join(root, "installed-skills")],
