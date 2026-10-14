@@ -129,10 +129,12 @@ class FakeGateway {
 const originalScrollIntoView = Element.prototype.scrollIntoView;
 
 beforeAll(() => {
+  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   Element.prototype.scrollIntoView = vi.fn();
 });
 
 afterAll(() => {
+  vi.unstubAllGlobals();
   Element.prototype.scrollIntoView = originalScrollIntoView;
 });
 
@@ -682,6 +684,7 @@ describe("Alshival realtime conversation", () => {
     expect(await screen.findByRole("option", { name: /local-business-website-builder/i })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /cinematic-interactions/i })).not.toBeInTheDocument();
     expect(screen.queryByText("disabled-skill")).not.toBeInTheDocument();
+    expect(screen.getByRole("listbox", { name: "Available skills" }).closest(".neura-composer-area")).toBeNull();
 
     fireEvent.keyDown(composer, { key: "Enter" });
     expect(composer).toHaveValue("$local-business-website-builder ");

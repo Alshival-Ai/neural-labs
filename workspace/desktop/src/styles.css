@@ -315,7 +315,7 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, summary:focus-vis
 .history-menu button.danger { color: var(--danger); }
 .shared-note { display: flex; align-items: center; gap: .38rem; margin: 0; padding: .75rem .85rem; border-top: 1px solid rgba(255, 255, 255, .12); color: rgba(255, 255, 255, .35); font-size: var(--desktop-font-body, 13px); line-height: 1.5; }
 .shared-note svg { width: .7rem; height: .7rem; flex: 0 0 auto; }
-.neura-main { min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; background: radial-gradient(circle at 92% -10%, rgba(8, 169, 239, .09), transparent 22rem), radial-gradient(circle at 15% 110%, rgba(242, 58, 169, .055), transparent 26rem), var(--paper); }
+.neura-main { position: relative; min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; background: radial-gradient(circle at 92% -10%, rgba(8, 169, 239, .09), transparent 22rem), radial-gradient(circle at 15% 110%, rgba(242, 58, 169, .055), transparent 26rem), var(--paper); }
 .neura-toolbar { min-height: 3.45rem; display: flex; align-items: center; gap: .35rem; padding: .45rem .8rem; border-bottom: 1px solid var(--line); background: rgba(255, 254, 249, .78); backdrop-filter: blur(18px); }
 .neura-toolbar > div { min-width: 0; display: grid; gap: .08rem; }
 .neura-toolbar strong { overflow: hidden; color: var(--ink); text-overflow: ellipsis; white-space: nowrap; font-size: var(--desktop-font-subheading, 16px); }

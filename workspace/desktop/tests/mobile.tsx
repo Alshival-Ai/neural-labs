@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { AppViewportProvider } from "../src/appViewport";
 import { NeuraApp } from "../src/NeuraApp";
 import { TerminalApp } from "../src/TerminalApp";
-import type { NeuraGateway } from "../src/openclaw";
+import type { NativeClient } from "../src/nativeClient";
 import type { TerminalDescriptor } from "../src/terminalApi";
 import "../src/styles.css";
 
@@ -21,6 +21,7 @@ const noop = () => {};
 const channels = [
   {
     id: "release",
+    primary: true,
     name: "Release planning",
     audience: "restricted",
     ownerUserId: "qa",
@@ -90,7 +91,7 @@ export const gateway = {
     ];
   },
   async readSkillsStatus() {
-    return { agentId: "main", skills: [] };
+    return { skills: [{ name: "Website builder", skillKey: "website-builder", description: "Build a website", eligible: true, userInvocable: true }] };
   },
   async listQuestions() { return []; },
   async send(_session: { key: string }, text: string, _attachments: unknown[], queueMode: string) {
@@ -111,7 +112,7 @@ export const gateway = {
     return next;
   },
   async abort() {},
-} as unknown as NeuraGateway;
+} as unknown as NativeClient;
 const terminals: TerminalDescriptor[] = Array.from(
   { length: 12 },
   (_, index) => ({

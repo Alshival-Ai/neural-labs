@@ -1,3 +1,4 @@
+import { ComposerSuggestions } from "./ComposerSuggestions";
 import { ConnectorInbox } from "./ConnectorsPanel";
 import { commandApproval, selectCommandApproval, type CommandApproval, requestAnthropicReconnect } from "./nativeApi";
 import { ANTHROPIC_RECONNECT, ANTHROPIC_ADMIN_RECONNECT } from "./nativeErrors";
@@ -2043,7 +2044,7 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
               {teamTyping.length > 0 && <span>{teamTyping.map((user) => `@${user.handle}`).join(", ")} {teamTyping.length === 1 ? "is" : "are"} typing…</span>}
             </div>}
             <div className="composer-shell">
-              {teamSkillTrigger && <div className="skill-mention-menu" id="team-skill-suggestions" role="listbox" aria-label="Available Team Chat skills">
+              {teamSkillTrigger && <ComposerSuggestions id="team-skill-suggestions" label="Available Team Chat skills">
                 <div className="skill-mention-menu__heading" role="presentation"><strong>Skills</strong><span>Type to filter · Enter to add</span></div>
                 {!skillsLoaded && <p className="skill-mention-menu__empty">Loading skills…</p>}
                 {skillsLoaded && matchingTeamSkills.length === 0 && <p className="skill-mention-menu__empty">No matching enabled skills</p>}
@@ -2064,8 +2065,8 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
                     <code>{skillCommand(skill)}</code>
                   </button>
                 ))}
-              </div>}
-              {teamMentionTrigger && <div className="skill-mention-menu" id="team-mention-suggestions" role="listbox" aria-label="Team Chat mentions">
+              </ComposerSuggestions>}
+              {teamMentionTrigger && <ComposerSuggestions id="team-mention-suggestions" label="Team Chat mentions">
                 <div className="skill-mention-menu__heading" role="presentation"><strong>People</strong><span>Type to filter · Enter to add</span></div>
                 {matchingTeamMentions.length === 0 && <p className="skill-mention-menu__empty">No matching channel members</p>}
                 {matchingTeamMentions.map((mention, index) => (
@@ -2085,7 +2086,7 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
                     <code>@{mention.handle}</code>
                   </button>
                 ))}
-              </div>}
+              </ComposerSuggestions>}
               {teamAttachments.length > 0 && <div className="composer-attachments">{teamAttachments.map((attachment) => <div key={attachment.path}>{isImageAttachment({ name: attachment.name, type: attachment.type ?? "" }) ? <img src={workspaceContentUrl(attachment.path)} alt="" /> : <Paperclip />}<span>{attachment.name}</span><button type="button" onClick={() => setTeamAttachments((current) => current.filter((item) => item.path !== attachment.path))} aria-label={`Remove ${attachment.name}`}><X /></button></div>)}</div>}
               <div className="composer-row">
                 <input ref={teamFileInput} type="file" multiple hidden onChange={(event) => void selectTeamFiles(event)} />
@@ -2177,7 +2178,7 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
               </ol>
             </section>}
             <div className={`composer-shell${composeMode === "plan" ? " is-planning" : ""}`}>
-              {skillTrigger && <div className="skill-mention-menu" id="neura-skill-suggestions" role="listbox" aria-label="Available skills">
+              {skillTrigger && <ComposerSuggestions id="neura-skill-suggestions" label="Available skills">
                   <div className="skill-mention-menu__heading" role="presentation"><strong>Skills</strong><span>Type to filter · Enter to add</span></div>
                 {!skillsLoaded && <p className="skill-mention-menu__empty">Loading skills…</p>}
                 {skillsLoaded && matchingSkills.length === 0 && <p className="skill-mention-menu__empty">No matching enabled skills</p>}
@@ -2198,7 +2199,7 @@ export function NeuraApp({ initialChannelId, gateway, notify, active = true, sto
                     <code>{skillCommand(skill)}</code>
                   </button>
                 ))}
-              </div>}
+              </ComposerSuggestions>}
               {attachments.length > 0 && <div className="composer-attachments">{attachments.map((attachment) => (
                 <div key={attachment.id}>{attachment.previewUrl ? <img src={attachment.previewUrl} alt="" /> : <Paperclip />}<span>{attachment.file.name}</span><button type="button" onClick={() => removeAttachment(attachment.id)} aria-label={`Remove ${attachment.file.name}`}><X /></button></div>
               ))}</div>}
